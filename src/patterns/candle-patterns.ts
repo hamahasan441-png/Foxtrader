@@ -104,9 +104,9 @@ export class CandlePatternDetector {
           Math.min(c.open, c.close) > Math.min(prev.open, prev.close) &&
           Math.max(c.open, c.close) < Math.max(prev.open, prev.close))
         this.addP(patterns, 'HARAMI_BEARISH', i, c, candles);
-      if (Math.abs(c.high - prev.high) < c.range * 0.02 && pi.isBullish && !ci.isBullish)
+      if (Math.abs(c.high - prev.high) < (c.high - c.low) * 0.02 && pi.isBullish && !ci.isBullish)
         this.addP(patterns, 'TWEEZER_TOP', i, c, candles);
-      if (Math.abs(c.low - prev.low) < c.range * 0.02 && !pi.isBullish && ci.isBullish)
+      if (Math.abs(c.low - prev.low) < (c.high - c.low) * 0.02 && !pi.isBullish && ci.isBullish)
         this.addP(patterns, 'TWEEZER_BOTTOM', i, c, candles);
       // Piercing Line
       if (!pi.isBullish && ci.isBullish && c.open < prev.low && c.close > (prev.open + prev.close) / 2)

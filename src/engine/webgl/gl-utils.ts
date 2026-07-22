@@ -115,20 +115,31 @@ export function buildTransformMatrix(
 }
 
 /**
- * Get uniform location (cached)
+ * Get uniform location (cached PER PROGRAM via WeakMap).
+ *
+ * Previous implementation keyed by `${program}_${name}` — WebGLProgram
+ * stringifies to "[object WebGLProgram]", so all programs collided and could
+ * receive each other's locations (corrupting the transform). Fixed by keying
+ * on the program object itself. WeakMap also lets GC reclaim locations when a
+ * program is destroyed (e.g. on context loss).
  */
-const uniformCache = new Map<string, WebGLUniformLocation | null>();
+let uniformCache = new WeakMap<WebGLProgram, Map<string, WebGLUniformLocation | null>>();
+
 export function getUniform(gl: WebGL2RenderingContext, program: WebGLProgram, name: string): WebGLUniformLocation | null {
-  const key = `${program}_${name}`;
-  if (!uniformCache.has(key)) {
-    uniformCache.set(key, gl.getUniformLocation(program, name));
+  let byName = uniformCache.get(program);
+  if (!byName) {
+    byName = new Map<string, WebGLUniformLocation | null>();
+    uniformCache.set(program, byName);
   }
-  return uniformCache.get(key)!;
+  if (!byName.has(name)) {
+    byName.set(name, gl.getUniformLocation(program, name));
+  }
+  return byName.get(name)!;
 }
 
 /**
  * Clear the uniform cache (call on context loss recovery)
  */
 export function clearUniformCache(): void {
-  uniformCache.clear();
+  uniformCache = new WeakMap<WebGLProgram, Map<string, WebGLUniformLocation | null>>();
 }
