@@ -1,84 +1,89 @@
-# FoxTrader — Institutional AI Trading Platform
+# FoxTrader — Institutional AI Trading (Android)
 
-> Enterprise-grade Smart Money trading intelligence with multi-AI agent architecture, built on TradingView Lightweight Charts.
+A native Android trading-analysis app built with **Kotlin, Jetpack Compose,
+Material 3, MVVM + Clean Architecture, Hilt, and Room**, backed by a
+FastAPI / PostgreSQL / Redis service.
 
-## Architecture
+> Educational & analytical tool. It helps you analyze markets and evaluate
+> strategies using historical and simulated data. It does **not** promise
+> future results or guaranteed profit.
 
-**~24,000 lines of TypeScript** across 88+ source files implementing:
+---
 
-### Part 1 — Core Analysis Engine
-- **Market Structure** — BOS, CHOCH, MSS, IDM, Internal/External/Swing/Fractal
-- **Liquidity** — BSL, SSL, EQH, EQL, Pools, Sweeps, Engineered, Resting, Session
-- **Order Blocks** — Bullish/Bearish OB, Mitigation, Breaker, Rejection, Flip Zones
-- **Fair Value Gaps** — FVG, IFVG, BPR, Volume Imbalance, Liquidity Void
-- **ICT Concepts** — OTE, Judas Swing, Kill Zones, Silver Bullet, AMD, Turtle Soup, NDOG/WOG
-- **LIT Trading** — Liquidity Trap, Inducement, Shift, Institutional Trap
-- **SMT Module** — Divergence, Multi-symbol Scanner, Correlation, Multi-TF
-- **Sessions** — Asian, London, New York, Sydney with live H/L
-- **Data Providers** — Dukascopy (primary) + Binance, OANDA, IB, Polygon, Twelve Data, Alpha Vantage
-- **Chart Engine** — TradingView Lightweight Charts with multi-layout, replay mode
-- **Non-Repainting Guard** — Validates all signals against look-ahead bias
+## Tech Stack
 
-### Part 2 — Advanced Trading
-- **Execution Engine** — Market/Limit/Stop/StopLimit/OCO, partial TP, trailing stop, break-even, scaling, hedging
-- **Risk Engine** — 6 sizing methods (Kelly, ATR, Volatility), drawdown protection, correlation monitoring
-- **AI Probability Engine** — 10-dimension scoring (0-100 confidence with grades)
-- **Confluence Engine** — 19 weighted factors (BOS+CHOCH+OB+FVG+SMT+LIT+OTE+KZ+VWAP+EMA+ADX+Volume...)
-- **Market Scanner** — Ranked opportunities (Best Buy/Sell/Swing/Scalp)
-- **AI Trade Planner** — Complete plan: bias, entry, SL, TP1/2/3, RR, reasoning
-- **Trade Journal** — Auto-save with AI improvement suggestions
-- **Backtester** — Tick data, spread, commission, slippage, Sharpe/Sortino/Calmar
-- **Monte Carlo** — Risk-of-ruin analysis, probability distributions
-- **Walk-Forward** — Out-of-sample robustness validation
-- **AI Optimizer** — Genetic/Grid/Random with overfit detection
-- **News Module** — Economic calendar with AI impact analysis
-- **Heatmaps** — Forex/Crypto/Stock/Sector + 6 strength meters
-- **Voice Assistant** — Web Speech API commands + TTS alerts
-- **Cloud Sync** — Cross-device with conflict resolution
-- **Security** — AES-256-GCM, WebAuthn biometric, certificate pinning
+| Layer | Technology |
+|-------|-----------|
+| Language | Kotlin 2.0 |
+| UI | Jetpack Compose + Material 3 |
+| Architecture | MVVM + Clean Architecture (domain / data / presentation) |
+| DI | Hilt |
+| Local DB | Room (offline-first single source of truth) |
+| Networking | Retrofit + OkHttp + kotlinx.serialization |
+| Async | Coroutines + Flow |
+| Chart | Hardware-accelerated Compose Canvas (viewport-culled) |
+| Min SDK | 29 (Android 10+) · Target 34 |
 
-### Part 3 — Enterprise & Multi-AI Agents
-- **10 AI Agents** — Market Structure, Smart Money, ICT, LIT, Volume, Trend, Risk, News, Psychology, Strategy
-- **Agent Orchestrator** — Phase-based coordination with inter-agent communication
-- **Master Decision Engine** — 9 required confluences (no single-indicator signals)
-- **Multi-Timeframe Engine** — MN→M1 simultaneous analysis, automatic HTF bias
-- **Auto Drawing Engine** — 12 automatic drawing types (S/R, trendlines, Fib, OB, FVG, OTE, POI)
-- **Pattern Recognition** — 18 classic + 7 harmonic (Gartley/Bat/Butterfly/Crab/Cypher/Shark)
-- **Candle Analysis** — 28 patterns with meaning, probability, context
-- **Screener** — 30 symbols across 7 asset classes
-- **Alert Engine** — 6 channels (Desktop/Push/Webhook/Telegram/Email/Mobile)
-- **Broker Connectivity** — Binance, Bybit, Alpaca adapters (modular plugin pattern)
-- **Database** — PostgreSQL + TimescaleDB + Redis schemas
-- **API** — 45 REST endpoints + 3 WebSocket channels + JWT/OAuth2
-- **Logging** — Structured, leveled, crash reporting
-- **Testing** — 40+ test cases across 6 categories (Unit/Integration/Stress/Security/Performance/Load)
+## Module Structure
 
-## Key Design Principles
-
-1. **No Repainting** — Every signal uses only confirmed past data
-2. **No Single-Indicator Signals** — Master Decision Engine requires 5+ of 9 confluences
-3. **Multi-Agent Architecture** — 10 specialized AI agents with phased execution
-4. **60 FPS Performance** — TradingView Lightweight Charts native rendering
-5. **Non-Repainting Enforcement** — SafeCandleAccessor prevents look-ahead at every layer
-6. **Responsible Design** — No unrealistic accuracy claims; historical/simulated testing only
-
-## Technology Stack
-
-- **Language:** TypeScript (strict mode)
-- **Frontend:** Vite + TradingView Lightweight Charts
-- **Database:** PostgreSQL + TimescaleDB + Redis
-- **Auth:** JWT + OAuth2 + WebAuthn + PIN
-- **Brokers:** Binance, Bybit, Alpaca (+ stubs for OKX/OANDA/IB)
-- **Data:** Dukascopy tick data (primary) + 6 additional providers with failover
-- **Security:** AES-256-GCM, PBKDF2, certificate pinning, anti-debug
-
-## Getting Started
-
-```bash
-npm install
-npm run dev
+```
+app/src/main/java/com/foxtrader/app/
+├── FoxTraderApp.kt            # @HiltAndroidApp
+├── MainActivity.kt            # Single-activity + Compose
+├── ui/theme/                  # Fox Design System (Color, Type, Theme)
+├── ui/navigation/             # FoxNavHost
+├── di/                        # Hilt modules (DB, Network, Repository, Dispatchers)
+├── domain/                    # Pure Kotlin — models, use cases, repo interfaces
+│   ├── model/                 # Candle, MarketStructure, Bias…
+│   ├── usecase/               # AnalyzeMarketStructureUseCase (non-repainting)
+│   └── repository/            # MarketRepository (interface)
+├── data/                      # Room + Retrofit + mappers + repo impl
+│   ├── local/                 # FoxDatabase, DAO, entities
+│   ├── remote/                # MarketApi, DTOs
+│   └── repository/            # MarketRepositoryImpl (offline-first)
+└── feature/chart/             # Chart feature (ViewModel, UiState, Composables)
 ```
 
-## Disclaimer
+## Building the APK
 
-This platform is designed for educational and analytical purposes. It helps users analyze markets and evaluate strategies using historical and simulated testing. Past performance does not guarantee future results. Trade responsibly.
+### Option 1 — GitHub Actions (recommended, zero local setup)
+Every push to `main` triggers **`.github/workflows/android.yml`**, which builds
+a real debug APK on GitHub's runners and uploads it as an artifact.
+
+1. Go to the repo's **Actions** tab
+2. Open the latest **Android CI — Build APK** run
+3. Download the **`foxtrader-debug-apk`** artifact
+4. Install the `.apk` on any Android 10+ device
+
+### Option 2 — Local build (Android Studio or CLI)
+Requires JDK 17 + Android SDK.
+
+```bash
+# Generate the Gradle wrapper once (needs a local gradle install)
+gradle wrapper --gradle-version 8.9
+
+# Build the debug APK
+./gradlew :app:assembleDebug
+
+# APK output:
+#   app/build/outputs/apk/debug/app-debug.apk
+
+# Run unit tests
+./gradlew :app:testDebugUnitTest
+```
+
+## Status
+
+Foundation is in place and building via CI:
+- ✅ Gradle project (version catalog, Hilt/Compose/Room/Retrofit)
+- ✅ Fox Design System (Material 3 theme)
+- ✅ Clean Architecture with a working Chart feature end-to-end
+- ✅ Non-repainting market-structure analysis (BOS/CHOCH) with unit tests
+- ✅ Hardware-accelerated candlestick chart (pan/pinch, viewport culling)
+- ✅ CI builds a real installable APK
+
+Roadmap: full SMC/ICT/LIT engines, backtesting lab, scanner, alerts,
+FastAPI backend, WebSocket live data — ported incrementally from the
+reference engine in `reference/typescript-src/`, keeping every commit buildable.
+
+

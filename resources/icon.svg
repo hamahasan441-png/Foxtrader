@@ -1,0 +1,49 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- ==========================================================================
+       FOXTRADER APP ICON — source for @capacitor/assets generation
+       Geometric fox mark on deep blue-black, amber accent.
+       Renders to all Android/iOS icon sizes + maskable variant.
+       ========================================================================== -->
+
+  <!-- Background -->
+  <rect width="1024" height="1024" rx="224" fill="#080b12"/>
+  <rect width="1024" height="1024" rx="224" fill="url(#bgGrad)"/>
+
+  <!-- Fox head — geometric, minimal -->
+  <g transform="translate(512, 500)">
+    <!-- Left ear -->
+    <path d="M -190 -160 L -110 -30 L -230 -40 Z" fill="#d4a84e"/>
+    <!-- Right ear -->
+    <path d="M 190 -160 L 110 -30 L 230 -40 Z" fill="#d4a84e"/>
+    <!-- Ear inner shadow -->
+    <path d="M -175 -140 L -120 -45 L -200 -52 Z" fill="#b89040"/>
+    <path d="M 175 -140 L 120 -45 L 200 -52 Z" fill="#b89040"/>
+
+    <!-- Face (inverted triangle) -->
+    <path d="M -215 -55 L 215 -55 L 0 230 Z" fill="#e6be6a"/>
+    <!-- Face amber core -->
+    <path d="M -180 -40 L 180 -40 L 0 195 Z" fill="#d4a84e"/>
+
+    <!-- Snout highlight -->
+    <path d="M -95 70 L 95 70 L 0 210 Z" fill="#f0d48e"/>
+
+    <!-- Eyes -->
+    <path d="M -105 -5 L -45 -5 L -75 45 Z" fill="#080b12"/>
+    <path d="M 105 -5 L 45 -5 L 75 45 Z" fill="#080b12"/>
+
+    <!-- Nose -->
+    <circle cx="0" cy="150" r="24" fill="#080b12"/>
+  </g>
+
+  <!-- Upward trend line accent (trading identity) -->
+  <path d="M 300 760 L 420 700 L 540 730 L 660 620 L 724 660"
+        stroke="#00c873" stroke-width="14" stroke-linecap="round"
+        stroke-linejoin="round" fill="none" opacity="0.9"/>
+
+  <defs>
+    <radialGradient id="bgGrad" cx="0.5" cy="0.35" r="0.8">
+      <stop offset="0%" stop-color="#111720"/>
+      <stop offset="100%" stop-color="#080b12"/>
+    </radialGradient>
+  </defs>
+</svg>
