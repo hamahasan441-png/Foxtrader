@@ -69,6 +69,13 @@ fun CandleChart(
     timeframe: Timeframe = Timeframe.M15,
     emaShort: DoubleArray? = null,
     emaLong: DoubleArray? = null,
+    bollingerUpper: DoubleArray? = null,
+    bollingerMiddle: DoubleArray? = null,
+    bollingerLower: DoubleArray? = null,
+    superTrendValues: DoubleArray? = null,
+    superTrendDir: IntArray? = null,
+    parabolicSar: DoubleArray? = null,
+    vwap: DoubleArray? = null,
     orderBlocks: List<com.foxtrader.app.domain.model.OrderBlock> = emptyList(),
     fairValueGaps: List<com.foxtrader.app.domain.model.FairValueGap> = emptyList(),
     liquidityPools: List<com.foxtrader.app.domain.model.LiquidityPool> = emptyList(),
@@ -245,11 +252,23 @@ fun CandleChart(
         }
 
         // ====================================================================
-        // LAYER 2: INDICATOR OVERLAYS (EMA lines)
+        // LAYER 2: INDICATOR OVERLAYS (EMA / Bollinger / SuperTrend / PSAR / VWAP)
         // ====================================================================
-        if (emaShort != null || emaLong != null) {
-            clipRect(right = cw, bottom = ch) {
+        clipRect(right = cw, bottom = ch) {
+            if (emaShort != null || emaLong != null) {
                 drawIndicatorLayer(candles, viewport, cw, ch, emaShort, emaLong)
+            }
+            if (bollingerUpper != null && bollingerMiddle != null && bollingerLower != null) {
+                drawBollinger(viewport, cw, ch, bollingerUpper, bollingerMiddle, bollingerLower)
+            }
+            if (vwap != null) {
+                drawLineSeries(viewport, cw, ch, vwap, Color(0xFF9C27B0), 1.5f)
+            }
+            if (superTrendValues != null && superTrendDir != null) {
+                drawSuperTrend(viewport, cw, ch, superTrendValues, superTrendDir)
+            }
+            if (parabolicSar != null) {
+                drawParabolicSar(viewport, cw, ch, parabolicSar)
             }
         }
 
@@ -436,6 +455,82 @@ private fun DrawScope.drawEmaLine(
         )
         prevX = x
         prevY = y
+    }
+}
+
+/** Generic single-line series renderer (viewport-culled). Used for VWAP etc. */
+private fun DrawScope.drawLineSeries(
+    viewport: ChartViewport,
+    cw: Float,
+    ch: Float,
+    values: DoubleArray,
+    color: Color,
+    strokeWidth: Float,
+) {
+    val start = max(0, viewport.startIndex.toInt())
+    val end = min(values.size, (viewport.startIndex + viewport.visibleBars).toInt() + 1)
+    if (end - start < 2) return
+    var prevX = viewport.xForIndex(start + 0.5f, cw)
+    var prevY = viewport.yForPrice(values[start], ch)
+    for (i in start + 1 until end) {
+        val x = viewport.xForIndex(i + 0.5f, cw)
+        val y = viewport.yForPrice(values[i], ch)
+        drawLine(color, Offset(prevX, prevY), Offset(x, y), strokeWidth = strokeWidth, cap = StrokeCap.Round)
+        prevX = x; prevY = y
+    }
+}
+
+/** Bollinger Bands: upper/lower channel + middle line. */
+private fun DrawScope.drawBollinger(
+    viewport: ChartViewport,
+    cw: Float,
+    ch: Float,
+    upper: DoubleArray,
+    middle: DoubleArray,
+    lower: DoubleArray,
+) {
+    val bandColor = Color(0x663B8DF0)
+    val midColor = Color(0xAA3B8DF0)
+    drawLineSeries(viewport, cw, ch, upper, bandColor, 1.2f)
+    drawLineSeries(viewport, cw, ch, lower, bandColor, 1.2f)
+    drawLineSeries(viewport, cw, ch, middle, midColor, 1f)
+}
+
+/** SuperTrend line: green segment when bullish, red when bearish. */
+private fun DrawScope.drawSuperTrend(
+    viewport: ChartViewport,
+    cw: Float,
+    ch: Float,
+    values: DoubleArray,
+    dir: IntArray,
+) {
+    val start = max(0, viewport.startIndex.toInt())
+    val end = min(minOf(values.size, dir.size), (viewport.startIndex + viewport.visibleBars).toInt() + 1)
+    if (end - start < 2) return
+    for (i in start + 1 until end) {
+        val x1 = viewport.xForIndex((i - 1) + 0.5f, cw)
+        val y1 = viewport.yForPrice(values[i - 1], ch)
+        val x2 = viewport.xForIndex(i + 0.5f, cw)
+        val y2 = viewport.yForPrice(values[i], ch)
+        val color = if (dir[i] == 1) FoxBullish else FoxBearish
+        drawLine(color, Offset(x1, y1), Offset(x2, y2), strokeWidth = 2f, cap = StrokeCap.Round)
+    }
+}
+
+/** Parabolic SAR: dots above/below price. */
+private fun DrawScope.drawParabolicSar(
+    viewport: ChartViewport,
+    cw: Float,
+    ch: Float,
+    sar: DoubleArray,
+) {
+    val start = max(0, viewport.startIndex.toInt())
+    val end = min(sar.size, (viewport.startIndex + viewport.visibleBars).toInt() + 1)
+    val dotColor = Color(0xCCD4A84E)
+    for (i in start until end) {
+        val x = viewport.xForIndex(i + 0.5f, cw)
+        val y = viewport.yForPrice(sar[i], ch)
+        if (y in 0f..ch) drawCircle(dotColor, radius = 2f, center = Offset(x, y))
     }
 }
 

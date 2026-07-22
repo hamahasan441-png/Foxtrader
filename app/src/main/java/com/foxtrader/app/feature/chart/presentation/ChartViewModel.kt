@@ -11,6 +11,9 @@ import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import com.foxtrader.app.domain.usecase.drawing.DrawingEngine
+import com.foxtrader.app.domain.usecase.indicators.BollingerBands
+import com.foxtrader.app.domain.usecase.indicators.ParabolicSar
+import com.foxtrader.app.domain.usecase.indicators.SuperTrend
 import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
 import com.foxtrader.app.domain.usecase.replay.ReplayEngine
 import com.foxtrader.app.domain.usecase.sessions.SessionDetector
@@ -47,6 +50,9 @@ class ChartViewModel @Inject constructor(
     private val webSocket: MarketWebSocket,
     private val smcDetector: SmcDetector,
     private val sessionDetector: SessionDetector,
+    private val bollingerBands: BollingerBands,
+    private val superTrend: SuperTrend,
+    private val parabolicSar: ParabolicSar,
     val drawingEngine: DrawingEngine,
     val replayEngine: ReplayEngine,
 ) : ViewModel() {
@@ -66,6 +72,10 @@ class ChartViewModel @Inject constructor(
     init {
         observeMarket()
         observeWebSocketTicks()
+        // Mirror WebSocket connection state into the UI state for the LIVE badge.
+        webSocket.connectionState
+            .onEach { cs -> _uiState.value = _uiState.value.copy(connectionState = cs) }
+            .launchIn(viewModelScope)
         refresh()
     }
 
@@ -113,25 +123,38 @@ class ChartViewModel @Inject constructor(
      * Runs all analysis engines and updates the UI state atomically.
      */
     private fun processCandles(candles: List<com.foxtrader.app.domain.model.Candle>) {
+        val ind = _uiState.value.indicators
         val structure = analyzeStructure(candles)
-        val emaShort = if (candles.size >= 20) TechnicalIndicators.calculateEMA(candles, 20) else null
-        val emaLong = if (candles.size >= 50) TechnicalIndicators.calculateEMA(candles, 50) else null
 
-        // SMC analysis
-        val orderBlocks = smcDetector.detectOrderBlocks(candles)
-        val fairValueGaps = smcDetector.detectFairValueGaps(candles)
-        val liquidityPools = smcDetector.detectLiquidity(candles)
-        val volumeProfile = if (candles.size >= 20) smcDetector.computeVolumeProfile(candles) else null
+        // --- Line indicators (computed only when enabled) ---
+        val emaShort = if (ind.ema && candles.size >= 20) TechnicalIndicators.calculateEMA(candles, 20) else null
+        val emaLong = if (ind.ema && candles.size >= 50) TechnicalIndicators.calculateEMA(candles, 50) else null
+        val vwap = if (ind.vwap && candles.isNotEmpty()) TechnicalIndicators.calculateVWAP(candles) else null
 
-        // Session detection
-        val sessions = sessionDetector.detectSessions(candles)
+        val boll = if (ind.bollinger && candles.size >= 20) bollingerBands.calculate(candles) else null
+        val st = if (ind.superTrend && candles.size >= 15) superTrend.calculate(candles) else null
+        val psar = if (ind.parabolicSar && candles.size >= 2) parabolicSar.calculate(candles).sar else null
+
+        // --- SMC analysis (computed only when its overlay is enabled) ---
+        val orderBlocks = if (ind.orderBlocks) smcDetector.detectOrderBlocks(candles) else emptyList()
+        val fairValueGaps = if (ind.fairValueGaps) smcDetector.detectFairValueGaps(candles) else emptyList()
+        val liquidityPools = if (ind.liquidity) smcDetector.detectLiquidity(candles) else emptyList()
+        val volumeProfile = if (ind.volumeProfile && candles.size >= 20) smcDetector.computeVolumeProfile(candles) else null
+        val sessions = if (ind.sessions) sessionDetector.detectSessions(candles) else emptyList()
 
         _uiState.value = _uiState.value.copy(
             candles = candles,
             bias = structure.bias,
-            structureBreaks = structure.breaks,
+            structureBreaks = if (ind.structure) structure.breaks else emptyList(),
             emaShort = emaShort,
             emaLong = emaLong,
+            bollingerUpper = boll?.upper,
+            bollingerMiddle = boll?.middle,
+            bollingerLower = boll?.lower,
+            superTrendValues = st?.values,
+            superTrendDir = st?.direction,
+            parabolicSar = psar,
+            vwap = vwap,
             orderBlocks = orderBlocks,
             fairValueGaps = fairValueGaps,
             liquidityPools = liquidityPools,
@@ -160,23 +183,56 @@ class ChartViewModel @Inject constructor(
 
     fun onSymbolChange(symbol: String) {
         symbolFlow.value = symbol
-        _uiState.value = _uiState.value.copy(symbol = symbol)
+        _uiState.value = _uiState.value.copy(symbol = symbol, showSymbolPicker = false)
         refresh()
-        // Switch WebSocket subscription
-        viewModelScope.launch {
-            webSocket.disconnectAll()
-            webSocket.subscribe(symbol, timeframeFlow.value)
+        // Re-subscribe live feed to the new symbol only if live is enabled.
+        if (_uiState.value.liveEnabled) {
+            viewModelScope.launch {
+                webSocket.disconnectAll()
+                webSocket.subscribe(symbol, timeframeFlow.value)
+            }
         }
+    }
+
+    // ========================================================================
+    // INDICATOR / SYMBOL PICKER / LIVE UI ACTIONS
+    // ========================================================================
+
+    fun toggleIndicatorPanel() {
+        _uiState.value = _uiState.value.copy(showIndicatorPanel = !_uiState.value.showIndicatorPanel)
+    }
+
+    /** Update indicator toggles and immediately recompute against current candles. */
+    fun updateIndicators(transform: (IndicatorToggles) -> IndicatorToggles) {
+        _uiState.value = _uiState.value.copy(indicators = transform(_uiState.value.indicators))
+        processCandles(_uiState.value.candles)
+    }
+
+    fun openSymbolPicker() {
+        _uiState.value = _uiState.value.copy(showSymbolPicker = true)
+    }
+
+    fun closeSymbolPicker() {
+        _uiState.value = _uiState.value.copy(showSymbolPicker = false)
+    }
+
+    /** Toggle the real-time WebSocket feed on/off. */
+    fun toggleLive() {
+        val enabled = !_uiState.value.liveEnabled
+        _uiState.value = _uiState.value.copy(liveEnabled = enabled)
+        if (enabled) connectLive() else disconnectLive()
     }
 
     fun onTimeframeChange(timeframe: Timeframe) {
         timeframeFlow.value = timeframe
         _uiState.value = _uiState.value.copy(timeframe = timeframe)
         refresh()
-        // Switch WebSocket subscription
-        viewModelScope.launch {
-            webSocket.disconnectAll()
-            webSocket.subscribe(symbolFlow.value, timeframe)
+        // Re-subscribe live feed to the new timeframe only if live is enabled.
+        if (_uiState.value.liveEnabled) {
+            viewModelScope.launch {
+                webSocket.disconnectAll()
+                webSocket.subscribe(symbolFlow.value, timeframe)
+            }
         }
     }
 

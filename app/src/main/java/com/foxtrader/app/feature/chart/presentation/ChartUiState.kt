@@ -3,6 +3,7 @@ package com.foxtrader.app.feature.chart.presentation
 import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.ChartDrawing
+import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.DrawingMode
 import com.foxtrader.app.domain.model.DrawingToolType
 import com.foxtrader.app.domain.model.FairValueGap
@@ -13,11 +14,26 @@ import com.foxtrader.app.domain.model.StructureBreak
 import com.foxtrader.app.domain.model.Timeframe
 
 /**
+ * Which indicators are currently enabled on the chart.
+ * Immutable — toggled via the chart's indicator panel.
+ */
+data class IndicatorToggles(
+    val ema: Boolean = true,
+    val bollinger: Boolean = false,
+    val superTrend: Boolean = false,
+    val parabolicSar: Boolean = false,
+    val vwap: Boolean = false,
+    val volumeProfile: Boolean = false,
+    val orderBlocks: Boolean = true,
+    val fairValueGaps: Boolean = true,
+    val liquidity: Boolean = true,
+    val sessions: Boolean = false,
+    val structure: Boolean = true,
+)
+
+/**
  * Immutable UI state for the Chart screen (MVVM).
  * The View is a pure function of this state.
- *
- * Contains ALL data the chart composables need to render every layer:
- * candles, indicators, structure, SMC concepts, sessions, drawings, and UI flags.
  */
 data class ChartUiState(
     // --- Core market data ---
@@ -30,6 +46,13 @@ data class ChartUiState(
     val structureBreaks: List<StructureBreak> = emptyList(),
     val emaShort: DoubleArray? = null,  // EMA(20)
     val emaLong: DoubleArray? = null,   // EMA(50)
+    val bollingerUpper: DoubleArray? = null,
+    val bollingerMiddle: DoubleArray? = null,
+    val bollingerLower: DoubleArray? = null,
+    val superTrendValues: DoubleArray? = null,
+    val superTrendDir: IntArray? = null,
+    val parabolicSar: DoubleArray? = null,
+    val vwap: DoubleArray? = null,
 
     // --- Smart Money Concepts ---
     val orderBlocks: List<OrderBlock> = emptyList(),
@@ -46,6 +69,14 @@ data class ChartUiState(
     val activeTool: DrawingToolType? = null,
     val showDrawingToolbar: Boolean = false,
 
+    // --- Indicator / symbol / connection UI ---
+    val indicators: IndicatorToggles = IndicatorToggles(),
+    val showIndicatorPanel: Boolean = false,
+    val showSymbolPicker: Boolean = false,
+    val availableSymbols: List<String> = DEFAULT_SYMBOLS,
+    val connectionState: ConnectionState = ConnectionState.DISCONNECTED,
+    val liveEnabled: Boolean = false,
+
     // --- Loading / error ---
     val isLoading: Boolean = true,
     val error: String? = null,
@@ -53,19 +84,18 @@ data class ChartUiState(
     val lastPrice: Double? get() = candles.lastOrNull()?.close
     val hasData: Boolean get() = candles.isNotEmpty()
 
-    /** Whether any SMC overlay is available for rendering. */
     val hasSmcData: Boolean
         get() = orderBlocks.isNotEmpty() || fairValueGaps.isNotEmpty() || liquidityPools.isNotEmpty()
 
-    // Custom equals/hashCode because of DoubleArray fields
+    // Custom equals/hashCode because of array fields. Note: indicator arrays
+    // co-vary with `candles`, so comparing candles + toggles is sufficient to
+    // drive recomposition correctly without comparing every array.
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is ChartUiState) return false
         return symbol == other.symbol && timeframe == other.timeframe &&
             candles == other.candles && bias == other.bias &&
             structureBreaks == other.structureBreaks &&
-            emaShort.contentEqualsNullable(other.emaShort) &&
-            emaLong.contentEqualsNullable(other.emaLong) &&
             orderBlocks == other.orderBlocks &&
             fairValueGaps == other.fairValueGaps &&
             liquidityPools == other.liquidityPools &&
@@ -74,6 +104,11 @@ data class ChartUiState(
             drawingMode == other.drawingMode &&
             activeTool == other.activeTool &&
             showDrawingToolbar == other.showDrawingToolbar &&
+            indicators == other.indicators &&
+            showIndicatorPanel == other.showIndicatorPanel &&
+            showSymbolPicker == other.showSymbolPicker &&
+            connectionState == other.connectionState &&
+            liveEnabled == other.liveEnabled &&
             isLoading == other.isLoading && error == other.error
     }
 
@@ -81,16 +116,19 @@ data class ChartUiState(
         var result = symbol.hashCode()
         result = 31 * result + timeframe.hashCode()
         result = 31 * result + candles.hashCode()
-        result = 31 * result + (emaShort?.contentHashCode() ?: 0)
-        result = 31 * result + (emaLong?.contentHashCode() ?: 0)
-        result = 31 * result + orderBlocks.hashCode()
-        result = 31 * result + fairValueGaps.hashCode()
+        result = 31 * result + indicators.hashCode()
+        result = 31 * result + connectionState.hashCode()
+        result = 31 * result + showIndicatorPanel.hashCode()
+        result = 31 * result + showSymbolPicker.hashCode()
         return result
     }
-}
 
-private fun DoubleArray?.contentEqualsNullable(other: DoubleArray?): Boolean {
-    if (this === other) return true
-    if (this == null || other == null) return this == other
-    return this.contentEquals(other)
+    companion object {
+        val DEFAULT_SYMBOLS = listOf(
+            "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD",
+            "EURJPY", "GBPJPY", "XAUUSD", "XAGUSD",
+            "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT",
+            "US30", "NAS100", "US500", "WTIUSD",
+        )
+    }
 }
