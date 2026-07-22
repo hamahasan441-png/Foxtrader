@@ -38,6 +38,7 @@ import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.feature.chart.presentation.components.CandleChart
+import com.foxtrader.app.feature.chart.presentation.components.AiDecisionPanel
 import com.foxtrader.app.feature.chart.presentation.components.DrawingToolbar
 import com.foxtrader.app.feature.chart.presentation.components.IndicatorPanel
 import com.foxtrader.app.feature.chart.presentation.components.ReplayControlBar
@@ -173,6 +174,14 @@ fun ChartScreen(
                     }
                 }
             }
+
+            // --- AI Decision badge (top-left overlay) ---
+            AiDecisionPanel(
+                decision = state.aiDecision,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(start = 8.dp, top = 8.dp),
+            )
 
             // --- Replay control bar (bottom overlay) ---
             ReplayControlBar(

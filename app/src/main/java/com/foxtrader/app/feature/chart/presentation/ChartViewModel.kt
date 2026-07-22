@@ -5,11 +5,14 @@ import androidx.lifecycle.viewModelScope
 import com.foxtrader.app.data.remote.websocket.MarketWebSocket
 import com.foxtrader.app.domain.model.ChartPoint
 import com.foxtrader.app.domain.model.ConnectionState
+import com.foxtrader.app.domain.model.AgentContext
 import com.foxtrader.app.domain.model.DrawingToolType
 import com.foxtrader.app.domain.model.ReplayState
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
+import com.foxtrader.app.domain.usecase.ai.AgentOrchestrator
+import com.foxtrader.app.domain.usecase.ai.MasterDecisionEngine
 import com.foxtrader.app.domain.usecase.drawing.DrawingEngine
 import com.foxtrader.app.domain.usecase.indicators.BollingerBands
 import com.foxtrader.app.domain.usecase.indicators.ParabolicSar
@@ -55,6 +58,8 @@ class ChartViewModel @Inject constructor(
     private val parabolicSar: ParabolicSar,
     val drawingEngine: DrawingEngine,
     val replayEngine: ReplayEngine,
+    private val orchestrator: AgentOrchestrator,
+    private val decisionEngine: MasterDecisionEngine,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChartUiState())
@@ -162,6 +167,33 @@ class ChartViewModel @Inject constructor(
             sessions = sessions,
             isLoading = candles.isEmpty() && _uiState.value.error == null,
         )
+
+        // --- AI Decision Engine (run after analysis is ready) ---
+        runAiDecision(candles)
+    }
+
+    // ========================================================================
+    // AI DECISION ENGINE
+    // ========================================================================
+
+    /**
+     * Run the multi-agent reasoning pipeline and update the UI with the result.
+     * Only runs when there's sufficient data (>=50 candles) and throttled to
+     * avoid burning CPU on every tick.
+     */
+    private fun runAiDecision(candles: List<com.foxtrader.app.domain.model.Candle>) {
+        if (candles.size < 50) {
+            _uiState.value = _uiState.value.copy(aiDecision = null)
+            return
+        }
+        val context = AgentContext(
+            symbol = symbolFlow.value,
+            timeframe = timeframeFlow.value,
+            candles = candles,
+        )
+        val orchestratorResult = orchestrator.analyze(context)
+        val decision = decisionEngine.evaluate(orchestratorResult)
+        _uiState.value = _uiState.value.copy(aiDecision = decision)
     }
 
     // ========================================================================
