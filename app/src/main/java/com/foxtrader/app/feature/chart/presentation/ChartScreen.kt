@@ -14,8 +14,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Draw
+import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -29,16 +34,27 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.foxtrader.app.domain.model.Bias
+import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.feature.chart.presentation.components.CandleChart
+import com.foxtrader.app.feature.chart.presentation.components.DrawingToolbar
+import com.foxtrader.app.feature.chart.presentation.components.ReplayControlBar
 import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxBearishText
 import com.foxtrader.app.ui.theme.FoxBullishText
 import com.foxtrader.app.ui.theme.FoxNeutral60
+import com.foxtrader.app.ui.theme.FoxSuccess
 
 /**
- * The Chart screen — the heart of FoxTrader. Pure function of [ChartUiState].
- * Now interactive: pull-to-refresh, tappable timeframes, single-finger pan chart.
+ * The Chart screen — the heart of FoxTrader.
+ *
+ * Integrates:
+ * - Professional candlestick chart with all overlays
+ * - Interactive timeframe selector
+ * - Drawing tools toolbar
+ * - Replay mode controls
+ * - Connection state indicator
+ * - Pull-to-refresh
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -47,6 +63,8 @@ fun ChartScreen(
     viewModel: ChartViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val replayState by viewModel.replayState.collectAsStateWithLifecycle()
+    val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
 
     Column(
         modifier = modifier
@@ -54,72 +72,137 @@ fun ChartScreen(
             .background(MaterialTheme.colorScheme.background)
             .padding(top = 24.dp),
     ) {
-        // --- Top bar with symbol and price ---
-        ChartTopBar(state)
+        // --- Top bar with symbol, bias, price, and action buttons ---
+        ChartTopBar(
+            state = state,
+            connectionState = connectionState,
+            onDrawingToggle = viewModel::toggleDrawingToolbar,
+            onReplayStart = { viewModel.startReplay() },
+        )
 
-        // --- Timeframe selector row (tappable chips) ---
+        // --- Timeframe selector row ---
         TimeframeRow(
             selected = state.timeframe,
             onSelect = viewModel::onTimeframeChange,
         )
 
+        // --- Drawing toolbar (slides in when active) ---
+        DrawingToolbar(
+            visible = state.showDrawingToolbar,
+            activeMode = state.drawingMode,
+            activeTool = state.activeTool,
+            onToolSelect = viewModel::startDrawing,
+            onClearAll = viewModel::clearAllDrawings,
+            onClose = viewModel::toggleDrawingToolbar,
+        )
+
         Spacer(Modifier.height(1.dp))
 
         // --- Chart area with pull-to-refresh ---
-        PullToRefreshBox(
-            isRefreshing = state.isLoading,
-            onRefresh = viewModel::refresh,
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f),
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surface),
-                contentAlignment = Alignment.Center,
+            PullToRefreshBox(
+                isRefreshing = state.isLoading,
+                onRefresh = viewModel::refresh,
+                modifier = Modifier.fillMaxSize(),
             ) {
-                when {
-                    state.hasData -> CandleChart(
-                        candles = state.candles,
-                        modifier = Modifier.fillMaxSize(),
-                        structureBreaks = state.structureBreaks,
-                        timeframe = state.timeframe,
-                        emaShort = state.emaShort,
-                        emaLong = state.emaLong,
-                    )
-                    state.isLoading -> CircularProgressIndicator(color = FoxAmber50)
-                    state.error != null -> Text(
-                        text = state.error ?: "",
-                        color = FoxBearishText,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    else -> Text(
-                        text = "No data",
-                        color = FoxNeutral60,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surface),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    when {
+                        state.hasData -> CandleChart(
+                            candles = if (replayState.isActive) replayState.visibleCandles else state.candles,
+                            modifier = Modifier.fillMaxSize(),
+                            structureBreaks = state.structureBreaks,
+                            timeframe = state.timeframe,
+                            emaShort = state.emaShort,
+                            emaLong = state.emaLong,
+                            orderBlocks = state.orderBlocks,
+                            fairValueGaps = state.fairValueGaps,
+                            liquidityPools = state.liquidityPools,
+                            sessions = state.sessions,
+                            drawings = state.drawings,
+                        )
+                        state.isLoading -> CircularProgressIndicator(color = FoxAmber50)
+                        state.error != null -> Text(
+                            text = state.error ?: "",
+                            color = FoxBearishText,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        else -> Text(
+                            text = "No data",
+                            color = FoxNeutral60,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
                 }
             }
+
+            // --- Replay control bar (bottom overlay) ---
+            ReplayControlBar(
+                state = replayState,
+                onPlayPause = viewModel::toggleReplayPlayPause,
+                onStepForward = viewModel::replayStepForward,
+                onStepBackward = viewModel::replayStepBackward,
+                onCycleSpeed = viewModel::replayCycleSpeed,
+                onClose = viewModel::stopReplay,
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
         }
     }
 }
 
 @Composable
-private fun ChartTopBar(state: ChartUiState) {
+private fun ChartTopBar(
+    state: ChartUiState,
+    connectionState: ConnectionState,
+    onDrawingToggle: () -> Unit,
+    onReplayStart: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text("Fox", color = FoxAmber50, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
         Text("Trader", color = FoxNeutral60, style = MaterialTheme.typography.titleMedium)
         Badge(state.symbol)
         BiasBadge(state.bias)
+
+        // Connection indicator (small dot)
+        if (connectionState == ConnectionState.CONNECTED) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(FoxSuccess)
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+            ) {
+                Text("LIVE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.background, fontWeight = FontWeight.Bold)
+            }
+        }
+
         Spacer(Modifier.weight(1f))
+
+        // Drawing tools toggle
+        IconButton(onClick = onDrawingToggle) {
+            Icon(Icons.Default.Draw, contentDescription = "Drawing tools", tint = FoxNeutral60)
+        }
+
+        // Replay button
+        IconButton(onClick = onReplayStart) {
+            Icon(Icons.Default.Replay, contentDescription = "Replay mode", tint = FoxNeutral60)
+        }
+
+        // Price
         state.lastPrice?.let { price ->
             Text(
                 text = formatPrice(price),
@@ -131,10 +214,6 @@ private fun ChartTopBar(state: ChartUiState) {
     }
 }
 
-/**
- * Horizontally scrollable row of timeframe chips. The selected one is
- * highlighted. Tapping a chip fires [onSelect].
- */
 @Composable
 private fun TimeframeRow(
     selected: Timeframe,
