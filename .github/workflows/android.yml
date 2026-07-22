@@ -38,12 +38,15 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'   # Ensures a `gradle` binary is on PATH to bootstrap the wrapper
 
       - name: Generate Gradle wrapper (if missing)
         run: |
           if [ ! -f ./gradlew ]; then
             gradle wrapper --gradle-version 8.9 --distribution-type bin
           fi
+          chmod +x ./gradlew
 
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug --stacktrace
