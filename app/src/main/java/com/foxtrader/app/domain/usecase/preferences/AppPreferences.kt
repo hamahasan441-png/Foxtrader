@@ -20,10 +20,18 @@ class AppPreferences @Inject constructor() {
     private val _dataProvider = MutableStateFlow(DataProvider.SAMPLE)
     val dataProvider: StateFlow<DataProvider> = _dataProvider.asStateFlow()
 
+    /** Dark theme preference. Default true (dark-first institutional design). */
+    private val _darkMode = MutableStateFlow(true)
+    val darkMode: StateFlow<Boolean> = _darkMode.asStateFlow()
+
     private val apiKeys = mutableMapOf<DataProvider, String>()
 
     fun setDataProvider(provider: DataProvider) {
         _dataProvider.value = provider
+    }
+
+    fun setDarkMode(enabled: Boolean) {
+        _darkMode.value = enabled
     }
 
     fun setApiKey(provider: DataProvider, key: String) {

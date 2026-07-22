@@ -4,8 +4,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Book
-import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -49,7 +49,7 @@ data class BottomNavTab(
 private val bottomTabs = listOf(
     BottomNavTab(FoxRoutes.CHART, "Chart", Icons.Default.BarChart),
     BottomNavTab(FoxRoutes.SCANNER, "Scanner", Icons.Default.Search),
-    BottomNavTab(FoxRoutes.STRATEGIES, "Strategies", Icons.Default.Insights),
+    BottomNavTab(FoxRoutes.STRATEGIES, "Strategies", Icons.Default.TrendingUp),
     BottomNavTab(FoxRoutes.JOURNAL, "Journal", Icons.Default.Book),
     BottomNavTab(FoxRoutes.SETTINGS, "Settings", Icons.Default.Settings),
 )

@@ -29,6 +29,7 @@ class SettingsViewModel @Inject constructor(
             riskConfig = riskEngine.getConfig(),
             alertConfig = alertEngine.getConfig(),
             dataProvider = appPreferences.dataProvider.value,
+            darkMode = appPreferences.darkMode.value,
         )
     )
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
@@ -85,6 +86,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun setDarkMode(dark: Boolean) {
+        appPreferences.setDarkMode(dark)
         _uiState.update { it.copy(darkMode = dark, saved = false) }
     }
 
