@@ -9,13 +9,17 @@ name: Android CI — Build APK
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, "feat/**", "fix/**" ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:   # Allow manual trigger from the Actions tab
 
 permissions:
   contents: read
+
+concurrency:
+  group: android-ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -38,21 +42,14 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'   # Ensures a `gradle` binary is on PATH to bootstrap the wrapper
+        # Uses the committed Gradle wrapper (gradlew + gradle-wrapper.jar).
+        # Enables Gradle dependency + build caching keyed off the wrapper.
 
-      - name: Generate Gradle wrapper (if missing)
-        run: |
-          if [ ! -f ./gradlew ]; then
-            gradle wrapper --gradle-version 8.9 --distribution-type bin
-          fi
-          chmod +x ./gradlew
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
 
       - name: Build debug APK
-        run: ./gradlew :app:assembleDebug --stacktrace
-
-      - name: Run unit tests
-        run: ./gradlew :app:testDebugUnitTest --stacktrace
+        run: ./gradlew :app:assembleDebug --stacktrace --no-daemon --no-configuration-cache
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -61,6 +58,9 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: Run unit tests
+        run: ./gradlew :app:testDebugUnitTest --stacktrace --no-daemon --no-configuration-cache
 
       - name: Upload test reports
         if: always()

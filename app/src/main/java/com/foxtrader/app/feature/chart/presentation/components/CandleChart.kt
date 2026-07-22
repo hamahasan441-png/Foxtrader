@@ -42,10 +42,14 @@ fun CandleChart(
 ) {
     // Viewport survives recomposition; initialised to the most recent bars.
     val viewport = remember { ChartViewport() }
-    // Bump this to force a redraw after a gesture mutates the viewport.
+    // Bump this to force a redraw after a gesture mutates the (non-snapshot)
+    // viewport. Only mutated from gesture callbacks (never during composition).
     var invalidateTick by remember { mutableStateOf(0) }
 
     // Initialise / follow the right edge when data first arrives or grows.
+    // NOTE: this block must NOT write snapshot state (e.g. invalidateTick) —
+    // it runs during composition. A change in candles.size already triggers a
+    // recomposition that re-executes the Canvas draw, so no manual tick needed.
     remember(candles.size) {
         val count = min(120, candles.size).toFloat()
         if (viewport.visibleBars <= 0f || viewport.startIndex == 0f) {
@@ -54,7 +58,6 @@ fun CandleChart(
         }
         viewport.clamp(candles.size)
         viewport.autoScale(candles)
-        invalidateTick++
         candles.size
     }
 
