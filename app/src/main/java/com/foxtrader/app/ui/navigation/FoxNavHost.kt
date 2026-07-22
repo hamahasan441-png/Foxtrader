@@ -3,6 +3,7 @@ package com.foxtrader.app.ui.navigation
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -23,6 +24,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.foxtrader.app.feature.chart.presentation.ChartScreen
+import com.foxtrader.app.feature.journal.presentation.JournalScreen
 import com.foxtrader.app.feature.scanner.presentation.ScannerScreen
 import com.foxtrader.app.feature.settings.presentation.SettingsScreen
 
@@ -44,6 +46,7 @@ data class BottomNavTab(
 private val bottomTabs = listOf(
     BottomNavTab(FoxRoutes.CHART, "Chart", Icons.Default.BarChart),
     BottomNavTab(FoxRoutes.SCANNER, "Scanner", Icons.Default.Search),
+    BottomNavTab(FoxRoutes.JOURNAL, "Journal", Icons.Default.Book),
     BottomNavTab(FoxRoutes.SETTINGS, "Settings", Icons.Default.Settings),
 )
 
@@ -72,6 +75,9 @@ fun FoxNavHost(
             }
             composable(FoxRoutes.SCANNER) {
                 ScannerScreen()
+            }
+            composable(FoxRoutes.JOURNAL) {
+                JournalScreen()
             }
             composable(FoxRoutes.SETTINGS) {
                 SettingsScreen()
