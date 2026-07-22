@@ -16,9 +16,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
-import kotlinx.serialization.json.double
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
@@ -28,7 +26,6 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
  * Binance WebSocket market data feed implementation.
@@ -45,7 +42,6 @@ import javax.inject.Singleton
  * Symbol mapping: FoxTrader uses "EURUSD" format; Binance uses "eurusd" lowercase.
  * Crypto pairs use Binance native format (BTCUSDT → btcusdt).
  */
-@Singleton
 class BinanceWebSocket @Inject constructor(
     private val okHttpClient: OkHttpClient,
 ) : MarketWebSocket {
