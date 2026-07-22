@@ -3,6 +3,7 @@ package com.foxtrader.app.feature.chart.presentation.components
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -12,12 +13,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.unit.dp
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.ui.theme.FoxBearish
 import com.foxtrader.app.ui.theme.FoxBullish
 import com.foxtrader.app.ui.theme.FoxNeutral20
 import com.foxtrader.app.ui.theme.FoxNeutral5
+import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 
@@ -33,7 +35,7 @@ import kotlin.math.min
  * Scales to very large series because draw cost is bounded by visible bars,
  * not total candle count.
  */
-@androidx.compose.runtime.Composable
+@Composable
 fun CandleChart(
     candles: List<Candle>,
     modifier: Modifier = Modifier,
@@ -89,7 +91,7 @@ fun CandleChart(
         // rather than arbitrary geometric divisions.
         val step = viewport.niceStep(5)
         if (step > 0.0) {
-            var level = kotlin.math.ceil(viewport.priceLow / step) * step
+            var level = ceil(viewport.priceLow / step) * step
             while (level <= viewport.priceHigh) {
                 val y = viewport.yForPrice(level, h)
                 drawLine(
@@ -126,7 +128,7 @@ fun CandleChart(
             val yOpen = viewport.yForPrice(c.open, h)
             val yClose = viewport.yForPrice(c.close, h)
             val top = min(yOpen, yClose)
-            val bodyH = max(1f, kotlin.math.abs(yClose - yOpen))
+            val bodyH = max(1f, abs(yClose - yOpen))
             drawRect(
                 color = color,
                 topLeft = Offset(cx - bodyWidth / 2f, top),
