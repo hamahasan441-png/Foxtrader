@@ -728,11 +728,11 @@ export class ExecutionEngine {
   }
 
   private emitOrderUpdate(order: Order): void {
-    this.eventBus?.emit({ type: 'ORDER_UPDATE' as any, data: order });
+    this.eventBus?.emit({ type: 'ORDER_UPDATE', data: order });
   }
 
   private emitPositionUpdate(pos: Position): void {
-    this.eventBus?.emit({ type: 'POSITION_UPDATE' as any, data: pos });
+    this.eventBus?.emit({ type: 'POSITION_UPDATE', data: pos });
   }
 
   // =========================================================================

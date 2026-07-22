@@ -153,7 +153,7 @@ export class TradeJournal {
     };
     this.entries.set(entry.id, entry);
     this.persist();
-    this.eventBus?.emit({ type: 'JOURNAL_ENTRY' as any, data: entry });
+    this.eventBus?.emit({ type: 'JOURNAL_ENTRY', data: entry });
     return entry;
   }
 

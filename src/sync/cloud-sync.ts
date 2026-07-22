@@ -199,7 +199,7 @@ export class CloudSync {
       const result: SyncResult = {
         status: this.status, pushed, pulled, conflicts: resolvedConflicts, timestamp: Date.now(),
       };
-      this.eventBus?.emit({ type: 'SYNC_COMPLETE' as any, data: result });
+      this.eventBus?.emit({ type: 'SYNC_COMPLETE', data: result });
       return result;
     } catch (err) {
       this.setStatus('ERROR');
@@ -368,7 +368,7 @@ export class CloudSync {
     this.online = navigator.onLine ?? true;
     window.addEventListener('online', () => {
       this.online = true;
-      this.eventBus?.emit({ type: 'SYNC_ONLINE' as any, data: {} });
+      this.eventBus?.emit({ type: 'SYNC_ONLINE', data: {} });
       this.sync(); // Sync queued changes on reconnect
     });
     window.addEventListener('offline', () => {
@@ -416,7 +416,7 @@ export class CloudSync {
 
   private setStatus(status: SyncStatus): void {
     this.status = status;
-    this.eventBus?.emit({ type: 'SYNC_STATUS' as any, data: { status } });
+    this.eventBus?.emit({ type: 'SYNC_STATUS', data: { status } });
   }
 
   // =========================================================================

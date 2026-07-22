@@ -29,12 +29,12 @@ export class LITAgent implements TradingAgent {
     // Extract breaks & sweeps from previous agent insights
     const structBreaks = (prevStructure?.insights || [])
       .filter(i => ['BOS', 'CHOCH', 'MSS', 'IDM'].includes(i.type))
-      .map(i => ({ type: i.type as any, direction: i.direction!, breakPrice: i.price || 0, breakTimestamp: i.timestamp, breakIndex: i.barIndex || 0, swingPoint: {} as any, structureType: 'SWING' as any, confirmed: true }));
+      .map(i => ({ type: i.type, direction: i.direction!, breakPrice: i.price || 0, breakTimestamp: i.timestamp, breakIndex: i.barIndex || 0, swingPoint: { type: "HIGH" as const, price: 0, timestamp: 0, index: 0, structureType: "SWING" as const, significance: 50 }, structureType: 'SWING' as const, confirmed: true }));
 
     const sweepInsights = (prevSM?.insights || []).filter(i => i.type === 'LIQUIDITY_SWEEP');
 
     // LIT Analysis using the module (simplified - builds from available context)
-    const litSetups = this.lit.analyze(candles, structBreaks as any, [], [] as any, [], [], []);
+    const litSetups = this.lit.analyze(candles, structBreaks as unknown as import("../../core/types").StructureBreak[], [], [], [], [], []);
 
     for (const setup of litSetups.slice(-5)) {
       insights.push({

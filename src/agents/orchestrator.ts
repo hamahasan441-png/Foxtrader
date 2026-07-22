@@ -111,7 +111,7 @@ export class AgentOrchestrator {
     const result = this.aggregateOutputs(outputs, context, startTime);
     this.lastResult = result;
 
-    this.eventBus?.emit({ type: 'AGENTS_COMPLETE' as any, data: result });
+    this.eventBus?.emit({ type: 'AGENTS_COMPLETE', data: result });
     return result;
   }
 

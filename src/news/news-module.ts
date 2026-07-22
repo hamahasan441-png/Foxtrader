@@ -89,7 +89,7 @@ export class NewsModule {
     if (!event) return null;
     event.actual = actual;
     const analysis = this.analyzeImpact(event);
-    this.eventBus?.emit({ type: 'NEWS_RELEASE' as any, data: analysis });
+    this.eventBus?.emit({ type: 'NEWS_RELEASE', data: analysis });
     return analysis;
   }
 

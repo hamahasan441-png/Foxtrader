@@ -1,0 +1,301 @@
+/* ===========================================================================
+   FOX DESIGN SYSTEM — Component Styles
+   Institutional trading UI components. Every element serves a purpose.
+   =========================================================================== */
+
+/* ===========================================================================
+   LAYOUT
+   =========================================================================== */
+
+.fox-app {
+  display: grid;
+  grid-template-rows: var(--fox-space-10) 1fr;
+  grid-template-columns: 1fr;
+  height: 100dvh;
+  width: 100vw;
+  overflow: hidden;
+  background: var(--fox-bg);
+}
+
+.fox-app--with-sidebar {
+  grid-template-columns: 1fr 320px;
+}
+
+.fox-app--with-bottom {
+  grid-template-rows: var(--fox-space-10) 1fr 240px;
+}
+
+/* ===========================================================================
+   HEADER
+   =========================================================================== */
+
+.fox-header {
+  display: flex;
+  align-items: center;
+  gap: var(--fox-space-3);
+  padding: 0 var(--fox-space-4);
+  background: var(--fox-surface);
+  border-bottom: 1px solid var(--fox-border-subtle);
+  z-index: 40;
+  height: var(--fox-space-10);
+}
+
+.fox-header__logo {
+  font-weight: 700;
+  font-size: var(--fox-text-md);
+  color: var(--fox-accent);
+  letter-spacing: -0.02em;
+  user-select: none;
+}
+
+.fox-header__divider {
+  width: 1px;
+  height: 20px;
+  background: var(--fox-border-subtle);
+}
+
+/* ===========================================================================
+   BADGE (symbol, timeframe, bias indicators)
+   =========================================================================== */
+
+.fox-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fox-space-1);
+  padding: var(--fox-space-1) var(--fox-space-2);
+  border-radius: var(--fox-radius-sm);
+  font-size: var(--fox-text-xs);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  transition: background var(--fox-duration-fast) var(--fox-ease-standard);
+}
+
+.fox-badge--symbol {
+  background: var(--fox-accent-muted);
+  color: var(--fox-accent-text);
+  font-family: var(--fox-font-mono);
+  font-size: var(--fox-text-sm);
+  letter-spacing: 0.02em;
+}
+
+.fox-badge--timeframe {
+  background: var(--fox-surface-raised);
+  color: var(--fox-text-secondary);
+  border: 1px solid var(--fox-border-subtle);
+}
+
+.fox-badge--bullish {
+  background: var(--fox-bullish-muted);
+  color: var(--fox-bullish-text);
+}
+
+.fox-badge--bearish {
+  background: var(--fox-bearish-muted);
+  color: var(--fox-bearish-text);
+}
+
+.fox-badge--neutral {
+  background: var(--fox-surface-raised);
+  color: var(--fox-text-muted);
+}
+
+/* ===========================================================================
+   BUTTON
+   =========================================================================== */
+
+.fox-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--fox-space-1);
+  padding: var(--fox-space-1) var(--fox-space-3);
+  border: 1px solid var(--fox-border-subtle);
+  border-radius: var(--fox-radius-sm);
+  background: var(--fox-surface-raised);
+  color: var(--fox-text-secondary);
+  font-size: var(--fox-text-xs);
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background var(--fox-duration-fast) var(--fox-ease-standard),
+    border-color var(--fox-duration-fast) var(--fox-ease-standard),
+    color var(--fox-duration-fast) var(--fox-ease-standard),
+    transform var(--fox-duration-fast) var(--fox-ease-spring);
+}
+
+.fox-btn:hover {
+  background: var(--fox-surface-elevated);
+  color: var(--fox-text-primary);
+  border-color: var(--fox-border);
+}
+
+.fox-btn:active {
+  transform: scale(0.97);
+}
+
+.fox-btn--accent {
+  background: var(--fox-accent-muted);
+  border-color: var(--fox-accent);
+  color: var(--fox-accent-text);
+}
+
+.fox-btn--accent:hover {
+  background: var(--fox-accent);
+  color: var(--fox-bg);
+}
+
+/* ===========================================================================
+   PANEL (sidebar cards, bottom panels)
+   =========================================================================== */
+
+.fox-panel {
+  background: var(--fox-surface);
+  border: 1px solid var(--fox-border-subtle);
+  border-radius: var(--fox-radius-lg);
+  overflow: hidden;
+}
+
+.fox-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--fox-space-3) var(--fox-space-4);
+  border-bottom: 1px solid var(--fox-border-subtle);
+}
+
+.fox-panel__title {
+  font-size: var(--fox-text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fox-text-muted);
+}
+
+.fox-panel__body {
+  padding: var(--fox-space-3);
+  overflow-y: auto;
+}
+
+/* ===========================================================================
+   CHART CONTAINER
+   =========================================================================== */
+
+.fox-chart-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: var(--fox-chart-bg);
+  overflow: hidden;
+}
+
+.fox-chart-container canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* FPS indicator (top-left overlay) */
+.fox-chart-fps {
+  position: absolute;
+  top: var(--fox-space-2);
+  left: var(--fox-space-2);
+  font-family: var(--fox-font-mono);
+  font-size: var(--fox-text-xs);
+  color: var(--fox-text-muted);
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* ===========================================================================
+   ALERT ITEM
+   =========================================================================== */
+
+.fox-alert {
+  padding: var(--fox-space-2) var(--fox-space-3);
+  border-radius: var(--fox-radius-md);
+  background: var(--fox-surface-raised);
+  border-left: 3px solid var(--fox-accent);
+  margin-bottom: var(--fox-space-2);
+  transition: transform var(--fox-duration-fast) var(--fox-ease-spring);
+}
+
+.fox-alert:hover {
+  transform: translateX(2px);
+}
+
+.fox-alert--bullish { border-left-color: var(--fox-bullish); }
+.fox-alert--bearish { border-left-color: var(--fox-bearish); }
+
+.fox-alert__type {
+  font-size: var(--fox-text-xs);
+  font-weight: 600;
+  color: var(--fox-text-primary);
+}
+
+.fox-alert__detail {
+  font-size: var(--fox-text-xs);
+  color: var(--fox-text-secondary);
+  margin-top: 2px;
+}
+
+.fox-alert__confidence {
+  font-family: var(--fox-font-mono);
+  font-size: var(--fox-text-xs);
+  color: var(--fox-accent);
+}
+
+/* ===========================================================================
+   PRICE DISPLAY
+   =========================================================================== */
+
+.fox-price {
+  font-family: var(--fox-font-mono);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.fox-price--up { color: var(--fox-bullish-text); }
+.fox-price--down { color: var(--fox-bearish-text); }
+
+/* ===========================================================================
+   ANIMATIONS (micro-interactions)
+   =========================================================================== */
+
+@keyframes fox-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fox-slide-in-right {
+  from { opacity: 0; transform: translateX(8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes fox-pulse-subtle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.fox-animate-in {
+  animation: fox-fade-in var(--fox-duration-normal) var(--fox-ease-decelerate) both;
+}
+
+.fox-animate-slide {
+  animation: fox-slide-in-right var(--fox-duration-normal) var(--fox-ease-decelerate) both;
+}
+
+/* ===========================================================================
+   RESPONSIVE
+   =========================================================================== */
+
+@media (max-width: 768px) {
+  .fox-app--with-sidebar {
+    grid-template-columns: 1fr;
+  }
+  .fox-header {
+    padding: 0 var(--fox-space-3);
+  }
+}

@@ -174,7 +174,7 @@ export class CustomizationManager {
     const theme = this.themes.get(id)!;
     this.applyThemeToDOM(theme);
     this.persist();
-    this.eventBus?.emit({ type: 'THEME_CHANGED' as any, data: theme });
+    this.eventBus?.emit({ type: 'THEME_CHANGED', data: theme });
     return true;
   }
 
@@ -256,7 +256,7 @@ export class CustomizationManager {
     if (!ws) return null;
     this.activeWorkspaceId = id;
     this.persist();
-    this.eventBus?.emit({ type: 'WORKSPACE_CHANGED' as any, data: ws });
+    this.eventBus?.emit({ type: 'WORKSPACE_CHANGED', data: ws });
     return ws;
   }
 

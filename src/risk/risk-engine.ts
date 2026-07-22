@@ -518,7 +518,7 @@ export class RiskEngine {
   haltTrading(reason: string): void {
     this.tradingHalted = true;
     this.haltReason = reason;
-    this.eventBus?.emit({ type: 'RISK_HALT' as any, data: { reason, timestamp: Date.now() } });
+    this.eventBus?.emit({ type: 'RISK_HALT', data: { reason, timestamp: Date.now() } });
     console.warn(`[Risk] TRADING HALTED: ${reason}`);
   }
 

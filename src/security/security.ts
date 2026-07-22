@@ -281,7 +281,7 @@ export class SecurityManager {
     this.authenticated = true;
     this.authAttempts = 0;
     this.sessionExpiry = Date.now() + this.config.sessionTimeoutMs;
-    this.eventBus?.emit({ type: 'AUTH_SUCCESS' as any, data: { method } });
+    this.eventBus?.emit({ type: 'AUTH_SUCCESS', data: { method } });
   }
 
   isAuthenticated(): boolean {
@@ -408,7 +408,7 @@ export class SecurityManager {
 
   private recordThreat(threat: SecurityThreat): void {
     this.threats.push(threat);
-    this.eventBus?.emit({ type: 'SECURITY_THREAT' as any, data: threat });
+    this.eventBus?.emit({ type: 'SECURITY_THREAT', data: threat });
     console.warn(`[Security] Threat detected: ${threat.type} (${threat.severity}) - ${threat.detail}`);
   }
 

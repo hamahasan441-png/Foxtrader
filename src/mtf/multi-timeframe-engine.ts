@@ -161,7 +161,7 @@ export class MultiTimeframeEngine {
     };
 
     this.lastResult = result;
-    this.eventBus?.emit({ type: 'MTF_ANALYSIS' as any, data: result });
+    this.eventBus?.emit({ type: 'MTF_ANALYSIS', data: result });
     return result;
   }
 

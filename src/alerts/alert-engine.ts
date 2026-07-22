@@ -98,7 +98,7 @@ export class AlertEngine {
     this.cooldowns.set(key, Date.now());
     this.hourlyCount++;
 
-    this.eventBus?.emit({ type: 'ALERT_SENT' as any, data: alert });
+    this.eventBus?.emit({ type: 'ALERT_SENT', data: alert });
     return alert;
   }
 

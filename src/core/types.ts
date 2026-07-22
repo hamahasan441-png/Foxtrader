@@ -494,36 +494,57 @@ export interface CachedData {
 
 // --- Event System ---
 
-export type PlatformEvent =
-  | { type: 'STRUCTURE_BREAK'; data: StructureBreak }
-  | { type: 'LIQUIDITY_SWEEP'; data: LiquiditySweep }
-  | { type: 'ORDER_BLOCK_FORMED'; data: OrderBlock }
-  | { type: 'FVG_FORMED'; data: FairValueGap }
-  | { type: 'SMT_DIVERGENCE'; data: SMTDivergence }
-  | { type: 'LIT_SETUP'; data: LITSetup }
-  | { type: 'SCANNER_ALERT'; data: ScannerAlert }
-  | { type: 'AI_ANALYSIS'; data: AIAnalysis }
-  | { type: 'SESSION_CHANGE'; data: TradingSession }
-  | { type: 'NEW_CANDLE'; data: { timeframe: Timeframe; candle: Candle } }
-  | { type: 'TICK'; data: Tick }
-  // --- Part 2 event types ---
-  | { type: 'ORDER_UPDATE'; data: unknown }
-  | { type: 'POSITION_UPDATE'; data: unknown }
-  | { type: 'RISK_HALT'; data: { reason: string; timestamp: number } }
-  | { type: 'JOURNAL_ENTRY'; data: unknown }
-  | { type: 'REPLAY_COMMENTARY'; data: unknown }
-  | { type: 'NEWS_RELEASE'; data: unknown }
-  | { type: 'VOICE_COMMAND'; data: unknown }
-  | { type: 'SYNC_COMPLETE'; data: unknown }
-  | { type: 'SYNC_STATUS'; data: { status: string } }
-  | { type: 'SYNC_ONLINE'; data: unknown }
-  | { type: 'THEME_CHANGED'; data: unknown }
-  | { type: 'WORKSPACE_CHANGED'; data: unknown }
-  | { type: 'AUTH_SUCCESS'; data: { method: string } }
-  | { type: 'SECURITY_THREAT'; data: unknown };
+// ============================================================================
+// TYPE-SAFE EVENT MAP — Eliminates all 'as any' event casts
+// Every event type maps to its exact payload type.
+// Adding a new event: add one line here, get full type inference everywhere.
+// ============================================================================
 
+export interface EventMap {
+  // Part 1 — Core Analysis
+  STRUCTURE_BREAK: StructureBreak;
+  LIQUIDITY_SWEEP: LiquiditySweep;
+  ORDER_BLOCK_FORMED: OrderBlock;
+  FVG_FORMED: FairValueGap;
+  SMT_DIVERGENCE: SMTDivergence;
+  LIT_SETUP: LITSetup;
+  SCANNER_ALERT: ScannerAlert;
+  AI_ANALYSIS: AIAnalysis;
+  SESSION_CHANGE: TradingSession;
+  NEW_CANDLE: { timeframe: Timeframe; candle: Candle };
+  TICK: Tick;
+  // Part 2 — Execution & Risk
+  ORDER_UPDATE: Record<string, unknown>;
+  POSITION_UPDATE: Record<string, unknown>;
+  RISK_HALT: { reason: string; timestamp: number };
+  JOURNAL_ENTRY: Record<string, unknown>;
+  REPLAY_COMMENTARY: Record<string, unknown>;
+  NEWS_RELEASE: Record<string, unknown>;
+  VOICE_COMMAND: Record<string, unknown>;
+  SYNC_COMPLETE: Record<string, unknown>;
+  SYNC_STATUS: { status: string };
+  SYNC_ONLINE: Record<string, unknown>;
+  THEME_CHANGED: Record<string, unknown>;
+  WORKSPACE_CHANGED: Record<string, unknown>;
+  AUTH_SUCCESS: { method: string };
+  SECURITY_THREAT: Record<string, unknown>;
+  // Part 3 — Agents & Enterprise
+  AGENTS_COMPLETE: Record<string, unknown>;
+  MTF_ANALYSIS: Record<string, unknown>;
+  ALERT_SENT: Record<string, unknown>;
+}
+
+/** All valid event type strings */
+export type EventType = keyof EventMap;
+
+/** A platform event: discriminated union built from EventMap */
+export type PlatformEvent = {
+  [K in EventType]: { type: K; data: EventMap[K] };
+}[EventType];
+
+/** Type-safe event bus interface */
 export interface EventBus {
-  emit(event: PlatformEvent): void;
-  on(type: PlatformEvent['type'], handler: (data: any) => void): () => void;
-  off(type: PlatformEvent['type'], handler: (data: any) => void): void;
+  emit<K extends EventType>(event: { type: K; data: EventMap[K] }): void;
+  on<K extends EventType>(type: K, handler: (data: EventMap[K]) => void): () => void;
+  off<K extends EventType>(type: K, handler: (data: EventMap[K]) => void): void;
 }

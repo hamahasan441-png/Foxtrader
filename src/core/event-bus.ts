@@ -1,32 +1,32 @@
 // ============================================================================
-// EVENT BUS - High-performance pub/sub for real-time trading events
+// EVENT BUS - High-performance type-safe pub/sub for real-time trading events
 // ============================================================================
 
-import { EventBus, PlatformEvent } from './types';
+import { EventBus, EventType, EventMap, PlatformEvent } from './types';
 
 export class TradingEventBus implements EventBus {
-  private listeners: Map<string, Set<(data: any) => void>> = new Map();
+  private listeners: Map<string, Set<(data: unknown) => void>> = new Map();
   private eventQueue: PlatformEvent[] = [];
   private processing = false;
   private batchSize = 100;
 
-  emit(event: PlatformEvent): void {
-    this.eventQueue.push(event);
+  emit<K extends EventType>(event: { type: K; data: EventMap[K] }): void {
+    this.eventQueue.push(event as PlatformEvent);
     if (!this.processing) {
       this.processQueue();
     }
   }
 
-  on(type: PlatformEvent['type'], handler: (data: any) => void): () => void {
+  on<K extends EventType>(type: K, handler: (data: EventMap[K]) => void): () => void {
     if (!this.listeners.has(type)) {
       this.listeners.set(type, new Set());
     }
-    this.listeners.get(type)!.add(handler);
+    this.listeners.get(type)!.add(handler as (data: unknown) => void);
     return () => this.off(type, handler);
   }
 
-  off(type: PlatformEvent['type'], handler: (data: any) => void): void {
-    this.listeners.get(type)?.delete(handler);
+  off<K extends EventType>(type: K, handler: (data: EventMap[K]) => void): void {
+    this.listeners.get(type)?.delete(handler as (data: unknown) => void);
   }
 
   private processQueue(): void {

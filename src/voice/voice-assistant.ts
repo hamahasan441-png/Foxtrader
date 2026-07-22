@@ -169,7 +169,7 @@ export class VoiceAssistant {
     }
 
     const command = this.parseCommand(transcript, confidence);
-    this.eventBus?.emit({ type: 'VOICE_COMMAND' as any, data: command });
+    this.eventBus?.emit({ type: 'VOICE_COMMAND', data: command });
     this.commandHandler?.(command);
   }
 

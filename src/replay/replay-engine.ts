@@ -230,7 +230,7 @@ export class ReplayEngine {
       if (commentary.cursorIndex > this.lastCommentaryIndex) {
         this.commentaryLog.push(commentary);
         this.onCommentaryCallback?.(commentary);
-        this.eventBus?.emit({ type: 'REPLAY_COMMENTARY' as any, data: commentary });
+        this.eventBus?.emit({ type: 'REPLAY_COMMENTARY', data: commentary });
       }
     }
     this.lastCommentaryIndex = this.cursorIndex;

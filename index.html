@@ -1,342 +1,152 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Institutional Trading Intelligence Platform</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    
-    :root {
-      --bg-primary: #0a0e17;
-      --bg-secondary: #111827;
-      --bg-tertiary: #1f2937;
-      --text-primary: #f1f5f9;
-      --text-secondary: #94a3b8;
-      --accent-bullish: #00dc82;
-      --accent-bearish: #ff4757;
-      --accent-blue: #3b82f6;
-      --accent-amber: #f59e0b;
-      --border: #1e293b;
-    }
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#080b12">
+  <meta name="color-scheme" content="dark light">
+  <meta name="description" content="FoxTrader — Institutional AI Trading Intelligence">
+  <title>FoxTrader</title>
 
-    body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: var(--bg-primary);
-      color: var(--text-primary);
-      overflow: hidden;
-      height: 100vh;
-      width: 100vw;
-    }
+  <!-- Preload critical fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
 
-    #app {
-      display: grid;
-      grid-template-rows: 48px 1fr 280px;
-      grid-template-columns: 1fr 320px;
-      height: 100vh;
-      gap: 1px;
-      background: var(--border);
-    }
-
-    /* Header */
-    .header {
-      grid-column: 1 / -1;
-      background: var(--bg-secondary);
-      display: flex;
-      align-items: center;
-      padding: 0 16px;
-      gap: 16px;
-    }
-
-    .header h1 {
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--text-primary);
-      letter-spacing: -0.02em;
-    }
-
-    .header .controls {
-      display: flex;
-      gap: 8px;
-      margin-left: auto;
-    }
-
-    .btn {
-      padding: 6px 12px;
-      border: 1px solid var(--border);
-      background: var(--bg-tertiary);
-      color: var(--text-secondary);
-      border-radius: 4px;
-      font-size: 11px;
-      cursor: pointer;
-      transition: all 0.15s;
-    }
-    .btn:hover { background: var(--bg-primary); color: var(--text-primary); }
-    .btn.active { border-color: var(--accent-blue); color: var(--accent-blue); }
-
-    .symbol-badge {
-      background: var(--bg-tertiary);
-      padding: 4px 10px;
-      border-radius: 4px;
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--accent-blue);
-    }
-
-    .bias-badge {
-      padding: 4px 8px;
-      border-radius: 4px;
-      font-size: 10px;
-      font-weight: 700;
-      text-transform: uppercase;
-    }
-    .bias-badge.bullish { background: rgba(0, 220, 130, 0.15); color: var(--accent-bullish); }
-    .bias-badge.bearish { background: rgba(255, 71, 87, 0.15); color: var(--accent-bearish); }
-    .bias-badge.neutral { background: rgba(148, 163, 184, 0.15); color: var(--text-secondary); }
-
-    /* Chart area */
-    .chart-container {
-      position: relative;
-      background: var(--bg-primary);
-      overflow: hidden;
-    }
-
-    /* Right panel */
-    .right-panel {
-      grid-row: 2 / 4;
-      background: var(--bg-secondary);
-      overflow-y: auto;
-      padding: 12px;
-    }
-
-    .panel-section {
-      margin-bottom: 16px;
-    }
-
-    .panel-section h3 {
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--text-secondary);
-      margin-bottom: 8px;
-      padding-bottom: 4px;
-      border-bottom: 1px solid var(--border);
-    }
-
-    /* Bottom panel */
-    .bottom-panel {
-      background: var(--bg-secondary);
-      overflow-y: auto;
-      padding: 12px;
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-    }
-
-    /* Alert items */
-    .alert-item {
-      padding: 8px;
-      border-radius: 4px;
-      background: var(--bg-tertiary);
-      border-left: 3px solid var(--accent-blue);
-      margin-bottom: 6px;
-      font-size: 11px;
-    }
-    .alert-item.bullish { border-left-color: var(--accent-bullish); }
-    .alert-item.bearish { border-left-color: var(--accent-bearish); }
-
-    .alert-item .alert-header {
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 4px;
-    }
-    .alert-item .alert-type { font-weight: 600; color: var(--text-primary); }
-    .alert-item .alert-confidence { color: var(--accent-amber); }
-    .alert-item .alert-msg { color: var(--text-secondary); }
-
-    /* AI Analysis panel */
-    .ai-card {
-      background: var(--bg-tertiary);
-      border-radius: 6px;
-      padding: 12px;
-      border: 1px solid var(--border);
-    }
-
-    .ai-card .score {
-      font-size: 24px;
-      font-weight: 700;
-      color: var(--accent-bullish);
-    }
-
-    .ai-card .entry-info {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: 8px;
-      margin-top: 8px;
-    }
-
-    .ai-card .entry-info div {
-      text-align: center;
-      padding: 4px;
-      border-radius: 4px;
-      background: var(--bg-primary);
-    }
-
-    .ai-card .entry-info .label {
-      font-size: 9px;
-      color: var(--text-secondary);
-      text-transform: uppercase;
-    }
-
-    .ai-card .entry-info .value {
-      font-size: 12px;
-      font-weight: 600;
-      font-family: monospace;
-    }
-
-    .entry-value { color: var(--accent-bullish); }
-    .sl-value { color: var(--accent-bearish); }
-    .tp-value { color: var(--accent-blue); }
-
-    /* FPS counter */
-    .fps-counter {
-      position: absolute;
-      top: 8px;
-      left: 8px;
-      font-size: 10px;
-      color: var(--text-secondary);
-      font-family: monospace;
-      z-index: 100;
-    }
-
-    /* Scrollbar */
-    ::-webkit-scrollbar { width: 4px; }
-    ::-webkit-scrollbar-track { background: var(--bg-primary); }
-    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-  </style>
+  <!-- Fox Design System -->
+  <link rel="stylesheet" href="/src/design/fox-theme.css">
+  <link rel="stylesheet" href="/src/design/components.css">
 </head>
 <body>
-  <div id="app">
-    <header class="header">
-      <h1>Institutional Trading Intelligence</h1>
-      <span class="symbol-badge" id="symbol-display">EURUSD</span>
-      <span class="btn active" id="tf-display">M15</span>
-      <span class="bias-badge neutral" id="bias-display">NEUTRAL</span>
-      <div class="controls">
-        <button class="btn" id="btn-replay">▶ Replay</button>
-        <button class="btn" id="btn-scan">⚡ Scan</button>
-        <button class="btn" id="btn-template">📋 Template</button>
-      </div>
+  <!-- ====================================================================
+       FOXTRADER — Institutional Trading Interface
+       Layout: Header + Chart (dominant) + optional sidebar/bottom panels
+       Every pixel has purpose. Premium. Minimal. Fast.
+       ==================================================================== -->
+
+  <div id="app" class="fox-app">
+
+    <!-- ================================================================
+         HEADER — Symbol, Timeframe, Bias, Controls
+         ================================================================ -->
+    <header class="fox-header">
+      <span class="fox-header__logo">Fox<span style="color:var(--fox-text-secondary);font-weight:400">Trader</span></span>
+      <span class="fox-header__divider"></span>
+
+      <!-- Symbol Badge -->
+      <span class="fox-badge fox-badge--symbol" id="fox-symbol">EURUSD</span>
+
+      <!-- Timeframe -->
+      <span class="fox-badge fox-badge--timeframe" id="fox-timeframe">M15</span>
+
+      <!-- Bias Indicator -->
+      <span class="fox-badge fox-badge--neutral" id="fox-bias">NEUTRAL</span>
+
+      <!-- Spacer -->
+      <span style="flex:1"></span>
+
+      <!-- Controls -->
+      <button class="fox-btn" id="fox-btn-analyze" title="Run AI Analysis">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 1v14M1 8h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        Analyze
+      </button>
+      <button class="fox-btn" id="fox-btn-theme" title="Toggle Theme">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="4" stroke="currentColor" stroke-width="1.5"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </button>
+
+      <!-- FPS Counter -->
+      <span class="fox-badge fox-badge--timeframe fox-mono" id="fox-fps" style="min-width:52px;text-align:center">-- fps</span>
     </header>
 
-    <div class="chart-container" id="chart-container">
-      <div class="fps-counter" id="fps-counter">-- FPS</div>
-    </div>
+    <!-- ================================================================
+         MAIN CONTENT — Chart dominates the viewport
+         ================================================================ -->
+    <main class="fox-chart-container" id="fox-chart">
+      <!-- WebGL canvas injected here by FoxChart -->
+    </main>
 
-    <div class="right-panel">
-      <div class="panel-section">
-        <h3>AI Analysis</h3>
-        <div class="ai-card" id="ai-panel">
-          <div style="color: var(--text-secondary); font-size: 11px;">
-            Analyzing market conditions...
-          </div>
-        </div>
-      </div>
-
-      <div class="panel-section">
-        <h3>Active Setups</h3>
-        <div id="setups-panel"></div>
-      </div>
-
-      <div class="panel-section">
-        <h3>Scanner Alerts</h3>
-        <div id="alerts-panel"></div>
-      </div>
-    </div>
-
-    <div class="bottom-panel">
-      <div class="panel-section">
-        <h3>Market Structure</h3>
-        <div id="structure-panel"></div>
-      </div>
-      <div class="panel-section">
-        <h3>Liquidity Map</h3>
-        <div id="liquidity-panel"></div>
-      </div>
-    </div>
   </div>
 
-  <script type="module" src="/src/main.ts"></script>
+  <!-- ====================================================================
+       APPLICATION BOOTSTRAP
+       ==================================================================== -->
   <script type="module">
-    import { InstitutionalTradingPlatform } from '/src/main.ts';
+    import { FoxChart } from '/src/engine/webgl/fox-chart.ts';
+    import { scheduler } from '/src/engine/scheduler.ts';
 
-    // Initialize platform
-    const platform = new InstitutionalTradingPlatform({
-      symbol: 'EURUSD',
-      timeframe: 'M15',
-      template: 'INTRADAY_15M',
-      autoAnalyze: true,
-      autoScan: true,
-    });
+    // ---- Initialize Chart ----
+    const chartContainer = document.getElementById('fox-chart');
+    const chart = new FoxChart(chartContainer);
 
-    const container = document.getElementById('chart-container');
-    platform.initialize(container).then(() => {
-      console.log('Platform ready');
-      updateUI();
-    });
+    // ---- Generate sample data (1M candles for stress test) ----
+    function generateCandles(count) {
+      const candles = [];
+      let price = 1.10000;
+      const baseTime = Date.now() - count * 60000;
 
-    // UI update loop
-    function updateUI() {
-      const stats = platform.getStats();
-      
-      document.getElementById('fps-counter').textContent = `${stats.fps} FPS`;
-      document.getElementById('bias-display').textContent = stats.bias;
-      document.getElementById('bias-display').className = `bias-badge ${stats.bias.toLowerCase()}`;
+      for (let i = 0; i < count; i++) {
+        const volatility = 0.0003 + Math.random() * 0.0004;
+        const change = (Math.random() - 0.48) * volatility;
+        const open = price;
+        const close = price + change;
+        const high = Math.max(open, close) + Math.random() * volatility * 0.6;
+        const low = Math.min(open, close) - Math.random() * volatility * 0.6;
+        const volume = Math.random() * 800 + 200;
 
-      // Update AI panel
-      const ai = platform.getAIAnalysis();
-      if (ai) {
-        document.getElementById('ai-panel').innerHTML = `
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <span class="score">${ai.confidenceScore}%</span>
-            <span style="font-size: 11px; color: var(--text-secondary);">${ai.setupType.replace(/_/g, ' ')}</span>
-          </div>
-          <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px;">${ai.explanation.slice(0, 120)}...</div>
-          <div class="entry-info">
-            <div><div class="label">Entry</div><div class="value entry-value">${ai.entry.toFixed(5)}</div></div>
-            <div><div class="label">Stop Loss</div><div class="value sl-value">${ai.stopLoss.toFixed(5)}</div></div>
-            <div><div class="label">R:R</div><div class="value tp-value">${ai.riskReward.toFixed(1)}</div></div>
-          </div>
-        `;
+        candles.push({ timestamp: baseTime + i * 60000, open, high, low, close, volume });
+        price = close;
       }
-
-      // Update alerts
-      const alerts = platform.getAlerts().slice(-5);
-      document.getElementById('alerts-panel').innerHTML = alerts.map(a => `
-        <div class="alert-item ${a.direction.toLowerCase()}">
-          <div class="alert-header">
-            <span class="alert-type">${a.type}</span>
-            <span class="alert-confidence">${a.confidence}%</span>
-          </div>
-          <div class="alert-msg">${a.message}</div>
-        </div>
-      `).join('');
-
-      requestAnimationFrame(updateUI);
+      return candles;
     }
 
-    // Button handlers
-    document.getElementById('btn-replay').addEventListener('click', () => {
-      if (platform.getStats().isReplayActive) {
-        platform.stopReplay();
-      } else {
-        platform.startReplay(0, 2);
-      }
+    // Load 100K candles (demonstrates millions-capable engine)
+    const candles = generateCandles(100000);
+    chart.setData(candles);
+
+    // ---- FPS Display (via unified scheduler) ----
+    const fpsEl = document.getElementById('fox-fps');
+    scheduler.register('fps-display', 'LOW', () => {
+      fpsEl.textContent = `${chart.getFPS()} fps`;
+    });
+    scheduler.start();
+
+    // ---- Theme Toggle ----
+    document.getElementById('fox-btn-theme').addEventListener('click', () => {
+      const html = document.documentElement;
+      const current = html.getAttribute('data-theme');
+      html.setAttribute('data-theme', current === 'dark' ? 'light' : 'dark');
     });
 
-    document.getElementById('btn-scan').addEventListener('click', () => {
-      platform.runSMTScan(['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD'], 'M15');
+    // ---- Bias Badge ----
+    const biasEl = document.getElementById('fox-bias');
+    // Simulated bias (in real app, comes from agent orchestrator)
+    const biases = ['BULLISH', 'BEARISH', 'NEUTRAL'];
+    const biasClasses = { BULLISH: 'fox-badge--bullish', BEARISH: 'fox-badge--bearish', NEUTRAL: 'fox-badge--neutral' };
+    let biasIdx = 0;
+    document.getElementById('fox-btn-analyze').addEventListener('click', () => {
+      biasIdx = (biasIdx + 1) % 3;
+      const bias = biases[biasIdx];
+      biasEl.textContent = bias;
+      biasEl.className = `fox-badge ${biasClasses[bias]}`;
     });
+
+    // ---- Simulate real-time candle feed ----
+    let lastCandle = candles[candles.length - 1];
+    setInterval(() => {
+      const change = (Math.random() - 0.48) * 0.0003;
+      lastCandle = {
+        timestamp: lastCandle.timestamp + 60000,
+        open: lastCandle.close,
+        close: lastCandle.close + change,
+        high: Math.max(lastCandle.close, lastCandle.close + change) + Math.random() * 0.0001,
+        low: Math.min(lastCandle.close, lastCandle.close + change) - Math.random() * 0.0001,
+        volume: Math.random() * 500 + 100,
+      };
+      chart.addCandle(lastCandle);
+    }, 1000);
+
+    console.log('[FoxTrader] Initialized — 100K candles loaded, WebGL2 rendering active');
   </script>
 </body>
 </html>

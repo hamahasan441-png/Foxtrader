@@ -1,0 +1,221 @@
+/* ===========================================================================
+   FOX DESIGN SYSTEM — CSS Custom Properties
+   Apply to :root for dark theme (default), [data-theme="light"] for light.
+   
+   Philosophy:
+   - Semantic naming: --fox-surface, --fox-text, not --color-gray-900
+   - Components reference semantic tokens, never raw palette values
+   - Single file swap = entire theme change
+   =========================================================================== */
+
+/* --- Dark Theme (Default) --- */
+:root,
+[data-theme="dark"] {
+  /* Surfaces */
+  --fox-bg: #080b12;
+  --fox-surface: #0c1019;
+  --fox-surface-raised: #111720;
+  --fox-surface-elevated: #181f2b;
+  --fox-surface-overlay: rgba(12, 16, 25, 0.92);
+
+  /* Borders */
+  --fox-border-subtle: #1f2735;
+  --fox-border: #2d3748;
+  --fox-border-strong: #3d4a5c;
+
+  /* Text */
+  --fox-text-primary: #e4e7ec;
+  --fox-text-secondary: #9ca3b0;
+  --fox-text-tertiary: #7a8494;
+  --fox-text-muted: #556070;
+  --fox-text-disabled: #3d4a5c;
+
+  /* Accent (Fox Amber) */
+  --fox-accent: #d4a84e;
+  --fox-accent-hover: #e6be6a;
+  --fox-accent-muted: rgba(212, 168, 78, 0.15);
+  --fox-accent-text: #f0d48e;
+
+  /* Trading */
+  --fox-bullish: #00c873;
+  --fox-bullish-text: #00e688;
+  --fox-bullish-muted: rgba(0, 200, 115, 0.2);
+  --fox-bullish-surface: #0a2a1c;
+  --fox-bearish: #e8364f;
+  --fox-bearish-text: #ff5c72;
+  --fox-bearish-muted: rgba(232, 54, 79, 0.2);
+  --fox-bearish-surface: #2a0f14;
+
+  /* Chart */
+  --fox-chart-bg: #080b12;
+  --fox-chart-grid: rgba(45, 55, 72, 0.3);
+  --fox-chart-crosshair: rgba(156, 163, 176, 0.4);
+
+  /* Semantic */
+  --fox-info: #3b8df0;
+  --fox-warning: #e6a030;
+  --fox-error: #e8364f;
+  --fox-success: #00c873;
+
+  /* Elevation */
+  --fox-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.12);
+  --fox-shadow-md: 0 2px 8px rgba(0, 0, 0, 0.16);
+  --fox-shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.20);
+  --fox-shadow-xl: 0 8px 32px rgba(0, 0, 0, 0.24);
+  --fox-glow-accent: 0 0 20px rgba(212, 168, 78, 0.15);
+
+  /* Radii */
+  --fox-radius-xs: 2px;
+  --fox-radius-sm: 4px;
+  --fox-radius-md: 6px;
+  --fox-radius-lg: 8px;
+  --fox-radius-xl: 12px;
+
+  /* Spacing (referenced as multiples of 4px grid) */
+  --fox-space-1: 4px;
+  --fox-space-2: 8px;
+  --fox-space-3: 12px;
+  --fox-space-4: 16px;
+  --fox-space-5: 20px;
+  --fox-space-6: 24px;
+  --fox-space-8: 32px;
+  --fox-space-10: 40px;
+  --fox-space-12: 48px;
+
+  /* Typography */
+  --fox-font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --fox-font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+  --fox-text-xs: 11px;
+  --fox-text-sm: 12px;
+  --fox-text-base: 13px;
+  --fox-text-md: 14px;
+  --fox-text-lg: 16px;
+  --fox-text-xl: 18px;
+
+  /* Motion */
+  --fox-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --fox-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --fox-ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
+  --fox-ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --fox-duration-fast: 120ms;
+  --fox-duration-normal: 200ms;
+  --fox-duration-slow: 350ms;
+
+  /* Misc */
+  --fox-backdrop-blur: blur(12px);
+  color-scheme: dark;
+}
+
+/* --- Light Theme --- */
+[data-theme="light"] {
+  --fox-bg: #fafbfd;
+  --fox-surface: #ffffff;
+  --fox-surface-raised: #f3f4f7;
+  --fox-surface-elevated: #ffffff;
+  --fox-surface-overlay: rgba(250, 251, 253, 0.92);
+
+  --fox-border-subtle: #e4e7ec;
+  --fox-border: #c4c9d4;
+  --fox-border-strong: #9ca3b0;
+
+  --fox-text-primary: #111720;
+  --fox-text-secondary: #3d4a5c;
+  --fox-text-tertiary: #556070;
+  --fox-text-muted: #7a8494;
+  --fox-text-disabled: #c4c9d4;
+
+  --fox-accent: #b89040;
+  --fox-accent-hover: #a07830;
+  --fox-accent-muted: rgba(184, 144, 64, 0.12);
+  --fox-accent-text: #8a6c30;
+
+  --fox-bullish: #0a9e5c;
+  --fox-bullish-text: #087a47;
+  --fox-bullish-muted: rgba(10, 158, 92, 0.12);
+  --fox-bullish-surface: #ecfdf5;
+  --fox-bearish: #cc2940;
+  --fox-bearish-text: #a01830;
+  --fox-bearish-muted: rgba(204, 41, 64, 0.12);
+  --fox-bearish-surface: #fef2f2;
+
+  --fox-chart-bg: #ffffff;
+  --fox-chart-grid: rgba(196, 201, 212, 0.3);
+  --fox-chart-crosshair: rgba(61, 74, 92, 0.3);
+
+  --fox-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --fox-shadow-md: 0 2px 8px rgba(0, 0, 0, 0.08);
+  --fox-shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.10);
+  --fox-shadow-xl: 0 8px 32px rgba(0, 0, 0, 0.12);
+  --fox-glow-accent: 0 0 16px rgba(184, 144, 64, 0.1);
+
+  color-scheme: light;
+}
+
+/* ===========================================================================
+   BASE RESET & DEFAULTS
+   =========================================================================== */
+
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  font-size: var(--fox-text-base);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-family: var(--fox-font-sans);
+  font-size: var(--fox-text-base);
+  line-height: 1.4;
+  color: var(--fox-text-primary);
+  background: var(--fox-bg);
+  overflow: hidden;
+  height: 100dvh;
+  width: 100vw;
+}
+
+/* Respect reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ===========================================================================
+   UTILITY CLASSES
+   =========================================================================== */
+
+.fox-mono { font-family: var(--fox-font-mono); }
+.fox-text-xs { font-size: var(--fox-text-xs); }
+.fox-text-sm { font-size: var(--fox-text-sm); }
+.fox-text-md { font-size: var(--fox-text-md); }
+.fox-text-lg { font-size: var(--fox-text-lg); }
+.fox-text-secondary { color: var(--fox-text-secondary); }
+.fox-text-muted { color: var(--fox-text-muted); }
+.fox-text-accent { color: var(--fox-accent); }
+.fox-text-bullish { color: var(--fox-bullish-text); }
+.fox-text-bearish { color: var(--fox-bearish-text); }
+
+.fox-surface { background: var(--fox-surface); }
+.fox-surface-raised { background: var(--fox-surface-raised); }
+.fox-border { border: 1px solid var(--fox-border-subtle); }
+.fox-rounded { border-radius: var(--fox-radius-md); }
+
+/* Scrollbar styling */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--fox-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--fox-border-strong); }
+
+/* Selection */
+::selection {
+  background: var(--fox-accent-muted);
+  color: var(--fox-accent-text);
+}
