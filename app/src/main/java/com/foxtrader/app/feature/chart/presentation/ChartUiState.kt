@@ -2,6 +2,7 @@ package com.foxtrader.app.feature.chart.presentation
 
 import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.DecisionResult
 import com.foxtrader.app.domain.model.ChartDrawing
 import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.DrawingMode
@@ -80,6 +81,9 @@ data class ChartUiState(
     // --- Loading / error ---
     val isLoading: Boolean = true,
     val error: String? = null,
+
+    // --- AI Decision Engine ---
+    val aiDecision: DecisionResult? = null,
 ) {
     val lastPrice: Double? get() = candles.lastOrNull()?.close
     val hasData: Boolean get() = candles.isNotEmpty()
