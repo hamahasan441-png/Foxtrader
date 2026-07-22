@@ -6,6 +6,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.foxtrader.app.feature.chart.presentation.ChartScreen
+import com.foxtrader.app.feature.scanner.presentation.ScannerScreen
+import com.foxtrader.app.feature.settings.presentation.SettingsScreen
 
 /** Type-safe route constants for the app's destinations. */
 object FoxRoutes {
@@ -30,6 +32,12 @@ fun FoxNavHost(
         composable(FoxRoutes.CHART) {
             ChartScreen()
         }
-        // Additional destinations (scanner, journal, settings) added as features land.
+        composable(FoxRoutes.SCANNER) {
+            ScannerScreen()
+        }
+        composable(FoxRoutes.SETTINGS) {
+            SettingsScreen()
+        }
+        // Journal destination added when that feature lands.
     }
 }

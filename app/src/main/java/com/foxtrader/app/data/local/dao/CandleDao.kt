@@ -30,4 +30,11 @@ interface CandleDao {
 
     @Query("SELECT COUNT(*) FROM candles WHERE symbol = :symbol AND timeframe = :timeframe")
     suspend fun count(symbol: String, timeframe: String): Int
+
+    /** Get all candles for a symbol/timeframe (non-reactive, for one-shot queries). */
+    @Query(
+        "SELECT * FROM candles WHERE symbol = :symbol AND timeframe = :timeframe " +
+            "ORDER BY timestamp ASC"
+    )
+    suspend fun getAll(symbol: String, timeframe: String): List<CandleEntity>
 }

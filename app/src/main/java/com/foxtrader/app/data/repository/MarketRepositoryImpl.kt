@@ -57,4 +57,17 @@ class MarketRepositoryImpl @Inject constructor(
 
     override suspend fun upsertCandle(symbol: String, timeframe: Timeframe, candle: Candle) =
         withContext(io) { dao.upsert(candle.toEntity(symbol, timeframe)) }
+
+    override suspend fun getCandles(symbol: String, timeframe: Timeframe): List<Candle> =
+        withContext(io) {
+            val cached = dao.getAll(symbol, timeframe.label)
+            if (cached.isNotEmpty()) {
+                cached.map { it.toDomain() }
+            } else {
+                // Seed sample data if cache empty (scanner needs data to function)
+                val seed = SampleData.generate(symbol, timeframe, 200)
+                dao.upsertAll(seed.map { it.toEntity(symbol, timeframe) })
+                seed
+            }
+        }
 }

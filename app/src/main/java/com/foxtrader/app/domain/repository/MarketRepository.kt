@@ -25,4 +25,13 @@ interface MarketRepository {
 
     /** Append or update the latest (forming) candle in the cache. */
     suspend fun upsertCandle(symbol: String, timeframe: Timeframe, candle: Candle)
+
+    /**
+     * Get cached candles for a symbol (default timeframe H1).
+     * Convenience for scanner/screener which doesn't need reactive observation.
+     */
+    suspend fun getCandles(
+        symbol: String,
+        timeframe: Timeframe = Timeframe.H1,
+    ): List<Candle>
 }
