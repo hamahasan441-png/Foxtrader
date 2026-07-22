@@ -115,6 +115,7 @@ class ChartViewModel @Inject constructor(
         val orderBlocks = smcDetector.detectOrderBlocks(candles)
         val fairValueGaps = smcDetector.detectFairValueGaps(candles)
         val liquidityPools = smcDetector.detectLiquidity(candles)
+        val volumeProfile = if (candles.size >= 20) smcDetector.computeVolumeProfile(candles) else null
 
         // Session detection
         val sessions = sessionDetector.detectSessions(candles)
@@ -128,6 +129,7 @@ class ChartViewModel @Inject constructor(
             orderBlocks = orderBlocks,
             fairValueGaps = fairValueGaps,
             liquidityPools = liquidityPools,
+            volumeProfile = volumeProfile,
             sessions = sessions,
             isLoading = candles.isEmpty() && _uiState.value.error == null,
         )

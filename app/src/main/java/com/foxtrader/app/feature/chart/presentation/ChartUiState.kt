@@ -35,6 +35,7 @@ data class ChartUiState(
     val orderBlocks: List<OrderBlock> = emptyList(),
     val fairValueGaps: List<FairValueGap> = emptyList(),
     val liquidityPools: List<LiquidityPool> = emptyList(),
+    val volumeProfile: com.foxtrader.app.domain.model.VolumeProfile? = null,
 
     // --- Trading sessions ---
     val sessions: List<SessionRange> = emptyList(),

@@ -81,6 +81,7 @@ fun CandleChart(
     liquidityPools: List<com.foxtrader.app.domain.model.LiquidityPool> = emptyList(),
     sessions: List<com.foxtrader.app.domain.model.SessionRange> = emptyList(),
     drawings: List<com.foxtrader.app.domain.model.ChartDrawing> = emptyList(),
+    volumeProfile: com.foxtrader.app.domain.model.VolumeProfile? = null,
 ) {
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
@@ -287,6 +288,15 @@ fun CandleChart(
         if (liquidityPools.isNotEmpty()) {
             clipRect(right = cw, bottom = ch) {
                 drawLiquidityPools(liquidityPools, viewport, cw, ch)
+            }
+        }
+
+        // ====================================================================
+        // LAYER 1.7: VOLUME PROFILE (horizontal histogram, right-aligned)
+        // ====================================================================
+        if (volumeProfile != null) {
+            clipRect(right = cw, bottom = ch) {
+                drawVolumeProfile(volumeProfile, viewport, cw, ch)
             }
         }
 
