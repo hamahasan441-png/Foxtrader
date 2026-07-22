@@ -76,6 +76,12 @@ fun CandleChart(
     timeframe: Timeframe = Timeframe.M15,
     emaShort: DoubleArray? = null,
     emaLong: DoubleArray? = null,
+    orderBlocks: List<com.foxtrader.app.domain.model.OrderBlock> = emptyList(),
+    fairValueGaps: List<com.foxtrader.app.domain.model.FairValueGap> = emptyList(),
+    liquidityPools: List<com.foxtrader.app.domain.model.LiquidityPool> = emptyList(),
+    sessions: List<com.foxtrader.app.domain.model.SessionRange> = emptyList(),
+    drawings: List<com.foxtrader.app.domain.model.ChartDrawing> = emptyList(),
+    volumeProfile: com.foxtrader.app.domain.model.VolumeProfile? = null,
 ) {
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
@@ -253,10 +259,45 @@ fun CandleChart(
         drawGridLayer(viewport, cw, ch, totalW)
 
         // ====================================================================
+        // LAYER 0.5: SESSION BACKGROUNDS (behind candles)
+        // ====================================================================
+        if (sessions.isNotEmpty()) {
+            clipRect(right = cw, bottom = ch) {
+                drawSessionBackgrounds(sessions, viewport, cw, ch)
+            }
+        }
+
+        // ====================================================================
+        // LAYER 0.7: ORDER BLOCKS + FAIR VALUE GAPS (behind candles)
+        // ====================================================================
+        clipRect(right = cw, bottom = ch) {
+            if (orderBlocks.isNotEmpty()) drawOrderBlocks(orderBlocks, viewport, cw, ch)
+            if (fairValueGaps.isNotEmpty()) drawFairValueGaps(fairValueGaps, viewport, cw, ch)
+        }
+
+        // ====================================================================
         // LAYER 1: CANDLES (viewport-culled)
         // ====================================================================
         clipRect(right = cw, bottom = ch) {
             drawCandleLayer(candles, viewport, cw, ch)
+        }
+
+        // ====================================================================
+        // LAYER 1.5: LIQUIDITY POOLS (over candles, under indicators)
+        // ====================================================================
+        if (liquidityPools.isNotEmpty()) {
+            clipRect(right = cw, bottom = ch) {
+                drawLiquidityPools(liquidityPools, viewport, cw, ch)
+            }
+        }
+
+        // ====================================================================
+        // LAYER 1.7: VOLUME PROFILE (horizontal histogram, right-aligned)
+        // ====================================================================
+        if (volumeProfile != null) {
+            clipRect(right = cw, bottom = ch) {
+                drawVolumeProfile(volumeProfile, viewport, cw, ch)
+            }
         }
 
         // ====================================================================
@@ -282,6 +323,15 @@ fun CandleChart(
         // ====================================================================
         clipRect(right = cw, bottom = ch) {
             drawLivePriceLine(candles, viewport, cw, ch)
+        }
+
+        // ====================================================================
+        // LAYER 4.5: USER DRAWINGS (trend lines, fibs, etc.)
+        // ====================================================================
+        if (drawings.isNotEmpty()) {
+            clipRect(right = cw, bottom = ch) {
+                drawChartDrawings(drawings, viewport, cw, ch, structureLabelPaint)
+            }
         }
 
         // ====================================================================
