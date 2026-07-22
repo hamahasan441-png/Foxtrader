@@ -9,6 +9,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
@@ -84,16 +85,21 @@ fun CandleChart(
         val w = size.width
         val h = size.height
 
-        // Grid lines (horizontal price levels)
-        val gridLines = 5
-        for (i in 0..gridLines) {
-            val y = h * i / gridLines
-            drawLine(
-                color = FoxNeutral20,
-                start = Offset(0f, y),
-                end = Offset(w, y),
-                strokeWidth = 1f,
-            )
+        // Grid lines aligned to "nice" round price levels (institutional look)
+        // rather than arbitrary geometric divisions.
+        val step = viewport.niceStep(5)
+        if (step > 0.0) {
+            var level = kotlin.math.ceil(viewport.priceLow / step) * step
+            while (level <= viewport.priceHigh) {
+                val y = viewport.yForPrice(level, h)
+                drawLine(
+                    color = FoxNeutral20,
+                    start = Offset(0f, y),
+                    end = Offset(w, y),
+                    strokeWidth = 1f,
+                )
+                level += step
+            }
         }
 
         // --- Viewport culling: only draw visible candles ---
@@ -125,6 +131,20 @@ fun CandleChart(
                 color = color,
                 topLeft = Offset(cx - bodyWidth / 2f, top),
                 size = androidx.compose.ui.geometry.Size(bodyWidth, bodyH),
+            )
+        }
+
+        // --- Live last-price reference line (dashed, in the trend colour) ---
+        val last = candles[candles.size - 1]
+        val lastY = viewport.yForPrice(last.close, h)
+        if (lastY in 0f..h) {
+            val lastColor = if (last.isBullish) FoxBullish else FoxBearish
+            drawLine(
+                color = lastColor.copy(alpha = 0.65f),
+                start = Offset(0f, lastY),
+                end = Offset(w, lastY),
+                strokeWidth = 1.5f,
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f)),
             )
         }
     }

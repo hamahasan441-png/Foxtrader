@@ -2,8 +2,11 @@ package com.foxtrader.app.feature.chart.presentation.components
 
 import androidx.compose.runtime.Stable
 import com.foxtrader.app.domain.model.Candle
+import kotlin.math.floor
+import kotlin.math.log10
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.pow
 
 /**
  * Chart viewport — the "camera" over the candle series.
@@ -58,6 +61,25 @@ class ChartViewport(
 
     /** Pixel width of a single bar. */
     fun barWidthPx(width: Float): Float = width / visibleBars
+
+    /**
+     * A "nice" round price increment for grid lines so levels land on human
+     * numbers (…, 1.0, 1.25, 1.5, …) instead of arbitrary geometric fractions.
+     * Standard 1-2-5 progression scaled to the visible price range.
+     */
+    fun niceStep(targetLines: Int = 5): Double {
+        val range = (priceHigh - priceLow).coerceAtLeast(1e-9)
+        val rough = range / targetLines.coerceAtLeast(1)
+        val mag = 10.0.pow(floor(log10(rough)))
+        val norm = rough / mag
+        val niceNorm = when {
+            norm < 1.5 -> 1.0
+            norm < 3.0 -> 2.0
+            norm < 7.0 -> 5.0
+            else -> 10.0
+        }
+        return niceNorm * mag
+    }
 
     fun copyState(): ChartViewport =
         ChartViewport(startIndex, visibleBars, priceHigh, priceLow)
