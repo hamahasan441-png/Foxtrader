@@ -2,19 +2,14 @@ package com.foxtrader.app.feature.chart.presentation.components
 
 import android.graphics.Paint
 import android.graphics.Typeface
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.exponentialDecay
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -26,7 +21,6 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.foxtrader.app.domain.model.Candle
@@ -64,8 +58,7 @@ import kotlin.math.roundToInt
  * - 120 FPS on modern hardware, never below 60 FPS
  * - Viewport culling bounds draw cost to visible bars only
  * - Zero per-frame allocations in draw loop
- * - Fling inertia via Compose Animatable (frame-perfect decay)
- * - Single-finger drag for pan, two-finger pinch for zoom
+ * - Single unified gesture handler: single-finger pan + pinch zoom (no drift)
  * - Long-press activates crosshair
  */
 @Composable
@@ -84,7 +77,6 @@ fun CandleChart(
     volumeProfile: com.foxtrader.app.domain.model.VolumeProfile? = null,
 ) {
     val density = LocalDensity.current
-    val scope = rememberCoroutineScope()
 
     // Viewport survives recomposition. Layout margins set in density-independent pixels.
     val viewport = remember {
@@ -94,12 +86,8 @@ fun CandleChart(
         }
     }
 
-    // Redraw trigger — bumped after every gesture/animation frame.
+    // Redraw trigger — bumped after every gesture frame.
     var invalidateTick by remember { mutableIntStateOf(0) }
-
-    // Fling animation state
-    val flingAnimatable = remember { Animatable(0f) }
-    var flingPrevValue by remember { mutableStateOf(0f) }
 
     // Native Paint objects (reused across frames — zero allocation in draw loop)
     val priceLabelPaint = remember {
@@ -153,79 +141,35 @@ fun CandleChart(
     Canvas(
         modifier = modifier
             .background(FoxNeutral5)
-            // --- PINCH-TO-ZOOM ---
+            // --- PAN (single finger) + ZOOM (pinch) in ONE handler ---
+            // A single detectTransformGestures prevents the chart "drift" bug:
+            // previously a transform handler AND a drag handler both applied pan
+            // to the same one-finger drag, doubling/fighting the movement.
+            // detectTransformGestures natively reports pan for a single pointer.
             .pointerInput(candles.size) {
                 detectTransformGestures { _, pan, zoom, _ ->
+                    // A pan/zoom interaction dismisses the crosshair.
+                    if (viewport.crosshairActive) viewport.crosshairActive = false
+
                     val cw = viewport.chartWidth(size.width.toFloat())
-                    if (pan != Offset.Zero) {
-                        val barsPerPx = viewport.visibleBars / cw
+                    val barsPerPx = viewport.visibleBars / cw
+
+                    // Horizontal pan (works for 1 or 2 fingers).
+                    if (pan.x != 0f) {
                         viewport.startIndex -= pan.x * barsPerPx
                     }
-                    if (zoom != 1f) {
+
+                    // Pinch zoom toward the viewport center.
+                    if (zoom != 1f && zoom > 0f) {
                         val center = viewport.startIndex + viewport.visibleBars / 2f
-                        viewport.visibleBars /= zoom
+                        viewport.visibleBars = viewport.visibleBars / zoom
                         viewport.startIndex = center - viewport.visibleBars / 2f
                     }
+
                     viewport.clamp(candles.size)
                     viewport.autoScale(candles)
                     invalidateTick++
                 }
-            }
-            // --- SINGLE-FINGER DRAG + FLING ---
-            .pointerInput(candles.size) {
-                val velocityTracker = VelocityTracker()
-                detectDragGestures(
-                    onDragStart = {
-                        // Cancel any active fling
-                        scope.launch { flingAnimatable.stop() }
-                        viewport.isFling = false
-                        viewport.crosshairActive = false
-                        velocityTracker.resetTracking()
-                    },
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        velocityTracker.addPosition(
-                            change.uptimeMillis,
-                            change.position,
-                        )
-                        val cw = viewport.chartWidth(size.width.toFloat())
-                        val barsPerPx = viewport.visibleBars / cw
-                        viewport.startIndex -= dragAmount.x * barsPerPx
-                        viewport.clamp(candles.size)
-                        viewport.autoScale(candles)
-                        invalidateTick++
-                    },
-                    onDragEnd = {
-                        // Launch fling with measured velocity
-                        val velocity = velocityTracker.calculateVelocity()
-                        val vxPx = velocity.x // pixels/sec
-                        val cw = viewport.chartWidth(size.width.toFloat())
-                        if (abs(vxPx) > 200f && candles.isNotEmpty()) {
-                            viewport.isFling = true
-                            flingPrevValue = 0f
-                            scope.launch {
-                                flingAnimatable.snapTo(0f)
-                                flingAnimatable.animateDecay(
-                                    initialVelocity = vxPx,
-                                    animationSpec = exponentialDecay(frictionMultiplier = 1.5f),
-                                ) {
-                                    // Each frame: compute delta and pan viewport
-                                    val delta = value - flingPrevValue
-                                    flingPrevValue = value
-                                    val barsPerPx = viewport.visibleBars / cw
-                                    viewport.startIndex -= delta * barsPerPx
-                                    viewport.clamp(candles.size)
-                                    viewport.autoScale(candles)
-                                    invalidateTick++
-                                }
-                                viewport.isFling = false
-                            }
-                        }
-                    },
-                    onDragCancel = {
-                        viewport.isFling = false
-                    },
-                )
             }
             // --- LONG-PRESS FOR CROSSHAIR ---
             .pointerInput(candles.size) {
@@ -351,9 +295,6 @@ fun CandleChart(
         // ====================================================================
         drawTimeAxis(viewport, candles, cw, ch, totalW, totalH, timeLabelPaint, timeframe)
     }
-
-    // Fling is handled directly in the animateDecay block above.
-    // No additional LaunchedEffect needed.
 }
 
 // ============================================================================

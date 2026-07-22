@@ -261,14 +261,17 @@ private fun SliderSetting(
         ) {
             Text(label, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
             Text(
-                text = if (suffix == "") "${value.toInt()}" else "%.1f$suffix".format(value),
+                // NOTE: never embed `suffix` inside the format string — a bare
+                // "%" (e.g. "%.1f%") throws UnknownFormatConversionException and
+                // crashed the whole Settings screen. Build the suffix separately.
+                text = if (suffix == "") "${value.toInt()}" else "%.1f".format(value) + suffix,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = FoxAmber50,
             )
         }
         Slider(
-            value = value,
+            value = value.coerceIn(range.start, range.endInclusive),
             onValueChange = onValueChange,
             valueRange = range,
             colors = SliderDefaults.colors(
