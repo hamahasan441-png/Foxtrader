@@ -13,6 +13,7 @@ import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import com.foxtrader.app.domain.usecase.ai.AgentOrchestrator
 import com.foxtrader.app.domain.usecase.ai.MasterDecisionEngine
+import com.foxtrader.app.domain.usecase.ai.MtfContextProvider
 import com.foxtrader.app.domain.usecase.drawing.DrawingEngine
 import com.foxtrader.app.domain.usecase.indicators.BollingerBands
 import com.foxtrader.app.domain.usecase.indicators.ParabolicSar
@@ -60,6 +61,7 @@ class ChartViewModel @Inject constructor(
     val replayEngine: ReplayEngine,
     private val orchestrator: AgentOrchestrator,
     private val decisionEngine: MasterDecisionEngine,
+    private val mtfContextProvider: MtfContextProvider,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChartUiState())
@@ -177,14 +179,22 @@ class ChartViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(aiDecision = null)
             return
         }
-        val context = AgentContext(
-            symbol = symbolFlow.value,
-            timeframe = timeframeFlow.value,
-            candles = candles,
-        )
-        val orchestratorResult = orchestrator.analyze(context)
-        val decision = decisionEngine.evaluate(orchestratorResult)
-        _uiState.value = _uiState.value.copy(aiDecision = decision)
+        // Fetch HTF context asynchronously; the AI pipeline runs off-main.
+        viewModelScope.launch {
+            val mtfCandles = mtfContextProvider.getHtfContext(
+                symbol = symbolFlow.value,
+                executionTimeframe = timeframeFlow.value,
+            )
+            val context = AgentContext(
+                symbol = symbolFlow.value,
+                timeframe = timeframeFlow.value,
+                candles = candles,
+                mtfCandles = mtfCandles,
+            )
+            val orchestratorResult = orchestrator.analyze(context)
+            val decision = decisionEngine.evaluate(orchestratorResult)
+            _uiState.value = _uiState.value.copy(aiDecision = decision)
+        }
     }
 
     // ========================================================================
