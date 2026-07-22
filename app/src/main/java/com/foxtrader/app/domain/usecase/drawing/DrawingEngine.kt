@@ -181,14 +181,13 @@ class DrawingEngine @Inject constructor() {
     }
 
     private fun pointToLineDistance(a: ChartPoint, b: ChartPoint, p: ChartPoint): Double {
-        val dx = b.index - a.index
+        val dx = (b.index - a.index).toDouble()
         val dy = b.price - a.price
         val lenSq = dx * dx + dy * dy
-        if (lenSq == 0f) return kotlin.math.abs(p.price - a.price)
+        if (lenSq == 0.0) return kotlin.math.abs(p.price - a.price)
 
-        val t = ((p.index - a.index) * dx + (p.price - a.price) * dy) / lenSq
-        val clampedT = t.coerceIn(0f, 1f)
-        val projX = a.index + clampedT * dx
+        val t = (((p.index - a.index).toDouble()) * dx + (p.price - a.price) * dy) / lenSq
+        val clampedT = t.coerceIn(0.0, 1.0)
         val projY = a.price + clampedT * dy
         return kotlin.math.abs(p.price - projY)
     }
