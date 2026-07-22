@@ -86,3 +86,4 @@ Roadmap: full SMC/ICT/LIT engines, backtesting lab, scanner, alerts,
 FastAPI backend, WebSocket live data — ported incrementally from the
 reference engine in `reference/typescript-src/`, keeping every commit buildable.
 
+
