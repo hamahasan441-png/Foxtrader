@@ -115,20 +115,34 @@ export function buildTransformMatrix(
 }
 
 /**
- * Get uniform location (cached)
+ * Get uniform location (cached PER PROGRAM).
+ *
+ * Uniform locations are program-specific and are NOT interchangeable between
+ * programs. A previous implementation keyed the cache by `${program}_${name}`,
+ * but a WebGLProgram stringifies to "[object WebGLProgram]", so every program
+ * collided on the same key — the wick shader could receive the body shader's
+ * location, corrupting the transform. Keying by the program object itself
+ * (via a WeakMap) fixes the collision and lets GC reclaim locations when a
+ * program is destroyed (e.g. on context loss).
  */
-const uniformCache = new Map<string, WebGLUniformLocation | null>();
+let uniformCache = new WeakMap<WebGLProgram, Map<string, WebGLUniformLocation | null>>();
+
 export function getUniform(gl: WebGL2RenderingContext, program: WebGLProgram, name: string): WebGLUniformLocation | null {
-  const key = `${program}_${name}`;
-  if (!uniformCache.has(key)) {
-    uniformCache.set(key, gl.getUniformLocation(program, name));
+  let byName = uniformCache.get(program);
+  if (!byName) {
+    byName = new Map<string, WebGLUniformLocation | null>();
+    uniformCache.set(program, byName);
   }
-  return uniformCache.get(key)!;
+  if (!byName.has(name)) {
+    byName.set(name, gl.getUniformLocation(program, name));
+  }
+  return byName.get(name)!;
 }
 
 /**
- * Clear the uniform cache (call on context loss recovery)
+ * Drop all cached uniform locations (call on context-loss recovery, when every
+ * program is recompiled and old locations become invalid).
  */
 export function clearUniformCache(): void {
-  uniformCache.clear();
+  uniformCache = new WeakMap<WebGLProgram, Map<string, WebGLUniformLocation | null>>();
 }
