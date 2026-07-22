@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
+import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -45,10 +46,14 @@ class ChartViewModel @Inject constructor(
             .flatMapLatest { (symbol, tf) -> repository.observeCandles(symbol, tf) }
             .onEach { candles ->
                 val structure = analyzeStructure(candles)
+                val emaShort = if (candles.size >= 20) TechnicalIndicators.calculateEMA(candles, 20) else null
+                val emaLong = if (candles.size >= 50) TechnicalIndicators.calculateEMA(candles, 50) else null
                 _uiState.value = _uiState.value.copy(
                     candles = candles,
                     bias = structure.bias,
                     structureBreaks = structure.breaks,
+                    emaShort = emaShort,
+                    emaLong = emaLong,
                     isLoading = candles.isEmpty() && _uiState.value.error == null,
                 )
             }

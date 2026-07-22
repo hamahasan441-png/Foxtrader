@@ -83,6 +83,10 @@ fun ChartScreen(
                     state.hasData -> CandleChart(
                         candles = state.candles,
                         modifier = Modifier.fillMaxSize(),
+                        structureBreaks = state.structureBreaks,
+                        timeframe = state.timeframe,
+                        emaShort = state.emaShort,
+                        emaLong = state.emaLong,
                     )
                     state.isLoading -> CircularProgressIndicator(color = FoxAmber50)
                     state.error != null -> Text(
