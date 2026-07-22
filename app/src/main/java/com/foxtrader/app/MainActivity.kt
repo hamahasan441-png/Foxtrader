@@ -24,13 +24,17 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContent {
-            FoxTraderApp()
+            FoxTraderAppContent()
         }
     }
 }
 
+/**
+ * Root composable. Named *Content to avoid an overload-resolution clash with
+ * the [FoxTraderApp] Application class, which shares this package.
+ */
 @Composable
-private fun FoxTraderApp() {
+private fun FoxTraderAppContent() {
     FoxTraderTheme {
         Surface(
             modifier = Modifier.fillMaxSize(),
