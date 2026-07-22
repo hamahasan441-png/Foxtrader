@@ -1,0 +1,35 @@
+{
+  "name": "foxtrader",
+  "version": "2.1.0",
+  "description": "FoxTrader — Institutional AI Trading Platform (Web + Android via Capacitor)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "lint": "eslint src --ext .ts,.tsx",
+    "cap:add:android": "cap add android",
+    "cap:sync": "cap sync android",
+    "cap:copy": "cap copy android",
+    "cap:open:android": "cap open android",
+    "android:build": "npm run build && cap sync android && cd android && ./gradlew assembleDebug",
+    "android:build:release": "npm run build && cap sync android && cd android && ./gradlew assembleRelease",
+    "android:apk": "npm run android:build && node -e \"console.log('APK: android/app/build/outputs/apk/debug/app-debug.apk')\""
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/splash-screen": "^6.0.2",
+    "@capacitor/status-bar": "^6.0.1",
+    "@capacitor/app": "^6.0.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.1.2",
+    "typescript": "^5.4.0",
+    "vite": "^5.4.0",
+    "@types/node": "^20.14.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

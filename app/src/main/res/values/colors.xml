@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Fox Design System — base colors for XML theme -->
+    <color name="fox_bg">#080B12</color>
+    <color name="fox_surface">#0C1019</color>
+    <color name="fox_accent">#D4A84E</color>
+    <color name="fox_text">#E4E7EC</color>
+    <color name="white">#FFFFFF</color>
+    <color name="black">#000000</color>
+</resources>

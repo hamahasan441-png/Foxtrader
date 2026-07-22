@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base theme — Compose handles the real theming; this covers the
+         splash window + status bar before Compose loads. -->
+    <style name="Theme.FoxTrader" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/fox_bg</item>
+        <item name="android:statusBarColor">@color/fox_bg</item>
+        <item name="android:navigationBarColor">@color/fox_bg</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

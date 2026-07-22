@@ -1,0 +1,29 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Fox mark — geometric, amber. Centered in the 72dp safe zone. -->
+    <!-- Left ear -->
+    <path android:fillColor="#D4A84E"
+        android:pathData="M34,32 L44,50 L26,49 Z" />
+    <!-- Right ear -->
+    <path android:fillColor="#D4A84E"
+        android:pathData="M74,32 L64,50 L82,49 Z" />
+    <!-- Face -->
+    <path android:fillColor="#E6BE6A"
+        android:pathData="M30,46 L78,46 L54,82 Z" />
+    <path android:fillColor="#D4A84E"
+        android:pathData="M34,48 L74,48 L54,76 Z" />
+    <!-- Snout -->
+    <path android:fillColor="#F0D48E"
+        android:pathData="M44,62 L64,62 L54,78 Z" />
+    <!-- Eyes -->
+    <path android:fillColor="#080B12"
+        android:pathData="M42,53 L50,53 L46,60 Z" />
+    <path android:fillColor="#080B12"
+        android:pathData="M66,53 L58,53 L62,60 Z" />
+    <!-- Nose -->
+    <path android:fillColor="#080B12"
+        android:pathData="M54,68 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0" />
+</vector>
