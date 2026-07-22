@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.foxtrader.app.domain.model.AlertPriority
+import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.PositionSizingMethod
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.ui.theme.FoxAmber50
@@ -177,6 +178,32 @@ fun SettingsScreen(
                 )
             }
 
+            // === DATA ===
+            SectionHeader("Data Provider")
+
+            SettingsCard {
+                DropdownSetting(
+                    label = "Market Data Source",
+                    selected = state.dataProvider.displayName,
+                    options = DataProvider.entries.map { it.displayName },
+                    onSelect = { name ->
+                        DataProvider.entries.firstOrNull { it.displayName == name }
+                            ?.let(viewModel::setDataProvider)
+                    },
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = if (state.dataProvider.supportsLive) {
+                        "Supports live streaming" +
+                            if (state.dataProvider.requiresApiKey) " (API key required)" else ""
+                    } else {
+                        "Historical / offline only"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = FoxNeutral60,
+                )
+            }
+
             // === GENERAL ===
             SectionHeader("General")
 
@@ -261,14 +288,17 @@ private fun SliderSetting(
         ) {
             Text(label, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
             Text(
-                text = if (suffix == "") "${value.toInt()}" else "%.1f$suffix".format(value),
+                // NOTE: never embed `suffix` inside the format string — a bare
+                // "%" (e.g. "%.1f%") throws UnknownFormatConversionException and
+                // crashed the whole Settings screen. Build the suffix separately.
+                text = if (suffix == "") "${value.toInt()}" else "%.1f".format(value) + suffix,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = FoxAmber50,
             )
         }
         Slider(
-            value = value,
+            value = value.coerceIn(range.start, range.endInclusive),
             onValueChange = onValueChange,
             valueRange = range,
             colors = SliderDefaults.colors(

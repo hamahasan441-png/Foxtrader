@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -38,7 +39,9 @@ import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.feature.chart.presentation.components.CandleChart
 import com.foxtrader.app.feature.chart.presentation.components.DrawingToolbar
+import com.foxtrader.app.feature.chart.presentation.components.IndicatorPanel
 import com.foxtrader.app.feature.chart.presentation.components.ReplayControlBar
+import com.foxtrader.app.feature.chart.presentation.components.SymbolPickerDialog
 import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxBearishText
 import com.foxtrader.app.ui.theme.FoxBullishText
@@ -76,6 +79,9 @@ fun ChartScreen(
         ChartTopBar(
             state = state,
             connectionState = connectionState,
+            onSymbolClick = viewModel::openSymbolPicker,
+            onIndicatorsToggle = viewModel::toggleIndicatorPanel,
+            onLiveToggle = viewModel::toggleLive,
             onDrawingToggle = viewModel::toggleDrawingToolbar,
             onReplayStart = { viewModel.startReplay() },
         )
@@ -84,6 +90,13 @@ fun ChartScreen(
         TimeframeRow(
             selected = state.timeframe,
             onSelect = viewModel::onTimeframeChange,
+        )
+
+        // --- Indicator toggle panel (slides in when active) ---
+        IndicatorPanel(
+            visible = state.showIndicatorPanel,
+            toggles = state.indicators,
+            onToggle = viewModel::updateIndicators,
         )
 
         // --- Drawing toolbar (slides in when active) ---
@@ -97,6 +110,15 @@ fun ChartScreen(
         )
 
         Spacer(Modifier.height(1.dp))
+
+        // --- Symbol picker dialog ---
+        SymbolPickerDialog(
+            visible = state.showSymbolPicker,
+            symbols = state.availableSymbols,
+            selected = state.symbol,
+            onSelect = viewModel::onSymbolChange,
+            onDismiss = viewModel::closeSymbolPicker,
+        )
 
         // --- Chart area with pull-to-refresh ---
         Box(
@@ -123,6 +145,13 @@ fun ChartScreen(
                             timeframe = state.timeframe,
                             emaShort = state.emaShort,
                             emaLong = state.emaLong,
+                            bollingerUpper = state.bollingerUpper,
+                            bollingerMiddle = state.bollingerMiddle,
+                            bollingerLower = state.bollingerLower,
+                            superTrendValues = state.superTrendValues,
+                            superTrendDir = state.superTrendDir,
+                            parabolicSar = state.parabolicSar,
+                            vwap = state.vwap,
                             orderBlocks = state.orderBlocks,
                             fairValueGaps = state.fairValueGaps,
                             liquidityPools = state.liquidityPools,
@@ -163,6 +192,9 @@ fun ChartScreen(
 private fun ChartTopBar(
     state: ChartUiState,
     connectionState: ConnectionState,
+    onSymbolClick: () -> Unit,
+    onIndicatorsToggle: () -> Unit,
+    onLiveToggle: () -> Unit,
     onDrawingToggle: () -> Unit,
     onReplayStart: () -> Unit,
 ) {
@@ -172,32 +204,47 @@ private fun ChartTopBar(
             .background(MaterialTheme.colorScheme.surface)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text("Fox", color = FoxAmber50, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-        Text("Trader", color = FoxNeutral60, style = MaterialTheme.typography.titleMedium)
-        Badge(state.symbol)
+        // Tappable symbol badge → opens the symbol picker.
+        Text(
+            text = state.symbol,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .background(MaterialTheme.colorScheme.primaryContainer)
+                .clickable { onSymbolClick() }
+                .padding(horizontal = 10.dp, vertical = 5.dp),
+        )
         BiasBadge(state.bias)
 
-        // Connection indicator (small dot)
-        if (connectionState == ConnectionState.CONNECTED) {
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(FoxSuccess)
-                    .padding(horizontal = 4.dp, vertical = 2.dp),
-            ) {
-                Text("LIVE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.background, fontWeight = FontWeight.Bold)
-            }
-        }
+        // LIVE toggle — green when connected, tap to connect/disconnect.
+        val live = connectionState == ConnectionState.CONNECTED
+        Text(
+            text = if (live) "LIVE" else if (state.liveEnabled) "..." else "OFF",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = if (live) MaterialTheme.colorScheme.background else FoxNeutral60,
+            modifier = Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .background(if (live) FoxSuccess else MaterialTheme.colorScheme.surfaceVariant)
+                .clickable { onLiveToggle() }
+                .padding(horizontal = 6.dp, vertical = 3.dp),
+        )
 
         Spacer(Modifier.weight(1f))
 
+        // Indicators toggle
+        IconButton(onClick = onIndicatorsToggle) {
+            Icon(Icons.Default.ShowChart, contentDescription = "Indicators", tint = FoxNeutral60)
+        }
         // Drawing tools toggle
         IconButton(onClick = onDrawingToggle) {
             Icon(Icons.Default.Edit, contentDescription = "Drawing tools", tint = FoxNeutral60)
         }
-
         // Replay button
         IconButton(onClick = onReplayStart) {
             Icon(Icons.Default.Refresh, contentDescription = "Replay mode", tint = FoxNeutral60)
@@ -247,19 +294,6 @@ private fun TimeframeRow(
             )
         }
     }
-}
-
-@Composable
-private fun Badge(text: String) {
-    Text(
-        text = text,
-        color = MaterialTheme.colorScheme.onSurface,
-        style = MaterialTheme.typography.labelLarge,
-        modifier = Modifier
-            .clip(RoundedCornerShape(4.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-    )
 }
 
 @Composable

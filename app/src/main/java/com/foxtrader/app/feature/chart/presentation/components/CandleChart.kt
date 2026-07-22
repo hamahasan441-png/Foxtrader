@@ -2,19 +2,14 @@ package com.foxtrader.app.feature.chart.presentation.components
 
 import android.graphics.Paint
 import android.graphics.Typeface
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.exponentialDecay
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -26,7 +21,6 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.foxtrader.app.domain.model.Candle
@@ -64,8 +58,7 @@ import kotlin.math.roundToInt
  * - 120 FPS on modern hardware, never below 60 FPS
  * - Viewport culling bounds draw cost to visible bars only
  * - Zero per-frame allocations in draw loop
- * - Fling inertia via Compose Animatable (frame-perfect decay)
- * - Single-finger drag for pan, two-finger pinch for zoom
+ * - Single unified gesture handler: single-finger pan + pinch zoom (no drift)
  * - Long-press activates crosshair
  */
 @Composable
@@ -76,6 +69,13 @@ fun CandleChart(
     timeframe: Timeframe = Timeframe.M15,
     emaShort: DoubleArray? = null,
     emaLong: DoubleArray? = null,
+    bollingerUpper: DoubleArray? = null,
+    bollingerMiddle: DoubleArray? = null,
+    bollingerLower: DoubleArray? = null,
+    superTrendValues: DoubleArray? = null,
+    superTrendDir: IntArray? = null,
+    parabolicSar: DoubleArray? = null,
+    vwap: DoubleArray? = null,
     orderBlocks: List<com.foxtrader.app.domain.model.OrderBlock> = emptyList(),
     fairValueGaps: List<com.foxtrader.app.domain.model.FairValueGap> = emptyList(),
     liquidityPools: List<com.foxtrader.app.domain.model.LiquidityPool> = emptyList(),
@@ -84,7 +84,6 @@ fun CandleChart(
     volumeProfile: com.foxtrader.app.domain.model.VolumeProfile? = null,
 ) {
     val density = LocalDensity.current
-    val scope = rememberCoroutineScope()
 
     // Viewport survives recomposition. Layout margins set in density-independent pixels.
     val viewport = remember {
@@ -94,12 +93,8 @@ fun CandleChart(
         }
     }
 
-    // Redraw trigger — bumped after every gesture/animation frame.
+    // Redraw trigger — bumped after every gesture frame.
     var invalidateTick by remember { mutableIntStateOf(0) }
-
-    // Fling animation state
-    val flingAnimatable = remember { Animatable(0f) }
-    var flingPrevValue by remember { mutableStateOf(0f) }
 
     // Native Paint objects (reused across frames — zero allocation in draw loop)
     val priceLabelPaint = remember {
@@ -153,79 +148,35 @@ fun CandleChart(
     Canvas(
         modifier = modifier
             .background(FoxNeutral5)
-            // --- PINCH-TO-ZOOM ---
+            // --- PAN (single finger) + ZOOM (pinch) in ONE handler ---
+            // A single detectTransformGestures prevents the chart "drift" bug:
+            // previously a transform handler AND a drag handler both applied pan
+            // to the same one-finger drag, doubling/fighting the movement.
+            // detectTransformGestures natively reports pan for a single pointer.
             .pointerInput(candles.size) {
                 detectTransformGestures { _, pan, zoom, _ ->
+                    // A pan/zoom interaction dismisses the crosshair.
+                    if (viewport.crosshairActive) viewport.crosshairActive = false
+
                     val cw = viewport.chartWidth(size.width.toFloat())
-                    if (pan != Offset.Zero) {
-                        val barsPerPx = viewport.visibleBars / cw
+                    val barsPerPx = viewport.visibleBars / cw
+
+                    // Horizontal pan (works for 1 or 2 fingers).
+                    if (pan.x != 0f) {
                         viewport.startIndex -= pan.x * barsPerPx
                     }
-                    if (zoom != 1f) {
+
+                    // Pinch zoom toward the viewport center.
+                    if (zoom != 1f && zoom > 0f) {
                         val center = viewport.startIndex + viewport.visibleBars / 2f
-                        viewport.visibleBars /= zoom
+                        viewport.visibleBars = viewport.visibleBars / zoom
                         viewport.startIndex = center - viewport.visibleBars / 2f
                     }
+
                     viewport.clamp(candles.size)
                     viewport.autoScale(candles)
                     invalidateTick++
                 }
-            }
-            // --- SINGLE-FINGER DRAG + FLING ---
-            .pointerInput(candles.size) {
-                val velocityTracker = VelocityTracker()
-                detectDragGestures(
-                    onDragStart = {
-                        // Cancel any active fling
-                        scope.launch { flingAnimatable.stop() }
-                        viewport.isFling = false
-                        viewport.crosshairActive = false
-                        velocityTracker.resetTracking()
-                    },
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        velocityTracker.addPosition(
-                            change.uptimeMillis,
-                            change.position,
-                        )
-                        val cw = viewport.chartWidth(size.width.toFloat())
-                        val barsPerPx = viewport.visibleBars / cw
-                        viewport.startIndex -= dragAmount.x * barsPerPx
-                        viewport.clamp(candles.size)
-                        viewport.autoScale(candles)
-                        invalidateTick++
-                    },
-                    onDragEnd = {
-                        // Launch fling with measured velocity
-                        val velocity = velocityTracker.calculateVelocity()
-                        val vxPx = velocity.x // pixels/sec
-                        val cw = viewport.chartWidth(size.width.toFloat())
-                        if (abs(vxPx) > 200f && candles.isNotEmpty()) {
-                            viewport.isFling = true
-                            flingPrevValue = 0f
-                            scope.launch {
-                                flingAnimatable.snapTo(0f)
-                                flingAnimatable.animateDecay(
-                                    initialVelocity = vxPx,
-                                    animationSpec = exponentialDecay(frictionMultiplier = 1.5f),
-                                ) {
-                                    // Each frame: compute delta and pan viewport
-                                    val delta = value - flingPrevValue
-                                    flingPrevValue = value
-                                    val barsPerPx = viewport.visibleBars / cw
-                                    viewport.startIndex -= delta * barsPerPx
-                                    viewport.clamp(candles.size)
-                                    viewport.autoScale(candles)
-                                    invalidateTick++
-                                }
-                                viewport.isFling = false
-                            }
-                        }
-                    },
-                    onDragCancel = {
-                        viewport.isFling = false
-                    },
-                )
             }
             // --- LONG-PRESS FOR CROSSHAIR ---
             .pointerInput(candles.size) {
@@ -301,11 +252,23 @@ fun CandleChart(
         }
 
         // ====================================================================
-        // LAYER 2: INDICATOR OVERLAYS (EMA lines)
+        // LAYER 2: INDICATOR OVERLAYS (EMA / Bollinger / SuperTrend / PSAR / VWAP)
         // ====================================================================
-        if (emaShort != null || emaLong != null) {
-            clipRect(right = cw, bottom = ch) {
+        clipRect(right = cw, bottom = ch) {
+            if (emaShort != null || emaLong != null) {
                 drawIndicatorLayer(candles, viewport, cw, ch, emaShort, emaLong)
+            }
+            if (bollingerUpper != null && bollingerMiddle != null && bollingerLower != null) {
+                drawBollinger(viewport, cw, ch, bollingerUpper, bollingerMiddle, bollingerLower)
+            }
+            if (vwap != null) {
+                drawLineSeries(viewport, cw, ch, vwap, Color(0xFF9C27B0), 1.5f)
+            }
+            if (superTrendValues != null && superTrendDir != null) {
+                drawSuperTrend(viewport, cw, ch, superTrendValues, superTrendDir)
+            }
+            if (parabolicSar != null) {
+                drawParabolicSar(viewport, cw, ch, parabolicSar)
             }
         }
 
@@ -351,9 +314,6 @@ fun CandleChart(
         // ====================================================================
         drawTimeAxis(viewport, candles, cw, ch, totalW, totalH, timeLabelPaint, timeframe)
     }
-
-    // Fling is handled directly in the animateDecay block above.
-    // No additional LaunchedEffect needed.
 }
 
 // ============================================================================
@@ -495,6 +455,82 @@ private fun DrawScope.drawEmaLine(
         )
         prevX = x
         prevY = y
+    }
+}
+
+/** Generic single-line series renderer (viewport-culled). Used for VWAP etc. */
+private fun DrawScope.drawLineSeries(
+    viewport: ChartViewport,
+    cw: Float,
+    ch: Float,
+    values: DoubleArray,
+    color: Color,
+    strokeWidth: Float,
+) {
+    val start = max(0, viewport.startIndex.toInt())
+    val end = min(values.size, (viewport.startIndex + viewport.visibleBars).toInt() + 1)
+    if (end - start < 2) return
+    var prevX = viewport.xForIndex(start + 0.5f, cw)
+    var prevY = viewport.yForPrice(values[start], ch)
+    for (i in start + 1 until end) {
+        val x = viewport.xForIndex(i + 0.5f, cw)
+        val y = viewport.yForPrice(values[i], ch)
+        drawLine(color, Offset(prevX, prevY), Offset(x, y), strokeWidth = strokeWidth, cap = StrokeCap.Round)
+        prevX = x; prevY = y
+    }
+}
+
+/** Bollinger Bands: upper/lower channel + middle line. */
+private fun DrawScope.drawBollinger(
+    viewport: ChartViewport,
+    cw: Float,
+    ch: Float,
+    upper: DoubleArray,
+    middle: DoubleArray,
+    lower: DoubleArray,
+) {
+    val bandColor = Color(0x663B8DF0)
+    val midColor = Color(0xAA3B8DF0)
+    drawLineSeries(viewport, cw, ch, upper, bandColor, 1.2f)
+    drawLineSeries(viewport, cw, ch, lower, bandColor, 1.2f)
+    drawLineSeries(viewport, cw, ch, middle, midColor, 1f)
+}
+
+/** SuperTrend line: green segment when bullish, red when bearish. */
+private fun DrawScope.drawSuperTrend(
+    viewport: ChartViewport,
+    cw: Float,
+    ch: Float,
+    values: DoubleArray,
+    dir: IntArray,
+) {
+    val start = max(0, viewport.startIndex.toInt())
+    val end = min(minOf(values.size, dir.size), (viewport.startIndex + viewport.visibleBars).toInt() + 1)
+    if (end - start < 2) return
+    for (i in start + 1 until end) {
+        val x1 = viewport.xForIndex((i - 1) + 0.5f, cw)
+        val y1 = viewport.yForPrice(values[i - 1], ch)
+        val x2 = viewport.xForIndex(i + 0.5f, cw)
+        val y2 = viewport.yForPrice(values[i], ch)
+        val color = if (dir[i] == 1) FoxBullish else FoxBearish
+        drawLine(color, Offset(x1, y1), Offset(x2, y2), strokeWidth = 2f, cap = StrokeCap.Round)
+    }
+}
+
+/** Parabolic SAR: dots above/below price. */
+private fun DrawScope.drawParabolicSar(
+    viewport: ChartViewport,
+    cw: Float,
+    ch: Float,
+    sar: DoubleArray,
+) {
+    val start = max(0, viewport.startIndex.toInt())
+    val end = min(sar.size, (viewport.startIndex + viewport.visibleBars).toInt() + 1)
+    val dotColor = Color(0xCCD4A84E)
+    for (i in start until end) {
+        val x = viewport.xForIndex(i + 0.5f, cw)
+        val y = viewport.yForPrice(sar[i], ch)
+        if (y in 0f..ch) drawCircle(dotColor, radius = 2f, center = Offset(x, y))
     }
 }
 
