@@ -90,6 +90,17 @@ class MarketHeatmap @Inject constructor() {
             )
         }
 
+        // Guard: no valid symbols → return an empty, neutral result (avoids NaN).
+        if (cells.isEmpty()) {
+            return HeatmapResult(
+                cells = emptyList(),
+                bestPerformer = null,
+                worstPerformer = null,
+                averageChange = 0.0,
+                marketSentiment = MarketSentiment.NEUTRAL,
+            )
+        }
+
         // Calculate relative strength (vs group average)
         val groupAverages = cells.groupBy { it.assetClass }
             .mapValues { (_, group) -> group.map { it.changePercent }.average() }

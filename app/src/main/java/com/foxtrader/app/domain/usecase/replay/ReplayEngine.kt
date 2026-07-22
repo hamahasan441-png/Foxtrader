@@ -52,7 +52,13 @@ class ReplayEngine @Inject constructor() {
      * @param startAt The bar index to begin replay (candles before this are visible)
      */
     fun start(candles: List<Candle>, startAt: Int = 50) {
+        // Need at least 2 candles to run a replay.
+        if (candles.size < 2) {
+            _state.value = ReplayState()
+            return
+        }
         allCandles = candles
+        // Guard: coerceIn requires min <= max. With >=2 candles, size-1 >= 1.
         val clamped = startAt.coerceIn(1, candles.size - 1)
         _state.value = ReplayState(
             isActive = true,

@@ -70,6 +70,28 @@ class ReplayEngineTest {
     }
 
     @Test
+    fun `start with single candle does not crash and stays inactive`() {
+        // Regression: coerceIn(1, size-1) threw when size <= 1
+        val single = testCandles.take(1)
+        engine.start(single, startAt = 50)
+        assertFalse(engine.state.value.isActive)
+    }
+
+    @Test
+    fun `start with empty candles does not crash`() {
+        // Regression: coerceIn(1, -1) threw on empty input
+        engine.start(emptyList(), startAt = 50)
+        assertFalse(engine.state.value.isActive)
+    }
+
+    @Test
+    fun `start with exactly two candles works`() {
+        engine.start(testCandles.take(2), startAt = 50)
+        assertTrue(engine.state.value.isActive)
+        assertEquals(1, engine.state.value.currentIndex) // clamped to size-1
+    }
+
+    @Test
     fun `stop deactivates replay`() {
         engine.start(testCandles, startAt = 30)
         assertTrue(engine.state.value.isActive)
