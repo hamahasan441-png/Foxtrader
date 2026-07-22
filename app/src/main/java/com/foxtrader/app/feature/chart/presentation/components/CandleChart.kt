@@ -2,6 +2,7 @@ package com.foxtrader.app.feature.chart.presentation.components
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -30,7 +31,7 @@ import kotlin.math.min
  * RenderThread (Skia). Key performance techniques:
  *  - Viewport culling: only candles in the visible index range are drawn
  *  - No per-frame allocations in the draw loop
- *  - Gesture-driven pan (drag) + zoom (pinch) mutate the viewport only
+ *  - Single-finger drag for pan, two-finger pinch for zoom
  *
  * Scales to very large series because draw cost is bounded by visible bars,
  * not total candle count.
@@ -42,14 +43,10 @@ fun CandleChart(
 ) {
     // Viewport survives recomposition; initialised to the most recent bars.
     val viewport = remember { ChartViewport() }
-    // Bump this to force a redraw after a gesture mutates the (non-snapshot)
-    // viewport. Only mutated from gesture callbacks (never during composition).
+    // Bump this to force a Canvas redraw after a gesture mutates the viewport.
     var invalidateTick by remember { mutableStateOf(0) }
 
     // Initialise / follow the right edge when data first arrives or grows.
-    // NOTE: this block must NOT write snapshot state (e.g. invalidateTick) —
-    // it runs during composition. A change in candles.size already triggers a
-    // recomposition that re-executes the Canvas draw, so no manual tick needed.
     remember(candles.size) {
         val count = min(120, candles.size).toFloat()
         if (viewport.visibleBars <= 0f || viewport.startIndex == 0f) {
@@ -64,20 +61,31 @@ fun CandleChart(
     Canvas(
         modifier = modifier
             .background(FoxNeutral5)
+            // Two-finger pinch-to-zoom
             .pointerInput(candles.size) {
                 detectTransformGestures { _, pan, zoom, _ ->
-                    // Pan: horizontal drag moves the index window
-                    val barsPerPx = viewport.visibleBars / size.width
-                    viewport.startIndex -= pan.x * barsPerPx
-
-                    // Zoom: pinch changes the number of visible bars (toward center)
+                    // Pan from pinch gesture centroid movement
+                    if (pan != Offset.Zero) {
+                        val barsPerPx = viewport.visibleBars / size.width
+                        viewport.startIndex -= pan.x * barsPerPx
+                    }
+                    // Zoom: pinch changes the number of visible bars
                     if (zoom != 1f) {
                         val center = viewport.startIndex + viewport.visibleBars / 2f
-                        viewport.visibleBars = (viewport.visibleBars / zoom)
-                        val ratio = 1f / zoom
-                        viewport.startIndex = center - (center - viewport.startIndex) * ratio
+                        viewport.visibleBars /= zoom
+                        viewport.startIndex = center - viewport.visibleBars / 2f
                     }
-
+                    viewport.clamp(candles.size)
+                    viewport.autoScale(candles)
+                    invalidateTick++
+                }
+            }
+            // Single-finger drag for pan
+            .pointerInput(candles.size) {
+                detectDragGestures { change, dragAmount ->
+                    change.consume()
+                    val barsPerPx = viewport.visibleBars / size.width
+                    viewport.startIndex -= dragAmount.x * barsPerPx
                     viewport.clamp(candles.size)
                     viewport.autoScale(candles)
                     invalidateTick++
@@ -91,7 +99,6 @@ fun CandleChart(
         val h = size.height
 
         // Grid lines aligned to "nice" round price levels (institutional look)
-        // rather than arbitrary geometric divisions.
         val step = viewport.niceStep(5)
         if (step > 0.0) {
             var level = ceil(viewport.priceLow / step) * step
@@ -118,7 +125,7 @@ fun CandleChart(
             val cx = viewport.xForIndex(i + 0.5f, w)
             val color = if (c.isBullish) FoxBullish else FoxBearish
 
-            // Wick (high → low)
+            // Wick (high -> low)
             drawLine(
                 color = color,
                 start = Offset(cx, viewport.yForPrice(c.high, h)),
@@ -127,7 +134,7 @@ fun CandleChart(
                 cap = StrokeCap.Round,
             )
 
-            // Body (open ↔ close)
+            // Body (open <-> close)
             val yOpen = viewport.yForPrice(c.open, h)
             val yClose = viewport.yForPrice(c.close, h)
             val top = min(yOpen, yClose)
