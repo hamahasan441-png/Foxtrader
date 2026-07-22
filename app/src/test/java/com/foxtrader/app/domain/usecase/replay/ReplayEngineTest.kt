@@ -62,7 +62,7 @@ class ReplayEngineTest {
     @Test
     fun `start clamps to valid range`() {
         engine.start(testCandles, startAt = 200) // Beyond data size
-        assertEquals(100, engine.state.value.currentIndex)
+        assertEquals(99, engine.state.value.currentIndex) // Clamped to candles.size - 1
 
         engine.stop()
         engine.start(testCandles, startAt = 0) // At zero — clamped to 1
