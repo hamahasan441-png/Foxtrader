@@ -18,7 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.HorizontalRule
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.Icon
@@ -75,7 +75,7 @@ fun DrawingToolbar(
                 onClick = { onToolSelect(DrawingToolType.TREND_LINE) },
             )
             DrawingToolButton(
-                icon = Icons.Default.HorizontalRule,
+                icon = Icons.Default.Remove,
                 label = "H-Line",
                 isActive = activeTool == DrawingToolType.HORIZONTAL_LINE,
                 onClick = { onToolSelect(DrawingToolType.HORIZONTAL_LINE) },
