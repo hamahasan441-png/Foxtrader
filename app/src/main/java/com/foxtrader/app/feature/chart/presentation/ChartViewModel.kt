@@ -86,15 +86,21 @@ class ChartViewModel @Inject constructor(
     private fun observeWebSocketTicks() {
         webSocket.ticks
             .onEach { tick ->
-                // If this tick matches our current symbol/timeframe, update forming candle
+                // Only apply ticks for the currently displayed symbol/timeframe.
                 if (tick.symbol == symbolFlow.value && tick.timeframe == timeframeFlow.value) {
                     val current = _uiState.value.candles.toMutableList()
-                    if (tick.isBarClose) {
-                        // New confirmed bar — append
-                        current.add(tick.candle)
-                    } else if (current.isNotEmpty()) {
-                        // Update the last (forming) candle
-                        current[current.lastIndex] = tick.candle
+                    val lastTs = current.lastOrNull()?.timestamp
+                    when {
+                        // Same bar (by open time): replace the forming/closing candle in place.
+                        lastTs != null && lastTs == tick.candle.timestamp -> {
+                            current[current.lastIndex] = tick.candle
+                        }
+                        // New bar (later timestamp): append it.
+                        lastTs == null || tick.candle.timestamp > lastTs -> {
+                            current.add(tick.candle)
+                        }
+                        // Stale/out-of-order tick (older than last bar): ignore.
+                        else -> return@onEach
                     }
                     processCandles(current)
                 }

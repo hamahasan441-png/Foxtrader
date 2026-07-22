@@ -183,16 +183,19 @@ class OrderManager @Inject constructor() {
     // ========================================================================
 
     /**
-     * Process a new candle tick against all pending orders.
+     * Process a new candle tick against all pending orders for [symbol].
      * Returns list of orders that were filled this tick.
+     *
+     * @param symbol The instrument this candle belongs to (Candle has no symbol field,
+     *               so the caller supplies the market context).
      */
-    fun processTick(candle: Candle): List<TradeOrder> {
+    fun processTick(symbol: String, candle: Candle): List<TradeOrder> {
         val filled = mutableListOf<TradeOrder>()
 
         for (i in orders.indices) {
             val order = orders[i]
             if (order.status != OrderStatus.PENDING) continue
-            if (order.symbol != candle.toString()) continue // Symbol check simplified
+            if (order.symbol != symbol) continue
 
             val wasFilled = when (order.type) {
                 OrderType.MARKET -> true
