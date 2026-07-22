@@ -4,16 +4,19 @@
 //
 // Architecture:
 // - Candle data stored in flat Float32Array (OHLC + index per candle)
+// - Uploaded to the GPU ONCE on data change (setData/append/update) — never
+//   per frame. Pan/zoom change only a uniform matrix + an attribute offset.
 // - Unit quad (4 vertices) instanced N times for bodies
 // - Unit line (2 vertices) instanced N times for wicks
-// - Viewport culling: only upload visible range to GPU
+// - Viewport culling: only the visible instance range is drawn, via a
+//   per-frame attribute-offset re-point (no CPU→GPU upload while scrolling)
 // - Transform via uniform matrix (zoom/pan = update 1 uniform, 0 re-upload)
 // ============================================================================
 
 import { Candle } from '../../core/types';
 import {
   createProgram, createBuffer, createVAO,
-  setupInstancedAttribute, buildTransformMatrix, getUniform,
+  buildTransformMatrix, getUniform,
 } from './gl-utils';
 import {
   CANDLE_BODY_VERTEX, CANDLE_BODY_FRAGMENT,
@@ -35,6 +38,13 @@ export interface ViewportState {
   priceHigh: number;
 }
 
+/** Describes one instanced attribute so its byte offset can be re-pointed per frame. */
+interface InstanceAttr {
+  loc: number;
+  /** Byte offset of this attribute WITHIN one candle record. */
+  offset: number;
+}
+
 export class CandleRenderer {
   private gl: WebGL2RenderingContext;
   private bodyProgram: WebGLProgram;
@@ -43,12 +53,17 @@ export class CandleRenderer {
   private wickVAO: WebGLVertexArrayObject;
   private instanceBuffer: WebGLBuffer;
 
+  // Per-VAO instanced attribute descriptors (for per-frame offset re-pointing).
+  private bodyInstanceAttrs: InstanceAttr[] = [];
+  private wickInstanceAttrs: InstanceAttr[] = [];
+
   // Data state
   private candleData: Float32Array = new Float32Array(0);
   private totalCandles: number = 0;
   private visibleStart: number = 0;
   private visibleCount: number = 0;
-  private dirty: boolean = true;
+  /** Floats currently allocated on the GPU (buffer capacity). */
+  private gpuCapacityFloats: number = 0;
 
   // Config
   private barWidth: number = 0.7;    // Relative to barWidth+barSpacing
@@ -62,7 +77,7 @@ export class CandleRenderer {
     this.bodyProgram = createProgram(gl, CANDLE_BODY_VERTEX, CANDLE_BODY_FRAGMENT);
     this.wickProgram = createProgram(gl, CANDLE_WICK_VERTEX, CANDLE_WICK_FRAGMENT);
 
-    // Create instance buffer (will be populated with candle data)
+    // Create instance buffer (populated on setData, never per frame)
     this.instanceBuffer = createBuffer(gl, new Float32Array(0), gl.DYNAMIC_DRAW);
 
     // Setup body VAO (unit quad + instanced attributes)
@@ -73,12 +88,12 @@ export class CandleRenderer {
   }
 
   // =========================================================================
-  // DATA MANAGEMENT
+  // DATA MANAGEMENT — GPU uploads happen HERE, not in render()
   // =========================================================================
 
   /**
-   * Load full candle dataset. Converts to flat Float32Array for GPU upload.
-   * Only the visible portion is actually uploaded each frame.
+   * Load full candle dataset. Converts to a flat Float32Array and uploads it
+   * to the GPU ONCE. Subsequent frames re-use this buffer with zero uploads.
    */
   setData(candles: Candle[]): void {
     this.totalCandles = candles.length;
@@ -92,20 +107,25 @@ export class CandleRenderer {
       this.candleData[offset + 3] = candles[i].close;
       this.candleData[offset + 4] = i; // Bar index
     }
-    this.dirty = true;
+    this.uploadFull();
   }
 
   /**
-   * Append a single candle (real-time update). O(1) operation.
+   * Append a single candle (real-time update). O(1) amortized. Uploads only
+   * the new 20-byte record to the GPU (or reallocates on growth).
    */
   appendCandle(candle: Candle): void {
-    const newSize = (this.totalCandles + 1) * FLOATS_PER_CANDLE;
-    if (newSize > this.candleData.length) {
-      // Grow buffer by 50% (amortized O(1))
-      const grown = new Float32Array(Math.max(newSize, this.candleData.length * 1.5));
+    const requiredFloats = (this.totalCandles + 1) * FLOATS_PER_CANDLE;
+    let grew = false;
+    if (requiredFloats > this.candleData.length) {
+      // Grow capacity by 50% (amortized O(1)), keeping an integer length.
+      const nextCapacity = Math.max(requiredFloats, Math.floor(this.candleData.length * 1.5));
+      const grown = new Float32Array(nextCapacity);
       grown.set(this.candleData);
       this.candleData = grown;
+      grew = true;
     }
+
     const offset = this.totalCandles * FLOATS_PER_CANDLE;
     this.candleData[offset] = candle.open;
     this.candleData[offset + 1] = candle.high;
@@ -113,11 +133,17 @@ export class CandleRenderer {
     this.candleData[offset + 3] = candle.close;
     this.candleData[offset + 4] = this.totalCandles;
     this.totalCandles++;
-    this.dirty = true;
+
+    if (grew) {
+      this.uploadFull();
+    } else {
+      this.uploadRange(offset, FLOATS_PER_CANDLE);
+    }
   }
 
   /**
-   * Update the last candle in-place (forming bar update). O(1).
+   * Update the last candle in-place (forming bar update). O(1). Uploads only
+   * the last 20-byte record.
    */
   updateLastCandle(candle: Candle): void {
     if (this.totalCandles === 0) return;
@@ -126,21 +152,46 @@ export class CandleRenderer {
     this.candleData[offset + 1] = candle.high;
     this.candleData[offset + 2] = candle.low;
     this.candleData[offset + 3] = candle.close;
-    this.dirty = true;
+    this.uploadRange(offset, FLOATS_PER_CANDLE);
+  }
+
+  /** (Re)allocate the GPU buffer to the full CPU array and upload it. */
+  private uploadFull(): void {
+    const gl = this.gl;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.instanceBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, this.candleData, gl.DYNAMIC_DRAW);
+    this.gpuCapacityFloats = this.candleData.length;
+  }
+
+  /** Upload a sub-range of floats to the existing GPU buffer (no realloc). */
+  private uploadRange(offsetFloats: number, lengthFloats: number): void {
+    const gl = this.gl;
+    // Safety: if the GPU buffer somehow hasn't been sized yet, do a full upload.
+    if (offsetFloats + lengthFloats > this.gpuCapacityFloats) {
+      this.uploadFull();
+      return;
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.instanceBuffer);
+    gl.bufferSubData(
+      gl.ARRAY_BUFFER,
+      offsetFloats * 4, // byte offset
+      this.candleData.subarray(offsetFloats, offsetFloats + lengthFloats)
+    );
   }
 
   // =========================================================================
-  // RENDERING
+  // RENDERING — zero uploads; only re-point the visible instance window
   // =========================================================================
 
   /**
-   * Render visible candles. Called once per frame by the scheduler.
-   * Only uploads the VISIBLE portion of data to GPU (viewport culling).
+   * Render visible candles. Called once per frame. Performs NO CPU→GPU upload:
+   * viewport culling is achieved by re-pointing the instanced attributes to
+   * the visible window's byte offset and drawing only `visibleCount` instances.
    */
   render(viewport: ViewportState): void {
     const gl = this.gl;
 
-    // Viewport culling: determine visible range
+    // Viewport culling: determine visible instance range (+2 bar bleed).
     const start = Math.max(0, Math.floor(viewport.startIndex) - 2);
     const end = Math.min(this.totalCandles, Math.ceil(viewport.startIndex + viewport.visibleBars) + 2);
     this.visibleStart = start;
@@ -148,16 +199,9 @@ export class CandleRenderer {
 
     if (this.visibleCount <= 0) return;
 
-    // Upload only visible candle data to GPU
-    const visibleData = this.candleData.subarray(
-      start * FLOATS_PER_CANDLE,
-      end * FLOATS_PER_CANDLE
-    );
+    const baseByteOffset = start * INSTANCE_STRIDE;
 
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.instanceBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, visibleData, gl.DYNAMIC_DRAW);
-
-    // Build transform matrix
+    // Build transform matrix (this is the ONLY thing that changes on pan/zoom).
     const transform = buildTransformMatrix(
       viewport.startIndex,
       viewport.visibleBars * (this.barWidth + this.barSpacing),
@@ -175,6 +219,7 @@ export class CandleRenderer {
     gl.uniform1f(getUniform(gl, this.wickProgram, 'u_wickWidth'), this.wickWidth);
 
     gl.bindVertexArray(this.wickVAO);
+    this.repointInstanceAttrs(this.wickInstanceAttrs, baseByteOffset);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, this.visibleCount);
 
     // --- Pass 2: Render bodies (on top) ---
@@ -184,10 +229,24 @@ export class CandleRenderer {
     gl.uniform1f(getUniform(gl, this.bodyProgram, 'u_barSpacing'), this.barSpacing);
 
     gl.bindVertexArray(this.bodyVAO);
+    this.repointInstanceAttrs(this.bodyInstanceAttrs, baseByteOffset);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, this.visibleCount);
 
     gl.bindVertexArray(null);
-    this.dirty = false;
+  }
+
+  /**
+   * Re-point instanced attributes to [baseByteOffset] so instance 0 maps to the
+   * first visible candle. Cheap CPU-side state change — no data upload. The
+   * absolute bar index baked into each record keeps X positioning correct.
+   */
+  private repointInstanceAttrs(attrs: InstanceAttr[], baseByteOffset: number): void {
+    const gl = this.gl;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.instanceBuffer);
+    for (const a of attrs) {
+      if (a.loc < 0) continue;
+      gl.vertexAttribPointer(a.loc, 1, gl.FLOAT, false, INSTANCE_STRIDE, baseByteOffset + a.offset);
+    }
   }
 
   // =========================================================================
@@ -217,17 +276,14 @@ export class CandleRenderer {
 
     // Instance attributes (per-candle, divisor=1)
     gl.bindBuffer(gl.ARRAY_BUFFER, this.instanceBuffer);
-    const openLoc = gl.getAttribLocation(this.bodyProgram, 'a_open');
-    const highLoc = gl.getAttribLocation(this.bodyProgram, 'a_high');
-    const lowLoc = gl.getAttribLocation(this.bodyProgram, 'a_low');
-    const closeLoc = gl.getAttribLocation(this.bodyProgram, 'a_close');
-    const indexLoc = gl.getAttribLocation(this.bodyProgram, 'a_index');
-
-    this.setupInstanceAttr(gl, openLoc, 1, INSTANCE_STRIDE, 0);
-    this.setupInstanceAttr(gl, highLoc, 1, INSTANCE_STRIDE, 4);
-    this.setupInstanceAttr(gl, lowLoc, 1, INSTANCE_STRIDE, 8);
-    this.setupInstanceAttr(gl, closeLoc, 1, INSTANCE_STRIDE, 12);
-    this.setupInstanceAttr(gl, indexLoc, 1, INSTANCE_STRIDE, 16);
+    this.bodyInstanceAttrs = [
+      { loc: gl.getAttribLocation(this.bodyProgram, 'a_open'), offset: 0 },
+      { loc: gl.getAttribLocation(this.bodyProgram, 'a_high'), offset: 4 },
+      { loc: gl.getAttribLocation(this.bodyProgram, 'a_low'), offset: 8 },
+      { loc: gl.getAttribLocation(this.bodyProgram, 'a_close'), offset: 12 },
+      { loc: gl.getAttribLocation(this.bodyProgram, 'a_index'), offset: 16 },
+    ];
+    for (const a of this.bodyInstanceAttrs) this.setupInstanceAttr(gl, a.loc, INSTANCE_STRIDE, a.offset);
 
     gl.bindVertexArray(null);
     return vao;
@@ -252,26 +308,23 @@ export class CandleRenderer {
 
     // Instance attributes
     gl.bindBuffer(gl.ARRAY_BUFFER, this.instanceBuffer);
-    const highLoc = gl.getAttribLocation(this.wickProgram, 'a_high');
-    const lowLoc = gl.getAttribLocation(this.wickProgram, 'a_low');
-    const openLoc = gl.getAttribLocation(this.wickProgram, 'a_open');
-    const closeLoc = gl.getAttribLocation(this.wickProgram, 'a_close');
-    const indexLoc = gl.getAttribLocation(this.wickProgram, 'a_index');
-
-    this.setupInstanceAttr(gl, openLoc, 1, INSTANCE_STRIDE, 0);
-    this.setupInstanceAttr(gl, highLoc, 1, INSTANCE_STRIDE, 4);
-    this.setupInstanceAttr(gl, lowLoc, 1, INSTANCE_STRIDE, 8);
-    this.setupInstanceAttr(gl, closeLoc, 1, INSTANCE_STRIDE, 12);
-    this.setupInstanceAttr(gl, indexLoc, 1, INSTANCE_STRIDE, 16);
+    this.wickInstanceAttrs = [
+      { loc: gl.getAttribLocation(this.wickProgram, 'a_open'), offset: 0 },
+      { loc: gl.getAttribLocation(this.wickProgram, 'a_high'), offset: 4 },
+      { loc: gl.getAttribLocation(this.wickProgram, 'a_low'), offset: 8 },
+      { loc: gl.getAttribLocation(this.wickProgram, 'a_close'), offset: 12 },
+      { loc: gl.getAttribLocation(this.wickProgram, 'a_index'), offset: 16 },
+    ];
+    for (const a of this.wickInstanceAttrs) this.setupInstanceAttr(gl, a.loc, INSTANCE_STRIDE, a.offset);
 
     gl.bindVertexArray(null);
     return vao;
   }
 
-  private setupInstanceAttr(gl: WebGL2RenderingContext, loc: number, size: number, stride: number, offset: number): void {
+  private setupInstanceAttr(gl: WebGL2RenderingContext, loc: number, stride: number, offset: number): void {
     if (loc < 0) return; // Attribute optimized away by compiler
     gl.enableVertexAttribArray(loc);
-    gl.vertexAttribPointer(loc, size, gl.FLOAT, false, stride, offset);
+    gl.vertexAttribPointer(loc, 1, gl.FLOAT, false, stride, offset);
     gl.vertexAttribDivisor(loc, 1);
   }
 
@@ -279,11 +332,11 @@ export class CandleRenderer {
   // CONFIG
   // =========================================================================
 
-  setBarWidth(width: number): void { this.barWidth = width; this.dirty = true; }
-  setBarSpacing(spacing: number): void { this.barSpacing = spacing; this.dirty = true; }
+  setBarWidth(width: number): void { this.barWidth = width; }
+  setBarSpacing(spacing: number): void { this.barSpacing = spacing; }
   getTotalCandles(): number { return this.totalCandles; }
   getVisibleCount(): number { return this.visibleCount; }
-  isDirty(): boolean { return this.dirty; }
+  getVisibleStart(): number { return this.visibleStart; }
 
   destroy(): void {
     const gl = this.gl;
