@@ -48,15 +48,20 @@ class AnalyzeMarketStructureUseCase @Inject constructor() {
 
     private fun isSwingHigh(c: List<Candle>, i: Int, l: Int, r: Int): Boolean {
         val h = c[i].high
+        // Strictly greater than everything to the LEFT, so an equal-high
+        // plateau (double/triple top, EQH) reports its FIRST bar exactly once.
         for (j in 1..l) if (h <= c[i - j].high) return false
-        for (j in 1..r) if (h <= c[i + j].high) return false
+        // Greater-than-or-EQUAL to the right: tolerates equal highs, which are
+        // common and structurally meaningful in real markets. Strict `>` here
+        // would fail to confirm any peak whose next bar ties its high.
+        for (j in 1..r) if (h < c[i + j].high) return false
         return true
     }
 
     private fun isSwingLow(c: List<Candle>, i: Int, l: Int, r: Int): Boolean {
         val lo = c[i].low
         for (j in 1..l) if (lo >= c[i - j].low) return false
-        for (j in 1..r) if (lo >= c[i + j].low) return false
+        for (j in 1..r) if (lo > c[i + j].low) return false
         return true
     }
 

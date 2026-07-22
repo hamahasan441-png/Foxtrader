@@ -23,12 +23,14 @@ class AnalyzeMarketStructureUseCaseTest {
 
     @Test
     fun `rising series produces higher highs and bullish structure`() {
-        // Build a clean uptrend with pullbacks so swings form
+        // Build a clean uptrend with pullbacks LONGER than rightBars so each
+        // leg's peak/trough is a genuine local extreme over the ±rightBars
+        // window (5 up, 4 down per cycle — net rising).
         val candles = buildList {
             var price = 1.0
-            for (i in 0 until 60) {
-                val up = i % 6 < 4            // 4 up, 2 down — net rising
-                val delta = if (up) 0.010 else -0.004
+            for (i in 0 until 63) {
+                val up = i % 9 < 5            // 5 up, 4 down — net rising
+                val delta = if (up) 0.010 else -0.006
                 val open = price
                 val close = price + delta
                 add(candle(i, open, maxOf(open, close) + 0.002, minOf(open, close) - 0.002, close))
