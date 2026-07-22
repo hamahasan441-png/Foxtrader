@@ -1,12 +1,10 @@
 package com.foxtrader.app.feature.chart.presentation.components
 
-import android.graphics.Paint
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.nativeCanvas
 import com.foxtrader.app.domain.model.FairValueGap
 import com.foxtrader.app.domain.model.FvgType
 import com.foxtrader.app.domain.model.LiquidityPool
@@ -16,7 +14,6 @@ import com.foxtrader.app.domain.model.OrderBlockType
 import com.foxtrader.app.domain.model.SessionRange
 import com.foxtrader.app.domain.model.VolumeProfile
 import kotlin.math.max
-import kotlin.math.min
 
 /**
  * SMC (Smart Money Concepts) chart overlay renderers.
