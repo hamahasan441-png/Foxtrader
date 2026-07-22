@@ -128,6 +128,7 @@ fun ChartScreen(
                             liquidityPools = state.liquidityPools,
                             sessions = state.sessions,
                             drawings = state.drawings,
+                            volumeProfile = state.volumeProfile,
                         )
                         state.isLoading -> CircularProgressIndicator(color = FoxAmber50)
                         state.error != null -> Text(
