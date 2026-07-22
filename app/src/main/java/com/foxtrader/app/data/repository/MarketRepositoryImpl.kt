@@ -3,6 +3,7 @@ package com.foxtrader.app.data.repository
 import com.foxtrader.app.data.local.dao.CandleDao
 import com.foxtrader.app.data.mapper.toDomain
 import com.foxtrader.app.data.mapper.toEntity
+import com.foxtrader.app.data.remote.api.BinanceDataSource
 import com.foxtrader.app.data.remote.api.MarketApi
 import com.foxtrader.app.di.IoDispatcher
 import com.foxtrader.app.domain.model.Candle
@@ -28,6 +29,7 @@ import javax.inject.Singleton
 class MarketRepositoryImpl @Inject constructor(
     private val dao: CandleDao,
     private val api: MarketApi,
+    private val binance: BinanceDataSource,
     @IoDispatcher private val io: CoroutineDispatcher,
 ) : MarketRepository {
 
@@ -40,8 +42,15 @@ class MarketRepositoryImpl @Inject constructor(
         limit: Int,
     ): Result<Unit> = withContext(io) {
         runCatching {
-            val response = api.getCandles(symbol, timeframe.label, limit)
-            val entities = response.candles.map { it.toDomain().toEntity(symbol, timeframe) }
+            val candles: List<Candle> = if (binance.isBinanceSymbol(symbol)) {
+                // Route crypto pairs to Binance public REST API (no key needed).
+                binance.fetchCandles(symbol, timeframe, limit)
+            } else {
+                // Route non-crypto (Forex, Stocks, etc.) to the FoxTrader backend.
+                val response = api.getCandles(symbol, timeframe.label, limit)
+                response.candles.map { it.toDomain() }
+            }
+            val entities = candles.map { it.toEntity(symbol, timeframe) }
             dao.upsertAll(entities)
         }.recoverCatching { error ->
             // Network failed — if cache is empty, seed synthetic data so the

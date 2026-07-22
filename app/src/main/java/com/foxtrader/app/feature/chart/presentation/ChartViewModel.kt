@@ -103,21 +103,12 @@ class ChartViewModel @Inject constructor(
             .onEach { tick ->
                 // Only apply ticks for the currently displayed symbol/timeframe.
                 if (tick.symbol == symbolFlow.value && tick.timeframe == timeframeFlow.value) {
-                    val current = _uiState.value.candles.toMutableList()
-                    val lastTs = current.lastOrNull()?.timestamp
-                    when {
-                        // Same bar (by open time): replace the forming/closing candle in place.
-                        lastTs != null && lastTs == tick.candle.timestamp -> {
-                            current[current.lastIndex] = tick.candle
-                        }
-                        // New bar (later timestamp): append it.
-                        lastTs == null || tick.candle.timestamp > lastTs -> {
-                            current.add(tick.candle)
-                        }
-                        // Stale/out-of-order tick (older than last bar): ignore.
-                        else -> return@onEach
+                    // Persist into Room (SSOT) so the DB remains the authority.
+                    // The DB Flow observer will pick up the change and trigger
+                    // processCandles, so we DON'T duplicate the update here.
+                    viewModelScope.launch {
+                        repository.upsertCandle(tick.symbol, tick.timeframe, tick.candle)
                     }
-                    processCandles(current)
                 }
             }
             .launchIn(viewModelScope)
