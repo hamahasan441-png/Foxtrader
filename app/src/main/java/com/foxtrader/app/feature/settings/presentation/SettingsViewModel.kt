@@ -3,10 +3,12 @@ package com.foxtrader.app.feature.settings.presentation
 import androidx.lifecycle.ViewModel
 import com.foxtrader.app.domain.model.AlertConfig
 import com.foxtrader.app.domain.model.AlertPriority
+import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.PositionSizingMethod
 import com.foxtrader.app.domain.model.RiskConfig
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.alerts.AlertEngine
+import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.domain.usecase.risk.RiskEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,15 +21,22 @@ import javax.inject.Inject
 class SettingsViewModel @Inject constructor(
     private val riskEngine: RiskEngine,
     private val alertEngine: AlertEngine,
+    private val appPreferences: AppPreferences,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
         SettingsUiState(
             riskConfig = riskEngine.getConfig(),
             alertConfig = alertEngine.getConfig(),
+            dataProvider = appPreferences.dataProvider.value,
         )
     )
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
+
+    fun setDataProvider(provider: DataProvider) {
+        appPreferences.setDataProvider(provider)
+        _uiState.update { it.copy(dataProvider = provider, saved = false) }
+    }
 
     // --- Risk Config ---
 

@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -27,11 +28,13 @@ import com.foxtrader.app.feature.chart.presentation.ChartScreen
 import com.foxtrader.app.feature.journal.presentation.JournalScreen
 import com.foxtrader.app.feature.scanner.presentation.ScannerScreen
 import com.foxtrader.app.feature.settings.presentation.SettingsScreen
+import com.foxtrader.app.feature.strategies.presentation.StrategiesScreen
 
 /** Type-safe route constants for the app's destinations. */
 object FoxRoutes {
     const val CHART = "chart"
     const val SCANNER = "scanner"
+    const val STRATEGIES = "strategies"
     const val JOURNAL = "journal"
     const val SETTINGS = "settings"
 }
@@ -46,6 +49,7 @@ data class BottomNavTab(
 private val bottomTabs = listOf(
     BottomNavTab(FoxRoutes.CHART, "Chart", Icons.Default.BarChart),
     BottomNavTab(FoxRoutes.SCANNER, "Scanner", Icons.Default.Search),
+    BottomNavTab(FoxRoutes.STRATEGIES, "Strategies", Icons.Default.Insights),
     BottomNavTab(FoxRoutes.JOURNAL, "Journal", Icons.Default.Book),
     BottomNavTab(FoxRoutes.SETTINGS, "Settings", Icons.Default.Settings),
 )
@@ -75,6 +79,9 @@ fun FoxNavHost(
             }
             composable(FoxRoutes.SCANNER) {
                 ScannerScreen()
+            }
+            composable(FoxRoutes.STRATEGIES) {
+                StrategiesScreen()
             }
             composable(FoxRoutes.JOURNAL) {
                 JournalScreen()

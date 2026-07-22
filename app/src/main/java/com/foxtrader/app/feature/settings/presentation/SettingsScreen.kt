@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.foxtrader.app.domain.model.AlertPriority
+import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.PositionSizingMethod
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.ui.theme.FoxAmber50
@@ -174,6 +175,32 @@ fun SettingsScreen(
                     range = 5f..60f,
                     suffix = "",
                     onValueChange = { viewModel.setMaxAlertsPerHour(it.toInt()) },
+                )
+            }
+
+            // === DATA ===
+            SectionHeader("Data Provider")
+
+            SettingsCard {
+                DropdownSetting(
+                    label = "Market Data Source",
+                    selected = state.dataProvider.displayName,
+                    options = DataProvider.entries.map { it.displayName },
+                    onSelect = { name ->
+                        DataProvider.entries.firstOrNull { it.displayName == name }
+                            ?.let(viewModel::setDataProvider)
+                    },
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = if (state.dataProvider.supportsLive) {
+                        "Supports live streaming" +
+                            if (state.dataProvider.requiresApiKey) " (API key required)" else ""
+                    } else {
+                        "Historical / offline only"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = FoxNeutral60,
                 )
             }
 
