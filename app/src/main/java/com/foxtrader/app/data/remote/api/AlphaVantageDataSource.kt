@@ -23,6 +23,7 @@ class AlphaVantageDataSource @Inject constructor(
         limit: Int = 500,
         apiKey: String,
     ): List<Candle> {
+        if (limit <= 0) return emptyList()
         if (apiKey.isBlank()) return emptyList()
 
         val request = buildRequest(symbol, timeframe) ?: return emptyList()
@@ -51,7 +52,7 @@ class AlphaVantageDataSource @Inject constructor(
             Candle(timestamp = timestamp, open = open, high = high, low = low, close = close, volume = volume)
         }
             .sortedBy { it.timestamp }
-            .takeLast(limit.coerceAtLeast(1))
+            .takeLast(limit)
     }
 
     private fun buildRequest(symbol: String, timeframe: Timeframe): Request? {
@@ -93,8 +94,9 @@ class AlphaVantageDataSource @Inject constructor(
 
     private fun parseForexPair(symbol: String): Pair<String, String>? {
         val clean = symbol.replace("/", "")
-        if (clean.length != 6 || !clean.all { it in 'A'..'Z' }) return null
-        return clean.substring(0, 3) to clean.substring(3, 6)
+        if (clean.length != FOREX_SYMBOL_LENGTH || !clean.all { it in 'A'..'Z' }) return null
+        return clean.substring(0, ISO_CURRENCY_CODE_LENGTH) to
+            clean.substring(ISO_CURRENCY_CODE_LENGTH, FOREX_SYMBOL_LENGTH)
     }
 
     private fun parseTimestamp(value: String): Long? {
@@ -118,5 +120,7 @@ class AlphaVantageDataSource @Inject constructor(
 
     private companion object {
         val DATE_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+        const val ISO_CURRENCY_CODE_LENGTH = 3
+        const val FOREX_SYMBOL_LENGTH = ISO_CURRENCY_CODE_LENGTH * 2
     }
 }

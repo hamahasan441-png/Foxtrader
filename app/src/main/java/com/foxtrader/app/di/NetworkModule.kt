@@ -39,6 +39,7 @@ object NetworkModule {
 
     /** Binance public API base URL. */
     private const val BINANCE_BASE_URL = "https://api.binance.com/"
+    /** Alpha Vantage public API base URL. */
     private const val ALPHA_VANTAGE_BASE_URL = "https://www.alphavantage.co/"
 
     @Provides
