@@ -123,6 +123,9 @@ dependencies {
     // Biometric authentication
     implementation(libs.androidx.biometric)
 
+    // Fragment (FragmentActivity host for BiometricPrompt)
+    implementation(libs.androidx.fragment.ktx)
+
     // Testing
     testImplementation(libs.junit)
     testImplementation(libs.mockk)

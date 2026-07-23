@@ -1,6 +1,8 @@
 package com.foxtrader.app.di
 
+import com.foxtrader.app.data.repository.AuthRepositoryImpl
 import com.foxtrader.app.data.repository.MarketRepositoryImpl
+import com.foxtrader.app.domain.repository.AuthRepository
 import com.foxtrader.app.domain.repository.MarketRepository
 import dagger.Binds
 import dagger.Module
@@ -19,4 +21,8 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindMarketRepository(impl: MarketRepositoryImpl): MarketRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindAuthRepository(impl: AuthRepositoryImpl): AuthRepository
 }

@@ -8,16 +8,21 @@ import com.foxtrader.app.domain.model.DecisionConfig
 import com.foxtrader.app.domain.model.PositionSizingMethod
 import com.foxtrader.app.domain.model.RiskConfig
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.repository.AuthRepository
 import com.foxtrader.app.domain.usecase.ai.AiAlertService
 import com.foxtrader.app.domain.usecase.ai.MasterDecisionEngine
 import com.foxtrader.app.domain.usecase.alerts.AlertEngine
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.domain.usecase.risk.RiskEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
@@ -27,6 +32,7 @@ class SettingsViewModel @Inject constructor(
     private val appPreferences: AppPreferences,
     private val decisionEngine: MasterDecisionEngine,
     private val aiAlertService: AiAlertService,
+    private val authRepository: AuthRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
@@ -35,9 +41,20 @@ class SettingsViewModel @Inject constructor(
             alertConfig = alertEngine.getConfig(),
             dataProvider = appPreferences.dataProvider.value,
             darkMode = appPreferences.darkMode.value,
+            authState = authRepository.authState.value,
         )
     )
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
+
+    init {
+        authRepository.authState
+            .onEach { state -> _uiState.update { it.copy(authState = state) } }
+            .launchIn(viewModelScope)
+    }
+
+    fun logout() {
+        viewModelScope.launch { authRepository.logout() }
+    }
 
     fun setDataProvider(provider: DataProvider) {
         appPreferences.setDataProvider(provider)

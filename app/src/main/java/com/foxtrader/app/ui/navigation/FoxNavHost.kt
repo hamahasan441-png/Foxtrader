@@ -24,6 +24,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.foxtrader.app.feature.auth.presentation.LoginScreen
 import com.foxtrader.app.feature.chart.presentation.ChartScreen
 import com.foxtrader.app.feature.journal.presentation.JournalScreen
 import com.foxtrader.app.feature.scanner.presentation.ScannerScreen
@@ -37,6 +38,7 @@ object FoxRoutes {
     const val STRATEGIES = "strategies"
     const val JOURNAL = "journal"
     const val SETTINGS = "settings"
+    const val LOGIN = "login"
 }
 
 /** Bottom navigation tab definition. */
@@ -87,7 +89,15 @@ fun FoxNavHost(
                 JournalScreen()
             }
             composable(FoxRoutes.SETTINGS) {
-                SettingsScreen()
+                SettingsScreen(
+                    onNavigateToLogin = { navController.navigate(FoxRoutes.LOGIN) },
+                )
+            }
+            composable(FoxRoutes.LOGIN) {
+                LoginScreen(
+                    onAuthenticated = { navController.popBackStack() },
+                    onDismiss = { navController.popBackStack() },
+                )
             }
         }
     }
