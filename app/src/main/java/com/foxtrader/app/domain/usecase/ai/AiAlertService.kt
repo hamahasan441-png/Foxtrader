@@ -5,6 +5,7 @@ import com.foxtrader.app.domain.model.DecisionResult
 import com.foxtrader.app.domain.model.FoxAlert
 import com.foxtrader.app.domain.model.SignalGrade
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -23,7 +24,8 @@ import javax.inject.Singleton
 @Singleton
 class AiAlertService @Inject constructor() {
 
-    private val recentAlerts = mutableMapOf<String, Long>() // key -> last dispatch timestamp
+    // ConcurrentHashMap for safe access from multiple coroutines.
+    private val recentAlerts = ConcurrentHashMap<String, Long>() // key -> last dispatch timestamp
 
     var cooldownMs: Long = DEFAULT_COOLDOWN_MS
     var minGrade: SignalGrade = SignalGrade.MODERATE

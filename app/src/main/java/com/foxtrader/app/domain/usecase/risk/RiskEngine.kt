@@ -10,6 +10,8 @@ import com.foxtrader.app.domain.model.RiskStatus
 import com.foxtrader.app.domain.model.StopMethod
 import com.foxtrader.app.domain.model.TradeOutcome
 import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.abs
@@ -28,17 +30,21 @@ import kotlin.math.sqrt
  * - Drawdown & auto-halt protection
  * - Trade outcome tracking & Kelly estimation
  *
- * Thread-safe: internal state is only mutated through [recordTrade] and [updateBalance].
+ * Thread-safe: internal mutable state is protected by [synchronized] on [lock];
+ * [tradeHistory] uses [CopyOnWriteArrayList] for safe concurrent iteration.
  */
 @Singleton
 class RiskEngine @Inject constructor() {
 
+    private val lock = Any()
     private var config: RiskConfig = RiskConfig()
-    private val tradeHistory = mutableListOf<TradeOutcome>()
-    private var peakBalance: Double = config.accountBalance
-    private var currentBalance: Double = config.accountBalance
-    private var tradingHalted: Boolean = false
-    private var haltReason: String = ""
+    private val tradeHistory = CopyOnWriteArrayList<TradeOutcome>()
+    @Volatile private var peakBalance: Double = config.accountBalance
+    @Volatile private var currentBalance: Double = config.accountBalance
+    private val _tradingHalted = AtomicBoolean(false)
+    @Volatile private var haltReason: String = ""
+
+    private val tradingHalted get() = _tradingHalted.get()
 
     // ========================================================================
     // POSITION SIZING
@@ -199,8 +205,10 @@ class RiskEngine @Inject constructor() {
             win = pnl > 0,
             symbol = symbol,
         )
-        currentBalance += pnl
-        if (currentBalance > peakBalance) peakBalance = currentBalance
+        synchronized(lock) {
+            currentBalance += pnl
+            if (currentBalance > peakBalance) peakBalance = currentBalance
+        }
         checkAutoHalt()
     }
 
@@ -257,16 +265,16 @@ class RiskEngine @Inject constructor() {
     // ========================================================================
 
     fun haltTrading(reason: String) {
-        tradingHalted = true
         haltReason = reason
+        _tradingHalted.set(true)
     }
 
     fun resumeTrading() {
-        tradingHalted = false
+        _tradingHalted.set(false)
         haltReason = ""
     }
 
-    fun isTradingHalted(): Boolean = tradingHalted
+    fun isTradingHalted(): Boolean = _tradingHalted.get()
 
     private fun checkAutoHalt() {
         val drawdown = getCurrentDrawdown()
@@ -296,7 +304,7 @@ class RiskEngine @Inject constructor() {
         consecutiveLosses = getConsecutiveLosses(),
         exposurePercent = 0.0,
         kellyPercent = calculateKellyPercent() * 100.0,
-        halted = tradingHalted,
+        halted = _tradingHalted.get(),
         haltReason = haltReason,
     )
 
@@ -307,17 +315,21 @@ class RiskEngine @Inject constructor() {
     fun getConfig(): RiskConfig = config
 
     fun updateBalance(balance: Double) {
-        currentBalance = balance
-        if (balance > peakBalance) peakBalance = balance
+        synchronized(lock) {
+            currentBalance = balance
+            if (balance > peakBalance) peakBalance = balance
+        }
     }
 
     fun getBalance(): Double = currentBalance
 
     fun reset() {
         tradeHistory.clear()
-        peakBalance = config.accountBalance
-        currentBalance = config.accountBalance
-        tradingHalted = false
+        synchronized(lock) {
+            peakBalance = config.accountBalance
+            currentBalance = config.accountBalance
+        }
+        _tradingHalted.set(false)
         haltReason = ""
     }
 }

@@ -10,10 +10,12 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.foxtrader.app.di.IoDispatcher
 import com.foxtrader.app.domain.model.DataProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,8 +33,9 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 @Singleton
 class AppPreferences @Inject constructor(
     @ApplicationContext private val context: Context,
+    @IoDispatcher private val io: CoroutineDispatcher,
 ) {
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val scope = CoroutineScope(SupervisorJob() + io)
     private val securePrefs: SharedPreferences by lazy { createSecurePrefs() }
 
     private val _dataProvider = MutableStateFlow(DataProvider.SAMPLE)

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.foxtrader.app.data.remote.websocket.MarketWebSocket
 import com.foxtrader.app.data.alerts.AlertDispatcher
+import com.foxtrader.app.di.DefaultDispatcher
 import com.foxtrader.app.domain.model.ChartPoint
 import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.AgentContext
@@ -27,14 +28,17 @@ import com.foxtrader.app.domain.usecase.replay.ReplayEngine
 import com.foxtrader.app.domain.usecase.sessions.SessionDetector
 import com.foxtrader.app.domain.usecase.smc.SmcDetector
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /**
@@ -70,6 +74,7 @@ class ChartViewModel @Inject constructor(
     private val aiAlertService: AiAlertService,
     private val alertDispatcher: AlertDispatcher,
     private val drawingRepository: DrawingRepository,
+    @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChartUiState())
@@ -111,8 +116,9 @@ class ChartViewModel @Inject constructor(
     private fun observeMarket() {
         combine(symbolFlow, timeframeFlow) { symbol, tf -> symbol to tf }
             .flatMapLatest { (symbol, tf) -> repository.observeCandles(symbol, tf) }
+            .distinctUntilChangedBy { it.size }
             .onEach { candles ->
-                processCandles(candles)
+                viewModelScope.launch { processCandles(candles) }
             }
             .launchIn(viewModelScope)
     }
@@ -135,52 +141,64 @@ class ChartViewModel @Inject constructor(
 
     /**
      * Central candle processing pipeline.
-     * Runs all analysis engines and updates the UI state atomically.
+     * Offloads all CPU-bound indicator/SMC analysis to [defaultDispatcher] and
+     * updates the UI state atomically on completion.
+     *
+     * Must be called from within a coroutine (suspending).
      */
-    private fun processCandles(candles: List<com.foxtrader.app.domain.model.Candle>) {
+    private suspend fun processCandles(candles: List<com.foxtrader.app.domain.model.Candle>) {
         val ind = _uiState.value.indicators
-        val structure = analyzeStructure(candles)
 
-        // --- Line indicators (computed only when enabled) ---
-        val emaShort = if (ind.ema && candles.size >= 20) TechnicalIndicators.calculateEMA(candles, 20) else null
-        val emaLong = if (ind.ema && candles.size >= 50) TechnicalIndicators.calculateEMA(candles, 50) else null
-        val vwap = if (ind.vwap && candles.isNotEmpty()) TechnicalIndicators.calculateVWAP(candles) else null
-        val ichimoku = if (ind.ichimoku && candles.size >= 52) ichimokuCloud.calculate(candles) else null
+        val result = withContext(defaultDispatcher) {
+            val structure = analyzeStructure(candles)
 
-        val boll = if (ind.bollinger && candles.size >= 20) bollingerBands.calculate(candles) else null
-        val st = if (ind.superTrend && candles.size >= 15) superTrend.calculate(candles) else null
-        val psar = if (ind.parabolicSar && candles.size >= 2) parabolicSar.calculate(candles).sar else null
+            // --- Line indicators (computed only when enabled) ---
+            val emaShort = if (ind.ema && candles.size >= 20) TechnicalIndicators.calculateEMA(candles, 20) else null
+            val emaLong = if (ind.ema && candles.size >= 50) TechnicalIndicators.calculateEMA(candles, 50) else null
+            val vwap = if (ind.vwap && candles.isNotEmpty()) TechnicalIndicators.calculateVWAP(candles) else null
+            val ichimoku = if (ind.ichimoku && candles.size >= 52) ichimokuCloud.calculate(candles) else null
 
-        // --- SMC analysis (computed only when its overlay is enabled) ---
-        val orderBlocks = if (ind.orderBlocks) smcDetector.detectOrderBlocks(candles) else emptyList()
-        val fairValueGaps = if (ind.fairValueGaps) smcDetector.detectFairValueGaps(candles) else emptyList()
-        val liquidityPools = if (ind.liquidity) smcDetector.detectLiquidity(candles) else emptyList()
-        val volumeProfile = if (ind.volumeProfile && candles.size >= 20) smcDetector.computeVolumeProfile(candles) else null
-        val sessions = if (ind.sessions) sessionDetector.detectSessions(candles) else emptyList()
+            val boll = if (ind.bollinger && candles.size >= 20) bollingerBands.calculate(candles) else null
+            val st = if (ind.superTrend && candles.size >= 15) superTrend.calculate(candles) else null
+            val psar = if (ind.parabolicSar && candles.size >= 2) parabolicSar.calculate(candles).sar else null
+
+            // --- SMC analysis (computed only when its overlay is enabled) ---
+            val orderBlocks = if (ind.orderBlocks) smcDetector.detectOrderBlocks(candles) else emptyList()
+            val fairValueGaps = if (ind.fairValueGaps) smcDetector.detectFairValueGaps(candles) else emptyList()
+            val liquidityPools = if (ind.liquidity) smcDetector.detectLiquidity(candles) else emptyList()
+            val volumeProfile = if (ind.volumeProfile && candles.size >= 20) smcDetector.computeVolumeProfile(candles) else null
+            val sessions = if (ind.sessions) sessionDetector.detectSessions(candles) else emptyList()
+
+            AnalysisResult(
+                structure, emaShort, emaLong, vwap, ichimoku,
+                boll, st, psar,
+                orderBlocks, fairValueGaps, liquidityPools, volumeProfile, sessions,
+            )
+        }
 
         _uiState.value = _uiState.value.copy(
             candles = candles,
-            bias = structure.bias,
-            structureBreaks = if (ind.structure) structure.breaks else emptyList(),
-            emaShort = emaShort,
-            emaLong = emaLong,
-            bollingerUpper = boll?.upper,
-            bollingerMiddle = boll?.middle,
-            bollingerLower = boll?.lower,
-            superTrendValues = st?.values,
-            superTrendDir = st?.direction,
-            parabolicSar = psar,
-            vwap = vwap,
-            ichimokuTenkan = ichimoku?.tenkan,
-            ichimokuKijun = ichimoku?.kijun,
-            ichimokuSenkouA = ichimoku?.senkouA,
-            ichimokuSenkouB = ichimoku?.senkouB,
-            ichimokuChikou = ichimoku?.chikou,
-            orderBlocks = orderBlocks,
-            fairValueGaps = fairValueGaps,
-            liquidityPools = liquidityPools,
-            volumeProfile = volumeProfile,
-            sessions = sessions,
+            bias = result.structure.bias,
+            structureBreaks = if (ind.structure) result.structure.breaks else emptyList(),
+            emaShort = result.emaShort,
+            emaLong = result.emaLong,
+            bollingerUpper = result.boll?.upper,
+            bollingerMiddle = result.boll?.middle,
+            bollingerLower = result.boll?.lower,
+            superTrendValues = result.st?.values,
+            superTrendDir = result.st?.direction,
+            parabolicSar = result.psar,
+            vwap = result.vwap,
+            ichimokuTenkan = result.ichimoku?.tenkan,
+            ichimokuKijun = result.ichimoku?.kijun,
+            ichimokuSenkouA = result.ichimoku?.senkouA,
+            ichimokuSenkouB = result.ichimoku?.senkouB,
+            ichimokuChikou = result.ichimoku?.chikou,
+            orderBlocks = result.orderBlocks,
+            fairValueGaps = result.fairValueGaps,
+            liquidityPools = result.liquidityPools,
+            volumeProfile = result.volumeProfile,
+            sessions = result.sessions,
             isLoading = candles.isEmpty() && _uiState.value.error == null,
         )
 
@@ -188,21 +206,40 @@ class ChartViewModel @Inject constructor(
         runAiDecision(candles)
     }
 
+    /**
+     * Holds the results of a single analysis pass so they can be returned
+     * from a [withContext] block as a typed carrier.
+     */
+    private data class AnalysisResult(
+        val structure: com.foxtrader.app.domain.model.MarketStructure,
+        val emaShort: DoubleArray?,
+        val emaLong: DoubleArray?,
+        val vwap: DoubleArray?,
+        val ichimoku: com.foxtrader.app.domain.usecase.indicators.IchimokuCloud.IchimokuResult?,
+        val boll: com.foxtrader.app.domain.usecase.indicators.BollingerBands.BollingerResult?,
+        val st: com.foxtrader.app.domain.usecase.indicators.SuperTrend.SuperTrendResult?,
+        val psar: DoubleArray?,
+        val orderBlocks: List<com.foxtrader.app.domain.model.OrderBlock>,
+        val fairValueGaps: List<com.foxtrader.app.domain.model.FairValueGap>,
+        val liquidityPools: List<com.foxtrader.app.domain.model.LiquidityPool>,
+        val volumeProfile: com.foxtrader.app.domain.model.VolumeProfile?,
+        val sessions: List<com.foxtrader.app.domain.model.SessionRange>,
+    )
+
     // ========================================================================
     // AI DECISION ENGINE
     // ========================================================================
 
     /**
      * Run the multi-agent reasoning pipeline and update the UI with the result.
-     * Only runs when there's sufficient data (>=50 candles) and throttled to
-     * avoid burning CPU on every tick.
+     * Only runs when there's sufficient data (>=50 candles). Runs the CPU-bound
+     * orchestrator on [defaultDispatcher] to keep the main thread free.
      */
     private fun runAiDecision(candles: List<com.foxtrader.app.domain.model.Candle>) {
         if (candles.size < 50) {
             _uiState.value = _uiState.value.copy(aiDecision = null)
             return
         }
-        // Fetch HTF context asynchronously; the AI pipeline runs off-main.
         viewModelScope.launch {
             val mtfCandles = mtfContextProvider.getHtfContext(
                 symbol = symbolFlow.value,
@@ -214,8 +251,10 @@ class ChartViewModel @Inject constructor(
                 candles = candles,
                 mtfCandles = mtfCandles,
             )
-            val orchestratorResult = orchestrator.analyze(context)
-            val decision = decisionEngine.evaluate(orchestratorResult)
+            val decision = withContext(defaultDispatcher) {
+                val orchestratorResult = orchestrator.analyze(context)
+                decisionEngine.evaluate(orchestratorResult)
+            }
             _uiState.value = _uiState.value.copy(aiDecision = decision)
 
             // Fire a push alert if the AI approves a signal (cooldown-gated).
@@ -268,7 +307,7 @@ class ChartViewModel @Inject constructor(
     /** Update indicator toggles and immediately recompute against current candles. */
     fun updateIndicators(transform: (IndicatorToggles) -> IndicatorToggles) {
         _uiState.value = _uiState.value.copy(indicators = transform(_uiState.value.indicators))
-        processCandles(_uiState.value.candles)
+        viewModelScope.launch { processCandles(_uiState.value.candles) }
     }
 
     fun openSymbolPicker() {
