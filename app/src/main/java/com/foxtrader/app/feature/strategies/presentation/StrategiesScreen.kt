@@ -188,6 +188,19 @@ private fun MetricLabel(label: String, value: String) {
 }
 
 @Composable
+private fun TagChip(tag: String) {
+    Text(
+        text = tag,
+        fontSize = 10.sp,
+        color = FoxNeutral60,
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(FoxNeutral60.copy(alpha = 0.1f))
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+    )
+}
+
+@Composable
 private fun confidenceColor(confidence: Int): Color = when {
     confidence >= 70 -> FoxBullishText
     confidence >= 50 -> FoxAmber50

@@ -411,9 +411,9 @@ class ScannerUseCase @Inject constructor(
             activeOrderBlock?.let { atrSafeDistance(price, (it.highPrice + it.lowPrice) / 2.0, atr) },
             activeFvg?.let { atrSafeDistance(price, (it.highPrice + it.lowPrice) / 2.0, atr) },
         ).maxOrNull() ?: 0.0
-        val score = (45 + if (liquiditySweep != null) 18 else 0 +
-            if (structureBreak != null) 18 else 0 +
-            if (sweepMatchesBreak) 14 else 0 +
+        val score = (45 + (if (liquiditySweep != null) 18 else 0) +
+            (if (structureBreak != null) 18 else 0) +
+            (if (sweepMatchesBreak) 14 else 0) +
             mitigationScore * 10).roundToInt().coerceIn(0, 100)
         return StrategySignalSnapshot(
             direction = direction,
@@ -444,7 +444,7 @@ class ScannerUseCase @Inject constructor(
         }
         val score = (
             (pattern?.confidence ?: 40) +
-                if (wyckoff.confidence >= 60) 10 else 0 +
+                (if (wyckoff.confidence >= 60) 10 else 0) +
                 (atr / candles.last().close * 1000).coerceAtMost(10.0)
             ).roundToInt().coerceIn(0, 100)
         return StrategySignalSnapshot(
