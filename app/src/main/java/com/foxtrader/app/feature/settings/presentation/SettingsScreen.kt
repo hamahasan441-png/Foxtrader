@@ -53,6 +53,7 @@ import com.foxtrader.app.ui.theme.FoxSuccess
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
+    onNavigateToLogin: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -79,6 +80,91 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Spacer(Modifier.height(4.dp))
+
+            // === ACCOUNT ===
+            SectionHeader("Account")
+
+            SettingsCard {
+                if (state.isLoggedIn) {
+                    Text(
+                        text = "Signed in — cloud sync enabled",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = FoxSuccess,
+                    )
+                    if (state.syncMessage != null) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = state.syncMessage ?: "",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = FoxNeutral60,
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = viewModel::syncNow,
+                        enabled = !state.isSyncing,
+                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = FoxAmber50),
+                    ) {
+                        Text(
+                            text = if (state.isSyncing) "Syncing…" else "Sync Now",
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        onClick = viewModel::logout,
+                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = FoxNeutral10),
+                    ) {
+                        Text("Sign Out", color = MaterialTheme.colorScheme.onSurface)
+                    }
+                } else {
+                    Text(
+                        text = "Sign in to back up and sync your journal, drawings, and settings across devices.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = FoxNeutral60,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = onNavigateToLogin,
+                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = FoxAmber50),
+                    ) {
+                        Text(
+                            "Sign In / Register",
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                        )
+                    }
+                }
+            }
+
+            // === SECURITY ===
+            SectionHeader("Security")
+
+            SettingsCard {
+                if (state.biometricAvailable) {
+                    SwitchSetting(
+                        label = "Require biometric unlock",
+                        checked = state.appLockEnabled,
+                        onCheckedChange = viewModel::setAppLockEnabled,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "Lock the app with your fingerprint, face, or device PIN on launch.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = FoxNeutral60,
+                    )
+                } else {
+                    Text(
+                        text = "Biometric unlock unavailable — no biometrics or screen lock set up on this device.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = FoxNeutral60,
+                    )
+                }
+            }
 
             // === RISK MANAGEMENT ===
             SectionHeader("Risk Management")

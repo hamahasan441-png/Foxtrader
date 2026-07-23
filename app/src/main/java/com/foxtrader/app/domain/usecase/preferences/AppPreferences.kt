@@ -24,6 +24,13 @@ class AppPreferences @Inject constructor() {
     private val _darkMode = MutableStateFlow(true)
     val darkMode: StateFlow<Boolean> = _darkMode.asStateFlow()
 
+    /**
+     * Whether biometric/device-credential unlock is required to open the app.
+     * Default false — opt-in security feature.
+     */
+    private val _appLockEnabled = MutableStateFlow(false)
+    val appLockEnabled: StateFlow<Boolean> = _appLockEnabled.asStateFlow()
+
     private val apiKeys = mutableMapOf<DataProvider, String>()
 
     fun setDataProvider(provider: DataProvider) {
@@ -32,6 +39,10 @@ class AppPreferences @Inject constructor() {
 
     fun setDarkMode(enabled: Boolean) {
         _darkMode.value = enabled
+    }
+
+    fun setAppLockEnabled(enabled: Boolean) {
+        _appLockEnabled.value = enabled
     }
 
     fun setApiKey(provider: DataProvider, key: String) {

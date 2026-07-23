@@ -98,12 +98,14 @@ data class UserProfile(
 /**
  * A versioned sync item envelope for the cloud API.
  * Carries a version counter for conflict resolution beyond simple last-write-wins.
+ * The [data] field is always a pre-serialized JSON string (the concrete type was
+ * serialized by the caller before wrapping).
  */
 @Serializable
-data class SyncEnvelope<T>(
+data class SyncEnvelope(
     val id: String,
     val type: SyncableType,
-    val data: T,
+    val data: String,
     val version: Int,
     val updatedAt: Long,
     val deviceId: String,
@@ -111,6 +113,7 @@ data class SyncEnvelope<T>(
 )
 
 /** Types of data that can be synced to the cloud. */
+@Serializable
 enum class SyncableType {
     JOURNAL,
     DRAWINGS,
@@ -122,7 +125,7 @@ enum class SyncableType {
 /** Request body for pushing local changes to the server. */
 @Serializable
 data class SyncPushRequest(
-    val items: List<SyncEnvelope<String>>,  // data serialized as JSON string
+    val items: List<SyncEnvelope>,  // data serialized as JSON string
     val lastSyncTimestamp: Long,
     val deviceId: String,
 )
@@ -130,7 +133,7 @@ data class SyncPushRequest(
 /** Response from the sync pull endpoint. */
 @Serializable
 data class SyncPullResponse(
-    val items: List<SyncEnvelope<String>>,
+    val items: List<SyncEnvelope>,
     val serverTimestamp: Long,
     val hasMore: Boolean = false,
 )
