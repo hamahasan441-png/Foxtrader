@@ -75,7 +75,6 @@ object NetworkModule {
     @Singleton
     fun provideMarketApi(retrofit: Retrofit): MarketApi = retrofit.create(MarketApi::class.java)
 
-<<<<<<< HEAD
     @Provides
     @Singleton
     fun provideSyncApi(retrofit: Retrofit): SyncApi = retrofit.create(SyncApi::class.java)
