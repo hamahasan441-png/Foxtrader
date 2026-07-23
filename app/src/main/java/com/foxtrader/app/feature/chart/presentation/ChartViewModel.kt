@@ -3,12 +3,14 @@ package com.foxtrader.app.feature.chart.presentation
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.foxtrader.app.data.remote.websocket.MarketWebSocket
+import com.foxtrader.app.data.alerts.AlertDispatcher
 import com.foxtrader.app.domain.model.ChartPoint
 import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.AgentContext
 import com.foxtrader.app.domain.model.DrawingToolType
 import com.foxtrader.app.domain.model.ReplayState
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.repository.DrawingRepository
 import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import com.foxtrader.app.domain.usecase.ai.AgentOrchestrator
@@ -64,7 +66,8 @@ class ChartViewModel @Inject constructor(
     private val decisionEngine: MasterDecisionEngine,
     private val mtfContextProvider: MtfContextProvider,
     private val aiAlertService: AiAlertService,
-    private val alertDispatcher: com.foxtrader.app.data.alerts.AlertDispatcher,
+    private val alertDispatcher: AlertDispatcher,
+    private val drawingRepository: DrawingRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChartUiState())
@@ -81,12 +84,21 @@ class ChartViewModel @Inject constructor(
 
     init {
         observeMarket()
+        observeDrawings()
         observeWebSocketTicks()
         // Mirror WebSocket connection state into the UI state for the LIVE badge.
         webSocket.connectionState
             .onEach { cs -> _uiState.value = _uiState.value.copy(connectionState = cs) }
             .launchIn(viewModelScope)
         refresh()
+    }
+
+    /** Observe persisted drawings for the current symbol/timeframe. */
+    private fun observeDrawings() {
+        combine(symbolFlow, timeframeFlow) { s, tf -> s to tf }
+            .flatMapLatest { (symbol, tf) -> drawingRepository.observe(symbol, tf) }
+            .onEach { drawings -> _uiState.value = _uiState.value.copy(drawings = drawings) }
+            .launchIn(viewModelScope)
     }
 
     // ========================================================================
@@ -310,11 +322,17 @@ class ChartViewModel @Inject constructor(
 
     fun placeDrawingPoint(index: Float, price: Double) {
         val point = ChartPoint(index = index, price = price)
-        drawingEngine.placePoint(point)
+        val completed = drawingEngine.placePoint(point)
         _uiState.value = _uiState.value.copy(
             drawingMode = drawingEngine.mode,
             drawings = drawingEngine.getVisibleDrawings(),
         )
+        // Persist the completed drawing to Room.
+        if (completed != null) {
+            viewModelScope.launch {
+                drawingRepository.upsert(completed, symbolFlow.value, timeframeFlow.value)
+            }
+        }
     }
 
     fun cancelDrawing() {
@@ -327,7 +345,9 @@ class ChartViewModel @Inject constructor(
 
     fun clearAllDrawings() {
         drawingEngine.clearAll()
-        _uiState.value = _uiState.value.copy(drawings = emptyList())
+        viewModelScope.launch {
+            drawingRepository.clearForChart(symbolFlow.value, timeframeFlow.value)
+        }
     }
 
     fun toggleDrawingToolbar() {
