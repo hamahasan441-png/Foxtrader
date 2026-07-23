@@ -1,6 +1,7 @@
 package com.foxtrader.app.di
 
 import com.foxtrader.app.BuildConfig
+import com.foxtrader.app.data.remote.api.AlphaVantageApi
 import com.foxtrader.app.data.auth.AuthInterceptor
 import com.foxtrader.app.data.remote.api.BinanceApi
 import com.foxtrader.app.data.remote.api.MarketApi
@@ -24,6 +25,11 @@ import javax.inject.Singleton
 @Retention(AnnotationRetention.BINARY)
 annotation class BinanceRetrofit
 
+/** Qualifier for the Alpha Vantage Retrofit instance. */
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class AlphaVantageRetrofit
+
 @Module
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
@@ -33,6 +39,8 @@ object NetworkModule {
 
     /** Binance public API base URL. */
     private const val BINANCE_BASE_URL = "https://api.binance.com/"
+    /** Alpha Vantage public API base URL. */
+    private const val ALPHA_VANTAGE_BASE_URL = "https://www.alphavantage.co/"
 
     @Provides
     @Singleton
@@ -108,4 +116,30 @@ object NetworkModule {
     @Singleton
     fun provideBinanceApi(@BinanceRetrofit retrofit: Retrofit): BinanceApi =
         retrofit.create(BinanceApi::class.java)
+
+    @Provides
+    @Singleton
+    @AlphaVantageRetrofit
+    fun provideAlphaVantageRetrofit(json: Json): Retrofit {
+        val logging = HttpLoggingInterceptor().apply {
+            level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC
+            else HttpLoggingInterceptor.Level.NONE
+        }
+        val client = OkHttpClient.Builder()
+            .addInterceptor(logging)
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .build()
+        val contentType = "application/json".toMediaType()
+        return Retrofit.Builder()
+            .baseUrl(ALPHA_VANTAGE_BASE_URL)
+            .client(client)
+            .addConverterFactory(json.asConverterFactory(contentType))
+            .build()
+    }
+
+    @Provides
+    @Singleton
+    fun provideAlphaVantageApi(@AlphaVantageRetrofit retrofit: Retrofit): AlphaVantageApi =
+        retrofit.create(AlphaVantageApi::class.java)
 }

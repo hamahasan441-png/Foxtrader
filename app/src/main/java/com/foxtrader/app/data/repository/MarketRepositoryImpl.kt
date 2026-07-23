@@ -3,12 +3,15 @@ package com.foxtrader.app.data.repository
 import com.foxtrader.app.data.local.dao.CandleDao
 import com.foxtrader.app.data.mapper.toDomain
 import com.foxtrader.app.data.mapper.toEntity
+import com.foxtrader.app.data.remote.api.AlphaVantageDataSource
 import com.foxtrader.app.data.remote.api.BinanceDataSource
 import com.foxtrader.app.data.remote.api.MarketApi
 import com.foxtrader.app.di.IoDispatcher
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.repository.MarketRepository
+import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -30,6 +33,8 @@ class MarketRepositoryImpl @Inject constructor(
     private val dao: CandleDao,
     private val api: MarketApi,
     private val binance: BinanceDataSource,
+    private val alphaVantage: AlphaVantageDataSource,
+    private val appPreferences: AppPreferences,
     @IoDispatcher private val io: CoroutineDispatcher,
 ) : MarketRepository {
 
@@ -42,13 +47,22 @@ class MarketRepositoryImpl @Inject constructor(
         limit: Int,
     ): Result<Unit> = withContext(io) {
         runCatching {
-            val candles: List<Candle> = if (binance.isBinanceSymbol(symbol)) {
-                // Route crypto pairs to Binance public REST API (no key needed).
-                binance.fetchCandles(symbol, timeframe, limit)
-            } else {
-                // Route non-crypto (Forex, Stocks, etc.) to the FoxTrader backend.
-                val response = api.getCandles(symbol, timeframe.label, limit)
-                response.candles.map { it.toDomain() }
+            val selectedProvider = appPreferences.dataProvider.value
+            val alphaKey = appPreferences.getApiKey(DataProvider.ALPHA_VANTAGE).orEmpty()
+
+            val candles: List<Candle> = when {
+                selectedProvider == DataProvider.ALPHA_VANTAGE -> {
+                    require(alphaKey.isNotBlank()) {
+                        "Alpha Vantage API key is required. Navigate to Settings → Data Provider and enter your API key."
+                    }
+                    alphaVantage.fetchCandles(symbol, timeframe, limit, alphaKey).ifEmpty {
+                        throw IllegalStateException(
+                            "Alpha Vantage returned no candle data for $symbol ${timeframe.label}. " +
+                                "Check supported symbols/timeframes in Alpha Vantage docs, API key validity, and rate limits."
+                        )
+                    }
+                }
+                else -> fetchDefaultCandles(symbol, timeframe, limit)
             }
             val entities = candles.map { it.toEntity(symbol, timeframe) }
             dao.upsertAll(entities)
@@ -61,6 +75,21 @@ class MarketRepositoryImpl @Inject constructor(
             } else {
                 throw error
             }
+        }
+    }
+
+    private suspend fun fetchDefaultCandles(
+        symbol: String,
+        timeframe: Timeframe,
+        limit: Int,
+    ): List<Candle> {
+        return if (binance.isBinanceSymbol(symbol)) {
+            // Route crypto pairs to Binance public REST API (no key needed).
+            binance.fetchCandles(symbol, timeframe, limit)
+        } else {
+            // Route non-crypto (Forex, Stocks, etc.) to the FoxTrader backend.
+            val response = api.getCandles(symbol, timeframe.label, limit)
+            response.candles.map { it.toDomain() }
         }
     }
 

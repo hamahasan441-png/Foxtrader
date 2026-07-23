@@ -37,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -288,6 +289,23 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = FoxNeutral60,
                 )
+                if (state.dataProvider.requiresApiKey) {
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = state.currentProviderApiKey,
+                        onValueChange = viewModel::setProviderApiKey,
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text(state.currentProviderApiKeyLabel) },
+                        visualTransformation = PasswordVisualTransformation(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "Saved only on this device for the selected chart/data provider.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = FoxNeutral60,
+                    )
+                }
             }
 
             // === GENERAL ===

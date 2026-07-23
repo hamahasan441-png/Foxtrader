@@ -119,6 +119,38 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 ./gradlew :app:testDebugUnitTest
 ```
 
+### Chart / Data Provider Setup
+
+FoxTrader lets you switch chart/data providers from **Settings → Data Provider**.
+
+1. Open **Settings → Data Provider**.
+2. Choose the provider you want to use for chart data.
+3. If that provider requires credentials, paste the key/token into the provider field and tap **Save Settings**.
+
+Current key-entry support in Settings includes:
+- **Alpha Vantage API Key**
+- **Polygon.io API Key**
+- **OANDA API Token**
+- **Alpaca API Key**
+- **Twelve Data API Key**
+- **Interactive Brokers Gateway Key**
+
+Additional selectable chart/data providers now include:
+- **Sample Data**
+- **Binance**
+- **Bybit**
+- **Dukascopy**
+- **Alpha Vantage**
+- **Polygon.io**
+- **OANDA**
+- **Alpaca**
+- **Twelve Data**
+- **Interactive Brokers**
+
+Alpha Vantage historical candle fetching is available today.
+
+Official Alpha Vantage API documentation: https://www.alphavantage.co/documentation/
+
 ### Open in Android Studio
 
 1. Open Android Studio (Hedgehog or newer)

@@ -32,6 +32,7 @@ data class SettingsUiState(
     val aiConfig: AiConfig = AiConfig(),
     val defaultTimeframe: Timeframe = Timeframe.M15,
     val dataProvider: DataProvider = DataProvider.SAMPLE,
+    val providerApiKeys: Map<DataProvider, String> = emptyMap(),
     val darkMode: Boolean = true,
     val authState: AuthState = AuthState.UNAUTHENTICATED,
     val isSyncing: Boolean = false,
@@ -42,4 +43,6 @@ data class SettingsUiState(
     val saved: Boolean = false,
 ) {
     val isLoggedIn: Boolean get() = authState == AuthState.AUTHENTICATED
+    val currentProviderApiKey: String get() = providerApiKeys[dataProvider].orEmpty()
+    val currentProviderApiKeyLabel: String get() = dataProvider.apiKeyLabel ?: "API Key"
 }

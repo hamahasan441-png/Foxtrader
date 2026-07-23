@@ -44,6 +44,7 @@ class SettingsViewModel @Inject constructor(
             riskConfig = riskEngine.getConfig(),
             alertConfig = alertEngine.getConfig(),
             dataProvider = appPreferences.dataProvider.value,
+            providerApiKeys = appPreferences.apiKeys.value,
             darkMode = appPreferences.darkMode.value,
             authState = authRepository.authState.value,
             appLockEnabled = appPreferences.appLockEnabled.value,
@@ -55,6 +56,9 @@ class SettingsViewModel @Inject constructor(
     init {
         authRepository.authState
             .onEach { state -> _uiState.update { it.copy(authState = state) } }
+            .launchIn(viewModelScope)
+        appPreferences.apiKeys
+            .onEach { keys -> _uiState.update { it.copy(providerApiKeys = keys) } }
             .launchIn(viewModelScope)
     }
 
@@ -82,6 +86,18 @@ class SettingsViewModel @Inject constructor(
     fun setDataProvider(provider: DataProvider) {
         appPreferences.setDataProvider(provider)
         _uiState.update { it.copy(dataProvider = provider, saved = false) }
+    }
+
+    fun setProviderApiKey(value: String) {
+        // Persisted on Save to match the rest of editable settings fields.
+        _uiState.update { state ->
+            state.copy(
+                providerApiKeys = state.providerApiKeys.toMutableMap().apply {
+                    this[state.dataProvider] = value
+                },
+                saved = false,
+            )
+        }
     }
 
     // --- Risk Config ---
@@ -177,6 +193,9 @@ class SettingsViewModel @Inject constructor(
             )
         )
         aiAlertService.cooldownMs = state.aiConfig.alertCooldownMinutes * 60_000L
+        state.providerApiKeys.forEach { (provider, key) ->
+            appPreferences.setApiKey(provider, key)
+        }
 
         _uiState.update { it.copy(saved = true) }
     }
