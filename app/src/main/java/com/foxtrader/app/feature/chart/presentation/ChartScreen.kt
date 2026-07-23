@@ -235,12 +235,12 @@ private fun ChartTopBar(
             modifier = Modifier
                 .clip(RoundedCornerShape(4.dp))
                 .background(MaterialTheme.colorScheme.primaryContainer)
+                .semantics { contentDescription = "Current symbol: ${state.symbol}. Tap to change." }
                 .clickable(
                     onClickLabel = "Open symbol picker",
                     onClick = onSymbolClick,
                 )
-                .padding(horizontal = 10.dp, vertical = 5.dp)
-                .semantics { contentDescription = "Current symbol: ${state.symbol}. Tap to change." },
+                .padding(horizontal = 10.dp, vertical = 5.dp),
         )
         BiasBadge(state.bias)
 

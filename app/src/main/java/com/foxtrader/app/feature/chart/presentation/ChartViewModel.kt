@@ -214,9 +214,9 @@ class ChartViewModel @Inject constructor(
         val midIndex = candles.size / 2
         val hash = run {
             var h = candles.size.toLong()
-            h = h * 31 + candles.first().open.toBits()
-            h = h * 31 + candles[midIndex].high.toBits()
-            h = h * 31 + candles.last().close.toBits()
+            h = h * 31L + candles.first().open.toBits()
+            h = h * 31L + candles[midIndex].high.toBits()
+            h = h * 31L + candles.last().close.toBits()
             h
         }
         if (hash == lastAiCandlesHash) return
