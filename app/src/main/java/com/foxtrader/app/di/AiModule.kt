@@ -11,6 +11,9 @@ import com.foxtrader.app.domain.usecase.ai.agents.SmartMoneyAgent
 import com.foxtrader.app.domain.usecase.ai.agents.StrategyAgent
 import com.foxtrader.app.domain.usecase.ai.agents.TrendAgent
 import com.foxtrader.app.domain.usecase.ai.agents.VolumeAgent
+import com.foxtrader.app.domain.usecase.ai.provider.AiProviderClient
+import com.foxtrader.app.domain.usecase.ai.provider.NoOpAiProviderClient
+import dagger.Binds
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -23,34 +26,46 @@ import javax.inject.Singleton
  * Provides a singleton [AgentOrchestrator] with ALL 10 reasoning agents
  * pre-registered. The [com.foxtrader.app.domain.usecase.ai.MasterDecisionEngine]
  * has an `@Inject` constructor and is provided automatically.
+ *
+ * Also binds [AiProviderClient] to [NoOpAiProviderClient] as the default
+ * (offline-only) implementation. When a user configures an external provider
+ * via Settings, the feature code switches dynamically; the DI binding here
+ * ensures every injection site receives a safe no-op by default.
  */
 @Module
 @InstallIn(SingletonComponent::class)
-object AiModule {
+abstract class AiModule {
 
-    @Provides
+    @Binds
     @Singleton
-    fun provideAgentOrchestrator(
-        marketStructureAgent: MarketStructureAgent,
-        trendAgent: TrendAgent,
-        volumeAgent: VolumeAgent,
-        smartMoneyAgent: SmartMoneyAgent,
-        ictAgent: IctAgent,
-        litAgent: LitAgent,
-        riskAgent: RiskAgent,
-        psychologyAgent: PsychologyAgent,
-        newsAgent: NewsAgent,
-        strategyAgent: StrategyAgent,
-    ): AgentOrchestrator = AgentOrchestrator().apply {
-        registerAgent(marketStructureAgent)
-        registerAgent(trendAgent)
-        registerAgent(volumeAgent)
-        registerAgent(smartMoneyAgent)
-        registerAgent(ictAgent)
-        registerAgent(litAgent)
-        registerAgent(riskAgent)
-        registerAgent(psychologyAgent)
-        registerAgent(newsAgent)
-        registerAgent(strategyAgent)
+    abstract fun bindAiProviderClient(impl: NoOpAiProviderClient): AiProviderClient
+
+    companion object {
+
+        @Provides
+        @Singleton
+        fun provideAgentOrchestrator(
+            marketStructureAgent: MarketStructureAgent,
+            trendAgent: TrendAgent,
+            volumeAgent: VolumeAgent,
+            smartMoneyAgent: SmartMoneyAgent,
+            ictAgent: IctAgent,
+            litAgent: LitAgent,
+            riskAgent: RiskAgent,
+            psychologyAgent: PsychologyAgent,
+            newsAgent: NewsAgent,
+            strategyAgent: StrategyAgent,
+        ): AgentOrchestrator = AgentOrchestrator().apply {
+            registerAgent(marketStructureAgent)
+            registerAgent(trendAgent)
+            registerAgent(volumeAgent)
+            registerAgent(smartMoneyAgent)
+            registerAgent(ictAgent)
+            registerAgent(litAgent)
+            registerAgent(riskAgent)
+            registerAgent(psychologyAgent)
+            registerAgent(newsAgent)
+            registerAgent(strategyAgent)
+        }
     }
 }
