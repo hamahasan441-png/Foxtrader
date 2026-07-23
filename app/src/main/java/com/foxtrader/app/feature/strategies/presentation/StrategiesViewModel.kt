@@ -364,7 +364,7 @@ class StrategiesViewModel @Inject constructor(
             .maxByOrNull { it.sweepIndex ?: -1 }
         val structureBreak = analyzeStructure(candles).breaks.lastOrNull { it.confirmed }
         if (liquiditySweep?.sweepIndex != null && structureBreak != null) {
-            val sweepIndex = liquiditySweep.sweepIndex ?: return out
+            val sweepIndex = liquiditySweep.sweepIndex!!
             val dir = if (liquiditySweep.type == LiquidityType.SELL_SIDE) Direction.BULLISH else Direction.BEARISH
             val sweepRecency = lastIndex - sweepIndex
             val breakRecency = lastIndex - structureBreak.breakIndex
@@ -392,12 +392,13 @@ class StrategiesViewModel @Inject constructor(
                     }
                     val sl = if (dir == Direction.BULLISH) slBase - atr * 0.15 else slBase + atr * 0.15
                     val tp = if (dir == Direction.BULLISH) entry + (entry - sl) * 3 else entry - (sl - entry) * 3
+                    val structureShift = structureBreak.type == StructureBreakType.CHOCH ||
+                        structureBreak.type == StructureBreakType.MSS
                     val confidence = (
                         LIT_BASE_CONFIDENCE +
                             (if (mitigationOb != null) LIT_ORDER_BLOCK_BONUS else 0) +
                             (if (mitigationFvg != null) LIT_FVG_BONUS else 0) +
-                            (if (structureBreak.type == StructureBreakType.CHOCH ||
-                                structureBreak.type == StructureBreakType.MSS) LIT_STRUCTURE_SHIFT_BONUS else 0) +
+                            (if (structureShift) LIT_STRUCTURE_SHIFT_BONUS else 0) +
                             ((12 - sweepRecency).coerceAtLeast(0) / 2) +
                             ((10 - breakRecency).coerceAtLeast(0) / 2)
                         ).coerceIn(0, LIT_MAX_CONFIDENCE)
