@@ -131,6 +131,21 @@ Current key-entry support in Settings includes:
 - **Alpha Vantage API Key**
 - **Polygon.io API Key**
 - **OANDA API Token**
+- **Alpaca API Key**
+- **Twelve Data API Key**
+- **Interactive Brokers Gateway Key**
+
+Additional selectable chart/data providers now include:
+- **Sample Data**
+- **Binance**
+- **Bybit**
+- **Dukascopy**
+- **Alpha Vantage**
+- **Polygon.io**
+- **OANDA**
+- **Alpaca**
+- **Twelve Data**
+- **Interactive Brokers**
 
 Alpha Vantage historical candle fetching is available today.
 
