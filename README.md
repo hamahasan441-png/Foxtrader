@@ -242,9 +242,9 @@ Data (repository/impl + local/ + remote/)
 
 | Decision | Rationale |
 |----------|-----------|
-| **ComputeIndicatorsUseCase** | All indicator computation extracted from ViewModel into a pure domain use case — independently testable, no Android imports |
+| **ComputeIndicatorsUseCase** | All indicator computation extracted from ViewModel into a pure domain use case - independently testable, no Android imports |
 | **DefaultDispatcher injection** | All CPU-bound work (indicators, SMC, market structure) runs on `Dispatchers.Default`; main thread never blocked |
-| **AI pipeline deduplication** | Candle fingerprint hash prevents re-running the 10-agent pipeline when data hasn't changed |
+| **AI pipeline deduplication** | Candle fingerprint hash prevents re-running the 10-agent pipeline when data has not changed |
 | **AiProviderClient abstraction** | Interface seam for optional external LLM integration; `NoOpAiProviderClient` ensures graceful degradation by default |
 | **EncryptedSharedPreferences** | All API keys and JWT tokens stored with AES-256-GCM backed by Android Keystore |
 | **Offline-first (Room SSOT)** | UI observes Room Flow; network data writes into DB which propagates to UI automatically |

@@ -32,6 +32,15 @@ class ComputeIndicatorsUseCase @Inject constructor(
 ) {
 
     /** Holds all computed overlay data for a single chart render frame. */
+    /**
+     * Holds all computed overlay data for a single chart render frame.
+     *
+     * NOTE on equality: this data class contains primitive arrays which do not
+     * override equals/hashCode by identity in Kotlin. We provide explicit
+     * overrides so that two Result instances with identical array *contents*
+     * compare equal — required for correct behaviour in tests and any caching
+     * layers.
+     */
     data class Result(
         val emaShort: DoubleArray?,
         val emaLong: DoubleArray?,
@@ -52,7 +61,44 @@ class ComputeIndicatorsUseCase @Inject constructor(
         val liquidityPools: List<com.foxtrader.app.domain.model.LiquidityPool>,
         val volumeProfile: com.foxtrader.app.domain.model.VolumeProfile?,
         val sessions: List<com.foxtrader.app.domain.model.SessionRange>,
-    )
+    ) {
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other !is Result) return false
+            return emaShort.contentEquals(other.emaShort) &&
+                emaLong.contentEquals(other.emaLong) &&
+                bollingerUpper.contentEquals(other.bollingerUpper) &&
+                bollingerMiddle.contentEquals(other.bollingerMiddle) &&
+                bollingerLower.contentEquals(other.bollingerLower) &&
+                superTrendValues.contentEquals(other.superTrendValues) &&
+                superTrendDir.contentEquals(other.superTrendDir) &&
+                parabolicSar.contentEquals(other.parabolicSar) &&
+                vwap.contentEquals(other.vwap) &&
+                ichimokuTenkan.contentEquals(other.ichimokuTenkan) &&
+                ichimokuKijun.contentEquals(other.ichimokuKijun) &&
+                ichimokuSenkouA.contentEquals(other.ichimokuSenkouA) &&
+                ichimokuSenkouB.contentEquals(other.ichimokuSenkouB) &&
+                ichimokuChikou.contentEquals(other.ichimokuChikou) &&
+                orderBlocks == other.orderBlocks &&
+                fairValueGaps == other.fairValueGaps &&
+                liquidityPools == other.liquidityPools &&
+                volumeProfile == other.volumeProfile &&
+                sessions == other.sessions
+        }
+
+        override fun hashCode(): Int {
+            var h = emaShort.contentHashCode()
+            h = 31 * h + emaLong.contentHashCode()
+            h = 31 * h + bollingerUpper.contentHashCode()
+            h = 31 * h + superTrendValues.contentHashCode()
+            h = 31 * h + vwap.contentHashCode()
+            h = 31 * h + orderBlocks.hashCode()
+            h = 31 * h + fairValueGaps.hashCode()
+            h = 31 * h + liquidityPools.hashCode()
+            h = 31 * h + sessions.hashCode()
+            return h
+        }
+    }
 
     /**
      * Compute all enabled indicators for [candles] according to [toggles].

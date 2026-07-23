@@ -208,9 +208,17 @@ class ChartViewModel @Inject constructor(
         // candles.last() is safe. The guard above covers both empty and
         // insufficient-data cases.
 
-        // Lightweight fingerprint: candle count + last close price bits.
-        val lastClose = candles.last().close
-        val hash = (candles.size * 31L + lastClose.toBits()).toInt()
+        // Lightweight content fingerprint combining four spread-out data points:
+        // size, first open, middle high, last close. This detects the most common
+        // real-world changes (new bars, price updates) while remaining O(1).
+        val midIndex = candles.size / 2
+        val hash = run {
+            var h = candles.size.toLong()
+            h = h * 31 + candles.first().open.toBits()
+            h = h * 31 + candles[midIndex].high.toBits()
+            h = h * 31 + candles.last().close.toBits()
+            h.toInt()
+        }
         if (hash == lastAiCandlesHash) return
         lastAiCandlesHash = hash
 
