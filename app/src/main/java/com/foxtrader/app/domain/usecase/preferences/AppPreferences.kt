@@ -1,12 +1,16 @@
 package com.foxtrader.app.domain.usecase.preferences
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.remove
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import com.foxtrader.app.domain.model.DataProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -14,7 +18,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -30,6 +33,7 @@ class AppPreferences @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
     private val scope = CoroutineScope(Dispatchers.IO)
+    private val securePrefs: SharedPreferences by lazy { createSecurePrefs() }
 
     private val _dataProvider = MutableStateFlow(DataProvider.SAMPLE)
     val dataProvider: StateFlow<DataProvider> = _dataProvider.asStateFlow()
@@ -40,9 +44,8 @@ class AppPreferences @Inject constructor(
     private val _appLockEnabled = MutableStateFlow(false)
     val appLockEnabled: StateFlow<Boolean> = _appLockEnabled.asStateFlow()
 
-    private val apiKeys = mutableMapOf<DataProvider, String>()
-    private val _alphaVantageApiKey = MutableStateFlow("")
-    val alphaVantageApiKey: StateFlow<String> = _alphaVantageApiKey.asStateFlow()
+    private val _apiKeys = MutableStateFlow<Map<DataProvider, String>>(emptyMap())
+    val apiKeys: StateFlow<Map<DataProvider, String>> = _apiKeys.asStateFlow()
 
     init {
         // Load persisted values into StateFlows on init.
@@ -53,9 +56,16 @@ class AppPreferences @Inject constructor(
                 _dataProvider.value = prefs[KEY_PROVIDER]?.let { name ->
                     runCatching { DataProvider.valueOf(name) }.getOrDefault(DataProvider.SAMPLE)
                 } ?: DataProvider.SAMPLE
-                _alphaVantageApiKey.value = prefs[KEY_ALPHA_VANTAGE_API_KEY].orEmpty()
-                if (_alphaVantageApiKey.value.isNotBlank()) {
-                    apiKeys[DataProvider.ALPHA_VANTAGE] = _alphaVantageApiKey.value
+                val storedApiKeys = loadPersistedApiKeys()
+                val legacyAlphaKey = prefs[KEY_ALPHA_VANTAGE_API_KEY].orEmpty()
+                if (
+                    legacyAlphaKey.isNotBlank() &&
+                    storedApiKeys[DataProvider.ALPHA_VANTAGE].isNullOrBlank()
+                ) {
+                    setApiKey(DataProvider.ALPHA_VANTAGE, legacyAlphaKey)
+                    context.dataStore.edit { it.remove(KEY_ALPHA_VANTAGE_API_KEY) }
+                } else {
+                    _apiKeys.value = storedApiKeys
                 }
             }
         }
@@ -77,23 +87,60 @@ class AppPreferences @Inject constructor(
     }
 
     fun setApiKey(provider: DataProvider, key: String) {
-        apiKeys[provider] = key
-        if (provider == DataProvider.ALPHA_VANTAGE) {
-            _alphaVantageApiKey.value = key
-            scope.launch { context.dataStore.edit { it[KEY_ALPHA_VANTAGE_API_KEY] = key } }
+        if (!provider.requiresApiKey) return
+
+        val normalizedKey = key.trim()
+        val updatedKeys = _apiKeys.value.toMutableMap()
+
+        if (normalizedKey.isBlank()) {
+            updatedKeys.remove(provider)
+            securePrefs.edit().remove(apiKeyPreferenceName(provider)).apply()
+        } else {
+            updatedKeys[provider] = normalizedKey
+            securePrefs.edit().putString(apiKeyPreferenceName(provider), normalizedKey).apply()
         }
+
+        _apiKeys.value = updatedKeys.toMap()
     }
 
-    fun getApiKey(provider: DataProvider): String? = apiKeys[provider]
+    fun getApiKey(provider: DataProvider): String? = _apiKeys.value[provider]
 
     fun canGoLive(): Boolean {
         val p = _dataProvider.value
         if (!p.supportsLive) return false
-        if (p.requiresApiKey && apiKeys[p].isNullOrBlank()) return false
+        if (p.requiresApiKey && _apiKeys.value[p].isNullOrBlank()) return false
         return true
     }
 
+    private fun loadPersistedApiKeys(): Map<DataProvider, String> =
+        DataProvider.entries
+            .filter { it.requiresApiKey }
+            .mapNotNull { provider ->
+                securePrefs.getString(apiKeyPreferenceName(provider), null)
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { provider to it }
+            }
+            .toMap()
+
+    private fun createSecurePrefs(): SharedPreferences {
+        val masterKey = MasterKey.Builder(context)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+
+        return EncryptedSharedPreferences.create(
+            context,
+            SECURE_PREFS_FILE_NAME,
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+        )
+    }
+
+    private fun apiKeyPreferenceName(provider: DataProvider): String = "provider_api_key_${provider.name.lowercase()}"
+
     private companion object {
+        const val SECURE_PREFS_FILE_NAME = "fox_provider_keys"
         val KEY_DARK_MODE = booleanPreferencesKey("dark_mode")
         val KEY_APP_LOCK = booleanPreferencesKey("app_lock_enabled")
         val KEY_PROVIDER = stringPreferencesKey("data_provider")

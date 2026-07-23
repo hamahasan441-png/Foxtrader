@@ -289,15 +289,21 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = FoxNeutral60,
                 )
-                if (state.dataProvider == DataProvider.ALPHA_VANTAGE) {
+                if (state.dataProvider.requiresApiKey) {
                     Spacer(Modifier.height(12.dp))
                     OutlinedTextField(
-                        value = state.alphaVantageApiKey,
-                        onValueChange = viewModel::setAlphaVantageApiKey,
+                        value = state.currentProviderApiKey,
+                        onValueChange = viewModel::setProviderApiKey,
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
-                        label = { Text("Alpha Vantage API Key") },
+                        label = { Text(state.currentProviderApiKeyLabel) },
                         visualTransformation = PasswordVisualTransformation(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "Saved only on this device for the selected chart/data provider.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = FoxNeutral60,
                     )
                 }
             }

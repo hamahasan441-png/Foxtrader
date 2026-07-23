@@ -119,14 +119,22 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 ./gradlew :app:testDebugUnitTest
 ```
 
-### Alpha Vantage Provider Setup
+### Chart / Data Provider Setup
 
-FoxTrader now supports **Alpha Vantage** as a chart data provider for historical candles.
+FoxTrader lets you switch chart/data providers from **Settings → Data Provider**.
 
-1. In app settings, choose **Data Provider → Alpha Vantage**.
-2. Paste your key into **Alpha Vantage API Key** and tap **Save Settings**.
+1. Open **Settings → Data Provider**.
+2. Choose the provider you want to use for chart data.
+3. If that provider requires credentials, paste the key/token into the provider field and tap **Save Settings**.
 
-Official API documentation: https://www.alphavantage.co/documentation/
+Current key-entry support in Settings includes:
+- **Alpha Vantage API Key**
+- **Polygon.io API Key**
+- **OANDA API Token**
+
+Alpha Vantage historical candle fetching is available today.
+
+Official Alpha Vantage API documentation: https://www.alphavantage.co/documentation/
 
 ### Open in Android Studio
 
