@@ -12,6 +12,7 @@ import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import com.foxtrader.app.domain.usecase.ai.AgentOrchestrator
+import com.foxtrader.app.domain.usecase.ai.AiAlertService
 import com.foxtrader.app.domain.usecase.ai.MasterDecisionEngine
 import com.foxtrader.app.domain.usecase.ai.MtfContextProvider
 import com.foxtrader.app.domain.usecase.drawing.DrawingEngine
@@ -62,6 +63,8 @@ class ChartViewModel @Inject constructor(
     private val orchestrator: AgentOrchestrator,
     private val decisionEngine: MasterDecisionEngine,
     private val mtfContextProvider: MtfContextProvider,
+    private val aiAlertService: AiAlertService,
+    private val alertDispatcher: com.foxtrader.app.data.alerts.AlertDispatcher,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChartUiState())
@@ -194,6 +197,12 @@ class ChartViewModel @Inject constructor(
             val orchestratorResult = orchestrator.analyze(context)
             val decision = decisionEngine.evaluate(orchestratorResult)
             _uiState.value = _uiState.value.copy(aiDecision = decision)
+
+            // Fire a push alert if the AI approves a signal (cooldown-gated).
+            val alert = aiAlertService.evaluate(decision, symbolFlow.value)
+            if (alert != null) {
+                alertDispatcher.dispatch(alert)
+            }
         }
     }
 
@@ -217,6 +226,7 @@ class ChartViewModel @Inject constructor(
     fun onSymbolChange(symbol: String) {
         symbolFlow.value = symbol
         _uiState.value = _uiState.value.copy(symbol = symbol, showSymbolPicker = false)
+        aiAlertService.resetCooldowns()
         refresh()
         // Re-subscribe live feed to the new symbol only if live is enabled.
         if (_uiState.value.liveEnabled) {
