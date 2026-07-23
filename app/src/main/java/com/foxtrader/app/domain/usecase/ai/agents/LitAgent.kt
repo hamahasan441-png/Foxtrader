@@ -7,6 +7,7 @@ import com.foxtrader.app.domain.model.AgentOutput
 import com.foxtrader.app.domain.model.AgentStatus
 import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.model.Direction
+import com.foxtrader.app.domain.usecase.ai.SmtDetector
 import com.foxtrader.app.domain.usecase.ai.TradingAgent
 import javax.inject.Inject
 
@@ -22,7 +23,9 @@ import javax.inject.Inject
  * Inter-agent: reads MARKET_STRUCTURE + ICT/SMART_MONEY outputs from
  * [AgentContext.previousOutputs]. Runs in phase 2.
  */
-class LitAgent @Inject constructor() : TradingAgent {
+class LitAgent @Inject constructor(
+    private val smtDetector: SmtDetector,
+) : TradingAgent {
 
     override val name = AgentName.LIT
     override val description = "Liquidity Inducement Theory — sweep + structure confirmation."
@@ -84,6 +87,28 @@ class LitAgent @Inject constructor() : TradingAgent {
                 weight = 1.5,
                 tags = listOf("INDUCEMENT", "LIT"),
             )
+        }
+
+        // --- SMT Divergence (correlated-pair) ---
+        // Look for a correlated pair's candles in mtfCandles keyed by the SAME timeframe.
+        val correlatedCandles = context.mtfCandles[context.timeframe]
+        if (correlatedCandles != null && correlatedCandles.size >= 20) {
+            val smtResults = smtDetector.detect(candles, correlatedCandles)
+            for (smt in smtResults) {
+                insights += AgentInsight(
+                    id = "${name}-SMT-${smt.barIndex}",
+                    agentName = name,
+                    type = "SMT",
+                    direction = smt.direction,
+                    confidence = smt.confidence,
+                    price = smt.price,
+                    timestamp = smt.timestamp,
+                    barIndex = smt.barIndex,
+                    detail = smt.detail,
+                    weight = 2.0,
+                    tags = listOf("SMT"),
+                )
+            }
         }
 
         if (insights.isEmpty()) {

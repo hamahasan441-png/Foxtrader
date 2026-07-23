@@ -178,6 +178,47 @@ fun SettingsScreen(
                 )
             }
 
+            // === AI DECISION ENGINE ===
+            SectionHeader("AI Decision Engine")
+
+            SettingsCard {
+                SliderSetting(
+                    label = "Min Confluences (of 9)",
+                    value = state.aiConfig.minConfluences.toFloat(),
+                    range = 1f..9f,
+                    suffix = "",
+                    onValueChange = { viewModel.setMinConfluences(it.toInt()) },
+                )
+
+                Spacer(Modifier.height(12.dp))
+
+                SliderSetting(
+                    label = "Min Confidence",
+                    value = state.aiConfig.minConfidence.toFloat(),
+                    range = 10f..100f,
+                    suffix = "%",
+                    onValueChange = { viewModel.setMinConfidence(it.toInt()) },
+                )
+
+                Spacer(Modifier.height(12.dp))
+
+                SliderSetting(
+                    label = "Alert Cooldown",
+                    value = state.aiConfig.alertCooldownMinutes.toFloat(),
+                    range = 1f..60f,
+                    suffix = " min",
+                    onValueChange = { viewModel.setAlertCooldownMinutes(it.toInt()) },
+                )
+
+                Spacer(Modifier.height(12.dp))
+
+                SwitchSetting(
+                    label = "Background Scan Alerts",
+                    checked = state.aiConfig.backgroundScanEnabled,
+                    onCheckedChange = viewModel::setBackgroundScanEnabled,
+                )
+            }
+
             // === DATA ===
             SectionHeader("Data Provider")
 

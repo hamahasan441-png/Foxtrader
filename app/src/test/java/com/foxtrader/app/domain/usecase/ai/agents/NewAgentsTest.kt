@@ -9,6 +9,7 @@ import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.usecase.ai.SmtDetector
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -68,7 +69,7 @@ class NewAgentsTest {
 
     @Test
     fun `LIT emits institutional entry when sweep + break align`() {
-        val agent = LitAgent()
+        val agent = LitAgent(SmtDetector())
         val ctx = baseContext().copy(
             previousOutputs = mapOf(
                 AgentName.MARKET_STRUCTURE to output(
@@ -88,7 +89,7 @@ class NewAgentsTest {
 
     @Test
     fun `LIT neutral when no sweep or break`() {
-        val agent = LitAgent()
+        val agent = LitAgent(SmtDetector())
         val ctx = baseContext().copy(previousOutputs = emptyMap())
         val result = agent.analyze(ctx)
         assertEquals(Bias.NEUTRAL, result.bias)
