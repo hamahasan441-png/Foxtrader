@@ -5,12 +5,19 @@ import androidx.lifecycle.viewModelScope
 import com.foxtrader.app.data.remote.websocket.MarketWebSocket
 import com.foxtrader.app.data.alerts.AlertDispatcher
 import com.foxtrader.app.di.DefaultDispatcher
+import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.ChartPoint
 import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.AgentContext
 import com.foxtrader.app.domain.model.DrawingToolType
+import com.foxtrader.app.domain.model.FairValueGap
+import com.foxtrader.app.domain.model.LiquidityPool
+import com.foxtrader.app.domain.model.MarketStructure
+import com.foxtrader.app.domain.model.OrderBlock
 import com.foxtrader.app.domain.model.ReplayState
+import com.foxtrader.app.domain.model.SessionRange
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.model.VolumeProfile
 import com.foxtrader.app.domain.repository.DrawingRepository
 import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
@@ -146,7 +153,7 @@ class ChartViewModel @Inject constructor(
      *
      * Must be called from within a coroutine (suspending).
      */
-    private suspend fun processCandles(candles: List<com.foxtrader.app.domain.model.Candle>) {
+    private suspend fun processCandles(candles: List<Candle>) {
         val ind = _uiState.value.indicators
 
         val result = withContext(defaultDispatcher) {
@@ -211,19 +218,19 @@ class ChartViewModel @Inject constructor(
      * from a [withContext] block as a typed carrier.
      */
     private data class AnalysisResult(
-        val structure: com.foxtrader.app.domain.model.MarketStructure,
+        val structure: MarketStructure,
         val emaShort: DoubleArray?,
         val emaLong: DoubleArray?,
         val vwap: DoubleArray?,
-        val ichimoku: com.foxtrader.app.domain.usecase.indicators.IchimokuCloud.IchimokuResult?,
-        val boll: com.foxtrader.app.domain.usecase.indicators.BollingerBands.BollingerResult?,
-        val st: com.foxtrader.app.domain.usecase.indicators.SuperTrend.SuperTrendResult?,
+        val ichimoku: IchimokuCloud.IchimokuResult?,
+        val boll: BollingerBands.BollingerResult?,
+        val st: SuperTrend.SuperTrendResult?,
         val psar: DoubleArray?,
-        val orderBlocks: List<com.foxtrader.app.domain.model.OrderBlock>,
-        val fairValueGaps: List<com.foxtrader.app.domain.model.FairValueGap>,
-        val liquidityPools: List<com.foxtrader.app.domain.model.LiquidityPool>,
-        val volumeProfile: com.foxtrader.app.domain.model.VolumeProfile?,
-        val sessions: List<com.foxtrader.app.domain.model.SessionRange>,
+        val orderBlocks: List<OrderBlock>,
+        val fairValueGaps: List<FairValueGap>,
+        val liquidityPools: List<LiquidityPool>,
+        val volumeProfile: VolumeProfile?,
+        val sessions: List<SessionRange>,
     )
 
     // ========================================================================
@@ -235,7 +242,7 @@ class ChartViewModel @Inject constructor(
      * Only runs when there's sufficient data (>=50 candles). Runs the CPU-bound
      * orchestrator on [defaultDispatcher] to keep the main thread free.
      */
-    private fun runAiDecision(candles: List<com.foxtrader.app.domain.model.Candle>) {
+    private fun runAiDecision(candles: List<Candle>) {
         if (candles.size < 50) {
             _uiState.value = _uiState.value.copy(aiDecision = null)
             return
