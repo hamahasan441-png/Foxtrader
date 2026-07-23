@@ -2184,3 +2184,102 @@ All versions are the single source of truth in `gradle/libs.versions.toml`. `RUL
 ---
 
 *End of the FoxTrader Engineering Bible. Amendments are made via pull request; significant architectural decisions are recorded as new ADRs in [2.4](#24-architecture-decision-records-adrs).*
+
+---
+
+# Appendix E: Sprint 2/3/4 Improvement Log
+
+## Architecture Hardening (Sprint 2)
+
+### AppPreferences — injected dispatcher
+`AppPreferences` previously created an unmanaged `CoroutineScope(Dispatchers.IO)`. It now injects
+`@IoDispatcher CoroutineDispatcher` via Hilt and wraps the scope in `SupervisorJob()` so that a
+child failure does not cancel the entire scope. This makes the dispatcher swappable in tests.
+
+### ChartViewModel — CPU-bound analysis off main thread
+`processCandles()` is now a `suspend fun` that wraps all indicator and SMC computations in
+`withContext(defaultDispatcher)`. Previously every Flow emission ran the full analysis pipeline
+synchronously on the coroutine calling context. The `@DefaultDispatcher` qualifier is now injected
+into `ChartViewModel` alongside the existing `@IoDispatcher` used by the repository.
+
+`observeMarket()` additionally applies `distinctUntilChangedBy { it.size }` to suppress redundant
+reanalysis when the Room observer emits for the same-size candle list (e.g. after an unrelated
+Room write to a different table row).
+
+The AI orchestrator + Master Decision Engine are similarly offloaded to `defaultDispatcher` inside
+`runAiDecision()`.
+
+### RiskEngine — true thread safety
+`RiskEngine` is a `@Singleton` accessed from both ViewModel coroutines and background scanner jobs.
+The mutable state is now protected as follows:
+- `tradeHistory` → `CopyOnWriteArrayList` (safe concurrent add + iteration)
+- `tradingHalted` → `AtomicBoolean` (lock-free read/write)
+- `peakBalance` / `currentBalance` → `@Volatile` with `synchronized(lock)` on compound operations
+
+### AiAlertService — concurrent cooldown map
+`recentAlerts` changed from `mutableMapOf` to `ConcurrentHashMap` so that concurrent AI decision
+cycles (one per symbol×timeframe observed) cannot corrupt the cooldown bookkeeping.
+
+### NetworkModule — hardened OkHttp defaults
+All three OkHttp clients (backend, Binance, Alpha Vantage) now declare:
+- `writeTimeout(30s)` — prevents hung uploads on slow connections
+- `callTimeout(60s)` — hard wall-clock cap per request to prevent resource leakage
+- `retryOnConnectionFailure(false)` — pushes retry logic to the repository layer where failures
+  can be surfaced properly instead of being silently swallowed by OkHttp
+
+## Chart Engine (Sprint 3)
+
+### Pinch-zoom anchored to gesture centroid
+Previously the pinch zoom was anchored to the midpoint of the visible viewport regardless of
+where the user placed their fingers. The gesture centroid (provided by `detectTransformGestures`
+as the first parameter) is now used: the bar-index under the centroid remains fixed during zoom.
+This eliminates the "jumping viewport" issue when zooming near the left or right edge.
+
+Additionally `visibleBars` is now clamped inside the zoom path (`coerceIn(5f, total)`) rather
+than relying solely on the post-gesture `viewport.clamp()` call, which prevents a single-frame
+visual artifact when `zoom` is very large.
+
+## UI/UX (Sprint 3)
+
+### Accessibility semantics
+- Symbol chip: `clickable(onClickLabel = "Change symbol", role = Role.Button)`
+- LIVE toggle: `role = Role.Switch` + `contentDescription` reflecting current state
+  ("Connect live feed" / "Disconnect live feed")
+- Timeframe chips: `role = Role.Tab` + `contentDescription` with `", selected"` suffix for
+  the active chip, enabling TalkBack to announce state without requiring visual focus cues
+
+## Trading Readiness (Sprint 4)
+
+### SignalPipeline extension point
+`domain/usecase/signal/SignalPipeline.kt` provides a lightweight, ordered pipeline of
+`SignalProcessor` functional interfaces that transform a `DecisionResult` before it reaches
+the alert/order dispatch layer. Key properties:
+- Processors run left-to-right in insertion order.
+- Exceptions in any processor are swallowed (result of the previous processor is retained),
+  making the pipeline fault-tolerant.
+- A disapproved result still passes through all processors (processors may add block reasons).
+- `SignalPipeline.PASSTHROUGH` is a zero-allocation singleton for the no-processor case.
+
+To add a custom gate (e.g. news blackout, session filter): implement `SignalProcessor`,
+inject it via Hilt, and build a `SignalPipeline` with it. The extension point is documented
+and ready for Hilt multibinding if multiple processors need to be composed automatically.
+
+## AI Foundations (Sprint 4)
+
+### MtfContextProvider graceful fallback
+`getHtfContext()` is now wrapped in `runCatching { … }.getOrElse { emptyMap() }`. Each
+individual timeframe fetch is also individually wrapped so that a failure for one HTF does not
+cancel the fetches for the remaining HTFs. This means the AI agent system degrades gracefully
+to single-timeframe context when the repository throws (e.g. corrupt DB entry) instead of
+propagating an exception to the ChartViewModel.
+
+## Testing (Sprint 4)
+
+### RiskEngineTest (15 cases)
+Full coverage of: percentage/fixed/ATR/volatility position sizing; fixed/ATR/structure/FIXED
+stop-loss methods; pre-trade risk gating; manual and auto-halt (drawdown, consecutive losses,
+daily loss); resume; Kelly criterion; balance tracking; reset.
+
+### SignalPipelineTest (8 cases)
+Covers: passthrough/empty pipeline identity; single and multi-processor ordering; exception
+swallowing; veto (approved → disapproved); all-processors-run-even-when-disapproved contract.

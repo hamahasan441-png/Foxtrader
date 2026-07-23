@@ -192,6 +192,7 @@ Foxtrader/
 │       │   │   │       ├── backtest/            # Bar-by-bar backtester
 │       │   │   │       ├── scanner/             # Multi-asset screener
 │       │   │   │       ├── alerts/              # Alert engine
+│       │   │   │       ├── signal/              # SignalPipeline — post-decision extension point
 │       │   │   │       └── patterns/            # Candle pattern detector
 │       │   │   ├── data/                        # Android/framework layer
 │       │   │   │   ├── local/                   # Room DB, DAO, entities
@@ -237,14 +238,16 @@ The APK artifact is retained for 30 days.
 
 ## Roadmap
 
-- [ ] Live WebSocket data feed (Binance, Bybit)
-- [ ] Full SMC/ICT engine (order blocks, fair value gaps, liquidity sweeps)
-- [ ] LIT (Liquidity-Inducement Theory) agent
+- [x] Live WebSocket data feed (Binance)
+- [x] Full SMC/ICT engine (order blocks, fair value gaps, liquidity sweeps, BOS/CHOCH)
+- [x] LIT (Liquidity-Inducement Theory) agent
+- [x] Backtesting engine (bar-by-bar, Sharpe/Sortino metrics)
+- [x] Trade journal with statistics
+- [x] Push notification alerts
+- [x] Multi-timeframe confluence overlay on chart
+- [x] SignalPipeline extension point for custom post-decision processors
 - [ ] Backtesting Lab UI screen
-- [ ] Trade journal with statistics
-- [ ] Push notification alerts
 - [ ] FastAPI backend (PostgreSQL + Redis)
-- [ ] Multi-timeframe confluence overlay on chart
 - [ ] Social / copy-trading features
 - [ ] Release on Google Play Store
 

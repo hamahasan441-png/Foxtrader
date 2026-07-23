@@ -30,6 +30,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -230,13 +234,18 @@ private fun ChartTopBar(
             modifier = Modifier
                 .clip(RoundedCornerShape(4.dp))
                 .background(MaterialTheme.colorScheme.primaryContainer)
-                .clickable { onSymbolClick() }
+                .clickable(
+                    onClickLabel = "Change symbol",
+                    role = Role.Button,
+                    onClick = onSymbolClick,
+                )
                 .padding(horizontal = 10.dp, vertical = 5.dp),
         )
         BiasBadge(state.bias)
 
         // LIVE toggle — green when connected, tap to connect/disconnect.
         val live = connectionState == ConnectionState.CONNECTED
+        val liveLabel = if (live) "Disconnect live feed" else "Connect live feed"
         Text(
             text = if (live) "LIVE" else if (state.liveEnabled) "..." else "OFF",
             style = MaterialTheme.typography.labelSmall,
@@ -245,7 +254,12 @@ private fun ChartTopBar(
             modifier = Modifier
                 .clip(RoundedCornerShape(4.dp))
                 .background(if (live) FoxSuccess else MaterialTheme.colorScheme.surfaceVariant)
-                .clickable { onLiveToggle() }
+                .clickable(
+                    onClickLabel = liveLabel,
+                    role = Role.Switch,
+                    onClick = onLiveToggle,
+                )
+                .semantics { contentDescription = liveLabel }
                 .padding(horizontal = 6.dp, vertical = 3.dp),
         )
 
@@ -303,9 +317,16 @@ private fun TimeframeRow(
                         if (isSelected) MaterialTheme.colorScheme.primaryContainer
                         else MaterialTheme.colorScheme.surfaceVariant
                     )
-                    .clickable { onSelect(tf) }
+                    .clickable(
+                        onClickLabel = "Select ${tf.label} timeframe",
+                        role = Role.Tab,
+                        onClick = { onSelect(tf) },
+                    )
+                    .semantics {
+                        contentDescription = "${tf.label} timeframe${if (isSelected) ", selected" else ""}"
+                    }
                     .padding(horizontal = 12.dp, vertical = 8.dp),
-            )
+                )
         }
     }
 }
