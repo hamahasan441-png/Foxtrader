@@ -4,9 +4,12 @@ import androidx.lifecycle.ViewModel
 import com.foxtrader.app.domain.model.AlertConfig
 import com.foxtrader.app.domain.model.AlertPriority
 import com.foxtrader.app.domain.model.DataProvider
+import com.foxtrader.app.domain.model.DecisionConfig
 import com.foxtrader.app.domain.model.PositionSizingMethod
 import com.foxtrader.app.domain.model.RiskConfig
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.usecase.ai.AiAlertService
+import com.foxtrader.app.domain.usecase.ai.MasterDecisionEngine
 import com.foxtrader.app.domain.usecase.alerts.AlertEngine
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.domain.usecase.risk.RiskEngine
@@ -22,6 +25,8 @@ class SettingsViewModel @Inject constructor(
     private val riskEngine: RiskEngine,
     private val alertEngine: AlertEngine,
     private val appPreferences: AppPreferences,
+    private val decisionEngine: MasterDecisionEngine,
+    private val aiAlertService: AiAlertService,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
@@ -90,12 +95,40 @@ class SettingsViewModel @Inject constructor(
         _uiState.update { it.copy(darkMode = dark, saved = false) }
     }
 
+    // --- AI Config ---
+
+    fun setMinConfluences(value: Int) {
+        _uiState.update { it.copy(aiConfig = it.aiConfig.copy(minConfluences = value.coerceIn(1, 9)), saved = false) }
+    }
+
+    fun setMinConfidence(value: Int) {
+        _uiState.update { it.copy(aiConfig = it.aiConfig.copy(minConfidence = value.coerceIn(10, 100)), saved = false) }
+    }
+
+    fun setAlertCooldownMinutes(value: Int) {
+        _uiState.update { it.copy(aiConfig = it.aiConfig.copy(alertCooldownMinutes = value.coerceIn(1, 60)), saved = false) }
+    }
+
+    fun setBackgroundScanEnabled(enabled: Boolean) {
+        _uiState.update { it.copy(aiConfig = it.aiConfig.copy(backgroundScanEnabled = enabled), saved = false) }
+    }
+
     // --- Save ---
 
     fun save() {
         val state = _uiState.value
         riskEngine.updateConfig(state.riskConfig)
         alertEngine.updateConfig(state.alertConfig)
+
+        // Propagate AI config to the decision engine and alert service.
+        decisionEngine.updateConfig(
+            DecisionConfig(
+                minRequiredConfluences = state.aiConfig.minConfluences,
+                minConfidence = state.aiConfig.minConfidence.toDouble(),
+            )
+        )
+        aiAlertService.cooldownMs = state.aiConfig.alertCooldownMinutes * 60_000L
+
         _uiState.update { it.copy(saved = true) }
     }
 }
