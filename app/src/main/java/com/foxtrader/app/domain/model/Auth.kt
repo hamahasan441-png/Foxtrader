@@ -1,5 +1,7 @@
 package com.foxtrader.app.domain.model
 
+import kotlinx.serialization.Serializable
+
 /**
  * Authentication & cloud sync domain models for Horizon 3.
  *
@@ -34,6 +36,7 @@ enum class AuthState {
  * JWT token pair (access + refresh).
  * Stored encrypted via EncryptedSharedPreferences on the device.
  */
+@Serializable
 data class AuthTokens(
     /** Short-lived access token (e.g. 15 min). */
     val accessToken: String,
@@ -49,11 +52,13 @@ data class AuthTokens(
 // REQUEST / RESPONSE MODELS (mirror the backend API contract)
 // ============================================================================
 
+@Serializable
 data class LoginRequest(
     val email: String,
     val password: String,
 )
 
+@Serializable
 data class RegisterRequest(
     val email: String,
     val password: String,
@@ -61,11 +66,13 @@ data class RegisterRequest(
 )
 
 /** Response from login/register/refresh endpoints. */
+@Serializable
 data class AuthResponse(
     val tokens: AuthTokens,
     val user: UserProfile,
 )
 
+@Serializable
 data class RefreshRequest(
     val refreshToken: String,
 )
@@ -74,6 +81,7 @@ data class RefreshRequest(
 // USER PROFILE
 // ============================================================================
 
+@Serializable
 data class UserProfile(
     val id: String,
     val email: String,
@@ -91,6 +99,7 @@ data class UserProfile(
  * A versioned sync item envelope for the cloud API.
  * Carries a version counter for conflict resolution beyond simple last-write-wins.
  */
+@Serializable
 data class SyncEnvelope<T>(
     val id: String,
     val type: SyncableType,
@@ -111,6 +120,7 @@ enum class SyncableType {
 }
 
 /** Request body for pushing local changes to the server. */
+@Serializable
 data class SyncPushRequest(
     val items: List<SyncEnvelope<String>>,  // data serialized as JSON string
     val lastSyncTimestamp: Long,
@@ -118,6 +128,7 @@ data class SyncPushRequest(
 )
 
 /** Response from the sync pull endpoint. */
+@Serializable
 data class SyncPullResponse(
     val items: List<SyncEnvelope<String>>,
     val serverTimestamp: Long,
