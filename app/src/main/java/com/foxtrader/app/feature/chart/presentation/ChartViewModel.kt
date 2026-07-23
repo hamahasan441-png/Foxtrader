@@ -204,9 +204,13 @@ class ChartViewModel @Inject constructor(
             lastAiCandlesHash = 0
             return
         }
+        // At this point candles.size >= 50, so candles is non-empty and
+        // candles.last() is safe. The guard above covers both empty and
+        // insufficient-data cases.
 
         // Lightweight fingerprint: candle count + last close price bits.
-        val hash = candles.size * 31 + candles.last().close.toBits().toInt()
+        val lastClose = candles.last().close
+        val hash = candles.size * 31 + lastClose.toBits().toInt()
         if (hash == lastAiCandlesHash) return
         lastAiCandlesHash = hash
 

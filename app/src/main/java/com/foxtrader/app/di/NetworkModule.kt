@@ -68,7 +68,7 @@ object NetworkModule {
     @Singleton
     fun provideOkHttp(authInterceptor: AuthInterceptor): OkHttpClient {
         val logging = HttpLoggingInterceptor().apply {
-            // In release builds log nothing — tokens must never appear in logs.
+            // In release builds, log nothing; tokens must never appear in logs.
             level = if (BuildConfig.DEBUG) {
                 HttpLoggingInterceptor.Level.BODY
             } else {
