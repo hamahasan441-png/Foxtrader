@@ -6,11 +6,13 @@ import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.StrategySignal
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.repository.JournalRepository
 import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.analysis.RiskRewardOptimizer
 import com.foxtrader.app.domain.usecase.backtest.AiScoredBacktestEngine
 import com.foxtrader.app.domain.usecase.backtest.StrategyFunction
 import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
+import com.foxtrader.app.domain.usecase.journal.BacktestJournalMapper
 import com.foxtrader.app.domain.usecase.patterns.HarmonicPatternDetector
 import com.foxtrader.app.domain.usecase.scanner.ScannerUseCase
 import com.foxtrader.app.domain.usecase.smc.SmcDetector
@@ -38,6 +40,7 @@ class StrategiesViewModel @Inject constructor(
     private val smcDetector: SmcDetector,
     private val riskReward: RiskRewardOptimizer,
     private val aiBacktestEngine: AiScoredBacktestEngine,
+    private val journalRepository: JournalRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(StrategiesUiState())
@@ -115,6 +118,12 @@ class StrategiesViewModel @Inject constructor(
             }
 
             val result = aiBacktestEngine(candles, strategy, symbol, Timeframe.H1)
+
+            // Auto-journal: persist backtest trades into the journal.
+            if (result.trades.isNotEmpty()) {
+                val journalEntries = BacktestJournalMapper.mapTrades(result.trades, symbol, Timeframe.H1)
+                journalRepository.upsertAll(journalEntries)
+            }
 
             _uiState.update { state ->
                 state.copy(
