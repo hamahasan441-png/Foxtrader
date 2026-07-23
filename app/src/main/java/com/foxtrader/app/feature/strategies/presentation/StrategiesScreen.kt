@@ -155,6 +155,11 @@ private fun SignalCard(signal: StrategySignalItem) {
             Spacer(Modifier.height(4.dp))
             Text(signal.strategyName, fontSize = 13.sp, color = FoxAmber50, fontWeight = FontWeight.SemiBold)
 
+            if (signal.signalProvider.isNotBlank()) {
+                Spacer(Modifier.height(4.dp))
+                TagChip(signal.signalProvider)
+            }
+
             Spacer(Modifier.height(6.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),

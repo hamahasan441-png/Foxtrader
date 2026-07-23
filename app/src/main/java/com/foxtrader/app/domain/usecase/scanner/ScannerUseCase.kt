@@ -9,6 +9,7 @@ import com.foxtrader.app.domain.model.ScreenerResult
 import com.foxtrader.app.domain.model.ScreenerSymbol
 import com.foxtrader.app.domain.model.StrategyType
 import com.foxtrader.app.domain.model.WatchlistCategory
+import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import com.foxtrader.app.domain.usecase.analysis.WyckoffDetector
 import com.foxtrader.app.domain.usecase.indicators.BollingerBands
 import com.foxtrader.app.domain.usecase.indicators.IchimokuCloud
@@ -35,6 +36,7 @@ class ScannerUseCase @Inject constructor(
     private val ichimokuCloud: IchimokuCloud,
     private val bollingerBands: BollingerBands,
     private val wyckoffDetector: WyckoffDetector,
+    private val analyzeStructure: AnalyzeMarketStructureUseCase,
 ) {
 
     private var watchlist: MutableList<ScreenerSymbol> = DEFAULT_WATCHLIST.toMutableList()
@@ -154,6 +156,11 @@ class ScannerUseCase @Inject constructor(
                 momentum = mom[last],
             )
             StrategyType.SMART_MONEY -> smartMoneySignal(
+                candles = candles,
+                price = price,
+                atr = atr[last],
+            )
+            StrategyType.LIT -> litSignal(
                 candles = candles,
                 price = price,
                 atr = atr[last],
@@ -359,6 +366,49 @@ class ScannerUseCase @Inject constructor(
             tags = listOf(
                 "CLOUD_${position.name}",
                 if (result.tenkan[last] >= result.kijun[last]) "TK_BULL" else "TK_BEAR",
+            ),
+        )
+    }
+
+    private fun litSignal(
+        candles: List<Candle>,
+        price: Double,
+        atr: Double,
+    ): StrategySignalSnapshot {
+        val liquiditySweep = smcDetector.detectLiquidity(candles).lastOrNull { it.swept && it.sweepIndex != null }
+        val structureBreak = analyzeStructure(candles).breaks.lastOrNull { it.confirmed }
+        val activeOrderBlock = smcDetector.detectOrderBlocks(candles)
+            .lastOrNull { !it.mitigated }
+        val activeFvg = smcDetector.detectFairValueGaps(candles)
+            .lastOrNull { !it.filled }
+        val direction = when {
+            liquiditySweep?.type?.name == "SELL_SIDE" -> Direction.BULLISH
+            liquiditySweep?.type?.name == "BUY_SIDE" -> Direction.BEARISH
+            structureBreak != null -> structureBreak.direction
+            activeOrderBlock?.type?.name == "BULLISH" -> Direction.BULLISH
+            else -> Direction.BEARISH
+        }
+        val sweepMatchesBreak = structureBreak != null && liquiditySweep != null &&
+            ((liquiditySweep.type.name == "SELL_SIDE" && structureBreak.direction == Direction.BULLISH) ||
+                (liquiditySweep.type.name == "BUY_SIDE" && structureBreak.direction == Direction.BEARISH))
+        val mitigationScore = listOfNotNull(
+            activeOrderBlock?.let { atrSafeDistance(price, (it.highPrice + it.lowPrice) / 2.0, atr) },
+            activeFvg?.let { atrSafeDistance(price, (it.highPrice + it.lowPrice) / 2.0, atr) },
+        ).maxOrNull() ?: 0.0
+        val score = (45 + if (liquiditySweep != null) 18 else 0 +
+            if (structureBreak != null) 18 else 0 +
+            if (sweepMatchesBreak) 14 else 0 +
+            mitigationScore * 10).roundToInt().coerceIn(0, 100)
+        return StrategySignalSnapshot(
+            direction = direction,
+            score = score,
+            setupQuality = score.toDouble(),
+            tags = listOfNotNull(
+                if (liquiditySweep != null) "SWEEP" else null,
+                structureBreak?.type?.name,
+                if (activeOrderBlock != null) "MITIGATION_OB" else null,
+                if (activeFvg != null) "MITIGATION_FVG" else null,
+                if (sweepMatchesBreak) "ENTRY_SIGNAL" else null,
             ),
         )
     }

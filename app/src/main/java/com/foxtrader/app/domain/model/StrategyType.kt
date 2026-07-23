@@ -9,6 +9,7 @@ enum class StrategyType(val label: String) {
     MEAN_REVERSION("Mean Reversion"),
     BREAKOUT("Breakout"),
     SMART_MONEY("Smart Money"),
+    LIT("LIT"),
     ICHIMOKU("Ichimoku"),
     PATTERN("Pattern"),
 }

@@ -8,6 +8,7 @@ import com.foxtrader.app.domain.model.StrategySignal
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.repository.JournalRepository
 import com.foxtrader.app.domain.repository.MarketRepository
+import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import com.foxtrader.app.domain.usecase.analysis.RiskRewardOptimizer
 import com.foxtrader.app.domain.usecase.analysis.DivergenceDetector
 import com.foxtrader.app.domain.usecase.analysis.WyckoffDetector
@@ -46,6 +47,7 @@ class StrategiesViewModel @Inject constructor(
     private val smcDetector: SmcDetector,
     private val wyckoffDetector: WyckoffDetector,
     private val ichimokuCloud: IchimokuCloud,
+    private val analyzeStructure: AnalyzeMarketStructureUseCase,
     private val riskReward: RiskRewardOptimizer,
     private val aiBacktestEngine: AiScoredBacktestEngine,
     private val journalRepository: JournalRepository,
@@ -165,6 +167,7 @@ class StrategiesViewModel @Inject constructor(
                 stopLoss = pattern.stopLoss,
                 takeProfit = pattern.tp1,
                 riskReward = rr(pattern.dPrice, pattern.stopLoss, pattern.tp1),
+                signalProvider = "Harmonic Engine",
                 note = "PRZ ${"%.5f".format(pattern.prz.first)} - ${"%.5f".format(pattern.prz.second)}",
             )
         }
@@ -183,6 +186,7 @@ class StrategiesViewModel @Inject constructor(
                 confidence = (ob.strength * 100).toInt().coerceIn(0, 100),
                 entry = entry, stopLoss = sl, takeProfit = tp,
                 riskReward = rr(entry, sl, tp),
+                signalProvider = "SMC Engine",
                 note = "Institutional supply/demand zone",
             )
         }
@@ -203,6 +207,7 @@ class StrategiesViewModel @Inject constructor(
                 stopLoss = sl,
                 takeProfit = tp,
                 riskReward = rr(entry, sl, tp),
+                signalProvider = "SMC Engine",
                 note = "Unfilled ${fvg.type.name.lowercase()} imbalance",
             )
         }
@@ -220,6 +225,7 @@ class StrategiesViewModel @Inject constructor(
                 stopLoss = rrSetup.stopLoss,
                 takeProfit = rrSetup.takeProfit1,
                 riskReward = rrSetup.riskRewardRatio,
+                signalProvider = "Risk Engine",
                 note = rrSetup.reason,
             )
         }
@@ -243,6 +249,7 @@ class StrategiesViewModel @Inject constructor(
                     stopLoss = sl,
                     takeProfit = tp,
                     riskReward = rr(entry, sl, tp),
+                    signalProvider = "Pattern Engine",
                     note = pattern.context,
                 )
             }
@@ -271,6 +278,7 @@ class StrategiesViewModel @Inject constructor(
                     stopLoss = sl,
                     takeProfit = tp,
                     riskReward = rr(entry, sl, tp),
+                    signalProvider = "Divergence Engine",
                     note = divergence.type.name.lowercase().replace('_', ' '),
                 )
             }
@@ -296,6 +304,7 @@ class StrategiesViewModel @Inject constructor(
                 stopLoss = sl,
                 takeProfit = tp,
                 riskReward = rr(entry, sl, tp),
+                signalProvider = "Wyckoff Engine",
                 note = wyckoff.description,
             )
         }
@@ -320,7 +329,43 @@ class StrategiesViewModel @Inject constructor(
                     stopLoss = sl,
                     takeProfit = tp,
                     riskReward = rr(entry, sl, tp),
+                    signalProvider = "Ichimoku Engine",
                     note = "Price ${position.name.lowercase()} cloud",
+                )
+            }
+        }
+
+        // --- LIT institutional entry ---
+        val liquiditySweep = smcDetector.detectLiquidity(candles).lastOrNull { it.swept && it.sweepIndex != null }
+        val structureBreak = analyzeStructure(candles).breaks.lastOrNull { it.confirmed }
+        if (liquiditySweep != null && structureBreak != null) {
+            val dir = when (liquiditySweep.type.name) {
+                "SELL_SIDE" -> Direction.BULLISH
+                else -> Direction.BEARISH
+            }
+            if (dir == structureBreak.direction) {
+                val entry = candles.last().close
+                val atr = TechnicalIndicators.calculateATR(candles, 14)[candles.lastIndex]
+                val mitigationOb = smcDetector.detectOrderBlocks(candles).lastOrNull { !it.mitigated }
+                val sl = when {
+                    mitigationOb != null && dir == Direction.BULLISH -> mitigationOb.lowPrice
+                    mitigationOb != null && dir == Direction.BEARISH -> mitigationOb.highPrice
+                    dir == Direction.BULLISH -> entry - atr * 1.5
+                    else -> entry + atr * 1.5
+                }
+                val tp = if (dir == Direction.BULLISH) entry + (entry - sl) * 3 else entry - (sl - entry) * 3
+                out += StrategySignalItem(
+                    id = UUID.randomUUID().toString(),
+                    symbol = symbol,
+                    strategyName = "LIT Institutional Entry",
+                    direction = dir,
+                    confidence = 82,
+                    entry = entry,
+                    stopLoss = sl,
+                    takeProfit = tp,
+                    riskReward = rr(entry, sl, tp),
+                    signalProvider = "LIT Signal Provider",
+                    note = "Sweep + ${structureBreak.type.name} + mitigation entry",
                 )
             }
         }
