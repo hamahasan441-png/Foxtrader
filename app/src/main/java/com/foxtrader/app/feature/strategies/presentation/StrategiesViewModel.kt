@@ -59,6 +59,11 @@ class StrategiesViewModel @Inject constructor(
     private companion object {
         const val DIVERGENCE_REGULAR_CONFIDENCE = 64
         const val DIVERGENCE_HIDDEN_CONFIDENCE = 60
+        const val LIT_BASE_CONFIDENCE = 64
+        const val LIT_ORDER_BLOCK_BONUS = 9
+        const val LIT_FVG_BONUS = 6
+        const val LIT_STRUCTURE_SHIFT_BONUS = 6
+        const val LIT_MAX_CONFIDENCE = 96
     }
 
     private val _uiState = MutableStateFlow(StrategiesUiState())
@@ -359,8 +364,9 @@ class StrategiesViewModel @Inject constructor(
             .maxByOrNull { it.sweepIndex ?: -1 }
         val structureBreak = analyzeStructure(candles).breaks.lastOrNull { it.confirmed }
         if (liquiditySweep?.sweepIndex != null && structureBreak != null) {
+            val sweepIndex = liquiditySweep.sweepIndex ?: return out
             val dir = if (liquiditySweep.type == LiquidityType.SELL_SIDE) Direction.BULLISH else Direction.BEARISH
-            val sweepRecency = lastIndex - liquiditySweep.sweepIndex
+            val sweepRecency = lastIndex - sweepIndex
             val breakRecency = lastIndex - structureBreak.breakIndex
             if (dir == structureBreak.direction && sweepRecency in 0..12 && breakRecency in 0..10) {
                 val mitigationOb = smcDetector.detectOrderBlocks(candles).lastOrNull {
@@ -387,14 +393,14 @@ class StrategiesViewModel @Inject constructor(
                     val sl = if (dir == Direction.BULLISH) slBase - atr * 0.15 else slBase + atr * 0.15
                     val tp = if (dir == Direction.BULLISH) entry + (entry - sl) * 3 else entry - (sl - entry) * 3
                     val confidence = (
-                        64 +
-                            (if (mitigationOb != null) 9 else 0) +
-                            (if (mitigationFvg != null) 6 else 0) +
+                        LIT_BASE_CONFIDENCE +
+                            (if (mitigationOb != null) LIT_ORDER_BLOCK_BONUS else 0) +
+                            (if (mitigationFvg != null) LIT_FVG_BONUS else 0) +
                             (if (structureBreak.type == StructureBreakType.CHOCH ||
-                                structureBreak.type == StructureBreakType.MSS) 6 else 0) +
+                                structureBreak.type == StructureBreakType.MSS) LIT_STRUCTURE_SHIFT_BONUS else 0) +
                             ((12 - sweepRecency).coerceAtLeast(0) / 2) +
                             ((10 - breakRecency).coerceAtLeast(0) / 2)
-                        ).coerceIn(0, 96)
+                        ).coerceIn(0, LIT_MAX_CONFIDENCE)
                     out += StrategySignalItem(
                         id = UUID.randomUUID().toString(),
                         symbol = symbol,
