@@ -86,7 +86,7 @@ class ChartViewModel @Inject constructor(
      * Used to skip re-running the expensive multi-agent analysis when the
      * data has not changed (e.g. rapid indicator-toggle recomputations).
      */
-    private var lastAiCandlesHash: Int = 0
+    private var lastAiCandlesHash: Long = 0L
 
     init {
         observeMarket()
@@ -201,7 +201,7 @@ class ChartViewModel @Inject constructor(
     private fun runAiDecision(candles: List<Candle>) {
         if (candles.size < 50) {
             _uiState.value = _uiState.value.copy(aiDecision = null)
-            lastAiCandlesHash = 0
+            lastAiCandlesHash = 0L
             return
         }
         // At this point candles.size >= 50, so candles is non-empty and
@@ -217,7 +217,7 @@ class ChartViewModel @Inject constructor(
             h = h * 31 + candles.first().open.toBits()
             h = h * 31 + candles[midIndex].high.toBits()
             h = h * 31 + candles.last().close.toBits()
-            h.toInt()
+            h
         }
         if (hash == lastAiCandlesHash) return
         lastAiCandlesHash = hash

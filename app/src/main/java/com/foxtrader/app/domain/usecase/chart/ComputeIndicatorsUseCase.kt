@@ -31,7 +31,6 @@ class ComputeIndicatorsUseCase @Inject constructor(
     private val sessionDetector: SessionDetector,
 ) {
 
-    /** Holds all computed overlay data for a single chart render frame. */
     /**
      * Holds all computed overlay data for a single chart render frame.
      *
