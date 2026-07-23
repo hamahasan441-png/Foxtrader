@@ -5,27 +5,31 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.foxtrader.app.data.local.dao.CandleDao
+import com.foxtrader.app.data.local.dao.DrawingDao
 import com.foxtrader.app.data.local.dao.JournalDao
 import com.foxtrader.app.data.local.entity.CandleEntity
+import com.foxtrader.app.data.local.entity.DrawingEntity
 import com.foxtrader.app.data.local.entity.JournalEntity
 
 /**
  * The FoxTrader local database (Room).
  * Single source of truth for the market data cache and user-authored data
- * (trade journal; drawings/settings to follow).
+ * (trade journal; drawings; settings to follow).
  *
  * Version history:
  * - v1: candles table only.
  * - v2: adds journal_entries table (user-authored, syncable).
+ * - v3: adds chart_drawings table (user-authored, syncable).
  */
 @Database(
-    entities = [CandleEntity::class, JournalEntity::class],
-    version = 2,
+    entities = [CandleEntity::class, JournalEntity::class, DrawingEntity::class],
+    version = 3,
     exportSchema = false,
 )
 abstract class FoxDatabase : RoomDatabase() {
     abstract fun candleDao(): CandleDao
     abstract fun journalDao(): JournalDao
+    abstract fun drawingDao(): DrawingDao
 
     companion object {
         const val NAME = "foxtrader.db"
@@ -66,6 +70,29 @@ abstract class FoxDatabase : RoomDatabase() {
             }
         }
 
-        val MIGRATIONS = arrayOf(MIGRATION_1_2)
+        /** v2 -> v3: create the chart_drawings table. */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS chart_drawings (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        symbol TEXT NOT NULL,
+                        timeframe TEXT NOT NULL,
+                        type TEXT NOT NULL,
+                        points TEXT NOT NULL,
+                        color INTEGER NOT NULL,
+                        lineWidth REAL NOT NULL,
+                        isVisible INTEGER NOT NULL,
+                        label TEXT,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
+        val MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
     }
 }

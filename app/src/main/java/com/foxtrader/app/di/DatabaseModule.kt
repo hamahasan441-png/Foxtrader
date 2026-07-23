@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.foxtrader.app.data.local.FoxDatabase
 import com.foxtrader.app.data.local.dao.CandleDao
+import com.foxtrader.app.data.local.dao.DrawingDao
 import com.foxtrader.app.data.local.dao.JournalDao
 import dagger.Module
 import dagger.Provides
@@ -20,8 +21,6 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): FoxDatabase =
         Room.databaseBuilder(context, FoxDatabase::class.java, FoxDatabase.NAME)
-            // Real migration for user-authored tables (journal); candle cache
-            // can still be destructively rebuilt as a last resort.
             .addMigrations(*FoxDatabase.MIGRATIONS)
             .fallbackToDestructiveMigration()
             .build()
@@ -31,4 +30,7 @@ object DatabaseModule {
 
     @Provides
     fun provideJournalDao(db: FoxDatabase): JournalDao = db.journalDao()
+
+    @Provides
+    fun provideDrawingDao(db: FoxDatabase): DrawingDao = db.drawingDao()
 }
