@@ -352,41 +352,63 @@ class StrategiesViewModel @Inject constructor(
         }
 
         // --- LIT institutional entry ---
-        val liquiditySweep = smcDetector.detectLiquidity(candles).lastOrNull { it.swept && it.sweepIndex != null }
+        val lastIndex = candles.lastIndex
+        val atr = TechnicalIndicators.calculateATR(candles, 14)[lastIndex]
+        val liquiditySweep = smcDetector.detectLiquidity(candles)
+            .filter { it.swept && it.sweepIndex != null }
+            .maxByOrNull { it.sweepIndex ?: -1 }
         val structureBreak = analyzeStructure(candles).breaks.lastOrNull { it.confirmed }
-        if (liquiditySweep != null && structureBreak != null) {
+        if (liquiditySweep?.sweepIndex != null && structureBreak != null) {
             val dir = if (liquiditySweep.type == LiquidityType.SELL_SIDE) Direction.BULLISH else Direction.BEARISH
-            if (dir == structureBreak.direction) {
-                val entry = candles.last().close
-                val atr = TechnicalIndicators.calculateATR(candles, 14)[candles.lastIndex]
-                val mitigationOb = smcDetector.detectOrderBlocks(candles).lastOrNull { !it.mitigated }
-                val confidence = (
-                    62 +
-                        (if (liquiditySweep.sweepIndex != null) 8 else 0) +
-                        (if (mitigationOb != null) 7 else 0) +
-                        (if (structureBreak.type == StructureBreakType.CHOCH ||
-                            structureBreak.type == StructureBreakType.MSS) 5 else 0)
-                    ).coerceIn(0, 95)
-                val sl = when {
-                    mitigationOb != null && dir == Direction.BULLISH -> mitigationOb.lowPrice
-                    mitigationOb != null && dir == Direction.BEARISH -> mitigationOb.highPrice
-                    dir == Direction.BULLISH -> entry - atr * 1.5
-                    else -> entry + atr * 1.5
+            val sweepRecency = lastIndex - liquiditySweep.sweepIndex
+            val breakRecency = lastIndex - structureBreak.breakIndex
+            if (dir == structureBreak.direction && sweepRecency in 0..12 && breakRecency in 0..10) {
+                val mitigationOb = smcDetector.detectOrderBlocks(candles).lastOrNull {
+                    !it.mitigated &&
+                        ((dir == Direction.BULLISH && it.type == OrderBlockType.BULLISH) ||
+                            (dir == Direction.BEARISH && it.type == OrderBlockType.BEARISH))
                 }
-                val tp = if (dir == Direction.BULLISH) entry + (entry - sl) * 3 else entry - (sl - entry) * 3
-                out += StrategySignalItem(
-                    id = UUID.randomUUID().toString(),
-                    symbol = symbol,
-                    strategyName = "LIT Institutional Entry",
-                    direction = dir,
-                    confidence = confidence,
-                    entry = entry,
-                    stopLoss = sl,
-                    takeProfit = tp,
-                    riskReward = rr(entry, sl, tp),
-                    signalProvider = "LIT Signal Provider",
-                    note = "Sweep + ${structureBreak.type.name} + mitigation entry",
-                )
+                val mitigationFvg = smcDetector.detectFairValueGaps(candles).lastOrNull {
+                    !it.filled &&
+                        ((dir == Direction.BULLISH && it.type == FvgType.BULLISH) ||
+                            (dir == Direction.BEARISH && it.type == FvgType.BEARISH))
+                }
+                val entry = mitigationOb?.let { (it.highPrice + it.lowPrice) / 2.0 }
+                    ?: mitigationFvg?.let { (it.highPrice + it.lowPrice) / 2.0 }
+                if (entry != null && abs(candles.last().close - entry) <= atr * 0.75) {
+                    val slBase = when {
+                        mitigationOb != null && dir == Direction.BULLISH -> mitigationOb.lowPrice
+                        mitigationOb != null && dir == Direction.BEARISH -> mitigationOb.highPrice
+                        mitigationFvg != null && dir == Direction.BULLISH -> mitigationFvg.lowPrice
+                        mitigationFvg != null && dir == Direction.BEARISH -> mitigationFvg.highPrice
+                        dir == Direction.BULLISH -> entry - atr * 1.5
+                        else -> entry + atr * 1.5
+                    }
+                    val sl = if (dir == Direction.BULLISH) slBase - atr * 0.15 else slBase + atr * 0.15
+                    val tp = if (dir == Direction.BULLISH) entry + (entry - sl) * 3 else entry - (sl - entry) * 3
+                    val confidence = (
+                        64 +
+                            (if (mitigationOb != null) 9 else 0) +
+                            (if (mitigationFvg != null) 6 else 0) +
+                            (if (structureBreak.type == StructureBreakType.CHOCH ||
+                                structureBreak.type == StructureBreakType.MSS) 6 else 0) +
+                            ((12 - sweepRecency).coerceAtLeast(0) / 2) +
+                            ((10 - breakRecency).coerceAtLeast(0) / 2)
+                        ).coerceIn(0, 96)
+                    out += StrategySignalItem(
+                        id = UUID.randomUUID().toString(),
+                        symbol = symbol,
+                        strategyName = "LIT Institutional Entry",
+                        direction = dir,
+                        confidence = confidence,
+                        entry = entry,
+                        stopLoss = sl,
+                        takeProfit = tp,
+                        riskReward = rr(entry, sl, tp),
+                        signalProvider = "LIT Signal Provider",
+                        note = "Sweep + ${structureBreak.type.name} + mitigation retest",
+                    )
+                }
             }
         }
 

@@ -135,22 +135,45 @@ private fun StrategyFilter(
     selected: StrategyType,
     onSelect: (StrategyType) -> Unit,
 ) {
-    LazyRow(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(StrategyType.entries) { strategy ->
-            FilterChip(
-                selected = selected == strategy,
-                onClick = { onSelect(strategy) },
-                label = { Text(strategy.label, fontSize = 12.sp) },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = FoxAmber50.copy(alpha = 0.2f),
-                    selectedLabelColor = FoxAmber50,
-                ),
-            )
+        Text(
+            text = "Strategy",
+            fontSize = 12.sp,
+            color = FoxNeutral60,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(start = 4.dp, bottom = 6.dp),
+        )
+        LazyRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(FoxNeutral10)
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(StrategyType.entries) { strategy ->
+                val isSelected = selected == strategy
+                FilterChip(
+                    selected = isSelected,
+                    onClick = { onSelect(strategy) },
+                    label = {
+                        Text(
+                            strategy.label,
+                            fontSize = 12.sp,
+                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                        )
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        selectedContainerColor = FoxAmber50.copy(alpha = 0.2f),
+                        selectedLabelColor = FoxAmber50,
+                    ),
+                )
+            }
         }
     }
 }
