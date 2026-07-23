@@ -24,6 +24,7 @@ data class IndicatorToggles(
     val superTrend: Boolean = false,
     val parabolicSar: Boolean = false,
     val vwap: Boolean = false,
+    val ichimoku: Boolean = false,
     val volumeProfile: Boolean = false,
     val orderBlocks: Boolean = true,
     val fairValueGaps: Boolean = true,
@@ -54,6 +55,11 @@ data class ChartUiState(
     val superTrendDir: IntArray? = null,
     val parabolicSar: DoubleArray? = null,
     val vwap: DoubleArray? = null,
+    val ichimokuTenkan: DoubleArray? = null,
+    val ichimokuKijun: DoubleArray? = null,
+    val ichimokuSenkouA: DoubleArray? = null,
+    val ichimokuSenkouB: DoubleArray? = null,
+    val ichimokuChikou: DoubleArray? = null,
 
     // --- Smart Money Concepts ---
     val orderBlocks: List<OrderBlock> = emptyList(),

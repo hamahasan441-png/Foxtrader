@@ -53,6 +53,7 @@ fun IndicatorPanel(
             Chip("SuperTrend", toggles.superTrend) { onToggle { it.copy(superTrend = !it.superTrend) } }
             Chip("PSAR", toggles.parabolicSar) { onToggle { it.copy(parabolicSar = !it.parabolicSar) } }
             Chip("VWAP", toggles.vwap) { onToggle { it.copy(vwap = !it.vwap) } }
+            Chip("Ichimoku", toggles.ichimoku) { onToggle { it.copy(ichimoku = !it.ichimoku) } }
             Chip("Vol Profile", toggles.volumeProfile) { onToggle { it.copy(volumeProfile = !it.volumeProfile) } }
             Chip("Order Blocks", toggles.orderBlocks) { onToggle { it.copy(orderBlocks = !it.orderBlocks) } }
             Chip("FVG", toggles.fairValueGaps) { onToggle { it.copy(fairValueGaps = !it.fairValueGaps) } }

@@ -39,6 +39,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.foxtrader.app.domain.model.AssetClass
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.ScreenerResult
+import com.foxtrader.app.domain.model.StrategyType
 import com.foxtrader.app.domain.model.WatchlistCategory
 import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxBearishText
@@ -75,6 +76,11 @@ fun ScannerScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            StrategyFilter(
+                selected = state.selectedStrategy,
+                onSelect = viewModel::selectStrategy,
+            )
+
             // Asset class filter chips
             AssetClassFilter(
                 selected = state.selectedAssetClass,
@@ -120,6 +126,31 @@ fun ScannerScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun StrategyFilter(
+    selected: StrategyType,
+    onSelect: (StrategyType) -> Unit,
+) {
+    LazyRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items(StrategyType.entries) { strategy ->
+            FilterChip(
+                selected = selected == strategy,
+                onClick = { onSelect(strategy) },
+                label = { Text(strategy.label, fontSize = 12.sp) },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = FoxAmber50.copy(alpha = 0.2f),
+                    selectedLabelColor = FoxAmber50,
+                ),
+            )
         }
     }
 }
@@ -186,6 +217,8 @@ private fun ScannerResultCard(result: ScreenerResult) {
                     )
                     Spacer(Modifier.width(8.dp))
                     DirectionBadge(result.direction)
+                    Spacer(Modifier.width(8.dp))
+                    TagChip(result.strategy.label)
                 }
                 ScoreBadge(result.score)
             }

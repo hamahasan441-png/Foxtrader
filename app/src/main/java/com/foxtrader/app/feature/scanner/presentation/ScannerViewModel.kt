@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.foxtrader.app.domain.model.AssetClass
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.StrategyType
 import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.scanner.ScannerUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -40,7 +41,7 @@ class ScannerViewModel @Inject constructor(
                     if (candles.isNotEmpty()) dataMap[ws.symbol] = candles
                 }
 
-                val output = scannerUseCase(dataMap)
+                val output = scannerUseCase(dataMap, _uiState.value.selectedStrategy)
                 _uiState.update {
                     it.copy(
                         results = output.results,
@@ -56,5 +57,10 @@ class ScannerViewModel @Inject constructor(
 
     fun selectAssetClass(assetClass: AssetClass?) {
         _uiState.update { it.copy(selectedAssetClass = assetClass) }
+    }
+
+    fun selectStrategy(strategy: StrategyType) {
+        _uiState.update { it.copy(selectedStrategy = strategy) }
+        scan()
     }
 }

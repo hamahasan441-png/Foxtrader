@@ -22,6 +22,7 @@ data class ScreenerSymbol(
 data class ScreenerResult(
     val symbol: String,
     val assetClass: AssetClass,
+    val strategy: StrategyType,
     val direction: Direction,
     val score: Int,              // 0-100
     val bias: Bias,
