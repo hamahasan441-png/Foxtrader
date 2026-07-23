@@ -46,7 +46,7 @@ class CloudSyncRepositoryImpl @Inject constructor(
      * @return [CloudSyncEngine.SyncResult] with merge stats.
      */
     suspend fun sync(
-        localItems: List<SyncEnvelope<String>>,
+        localItems: List<SyncEnvelope>,
         deviceId: String,
     ): CloudSyncEngine.SyncResult = withContext(io) {
         if (!tokenManager.isLoggedIn()) {
