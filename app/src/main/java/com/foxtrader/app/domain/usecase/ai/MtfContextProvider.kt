@@ -29,7 +29,12 @@ class MtfContextProvider @Inject constructor(
      *         each, or empty if insufficient data). Does not include the execution
      *         TF itself (that's passed separately in [AgentContext.candles]).
      *         Returns an empty map on any unexpected error so AI analysis can
-     *         still proceed with single-timeframe context.
+     *         still proceed with single-timeframe context rather than crashing.
+     *         Errors are intentionally suppressed here because HTF context is
+     *         supplementary — the primary candle set is always passed directly
+     *         in [AgentContext.candles] and drives the core analysis even when
+     *         HTF fetches fail (e.g. DB not yet seeded, candles not available
+     *         for that timeframe).
      */
     suspend fun getHtfContext(
         symbol: String,
@@ -38,6 +43,7 @@ class MtfContextProvider @Inject constructor(
         val htfs = htfLadder(executionTimeframe)
         val result = LinkedHashMap<Timeframe, List<Candle>>(htfs.size)
         for (tf in htfs) {
+            // Per-TF errors are suppressed: one failing TF must not cancel the rest.
             val candles = runCatching { repository.getCandles(symbol, tf) }.getOrElse { emptyList() }
             if (candles.size >= MIN_BARS) {
                 result[tf] = candles

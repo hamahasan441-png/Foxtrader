@@ -123,7 +123,13 @@ class ChartViewModel @Inject constructor(
     private fun observeMarket() {
         combine(symbolFlow, timeframeFlow) { symbol, tf -> symbol to tf }
             .flatMapLatest { (symbol, tf) -> repository.observeCandles(symbol, tf) }
-            .distinctUntilChangedBy { it.size }
+            // Deduplicate: suppress reanalysis when neither the bar count nor
+            // the last bar's price+timestamp changed (handles both historical
+            // refreshes and live WebSocket in-place updates to the latest bar).
+            .distinctUntilChangedBy { list ->
+                val last = list.lastOrNull()
+                "${list.size}:${last?.timestamp}:${last?.close}"
+            }
             .onEach { candles ->
                 viewModelScope.launch { processCandles(candles) }
             }
