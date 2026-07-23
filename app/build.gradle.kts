@@ -112,6 +112,17 @@ dependencies {
     // DataStore
     implementation(libs.androidx.datastore.preferences)
 
+    // WorkManager + Hilt integration
+    implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.androidx.hilt.work)
+    ksp(libs.androidx.hilt.compiler)
+
+    // Security (encrypted storage for tokens)
+    implementation(libs.androidx.security.crypto)
+
+    // Biometric authentication
+    implementation(libs.androidx.biometric)
+
     // Testing
     testImplementation(libs.junit)
     testImplementation(libs.mockk)
