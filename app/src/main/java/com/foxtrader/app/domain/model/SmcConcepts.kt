@@ -126,3 +126,119 @@ data class VolumeProfile(
     val valPrice: Double,     // Value Area Low (70% of volume below)
     val totalVolume: Double,
 )
+
+// ============================================================================
+// BREAKER BLOCKS
+// ============================================================================
+
+/** Type of breaker block (flipped order block). */
+enum class BreakerType { BULLISH, BEARISH }
+
+/**
+ * A Breaker Block — a failed order block that has been violated and now
+ * acts as resistance (ex-bullish OB → bearish breaker) or support
+ * (ex-bearish OB → bullish breaker) from the opposite direction.
+ *
+ * Detection: an OB is classified as a breaker when price sweeps through
+ * the OB zone and then uses that zone as a level in the opposite direction.
+ *
+ * Port of reference/modules/order-blocks — breaker variant.
+ */
+data class BreakerBlock(
+    /** Bullish breaker: provides support after an ex-bearish OB is violated. */
+    val type: BreakerType,
+    val highPrice: Double,
+    val lowPrice: Double,
+    /** Bar index at which the original OB was mitigated / violated. */
+    val originIndex: Int,
+    /** Bar index at which the breaker became active (price returned). */
+    val breakerIndex: Int,
+    /** Strength inherited from the original OB. */
+    val strength: Double,
+)
+
+// ============================================================================
+// INVERSION FAIR VALUE GAP (IFVG)
+// ============================================================================
+
+/** Type of inversion FVG. */
+enum class IfvgType { BULLISH, BEARISH }
+
+/**
+ * An Inversion Fair Value Gap (IFVG) — an FVG that has been fully filled
+ * and now acts as support/resistance from the opposite direction.
+ *
+ * - A bullish FVG that gets filled → bearish IFVG (resistance zone).
+ * - A bearish FVG that gets filled → bullish IFVG (support zone).
+ *
+ * Port of reference/modules/fair-value-gaps — inversion variant.
+ */
+data class InversionFVG(
+    val type: IfvgType,
+    val highPrice: Double,
+    val lowPrice: Double,
+    /** Bar index of the original FVG. */
+    val originIndex: Int,
+    /** Bar index at which the FVG was fully filled (inversion confirmed). */
+    val inversionIndex: Int,
+)
+
+// ============================================================================
+// BALANCED PRICE RANGE (BPR)
+// ============================================================================
+
+/**
+ * A Balanced Price Range (BPR) — the overlapping zone of a bullish FVG and
+ * a bearish FVG. The overlapping area represents high-sensitivity equilibrium
+ * where price frequently reacts.
+ *
+ * Port of reference/modules/fair-value-gaps — BPR variant.
+ */
+data class BalancedPriceRange(
+    /** The overlap zone (intersection of bullish + bearish FVG). */
+    val highPrice: Double,
+    val lowPrice: Double,
+    /** Index of the bullish FVG. */
+    val bullishFvgIndex: Int,
+    /** Index of the bearish FVG. */
+    val bearishFvgIndex: Int,
+)
+
+// ============================================================================
+// AMD / POWER OF THREE
+// ============================================================================
+
+/** Phase of the AMD (Accumulation-Manipulation-Distribution) cycle. */
+enum class AmdPhase { ACCUMULATION, MANIPULATION, DISTRIBUTION }
+
+/**
+ * AMD (Accumulation → Manipulation → Distribution) pattern, also known as
+ * ICT Power of Three.
+ *
+ * - Accumulation: range-bound session (typically the Asian range).
+ * - Manipulation: false spike that sweeps liquidity against the real direction.
+ * - Distribution: the sustained move in the true direction following the sweep.
+ *
+ * Non-repainting: confirmed once the distribution move is established.
+ * Port of reference/modules/ict-concepts — AMD variant.
+ */
+data class AmdPattern(
+    /** The detected phase at the time of detection. */
+    val phase: AmdPhase,
+    /** Intended direction of the distribution move. */
+    val direction: Direction,
+    /** Price range of the accumulation phase. */
+    val accumulationHigh: Double,
+    val accumulationLow: Double,
+    /** Index range of the accumulation phase. */
+    val accumulationStart: Int,
+    val accumulationEnd: Int,
+    /** Price of the manipulation sweep (the false spike). */
+    val manipulationPrice: Double,
+    /** Bar index of the manipulation sweep. */
+    val manipulationIndex: Int,
+    /** Distribution target — structural level or OB on the opposing side. */
+    val distributionTarget: Double,
+    /** Bar index when the pattern was confirmed. */
+    val confirmIndex: Int,
+)
