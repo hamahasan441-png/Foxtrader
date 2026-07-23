@@ -210,7 +210,7 @@ class ChartViewModel @Inject constructor(
 
         // Lightweight fingerprint: candle count + last close price bits.
         val lastClose = candles.last().close
-        val hash = candles.size * 31 + lastClose.toBits().toInt()
+        val hash = (candles.size * 31L + lastClose.toBits()).toInt()
         if (hash == lastAiCandlesHash) return
         lastAiCandlesHash = hash
 
