@@ -3,6 +3,7 @@ package com.foxtrader.app.data.remote.api
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Timeframe
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -23,8 +24,8 @@ class AlphaVantageDataSource @Inject constructor(
         limit: Int = 500,
         apiKey: String,
     ): List<Candle> {
-        if (limit <= 0) return emptyList()
-        if (apiKey.isBlank()) return emptyList()
+        require(limit >= 0) { "Invalid data limit: value must not be negative." }
+        if (limit == 0) return emptyList()
 
         val request = buildRequest(symbol, timeframe) ?: return emptyList()
         val raw = api.query(
@@ -37,7 +38,10 @@ class AlphaVantageDataSource @Inject constructor(
         )
         val root = raw.jsonObject
 
-        if ("Error Message" in root || "Note" in root || "Information" in root) return emptyList()
+        listOf("Error Message", "Note", "Information")
+            .firstNotNullOfOrNull { key -> root[key]?.jsonPrimitive?.contentOrNull }
+            ?.let { message -> throw IllegalStateException("Alpha Vantage: $message") }
+
         val series = root.entries.firstOrNull { it.key.contains("Time Series", ignoreCase = true) }?.value
             ?.jsonObject ?: return emptyList()
 
@@ -93,7 +97,8 @@ class AlphaVantageDataSource @Inject constructor(
     }
 
     private fun parseForexPair(symbol: String): Pair<String, String>? {
-        val clean = symbol.replace("/", "")
+        // Normalize input so callers can pass either "EURUSD" or "eur/usd".
+        val clean = symbol.uppercase().replace("/", "")
         if (clean.length != FOREX_SYMBOL_LENGTH || !clean.all { it in 'A'..'Z' }) return null
         return clean.substring(0, ISO_CURRENCY_CODE_LENGTH) to
             clean.substring(ISO_CURRENCY_CODE_LENGTH, FOREX_SYMBOL_LENGTH)

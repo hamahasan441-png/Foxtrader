@@ -55,10 +55,14 @@ class MarketRepositoryImpl @Inject constructor(
             val candles: List<Candle> = when {
                 selectedProvider == DataProvider.ALPHA_VANTAGE -> {
                     require(alphaKey.isNotBlank()) {
-                        "Alpha Vantage API key is required. Set ALPHA_VANTAGE_API_KEY in your Gradle properties."
+                        "Alpha Vantage API key is required. Please add it in Settings."
                     }
-                    alphaVantage.fetchCandles(symbol, timeframe, limit, alphaKey)
-                        .ifEmpty { fetchDefaultCandles(symbol, timeframe, limit) }
+                    alphaVantage.fetchCandles(symbol, timeframe, limit, alphaKey).ifEmpty {
+                        throw IllegalStateException(
+                            "Alpha Vantage returned no candle data for $symbol ${timeframe.label}. " +
+                                "Check symbol/timeframe support, API key validity, and rate limits."
+                        )
+                    }
                 }
                 else -> fetchDefaultCandles(symbol, timeframe, limit)
             }
