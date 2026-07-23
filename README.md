@@ -178,20 +178,24 @@ Foxtrader/
 │       │   │   │   └── navigation/              # Bottom nav + NavHost
 │       │   │   ├── di/                          # Hilt DI modules
 │       │   │   │   ├── DatabaseModule.kt        # Room database provider
-│       │   │   │   ├── NetworkModule.kt         # Retrofit + OkHttp
+│       │   │   │   ├── NetworkModule.kt         # Retrofit + OkHttp (timeouts, HTTPS)
 │       │   │   │   ├── RepositoryModule.kt      # Repository bindings
-│       │   │   │   └── DispatcherModule.kt      # Coroutine dispatchers
+│       │   │   │   ├── AiModule.kt              # AgentOrchestrator + AiProviderClient
+│       │   │   │   └── DispatcherModule.kt      # Coroutine dispatchers (IoDispatcher/DefaultDispatcher)
 │       │   │   ├── domain/                      # Pure Kotlin (no Android deps)
-│       │   │   │   ├── model/                   # Candle, MarketStructure, Bias, Risk...
+│       │   │   │   ├── model/                   # Candle, MarketStructure, Bias, Risk, AiProvider...
 │       │   │   │   ├── repository/              # MarketRepository interface
 │       │   │   │   └── usecase/                 # Business logic
 │       │   │   │       ├── AnalyzeMarketStructureUseCase.kt
 │       │   │   │       ├── MultiTimeframeAnalysisUseCase.kt
+│       │   │   │       ├── chart/               # ComputeIndicatorsUseCase (extracted from ViewModel)
 │       │   │   │       ├── indicators/          # EMA, RSI, MACD, ATR, ADX, VWAP...
 │       │   │   │       ├── risk/                # Position sizing, SL, risk gating
 │       │   │   │       ├── backtest/            # Bar-by-bar backtester
 │       │   │   │       ├── scanner/             # Multi-asset screener
 │       │   │   │       ├── alerts/              # Alert engine
+│       │   │   │       ├── ai/                  # AgentOrchestrator, MasterDecisionEngine
+│       │   │   │       │   └── provider/        # AiProviderClient (LLM abstraction)
 │       │   │   │       └── patterns/            # Candle pattern detector
 │       │   │   ├── data/                        # Android/framework layer
 │       │   │   │   ├── local/                   # Room DB, DAO, entities
@@ -220,6 +224,34 @@ Foxtrader/
 
 ---
 
+## Architecture Overview
+
+FoxTrader follows **MVVM + Clean Architecture** with three strict layers:
+
+```
+Presentation (feature/)
+       ↓ observes StateFlow
+ViewModel (HiltViewModel)
+       ↓ calls use cases
+Domain (usecase/ + model/ + repository interfaces)
+       ↓ implemented by
+Data (repository/impl + local/ + remote/)
+```
+
+### Key architectural decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| **ComputeIndicatorsUseCase** | All indicator computation extracted from ViewModel into a pure domain use case - independently testable, no Android imports |
+| **DefaultDispatcher injection** | All CPU-bound work (indicators, SMC, market structure) runs on `Dispatchers.Default`; main thread never blocked |
+| **AI pipeline deduplication** | Candle fingerprint hash prevents re-running the 10-agent pipeline when data has not changed |
+| **AiProviderClient abstraction** | Interface seam for optional external LLM integration; `NoOpAiProviderClient` ensures graceful degradation by default |
+| **EncryptedSharedPreferences** | All API keys and JWT tokens stored with AES-256-GCM backed by Android Keystore |
+| **Offline-first (Room SSOT)** | UI observes Room Flow; network data writes into DB which propagates to UI automatically |
+| **BuildConfig.FOXTRADER_BASE_URL** | Backend URL configurable per-environment at build time (CI/staging/production override) |
+
+---
+
 ## CI / CD
 
 Every push to `main` or any `feat/**` / `fix/**` branch triggers the **Android CI** workflow:
@@ -233,18 +265,40 @@ Every push to `main` or any `feat/**` / `fix/**` branch triggers the **Android C
 
 The APK artifact is retained for 30 days.
 
+### Environment Configuration
+
+The backend URL can be overridden per environment:
+
+```bash
+# local.properties (not committed)
+FOXTRADER_BASE_URL=https://api.foxtrader.io/
+
+# Or as a CI secret / environment variable:
+export FOXTRADER_BASE_URL=https://staging.foxtrader.io/
+./gradlew :app:assembleRelease
+```
+
 ---
 
 ## Roadmap
 
+- [x] Hardware-accelerated candlestick chart engine
+- [x] Multi-agent AI confluence analysis (10 agents, offline)
+- [x] SMC/ICT concepts (order blocks, FVGs, liquidity sweeps)
+- [x] Technical indicators (EMA, Bollinger, SuperTrend, PSAR, Ichimoku, VWAP)
+- [x] Offline-first with Room + sample data seeding
+- [x] Drawing tools (trend lines, Fibonacci, horizontals)
+- [x] Bar-by-bar replay engine
+- [x] Risk management engine (6 sizing methods)
+- [x] Multi-asset scanner with AI scoring
+- [x] Encrypted credential storage (Android Keystore)
+- [x] External AI provider abstraction (AiProviderClient)
 - [ ] Live WebSocket data feed (Binance, Bybit)
-- [ ] Full SMC/ICT engine (order blocks, fair value gaps, liquidity sweeps)
-- [ ] LIT (Liquidity-Inducement Theory) agent
+- [ ] LIT (Liquidity-Inducement Theory) full implementation
 - [ ] Backtesting Lab UI screen
-- [ ] Trade journal with statistics
-- [ ] Push notification alerts
+- [ ] Trade journal statistics dashboard
+- [ ] Push notification alerts (WorkManager)
 - [ ] FastAPI backend (PostgreSQL + Redis)
-- [ ] Multi-timeframe confluence overlay on chart
 - [ ] Social / copy-trading features
 - [ ] Release on Google Play Store
 

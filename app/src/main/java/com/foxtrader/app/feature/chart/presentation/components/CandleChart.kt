@@ -34,7 +34,6 @@ import com.foxtrader.app.ui.theme.FoxBullish
 import com.foxtrader.app.ui.theme.FoxNeutral20
 import com.foxtrader.app.ui.theme.FoxNeutral5
 import com.foxtrader.app.ui.theme.FoxNeutral60
-import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.max
