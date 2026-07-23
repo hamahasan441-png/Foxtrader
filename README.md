@@ -123,14 +123,8 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 
 FoxTrader now supports **Alpha Vantage** as a chart data provider for historical candles.
 
-1. Add your key in local Gradle properties (do not commit secrets):
-
-```properties
-# local.properties or ~/.gradle/gradle.properties
-ALPHA_VANTAGE_API_KEY=your_key_here
-```
-
-2. In app settings, choose **Data Provider → Alpha Vantage**.
+1. In app settings, choose **Data Provider → Alpha Vantage**.
+2. Paste your key into **Alpha Vantage API Key** and tap **Save Settings**.
 
 Official API documentation: https://www.alphavantage.co/documentation/
 

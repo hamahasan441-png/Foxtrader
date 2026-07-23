@@ -41,6 +41,8 @@ class AppPreferences @Inject constructor(
     val appLockEnabled: StateFlow<Boolean> = _appLockEnabled.asStateFlow()
 
     private val apiKeys = mutableMapOf<DataProvider, String>()
+    private val _alphaVantageApiKey = MutableStateFlow("")
+    val alphaVantageApiKey: StateFlow<String> = _alphaVantageApiKey.asStateFlow()
 
     init {
         // Load persisted values into StateFlows on init.
@@ -51,6 +53,10 @@ class AppPreferences @Inject constructor(
                 _dataProvider.value = prefs[KEY_PROVIDER]?.let { name ->
                     runCatching { DataProvider.valueOf(name) }.getOrDefault(DataProvider.SAMPLE)
                 } ?: DataProvider.SAMPLE
+                _alphaVantageApiKey.value = prefs[KEY_ALPHA_VANTAGE_API_KEY].orEmpty()
+                if (_alphaVantageApiKey.value.isNotBlank()) {
+                    apiKeys[DataProvider.ALPHA_VANTAGE] = _alphaVantageApiKey.value
+                }
             }
         }
     }
@@ -70,7 +76,14 @@ class AppPreferences @Inject constructor(
         scope.launch { context.dataStore.edit { it[KEY_APP_LOCK] = enabled } }
     }
 
-    fun setApiKey(provider: DataProvider, key: String) { apiKeys[provider] = key }
+    fun setApiKey(provider: DataProvider, key: String) {
+        apiKeys[provider] = key
+        if (provider == DataProvider.ALPHA_VANTAGE) {
+            _alphaVantageApiKey.value = key
+            scope.launch { context.dataStore.edit { it[KEY_ALPHA_VANTAGE_API_KEY] = key } }
+        }
+    }
+
     fun getApiKey(provider: DataProvider): String? = apiKeys[provider]
 
     fun canGoLive(): Boolean {
@@ -84,5 +97,6 @@ class AppPreferences @Inject constructor(
         val KEY_DARK_MODE = booleanPreferencesKey("dark_mode")
         val KEY_APP_LOCK = booleanPreferencesKey("app_lock_enabled")
         val KEY_PROVIDER = stringPreferencesKey("data_provider")
+        val KEY_ALPHA_VANTAGE_API_KEY = stringPreferencesKey("alpha_vantage_api_key")
     }
 }

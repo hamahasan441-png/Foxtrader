@@ -37,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -288,6 +289,17 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = FoxNeutral60,
                 )
+                if (state.dataProvider == DataProvider.ALPHA_VANTAGE) {
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = state.alphaVantageApiKey,
+                        onValueChange = viewModel::setAlphaVantageApiKey,
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text("Alpha Vantage API Key") },
+                        visualTransformation = PasswordVisualTransformation(),
+                    )
+                }
             }
 
             // === GENERAL ===

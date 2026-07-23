@@ -44,6 +44,7 @@ class SettingsViewModel @Inject constructor(
             riskConfig = riskEngine.getConfig(),
             alertConfig = alertEngine.getConfig(),
             dataProvider = appPreferences.dataProvider.value,
+            alphaVantageApiKey = appPreferences.alphaVantageApiKey.value,
             darkMode = appPreferences.darkMode.value,
             authState = authRepository.authState.value,
             appLockEnabled = appPreferences.appLockEnabled.value,
@@ -82,6 +83,11 @@ class SettingsViewModel @Inject constructor(
     fun setDataProvider(provider: DataProvider) {
         appPreferences.setDataProvider(provider)
         _uiState.update { it.copy(dataProvider = provider, saved = false) }
+    }
+
+    fun setAlphaVantageApiKey(value: String) {
+        // Persisted on Save to match the rest of editable settings fields.
+        _uiState.update { it.copy(alphaVantageApiKey = value, saved = false) }
     }
 
     // --- Risk Config ---
@@ -177,6 +183,7 @@ class SettingsViewModel @Inject constructor(
             )
         )
         aiAlertService.cooldownMs = state.aiConfig.alertCooldownMinutes * 60_000L
+        appPreferences.setApiKey(DataProvider.ALPHA_VANTAGE, state.alphaVantageApiKey.trim())
 
         _uiState.update { it.copy(saved = true) }
     }

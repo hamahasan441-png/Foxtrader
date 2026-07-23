@@ -32,6 +32,7 @@ data class SettingsUiState(
     val aiConfig: AiConfig = AiConfig(),
     val defaultTimeframe: Timeframe = Timeframe.M15,
     val dataProvider: DataProvider = DataProvider.SAMPLE,
+    val alphaVantageApiKey: String = "",
     val darkMode: Boolean = true,
     val authState: AuthState = AuthState.UNAUTHENTICATED,
     val isSyncing: Boolean = false,

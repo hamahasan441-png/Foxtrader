@@ -24,7 +24,7 @@ class AlphaVantageDataSource @Inject constructor(
         limit: Int = 500,
         apiKey: String,
     ): List<Candle> {
-        require(limit >= 0) { "Invalid data limit: value must not be negative." }
+        require(limit >= 0) { "Limit cannot be negative." }
         if (limit == 0) return emptyList()
 
         val request = buildRequest(symbol, timeframe) ?: return emptyList()

@@ -1,6 +1,5 @@
 package com.foxtrader.app.data.repository
 
-import com.foxtrader.app.BuildConfig
 import com.foxtrader.app.data.local.dao.CandleDao
 import com.foxtrader.app.data.mapper.toDomain
 import com.foxtrader.app.data.mapper.toEntity
@@ -50,17 +49,16 @@ class MarketRepositoryImpl @Inject constructor(
         runCatching {
             val selectedProvider = appPreferences.dataProvider.value
             val alphaKey = appPreferences.getApiKey(DataProvider.ALPHA_VANTAGE).orEmpty()
-                .ifBlank { BuildConfig.ALPHA_VANTAGE_API_KEY }
 
             val candles: List<Candle> = when {
                 selectedProvider == DataProvider.ALPHA_VANTAGE -> {
                     require(alphaKey.isNotBlank()) {
-                        "Alpha Vantage API key is required. Please add it in Settings."
+                        "Alpha Vantage API key is required. Navigate to Settings → Data Provider and enter your API key."
                     }
                     alphaVantage.fetchCandles(symbol, timeframe, limit, alphaKey).ifEmpty {
                         throw IllegalStateException(
                             "Alpha Vantage returned no candle data for $symbol ${timeframe.label}. " +
-                                "Check symbol/timeframe support, API key validity, and rate limits."
+                                "Check supported symbols/timeframes in Alpha Vantage docs, API key validity, and rate limits."
                         )
                     }
                 }
