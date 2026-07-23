@@ -39,12 +39,17 @@ object NetworkModule {
      * Override at build time by setting FOXTRADER_BASE_URL in your
      * local.properties or CI environment. Defaults to the local emulator
      * address used during development. The scheme must always be HTTPS in
-     * staging/production; the default remains http for local dev convenience,
-     * but the emulator network policy allows cleartext only for localhost.
+     * staging/production — release builds will throw if a non-HTTPS URL is
+     * configured, preventing accidental cleartext traffic in production.
      */
-    private val BASE_URL: String get() =
-        BuildConfig.FOXTRADER_BASE_URL.takeIf { it.isNotBlank() }
+    private val BASE_URL: String get() {
+        val url = BuildConfig.FOXTRADER_BASE_URL.takeIf { it.isNotBlank() }
             ?: "http://10.0.2.2:8000/"
+        check(BuildConfig.DEBUG || url.startsWith("https://")) {
+            "Release builds require HTTPS for FOXTRADER_BASE_URL. Got: $url"
+        }
+        return url
+    }
 
     /** Binance public API base URL. */
     private const val BINANCE_BASE_URL = "https://api.binance.com/"
