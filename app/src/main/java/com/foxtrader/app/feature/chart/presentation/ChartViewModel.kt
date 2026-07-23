@@ -19,6 +19,7 @@ import com.foxtrader.app.domain.usecase.ai.MasterDecisionEngine
 import com.foxtrader.app.domain.usecase.ai.MtfContextProvider
 import com.foxtrader.app.domain.usecase.drawing.DrawingEngine
 import com.foxtrader.app.domain.usecase.indicators.BollingerBands
+import com.foxtrader.app.domain.usecase.indicators.IchimokuCloud
 import com.foxtrader.app.domain.usecase.indicators.ParabolicSar
 import com.foxtrader.app.domain.usecase.indicators.SuperTrend
 import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
@@ -58,6 +59,7 @@ class ChartViewModel @Inject constructor(
     private val smcDetector: SmcDetector,
     private val sessionDetector: SessionDetector,
     private val bollingerBands: BollingerBands,
+    private val ichimokuCloud: IchimokuCloud,
     private val superTrend: SuperTrend,
     private val parabolicSar: ParabolicSar,
     val drawingEngine: DrawingEngine,
@@ -143,6 +145,7 @@ class ChartViewModel @Inject constructor(
         val emaShort = if (ind.ema && candles.size >= 20) TechnicalIndicators.calculateEMA(candles, 20) else null
         val emaLong = if (ind.ema && candles.size >= 50) TechnicalIndicators.calculateEMA(candles, 50) else null
         val vwap = if (ind.vwap && candles.isNotEmpty()) TechnicalIndicators.calculateVWAP(candles) else null
+        val ichimoku = if (ind.ichimoku && candles.size >= 52) ichimokuCloud.calculate(candles) else null
 
         val boll = if (ind.bollinger && candles.size >= 20) bollingerBands.calculate(candles) else null
         val st = if (ind.superTrend && candles.size >= 15) superTrend.calculate(candles) else null
@@ -168,6 +171,11 @@ class ChartViewModel @Inject constructor(
             superTrendDir = st?.direction,
             parabolicSar = psar,
             vwap = vwap,
+            ichimokuTenkan = ichimoku?.tenkan,
+            ichimokuKijun = ichimoku?.kijun,
+            ichimokuSenkouA = ichimoku?.senkouA,
+            ichimokuSenkouB = ichimoku?.senkouB,
+            ichimokuChikou = ichimoku?.chikou,
             orderBlocks = orderBlocks,
             fairValueGaps = fairValueGaps,
             liquidityPools = liquidityPools,

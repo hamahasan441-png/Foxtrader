@@ -155,6 +155,11 @@ private fun SignalCard(signal: StrategySignalItem) {
             Spacer(Modifier.height(4.dp))
             Text(signal.strategyName, fontSize = 13.sp, color = FoxAmber50, fontWeight = FontWeight.SemiBold)
 
+            if (signal.signalProvider.isNotBlank()) {
+                Spacer(Modifier.height(4.dp))
+                TagChip(signal.signalProvider)
+            }
+
             Spacer(Modifier.height(6.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -180,6 +185,19 @@ private fun MetricLabel(label: String, value: String) {
         Text(label, fontSize = 10.sp, color = FoxNeutral60)
         Text(value, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
     }
+}
+
+@Composable
+private fun TagChip(tag: String) {
+    Text(
+        text = tag,
+        fontSize = 10.sp,
+        color = FoxNeutral60,
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(FoxNeutral60.copy(alpha = 0.1f))
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+    )
 }
 
 @Composable

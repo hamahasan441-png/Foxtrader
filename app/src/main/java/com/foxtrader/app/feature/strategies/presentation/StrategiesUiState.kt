@@ -15,6 +15,7 @@ data class StrategySignalItem(
     val stopLoss: Double,
     val takeProfit: Double,
     val riskReward: Double,
+    val signalProvider: String = "",
     val note: String = "",
 )
 

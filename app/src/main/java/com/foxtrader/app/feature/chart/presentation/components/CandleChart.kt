@@ -41,6 +41,14 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
+private val IchimokuTenkanColor = Color(0xFFFFC107)
+private val IchimokuKijunColor = Color(0xFF42A5F5)
+private val IchimokuChikouColor = Color(0xFFAB47BC)
+private val IchimokuBullishCloudColor = Color(0x2232CD32)
+private val IchimokuBearishCloudColor = Color(0x22FF5252)
+private const val IchimokuPrimaryStroke = 1.2f
+private const val IchimokuChikouStroke = 0.8f
+
 /**
  * Professional-grade candlestick chart engine.
  *
@@ -76,6 +84,11 @@ fun CandleChart(
     superTrendDir: IntArray? = null,
     parabolicSar: DoubleArray? = null,
     vwap: DoubleArray? = null,
+    ichimokuTenkan: DoubleArray? = null,
+    ichimokuKijun: DoubleArray? = null,
+    ichimokuSenkouA: DoubleArray? = null,
+    ichimokuSenkouB: DoubleArray? = null,
+    ichimokuChikou: DoubleArray? = null,
     orderBlocks: List<com.foxtrader.app.domain.model.OrderBlock> = emptyList(),
     fairValueGaps: List<com.foxtrader.app.domain.model.FairValueGap> = emptyList(),
     liquidityPools: List<com.foxtrader.app.domain.model.LiquidityPool> = emptyList(),
@@ -141,7 +154,28 @@ fun CandleChart(
             viewport.startIndex = max(0f, candles.size - count)
         }
         viewport.clamp(candles.size)
-        viewport.autoScale(candles)
+        autoScaleToVisibleContent(
+            viewport = viewport,
+            candles = candles,
+            emaShort = emaShort,
+            emaLong = emaLong,
+            bollingerUpper = bollingerUpper,
+            bollingerMiddle = bollingerMiddle,
+            bollingerLower = bollingerLower,
+            superTrendValues = superTrendValues,
+            parabolicSar = parabolicSar,
+            vwap = vwap,
+            ichimokuTenkan = ichimokuTenkan,
+            ichimokuKijun = ichimokuKijun,
+            ichimokuSenkouA = ichimokuSenkouA,
+            ichimokuSenkouB = ichimokuSenkouB,
+            ichimokuChikou = ichimokuChikou,
+            orderBlocks = orderBlocks,
+            fairValueGaps = fairValueGaps,
+            liquidityPools = liquidityPools,
+            sessions = sessions,
+            volumeProfile = volumeProfile,
+        )
         candles.size
     }
 
@@ -174,7 +208,28 @@ fun CandleChart(
                     }
 
                     viewport.clamp(candles.size)
-                    viewport.autoScale(candles)
+                    autoScaleToVisibleContent(
+                        viewport = viewport,
+                        candles = candles,
+                        emaShort = emaShort,
+                        emaLong = emaLong,
+                        bollingerUpper = bollingerUpper,
+                        bollingerMiddle = bollingerMiddle,
+                        bollingerLower = bollingerLower,
+                        superTrendValues = superTrendValues,
+                        parabolicSar = parabolicSar,
+                        vwap = vwap,
+                        ichimokuTenkan = ichimokuTenkan,
+                        ichimokuKijun = ichimokuKijun,
+                        ichimokuSenkouA = ichimokuSenkouA,
+                        ichimokuSenkouB = ichimokuSenkouB,
+                        ichimokuChikou = ichimokuChikou,
+                        orderBlocks = orderBlocks,
+                        fairValueGaps = fairValueGaps,
+                        liquidityPools = liquidityPools,
+                        sessions = sessions,
+                        volumeProfile = volumeProfile,
+                    )
                     invalidateTick++
                 }
             }
@@ -269,6 +324,9 @@ fun CandleChart(
             }
             if (parabolicSar != null) {
                 drawParabolicSar(viewport, cw, ch, parabolicSar)
+            }
+            if (ichimokuTenkan != null && ichimokuKijun != null && ichimokuSenkouA != null && ichimokuSenkouB != null && ichimokuChikou != null) {
+                drawIchimoku(viewport, cw, ch, ichimokuTenkan, ichimokuKijun, ichimokuSenkouA, ichimokuSenkouB, ichimokuChikou)
             }
         }
 
@@ -532,6 +590,130 @@ private fun DrawScope.drawParabolicSar(
         val y = viewport.yForPrice(sar[i], ch)
         if (y in 0f..ch) drawCircle(dotColor, radius = 2f, center = Offset(x, y))
     }
+}
+
+private fun DrawScope.drawIchimoku(
+    viewport: ChartViewport,
+    cw: Float,
+    ch: Float,
+    tenkan: DoubleArray,
+    kijun: DoubleArray,
+    senkouA: DoubleArray,
+    senkouB: DoubleArray,
+    chikou: DoubleArray,
+) {
+    drawLineSeries(viewport, cw, ch, tenkan, IchimokuTenkanColor, IchimokuPrimaryStroke)
+    drawLineSeries(viewport, cw, ch, kijun, IchimokuKijunColor, IchimokuPrimaryStroke)
+    drawLineSeries(viewport, cw, ch, chikou, IchimokuChikouColor, IchimokuChikouStroke)
+
+    val start = max(0, viewport.startIndex.toInt())
+    val end = min(minOf(senkouA.size, senkouB.size), (viewport.startIndex + viewport.visibleBars).toInt() + 1)
+    for (i in start until end) {
+        val top = max(senkouA[i], senkouB[i])
+        val bottom = min(senkouA[i], senkouB[i])
+        val x = viewport.xForIndex(i.toFloat(), cw)
+        val nextX = viewport.xForIndex((i + 1).toFloat(), cw)
+        val yTop = viewport.yForPrice(top, ch)
+        val yBottom = viewport.yForPrice(bottom, ch)
+        val cloudColor = if (senkouA[i] >= senkouB[i]) IchimokuBullishCloudColor else IchimokuBearishCloudColor
+        drawRect(
+            color = cloudColor,
+            topLeft = Offset(x, min(yTop, yBottom)),
+            size = Size((nextX - x).coerceAtLeast(1f), abs(yBottom - yTop).coerceAtLeast(1f)),
+        )
+    }
+    drawLineSeries(viewport, cw, ch, senkouA, Color(0xFF66BB6A), 1f)
+    drawLineSeries(viewport, cw, ch, senkouB, Color(0xFFEF5350), 1f)
+}
+
+private fun autoScaleToVisibleContent(
+    viewport: ChartViewport,
+    candles: List<Candle>,
+    emaShort: DoubleArray?,
+    emaLong: DoubleArray?,
+    bollingerUpper: DoubleArray?,
+    bollingerMiddle: DoubleArray?,
+    bollingerLower: DoubleArray?,
+    superTrendValues: DoubleArray?,
+    parabolicSar: DoubleArray?,
+    vwap: DoubleArray?,
+    ichimokuTenkan: DoubleArray?,
+    ichimokuKijun: DoubleArray?,
+    ichimokuSenkouA: DoubleArray?,
+    ichimokuSenkouB: DoubleArray?,
+    ichimokuChikou: DoubleArray?,
+    orderBlocks: List<com.foxtrader.app.domain.model.OrderBlock>,
+    fairValueGaps: List<com.foxtrader.app.domain.model.FairValueGap>,
+    liquidityPools: List<com.foxtrader.app.domain.model.LiquidityPool>,
+    sessions: List<com.foxtrader.app.domain.model.SessionRange>,
+    volumeProfile: com.foxtrader.app.domain.model.VolumeProfile?,
+    pad: Double = 0.08,
+) {
+    if (candles.isEmpty()) return
+    val start = max(0, viewport.startIndex.toInt())
+    val end = min(candles.size, (viewport.startIndex + viewport.visibleBars).toInt() + 1)
+    if (start >= end) return
+
+    var hi = Double.NEGATIVE_INFINITY
+    var lo = Double.POSITIVE_INFINITY
+
+    fun include(price: Double?) {
+        if (price == null || price.isNaN() || price.isInfinite()) return
+        if (price > hi) hi = price
+        if (price < lo) lo = price
+    }
+
+    fun includeSeries(values: DoubleArray?) {
+        if (values == null) return
+        val seriesEnd = min(values.size, end)
+        for (i in start until seriesEnd) include(values[i])
+    }
+
+    for (i in start until end) {
+        include(candles[i].high)
+        include(candles[i].low)
+    }
+
+    includeSeries(emaShort)
+    includeSeries(emaLong)
+    includeSeries(bollingerUpper)
+    includeSeries(bollingerMiddle)
+    includeSeries(bollingerLower)
+    includeSeries(superTrendValues)
+    includeSeries(parabolicSar)
+    includeSeries(vwap)
+    includeSeries(ichimokuTenkan)
+    includeSeries(ichimokuKijun)
+    includeSeries(ichimokuSenkouA)
+    includeSeries(ichimokuSenkouB)
+    includeSeries(ichimokuChikou)
+
+    orderBlocks.filter { it.endIndex >= start && it.startIndex < end }.forEach {
+        include(it.highPrice)
+        include(it.lowPrice)
+    }
+    fairValueGaps.filter { it.index in start until end }.forEach {
+        include(it.highPrice)
+        include(it.lowPrice)
+    }
+    liquidityPools.filter { it.endIndex >= start && it.startIndex < end }.forEach {
+        include(it.price)
+    }
+    sessions.filter { it.endIndex >= start && it.startIndex < end }.forEach {
+        include(it.highPrice)
+        include(it.lowPrice)
+    }
+    volumeProfile?.levels?.forEach { include(it.priceLevel) }
+
+    if (hi == Double.NEGATIVE_INFINITY || lo == Double.POSITIVE_INFINITY) {
+        viewport.autoScale(candles)
+        return
+    }
+
+    val range = (hi - lo).coerceAtLeast(1e-9)
+    val padding = range * pad
+    viewport.priceHigh = hi + padding
+    viewport.priceLow = lo - padding
 }
 
 /** BOS/CHOCH market structure break annotations. */
