@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -137,7 +138,8 @@ class AppPreferences @Inject constructor(
         )
     }
 
-    private fun apiKeyPreferenceName(provider: DataProvider): String = "provider_api_key_${provider.name.lowercase()}"
+    private fun apiKeyPreferenceName(provider: DataProvider): String =
+        "provider_api_key_${provider.name.lowercase(Locale.ROOT)}"
 
     private companion object {
         const val SECURE_PREFS_FILE_NAME = "fox_provider_keys"
