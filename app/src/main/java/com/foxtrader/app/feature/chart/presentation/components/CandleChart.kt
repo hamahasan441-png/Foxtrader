@@ -41,6 +41,14 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
+private val IchimokuTenkanColor = Color(0xFFFFC107)
+private val IchimokuKijunColor = Color(0xFF42A5F5)
+private val IchimokuChikouColor = Color(0xFFAB47BC)
+private val IchimokuBullishCloudColor = Color(0x2232CD32)
+private val IchimokuBearishCloudColor = Color(0x22FF5252)
+private const val IchimokuPrimaryStroke = 1.2f
+private const val IchimokuChikouStroke = 0.8f
+
 /**
  * Professional-grade candlestick chart engine.
  *
@@ -594,9 +602,9 @@ private fun DrawScope.drawIchimoku(
     senkouB: DoubleArray,
     chikou: DoubleArray,
 ) {
-    drawLineSeries(viewport, cw, ch, tenkan, Color(0xFFFFC107), 1.2f)
-    drawLineSeries(viewport, cw, ch, kijun, Color(0xFF42A5F5), 1.2f)
-    drawLineSeries(viewport, cw, ch, chikou, Color(0xFFAB47BC), 0.8f)
+    drawLineSeries(viewport, cw, ch, tenkan, IchimokuTenkanColor, IchimokuPrimaryStroke)
+    drawLineSeries(viewport, cw, ch, kijun, IchimokuKijunColor, IchimokuPrimaryStroke)
+    drawLineSeries(viewport, cw, ch, chikou, IchimokuChikouColor, IchimokuChikouStroke)
 
     val start = max(0, viewport.startIndex.toInt())
     val end = min(minOf(senkouA.size, senkouB.size), (viewport.startIndex + viewport.visibleBars).toInt() + 1)
@@ -607,8 +615,9 @@ private fun DrawScope.drawIchimoku(
         val nextX = viewport.xForIndex((i + 1).toFloat(), cw)
         val yTop = viewport.yForPrice(top, ch)
         val yBottom = viewport.yForPrice(bottom, ch)
+        val cloudColor = if (senkouA[i] >= senkouB[i]) IchimokuBullishCloudColor else IchimokuBearishCloudColor
         drawRect(
-            color = if (senkouA[i] >= senkouB[i]) Color(0x2232CD32) else Color(0x22FF5252),
+            color = cloudColor,
             topLeft = Offset(x, min(yTop, yBottom)),
             size = Size((nextX - x).coerceAtLeast(1f), abs(yBottom - yTop).coerceAtLeast(1f)),
         )

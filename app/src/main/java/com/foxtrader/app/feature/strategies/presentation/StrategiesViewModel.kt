@@ -4,6 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
+import com.foxtrader.app.domain.model.FvgType
+import com.foxtrader.app.domain.model.LiquidityType
+import com.foxtrader.app.domain.model.OrderBlockType
+import com.foxtrader.app.domain.model.StructureBreakType
 import com.foxtrader.app.domain.model.StrategySignal
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.repository.JournalRepository
@@ -52,6 +56,10 @@ class StrategiesViewModel @Inject constructor(
     private val aiBacktestEngine: AiScoredBacktestEngine,
     private val journalRepository: JournalRepository,
 ) : ViewModel() {
+    private companion object {
+        const val DIVERGENCE_REGULAR_CONFIDENCE = 64
+        const val DIVERGENCE_HIDDEN_CONFIDENCE = 60
+    }
 
     private val _uiState = MutableStateFlow(StrategiesUiState())
     val uiState: StateFlow<StrategiesUiState> = _uiState.asStateFlow()
@@ -160,7 +168,7 @@ class StrategiesViewModel @Inject constructor(
             out += StrategySignalItem(
                 id = UUID.randomUUID().toString(),
                 symbol = symbol,
-                strategyName = "Harmonic ${pattern.type.name.lowercase().replaceFirstChar { it.uppercase() }}",
+                strategyName = "Harmonic ${formatEnumName(pattern.type.name)}",
                 direction = pattern.direction,
                 confidence = pattern.score.toInt(),
                 entry = pattern.dPrice,
@@ -174,7 +182,7 @@ class StrategiesViewModel @Inject constructor(
 
         // --- Order blocks (unmitigated) ---
         smcDetector.detectOrderBlocks(candles).filter { !it.mitigated }.take(1).forEach { ob ->
-            val dir = if (ob.type.name == "BULLISH") Direction.BULLISH else Direction.BEARISH
+            val dir = if (ob.type == OrderBlockType.BULLISH) Direction.BULLISH else Direction.BEARISH
             val entry = (ob.highPrice + ob.lowPrice) / 2.0
             val sl = if (dir == Direction.BULLISH) ob.lowPrice else ob.highPrice
             val tp = if (dir == Direction.BULLISH) entry + (entry - sl) * 2 else entry - (sl - entry) * 2
@@ -193,7 +201,7 @@ class StrategiesViewModel @Inject constructor(
 
         // --- Fair Value Gaps ---
         smcDetector.detectFairValueGaps(candles).filter { !it.filled }.take(1).forEach { fvg ->
-            val dir = if (fvg.type.name == "BULLISH") Direction.BULLISH else Direction.BEARISH
+            val dir = if (fvg.type == FvgType.BULLISH) Direction.BULLISH else Direction.BEARISH
             val entry = (fvg.highPrice + fvg.lowPrice) / 2.0
             val sl = if (dir == Direction.BULLISH) fvg.lowPrice else fvg.highPrice
             val tp = if (dir == Direction.BULLISH) entry + (entry - sl) * 2 else entry - (sl - entry) * 2
@@ -208,7 +216,7 @@ class StrategiesViewModel @Inject constructor(
                 takeProfit = tp,
                 riskReward = rr(entry, sl, tp),
                 signalProvider = "SMC Engine",
-                note = "Unfilled ${fvg.type.name.lowercase()} imbalance",
+                note = "Unfilled ${formatEnumName(fvg.type.name)} imbalance",
             )
         }
 
@@ -242,7 +250,7 @@ class StrategiesViewModel @Inject constructor(
                 out += StrategySignalItem(
                     id = UUID.randomUUID().toString(),
                     symbol = symbol,
-                    strategyName = pattern.type.name.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() },
+                    strategyName = formatEnumName(pattern.type.name),
                     direction = pattern.direction,
                     confidence = pattern.confidence.coerceIn(0, 100),
                     entry = entry,
@@ -268,18 +276,24 @@ class StrategiesViewModel @Inject constructor(
                 val atr = TechnicalIndicators.calculateATR(candles, 14)[candles.lastIndex]
                 val sl = if (dir == Direction.BULLISH) entry - atr * 1.5 else entry + atr * 1.5
                 val tp = if (dir == Direction.BULLISH) entry + atr * 2.5 else entry - atr * 2.5
+                val confidence = when (divergence.type) {
+                    DivergenceDetector.DivergenceType.REGULAR_BULLISH,
+                    DivergenceDetector.DivergenceType.REGULAR_BEARISH -> DIVERGENCE_REGULAR_CONFIDENCE
+                    DivergenceDetector.DivergenceType.HIDDEN_BULLISH,
+                    DivergenceDetector.DivergenceType.HIDDEN_BEARISH -> DIVERGENCE_HIDDEN_CONFIDENCE
+                }
                 out += StrategySignalItem(
                     id = UUID.randomUUID().toString(),
                     symbol = symbol,
                     strategyName = "RSI Divergence",
                     direction = dir,
-                    confidence = 62,
+                    confidence = confidence,
                     entry = entry,
                     stopLoss = sl,
                     takeProfit = tp,
                     riskReward = rr(entry, sl, tp),
                     signalProvider = "Divergence Engine",
-                    note = divergence.type.name.lowercase().replace('_', ' '),
+                    note = formatEnumName(divergence.type.name),
                 )
             }
 
@@ -297,7 +311,7 @@ class StrategiesViewModel @Inject constructor(
             out += StrategySignalItem(
                 id = UUID.randomUUID().toString(),
                 symbol = symbol,
-                strategyName = "Wyckoff ${wyckoff.phase.name.lowercase().replaceFirstChar { it.uppercase() }}",
+                strategyName = "Wyckoff ${formatEnumName(wyckoff.phase.name)}",
                 direction = dir,
                 confidence = wyckoff.confidence.toInt().coerceIn(0, 100),
                 entry = entry,
@@ -317,6 +331,8 @@ class StrategiesViewModel @Inject constructor(
                 val entry = candles.last().close
                 val dir = if (position == IchimokuCloud.CloudPosition.ABOVE) Direction.BULLISH else Direction.BEARISH
                 val atr = TechnicalIndicators.calculateATR(candles, 14)[candles.lastIndex]
+                val tkSpread = kotlin.math.abs(ichimoku.tenkan[candles.lastIndex] - ichimoku.kijun[candles.lastIndex])
+                val confidence = (55 + (tkSpread / atr.coerceAtLeast(1e-9) * 18)).toInt().coerceIn(55, 85)
                 val sl = if (dir == Direction.BULLISH) entry - atr * 2 else entry + atr * 2
                 val tp = if (dir == Direction.BULLISH) entry + atr * 3 else entry - atr * 3
                 out += StrategySignalItem(
@@ -324,13 +340,13 @@ class StrategiesViewModel @Inject constructor(
                     symbol = symbol,
                     strategyName = "Ichimoku Trend",
                     direction = dir,
-                    confidence = 65,
+                    confidence = confidence,
                     entry = entry,
                     stopLoss = sl,
                     takeProfit = tp,
                     riskReward = rr(entry, sl, tp),
                     signalProvider = "Ichimoku Engine",
-                    note = "Price ${position.name.lowercase()} cloud",
+                    note = "Price ${formatEnumName(position.name)} cloud",
                 )
             }
         }
@@ -339,14 +355,18 @@ class StrategiesViewModel @Inject constructor(
         val liquiditySweep = smcDetector.detectLiquidity(candles).lastOrNull { it.swept && it.sweepIndex != null }
         val structureBreak = analyzeStructure(candles).breaks.lastOrNull { it.confirmed }
         if (liquiditySweep != null && structureBreak != null) {
-            val dir = when (liquiditySweep.type.name) {
-                "SELL_SIDE" -> Direction.BULLISH
-                else -> Direction.BEARISH
-            }
+            val dir = if (liquiditySweep.type == LiquidityType.SELL_SIDE) Direction.BULLISH else Direction.BEARISH
             if (dir == structureBreak.direction) {
                 val entry = candles.last().close
                 val atr = TechnicalIndicators.calculateATR(candles, 14)[candles.lastIndex]
                 val mitigationOb = smcDetector.detectOrderBlocks(candles).lastOrNull { !it.mitigated }
+                val confidence = (
+                    62 +
+                        (if (liquiditySweep.sweepIndex != null) 8 else 0) +
+                        (if (mitigationOb != null) 7 else 0) +
+                        (if (structureBreak.type == StructureBreakType.CHOCH ||
+                            structureBreak.type == StructureBreakType.MSS) 5 else 0)
+                    ).coerceIn(0, 95)
                 val sl = when {
                     mitigationOb != null && dir == Direction.BULLISH -> mitigationOb.lowPrice
                     mitigationOb != null && dir == Direction.BEARISH -> mitigationOb.highPrice
@@ -359,7 +379,7 @@ class StrategiesViewModel @Inject constructor(
                     symbol = symbol,
                     strategyName = "LIT Institutional Entry",
                     direction = dir,
-                    confidence = 82,
+                    confidence = confidence,
                     entry = entry,
                     stopLoss = sl,
                     takeProfit = tp,
@@ -378,4 +398,7 @@ class StrategiesViewModel @Inject constructor(
         val reward = abs(tp - entry)
         return if (risk > 0) reward / risk else 0.0
     }
+
+    private fun formatEnumName(name: String): String =
+        name.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }
 }

@@ -4,6 +4,9 @@ import com.foxtrader.app.domain.model.AssetClass
 import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
+import com.foxtrader.app.domain.model.FvgType
+import com.foxtrader.app.domain.model.LiquidityType
+import com.foxtrader.app.domain.model.OrderBlockType
 import com.foxtrader.app.domain.model.ScreenerOutput
 import com.foxtrader.app.domain.model.ScreenerResult
 import com.foxtrader.app.domain.model.ScreenerSymbol
@@ -38,7 +41,6 @@ class ScannerUseCase @Inject constructor(
     private val wyckoffDetector: WyckoffDetector,
     private val analyzeStructure: AnalyzeMarketStructureUseCase,
 ) {
-
     private var watchlist: MutableList<ScreenerSymbol> = DEFAULT_WATCHLIST.toMutableList()
 
     /**
@@ -266,7 +268,11 @@ class ScannerUseCase @Inject constructor(
         val lower = boll.lower.getOrNull(lastIndex) ?: price
         val distance = max(abs(price - upper), abs(price - lower))
         val bullish = rsi <= 40.0 || price <= lower
-        val score = (abs(rsi - 50.0) * 1.6 + if (price <= lower || price >= upper) 20 else 0 + distance / atr * 8)
+        val score = (
+            abs(rsi - 50.0) * 1.6 +
+                (if (price <= lower || price >= upper) 20 else 0) +
+                distance / atr * 8
+            )
             .roundToInt()
             .coerceIn(0, 100)
         return StrategySignalSnapshot(
@@ -295,7 +301,12 @@ class ScannerUseCase @Inject constructor(
         val candle = candles[lastIndex]
         val bullish = candle.close >= breakoutHigh
         val bearish = candle.close <= breakoutLow
-        val score = (adx * 1.8 + abs(momentum) * 8.0 + candle.range / atr * 12.0 + if (bullish || bearish) 15 else 0)
+        val score = (
+            adx * BREAKOUT_ADX_WEIGHT +
+                abs(momentum) * BREAKOUT_MOMENTUM_WEIGHT +
+                candle.range / atr * BREAKOUT_RANGE_WEIGHT +
+                if (bullish || bearish) BREAKOUT_BONUS else 0
+            )
             .roundToInt()
             .coerceIn(0, 100)
         return StrategySignalSnapshot(
@@ -321,16 +332,21 @@ class ScannerUseCase @Inject constructor(
             .minByOrNull { abs(((it.highPrice + it.lowPrice) / 2.0) - price) }
         val liquidity = smcDetector.detectLiquidity(candles).lastOrNull { !it.swept }
         val bullish = when {
-            activeOrderBlock != null -> activeOrderBlock.type.name == "BULLISH"
-            activeFvg != null -> activeFvg.type.name == "BULLISH"
-            liquidity != null -> liquidity.type.name == "SELL_SIDE"
+            activeOrderBlock != null -> activeOrderBlock.type == OrderBlockType.BULLISH
+            activeFvg != null -> activeFvg.type == FvgType.BULLISH
+            liquidity != null -> liquidity.type == LiquidityType.SELL_SIDE
             else -> true
         }
         val distanceScore = listOfNotNull(
             activeOrderBlock?.let { atrSafeDistance(price, (it.highPrice + it.lowPrice) / 2.0, atr) },
             activeFvg?.let { atrSafeDistance(price, (it.highPrice + it.lowPrice) / 2.0, atr) },
         ).maxOrNull() ?: 0.0
-        val score = (55 + distanceScore * 20 + (activeOrderBlock?.strength ?: 0.0) * 25 + if (liquidity != null) 8 else 0)
+        val score = (
+            SMC_BASE_SCORE +
+                distanceScore * SMC_DISTANCE_WEIGHT +
+                (activeOrderBlock?.strength ?: 0.0) * SMC_ORDER_BLOCK_WEIGHT +
+                if (liquidity != null) SMC_LIQUIDITY_BONUS else 0
+            )
             .roundToInt()
             .coerceIn(0, 100)
         return StrategySignalSnapshot(
@@ -382,15 +398,15 @@ class ScannerUseCase @Inject constructor(
         val activeFvg = smcDetector.detectFairValueGaps(candles)
             .lastOrNull { !it.filled }
         val direction = when {
-            liquiditySweep?.type?.name == "SELL_SIDE" -> Direction.BULLISH
-            liquiditySweep?.type?.name == "BUY_SIDE" -> Direction.BEARISH
+            liquiditySweep?.type == LiquidityType.SELL_SIDE -> Direction.BULLISH
+            liquiditySweep?.type == LiquidityType.BUY_SIDE -> Direction.BEARISH
             structureBreak != null -> structureBreak.direction
-            activeOrderBlock?.type?.name == "BULLISH" -> Direction.BULLISH
+            activeOrderBlock?.type == OrderBlockType.BULLISH -> Direction.BULLISH
             else -> Direction.BEARISH
         }
         val sweepMatchesBreak = structureBreak != null && liquiditySweep != null &&
-            ((liquiditySweep.type.name == "SELL_SIDE" && structureBreak.direction == Direction.BULLISH) ||
-                (liquiditySweep.type.name == "BUY_SIDE" && structureBreak.direction == Direction.BEARISH))
+            ((liquiditySweep.type == LiquidityType.SELL_SIDE && structureBreak.direction == Direction.BULLISH) ||
+                (liquiditySweep.type == LiquidityType.BUY_SIDE && structureBreak.direction == Direction.BEARISH))
         val mitigationScore = listOfNotNull(
             activeOrderBlock?.let { atrSafeDistance(price, (it.highPrice + it.lowPrice) / 2.0, atr) },
             activeFvg?.let { atrSafeDistance(price, (it.highPrice + it.lowPrice) / 2.0, atr) },
@@ -422,7 +438,8 @@ class ScannerUseCase @Inject constructor(
         val wyckoff = wyckoffDetector.detect(candles)
         val direction = when {
             pattern != null -> pattern.direction
-            wyckoff.phase.name == "MARKDOWN" || wyckoff.phase.name == "DISTRIBUTION" -> Direction.BEARISH
+            wyckoff.phase == WyckoffDetector.WyckoffPhase.MARKDOWN ||
+                wyckoff.phase == WyckoffDetector.WyckoffPhase.DISTRIBUTION -> Direction.BEARISH
             else -> Direction.BULLISH
         }
         val score = (
@@ -435,16 +452,19 @@ class ScannerUseCase @Inject constructor(
             score = score,
             setupQuality = score.toDouble(),
             tags = listOfNotNull(
-                pattern?.type?.name?.take(18),
-                if (wyckoff.phase.name != "UNDEFINED") wyckoff.phase.name else null,
+                pattern?.type?.name?.let(::truncateTag),
+                if (wyckoff.phase != WyckoffDetector.WyckoffPhase.UNDEFINED) wyckoff.phase.name else null,
             ),
         )
     }
 
     private fun atrSafeDistance(price: Double, target: Double, atr: Double): Double {
-        val safeAtr = atr.coerceAtLeast(1e-9)
+        val safeAtr = atr.coerceAtLeast(MIN_DIVISOR_THRESHOLD)
         return (1.0 - (abs(price - target) / safeAtr).coerceAtMost(1.0)).coerceIn(0.0, 1.0)
     }
+
+    private fun truncateTag(tag: String): String =
+        if (tag.length <= MAX_TAG_LENGTH) tag else tag.take(MAX_TAG_LENGTH - 1) + "…"
 
     // ========================================================================
     // WATCHLIST MANAGEMENT
@@ -479,6 +499,16 @@ class ScannerUseCase @Inject constructor(
     // ========================================================================
 
     companion object {
+        private const val MAX_TAG_LENGTH = 18
+        private const val MIN_DIVISOR_THRESHOLD = 1e-9
+        private const val BREAKOUT_ADX_WEIGHT = 1.8
+        private const val BREAKOUT_MOMENTUM_WEIGHT = 8.0
+        private const val BREAKOUT_RANGE_WEIGHT = 12.0
+        private const val BREAKOUT_BONUS = 15
+        private const val SMC_BASE_SCORE = 55
+        private const val SMC_DISTANCE_WEIGHT = 20
+        private const val SMC_ORDER_BLOCK_WEIGHT = 25
+        private const val SMC_LIQUIDITY_BONUS = 8
         val DEFAULT_WATCHLIST: List<ScreenerSymbol> = listOf(
             // Forex
             ScreenerSymbol("EURUSD", AssetClass.FOREX),
