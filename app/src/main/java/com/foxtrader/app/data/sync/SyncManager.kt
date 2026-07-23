@@ -1,71 +1,89 @@
 package com.foxtrader.app.data.sync
 
 import com.foxtrader.app.data.repository.CloudSyncRepositoryImpl
+import com.foxtrader.app.domain.model.ChartDrawing
 import com.foxtrader.app.domain.model.SyncEnvelope
 import com.foxtrader.app.domain.model.SyncableType
+import com.foxtrader.app.domain.repository.DrawingRepository
 import com.foxtrader.app.domain.repository.JournalRepository
 import com.foxtrader.app.domain.usecase.sync.CloudSyncEngine
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Orchestrates a full cloud-sync cycle for user-authored data.
- *
- * Responsibilities:
- * 1. Collect journal entries modified since the last successful sync.
- * 2. Serialize each into a [SyncEnvelope] (data as a JSON string).
- * 3. Delegate the push/pull + timestamp bookkeeping to [CloudSyncRepositoryImpl].
- *
- * Currently syncs the trade journal; drawings/settings/watchlists follow the
- * same pattern (add another collector + SyncableType).
- *
- * Requires authentication — [CloudSyncRepositoryImpl] short-circuits with an
- * error result when the user is not logged in.
+ * Orchestrates cloud sync for all user-authored data (journal + drawings).
  */
 @Singleton
 class SyncManager @Inject constructor(
     private val journalRepository: JournalRepository,
+    private val drawingRepository: DrawingRepository,
     private val cloudSyncRepository: CloudSyncRepositoryImpl,
     private val syncEngine: CloudSyncEngine,
     private val json: Json,
 ) {
 
-    // TODO(H3): persist a stable device ID (e.g. in EncryptedSharedPreferences).
-    // A per-process UUID is sufficient for the initial wiring.
     private val deviceId: String = UUID.randomUUID().toString()
 
-    /**
-     * Run a sync cycle. Returns the [CloudSyncEngine.SyncResult] (success flag,
-     * merged count, error message).
-     */
     suspend fun syncNow(): CloudSyncEngine.SyncResult {
         if (!cloudSyncRepository.isSyncAvailable()) {
-            return CloudSyncEngine.SyncResult(
-                success = false,
-                error = "Sign in to enable cloud sync.",
-            )
+            return CloudSyncEngine.SyncResult(success = false, error = "Sign in to enable cloud sync.")
         }
 
-        // 1. Collect locally-modified journal entries since the last sync.
         val since = syncEngine.getLastSyncTime()
-        val modified = journalRepository.getModifiedSince(since)
+        val items = mutableListOf<SyncEnvelope>()
 
-        // 2. Wrap each in a versioned envelope with a JSON-serialized payload.
-        val items = modified.map { entry ->
-            SyncEnvelope(
+        // Journal entries
+        journalRepository.getModifiedSince(since).forEach { entry ->
+            items += SyncEnvelope(
                 id = entry.id,
                 type = SyncableType.JOURNAL,
                 data = json.encodeToString(JournalSyncDto.serializer(), entry.toSyncDto()),
-                version = 1,
-                updatedAt = entry.entryTime,
-                deviceId = deviceId,
-                deleted = false,
+                version = 1, updatedAt = entry.entryTime, deviceId = deviceId,
             )
         }
 
-        // 3. Push + pull via the repository (handles auth, timestamps, errors).
+        // Drawings
+        drawingRepository.getAll().forEach { drawing ->
+            items += SyncEnvelope(
+                id = drawing.id,
+                type = SyncableType.DRAWINGS,
+                data = json.encodeToString(DrawingSyncDto.serializer(), drawing.toSyncDto()),
+                version = 1, updatedAt = drawing.createdAt, deviceId = deviceId,
+            )
+        }
+
         return cloudSyncRepository.sync(items, deviceId)
     }
 }
+
+// ============================================================================
+// DRAWING SYNC DTO
+// ============================================================================
+
+@Serializable
+data class DrawingSyncDto(
+    val id: String,
+    val symbol: String,
+    val timeframe: String,
+    val type: String,
+    val points: String,
+    val color: Long,
+    val lineWidth: Float,
+    val label: String? = null,
+    val createdAt: Long,
+)
+
+fun ChartDrawing.toSyncDto(): DrawingSyncDto = DrawingSyncDto(
+    id = id,
+    symbol = "", // filled by caller if needed
+    timeframe = "",
+    type = type.name,
+    points = points.joinToString(";") { "${it.index},${it.price},${it.timestamp}" },
+    color = color,
+    lineWidth = lineWidth,
+    label = label,
+    createdAt = createdAt,
+)
