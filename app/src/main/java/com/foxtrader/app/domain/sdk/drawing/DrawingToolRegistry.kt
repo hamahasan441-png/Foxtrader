@@ -15,5 +15,6 @@ class DrawingToolRegistry @Inject constructor() {
     fun unregister(id: String) { tools.remove(id) }
     fun getAll(): List<DrawingTool> = tools.values.toList()
     fun get(id: String): DrawingTool? = tools[id]
+    fun contains(id: String): Boolean = tools.containsKey(id)
     val size: Int get() = tools.size
 }

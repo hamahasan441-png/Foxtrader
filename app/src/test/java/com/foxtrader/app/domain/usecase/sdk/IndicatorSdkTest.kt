@@ -146,7 +146,7 @@ class IndicatorSdkTest {
     }
 
     @Test
-    fun `BollingerIndicator compute returns upper/middle/lower series`() {
+    fun `BollingerIndicator compute returns upper middle and lower series`() {
         val candles = syntheticCandles(100)
         val result = BollingerIndicator().compute(candles)
         assertNotNull(result.series["upper"])
