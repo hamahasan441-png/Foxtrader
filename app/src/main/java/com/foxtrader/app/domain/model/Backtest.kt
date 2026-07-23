@@ -49,6 +49,11 @@ data class BacktestTrade(
     val balanceAfter: Double,
     val setupType: String? = null,
     val holdingBars: Int,
+    // --- AI scoring (populated by AiScoredBacktestEngine) ---
+    val aiApproved: Boolean? = null,
+    val aiGrade: String? = null,         // SignalGrade.name or null
+    val aiConfidence: Double? = null,
+    val aiConfluenceCount: Int? = null,
 )
 
 enum class ExitReason { TP, SL, END }
@@ -105,4 +110,8 @@ data class BacktestResult(
     val durationDays: Double,
     val symbol: String,
     val timeframe: Timeframe,
+    // --- AI scoring summary (populated by AiScoredBacktestEngine) ---
+    val aiScoringEnabled: Boolean = false,
+    val aiApprovalRate: Double? = null,       // % of trades AI would have approved
+    val aiFilteredMetrics: BacktestMetrics? = null, // Metrics for AI-approved trades only
 )
