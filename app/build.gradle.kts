@@ -24,6 +24,9 @@ android {
         versionCode = 1
         versionName = "0.1.0"
 
+        val alphaVantageApiKey = providers.gradleProperty("ALPHA_VANTAGE_API_KEY").orElse("").get()
+        buildConfigField("String", "ALPHA_VANTAGE_API_KEY", "\"$alphaVantageApiKey\"")
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }
