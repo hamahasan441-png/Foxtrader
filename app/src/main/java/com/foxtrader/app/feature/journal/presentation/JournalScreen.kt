@@ -14,9 +14,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -51,6 +55,15 @@ fun JournalScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
+    if (state.showLogSheet) {
+        LogTradeSheet(
+            form = state.form,
+            onFormChange = viewModel::updateForm,
+            onSubmit = viewModel::submitLogTrade,
+            onDismiss = viewModel::dismissLogSheet,
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -62,6 +75,14 @@ fun JournalScreen(
                     titleContentColor = MaterialTheme.colorScheme.onSurface,
                 ),
             )
+        },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = viewModel::openLogSheet,
+                containerColor = FoxAmber50,
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "Log Trade")
+            }
         },
     ) { padding ->
         Column(
@@ -83,7 +104,7 @@ fun JournalScreen(
                         )
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            "Trades from replay and backtesting will appear here",
+                            "Tap + to log a trade, or trades from replay and backtesting will appear here",
                             color = FoxNeutral60.copy(alpha = 0.6f),
                             style = MaterialTheme.typography.bodySmall,
                         )
