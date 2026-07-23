@@ -16,7 +16,7 @@ import retrofit2.http.Query
  * [openTime, open, high, low, close, volume, closeTime, quoteAssetVol,
  *  numberOfTrades, takerBuyBaseVol, takerBuyQuoteVol, ignore]
  *
- * We parse as List<JsonArray> and convert in BinanceDataSource.
+ * We parse as List<JsonArray> and convert in [BinanceDataSource].
  */
 interface BinanceApi {
 

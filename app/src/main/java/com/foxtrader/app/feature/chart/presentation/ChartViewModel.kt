@@ -5,11 +5,16 @@ import androidx.lifecycle.viewModelScope
 import com.foxtrader.app.data.remote.websocket.MarketWebSocket
 import com.foxtrader.app.domain.model.ChartPoint
 import com.foxtrader.app.domain.model.ConnectionState
+import com.foxtrader.app.domain.model.AgentContext
 import com.foxtrader.app.domain.model.DrawingToolType
 import com.foxtrader.app.domain.model.ReplayState
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
+import com.foxtrader.app.domain.usecase.ai.AgentOrchestrator
+import com.foxtrader.app.domain.usecase.ai.AiAlertService
+import com.foxtrader.app.domain.usecase.ai.MasterDecisionEngine
+import com.foxtrader.app.domain.usecase.ai.MtfContextProvider
 import com.foxtrader.app.domain.usecase.drawing.DrawingEngine
 import com.foxtrader.app.domain.usecase.indicators.BollingerBands
 import com.foxtrader.app.domain.usecase.indicators.ParabolicSar
@@ -55,6 +60,11 @@ class ChartViewModel @Inject constructor(
     private val parabolicSar: ParabolicSar,
     val drawingEngine: DrawingEngine,
     val replayEngine: ReplayEngine,
+    private val orchestrator: AgentOrchestrator,
+    private val decisionEngine: MasterDecisionEngine,
+    private val mtfContextProvider: MtfContextProvider,
+    private val aiAlertService: AiAlertService,
+    private val alertDispatcher: com.foxtrader.app.data.alerts.AlertDispatcher,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChartUiState())
@@ -98,21 +108,12 @@ class ChartViewModel @Inject constructor(
             .onEach { tick ->
                 // Only apply ticks for the currently displayed symbol/timeframe.
                 if (tick.symbol == symbolFlow.value && tick.timeframe == timeframeFlow.value) {
-                    val current = _uiState.value.candles.toMutableList()
-                    val lastTs = current.lastOrNull()?.timestamp
-                    when {
-                        // Same bar (by open time): replace the forming/closing candle in place.
-                        lastTs != null && lastTs == tick.candle.timestamp -> {
-                            current[current.lastIndex] = tick.candle
-                        }
-                        // New bar (later timestamp): append it.
-                        lastTs == null || tick.candle.timestamp > lastTs -> {
-                            current.add(tick.candle)
-                        }
-                        // Stale/out-of-order tick (older than last bar): ignore.
-                        else -> return@onEach
+                    // Persist into Room (SSOT) so the DB remains the authority.
+                    // The DB Flow observer will pick up the change and trigger
+                    // processCandles, so we DON'T duplicate the update here.
+                    viewModelScope.launch {
+                        repository.upsertCandle(tick.symbol, tick.timeframe, tick.candle)
                     }
-                    processCandles(current)
                 }
             }
             .launchIn(viewModelScope)
@@ -162,6 +163,47 @@ class ChartViewModel @Inject constructor(
             sessions = sessions,
             isLoading = candles.isEmpty() && _uiState.value.error == null,
         )
+
+        // --- AI Decision Engine (run after analysis is ready) ---
+        runAiDecision(candles)
+    }
+
+    // ========================================================================
+    // AI DECISION ENGINE
+    // ========================================================================
+
+    /**
+     * Run the multi-agent reasoning pipeline and update the UI with the result.
+     * Only runs when there's sufficient data (>=50 candles) and throttled to
+     * avoid burning CPU on every tick.
+     */
+    private fun runAiDecision(candles: List<com.foxtrader.app.domain.model.Candle>) {
+        if (candles.size < 50) {
+            _uiState.value = _uiState.value.copy(aiDecision = null)
+            return
+        }
+        // Fetch HTF context asynchronously; the AI pipeline runs off-main.
+        viewModelScope.launch {
+            val mtfCandles = mtfContextProvider.getHtfContext(
+                symbol = symbolFlow.value,
+                executionTimeframe = timeframeFlow.value,
+            )
+            val context = AgentContext(
+                symbol = symbolFlow.value,
+                timeframe = timeframeFlow.value,
+                candles = candles,
+                mtfCandles = mtfCandles,
+            )
+            val orchestratorResult = orchestrator.analyze(context)
+            val decision = decisionEngine.evaluate(orchestratorResult)
+            _uiState.value = _uiState.value.copy(aiDecision = decision)
+
+            // Fire a push alert if the AI approves a signal (cooldown-gated).
+            val alert = aiAlertService.evaluate(decision, symbolFlow.value)
+            if (alert != null) {
+                alertDispatcher.dispatch(alert)
+            }
+        }
     }
 
     // ========================================================================
@@ -184,6 +226,7 @@ class ChartViewModel @Inject constructor(
     fun onSymbolChange(symbol: String) {
         symbolFlow.value = symbol
         _uiState.value = _uiState.value.copy(symbol = symbol, showSymbolPicker = false)
+        aiAlertService.resetCooldowns()
         refresh()
         // Re-subscribe live feed to the new symbol only if live is enabled.
         if (_uiState.value.liveEnabled) {
