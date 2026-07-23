@@ -141,6 +141,31 @@ fun SettingsScreen(
                 }
             }
 
+            // === SECURITY ===
+            SectionHeader("Security")
+
+            SettingsCard {
+                if (state.biometricAvailable) {
+                    SwitchSetting(
+                        label = "Require biometric unlock",
+                        checked = state.appLockEnabled,
+                        onCheckedChange = viewModel::setAppLockEnabled,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "Lock the app with your fingerprint, face, or device PIN on launch.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = FoxNeutral60,
+                    )
+                } else {
+                    Text(
+                        text = "Biometric unlock unavailable — no biometrics or screen lock set up on this device.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = FoxNeutral60,
+                    )
+                }
+            }
+
             // === RISK MANAGEMENT ===
             SectionHeader("Risk Management")
 

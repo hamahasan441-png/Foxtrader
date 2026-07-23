@@ -34,6 +34,7 @@ class SettingsViewModel @Inject constructor(
     private val aiAlertService: AiAlertService,
     private val authRepository: AuthRepository,
     private val syncManager: com.foxtrader.app.data.sync.SyncManager,
+    private val biometricAuthManager: com.foxtrader.app.data.auth.BiometricAuthManager,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
@@ -43,6 +44,8 @@ class SettingsViewModel @Inject constructor(
             dataProvider = appPreferences.dataProvider.value,
             darkMode = appPreferences.darkMode.value,
             authState = authRepository.authState.value,
+            appLockEnabled = appPreferences.appLockEnabled.value,
+            biometricAvailable = biometricAuthManager.canAuthenticate(),
         )
     )
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
@@ -128,6 +131,15 @@ class SettingsViewModel @Inject constructor(
     fun setDarkMode(dark: Boolean) {
         appPreferences.setDarkMode(dark)
         _uiState.update { it.copy(darkMode = dark, saved = false) }
+    }
+
+    // --- Security ---
+
+    fun setAppLockEnabled(enabled: Boolean) {
+        // Only allow enabling if the device can actually authenticate.
+        if (enabled && !biometricAuthManager.canAuthenticate()) return
+        appPreferences.setAppLockEnabled(enabled)
+        _uiState.update { it.copy(appLockEnabled = enabled) }
     }
 
     // --- AI Config ---

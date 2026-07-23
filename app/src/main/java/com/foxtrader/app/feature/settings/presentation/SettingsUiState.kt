@@ -36,6 +36,9 @@ data class SettingsUiState(
     val authState: AuthState = AuthState.UNAUTHENTICATED,
     val isSyncing: Boolean = false,
     val syncMessage: String? = null,
+    // --- Security ---
+    val appLockEnabled: Boolean = false,
+    val biometricAvailable: Boolean = false,
     val saved: Boolean = false,
 ) {
     val isLoggedIn: Boolean get() = authState == AuthState.AUTHENTICATED
