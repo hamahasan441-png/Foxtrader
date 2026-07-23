@@ -91,7 +91,28 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = FoxSuccess,
                     )
+                    if (state.syncMessage != null) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = state.syncMessage ?: "",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = FoxNeutral60,
+                        )
+                    }
                     Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = viewModel::syncNow,
+                        enabled = !state.isSyncing,
+                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = FoxAmber50),
+                    ) {
+                        Text(
+                            text = if (state.isSyncing) "Syncing…" else "Sync Now",
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
                     Button(
                         onClick = viewModel::logout,
                         modifier = Modifier.fillMaxWidth().height(44.dp),

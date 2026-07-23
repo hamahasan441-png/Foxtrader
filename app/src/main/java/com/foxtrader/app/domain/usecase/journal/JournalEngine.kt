@@ -126,10 +126,37 @@ class JournalEngine @Inject constructor() {
     // ========================================================================
 
     /**
-     * Compute aggregate statistics from all closed trades.
+     * Close an open trade purely (no internal state) — computes PnL + R-multiple.
+     * Used by the repository-backed flow where storage lives in Room.
      */
-    fun getStats(): JournalStats {
-        val closed = entries.filter { !it.isOpen && it.pnl != null }
+    fun closeTrade(
+        entry: JournalEntry,
+        exitPrice: Double,
+        exitTime: Long = System.currentTimeMillis(),
+    ): JournalEntry {
+        val priceDiff = if (entry.direction == com.foxtrader.app.domain.model.Direction.BULLISH) {
+            exitPrice - entry.entryPrice
+        } else {
+            entry.entryPrice - exitPrice
+        }
+        val pnl = priceDiff * entry.volume * 100_000
+        val risk = abs(entry.entryPrice - entry.stopLoss)
+        val rMultiple = if (risk > 0) priceDiff / risk else 0.0
+        return entry.copy(exitPrice = exitPrice, exitTime = exitTime, pnl = pnl, rMultiple = rMultiple)
+    }
+
+    /**
+     * Compute aggregate statistics from all closed trades in the internal list.
+     * (Legacy in-memory path — prefer [computeStats] with repository data.)
+     */
+    fun getStats(): JournalStats = computeStats(entries)
+
+    /**
+     * Pure statistics computation over an arbitrary list of entries.
+     * No internal state — used by the repository-backed JournalViewModel.
+     */
+    fun computeStats(allEntries: List<JournalEntry>): JournalStats {
+        val closed = allEntries.filter { !it.isOpen && it.pnl != null }
         if (closed.isEmpty()) return JournalStats()
 
         val wins = closed.filter { it.isWin }

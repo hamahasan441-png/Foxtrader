@@ -33,6 +33,7 @@ class SettingsViewModel @Inject constructor(
     private val decisionEngine: MasterDecisionEngine,
     private val aiAlertService: AiAlertService,
     private val authRepository: AuthRepository,
+    private val syncManager: com.foxtrader.app.data.sync.SyncManager,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
@@ -54,6 +55,23 @@ class SettingsViewModel @Inject constructor(
 
     fun logout() {
         viewModelScope.launch { authRepository.logout() }
+    }
+
+    fun syncNow() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSyncing = true, syncMessage = null) }
+            val result = syncManager.syncNow()
+            _uiState.update {
+                it.copy(
+                    isSyncing = false,
+                    syncMessage = if (result.success) {
+                        "Synced ${result.mergedEntries} item(s)."
+                    } else {
+                        result.error ?: "Sync failed."
+                    },
+                )
+            }
+        }
     }
 
     fun setDataProvider(provider: DataProvider) {

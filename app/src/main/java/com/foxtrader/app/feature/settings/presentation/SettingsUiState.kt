@@ -34,6 +34,8 @@ data class SettingsUiState(
     val dataProvider: DataProvider = DataProvider.SAMPLE,
     val darkMode: Boolean = true,
     val authState: AuthState = AuthState.UNAUTHENTICATED,
+    val isSyncing: Boolean = false,
+    val syncMessage: String? = null,
     val saved: Boolean = false,
 ) {
     val isLoggedIn: Boolean get() = authState == AuthState.AUTHENTICATED
