@@ -1,6 +1,8 @@
 package com.foxtrader.app.feature.settings.presentation
 
 import androidx.lifecycle.ViewModel
+import com.foxtrader.app.data.auth.BiometricAuthManager
+import com.foxtrader.app.data.sync.SyncManager
 import com.foxtrader.app.domain.model.AlertConfig
 import com.foxtrader.app.domain.model.AlertPriority
 import com.foxtrader.app.domain.model.DataProvider
@@ -33,8 +35,8 @@ class SettingsViewModel @Inject constructor(
     private val decisionEngine: MasterDecisionEngine,
     private val aiAlertService: AiAlertService,
     private val authRepository: AuthRepository,
-    private val syncManager: com.foxtrader.app.data.sync.SyncManager,
-    private val biometricAuthManager: com.foxtrader.app.data.auth.BiometricAuthManager,
+    private val syncManager: SyncManager,
+    private val biometricAuthManager: BiometricAuthManager,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
