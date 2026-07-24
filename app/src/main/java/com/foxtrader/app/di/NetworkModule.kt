@@ -60,6 +60,7 @@ object NetworkModule {
     private const val CONNECT_TIMEOUT = 15L
     private const val READ_TIMEOUT = 30L
     private const val WRITE_TIMEOUT = 30L
+    private const val CALL_TIMEOUT = 60L
 
     @Provides
     @Singleton
@@ -86,7 +87,7 @@ object NetworkModule {
             .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
             .readTimeout(READ_TIMEOUT, TimeUnit.SECONDS)
             .writeTimeout(WRITE_TIMEOUT, TimeUnit.SECONDS)
-            .callTimeout(60, TimeUnit.SECONDS)
+            .callTimeout(CALL_TIMEOUT, TimeUnit.SECONDS)
             .retryOnConnectionFailure(false)
             .build()
     }
@@ -127,7 +128,7 @@ object NetworkModule {
             .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
             .readTimeout(READ_TIMEOUT, TimeUnit.SECONDS)
             .writeTimeout(WRITE_TIMEOUT, TimeUnit.SECONDS)
-            .callTimeout(60, TimeUnit.SECONDS)
+            .callTimeout(CALL_TIMEOUT, TimeUnit.SECONDS)
             .retryOnConnectionFailure(false)
             .build()
             .client(client)
@@ -153,7 +154,7 @@ object NetworkModule {
             .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
             .readTimeout(READ_TIMEOUT, TimeUnit.SECONDS)
             .writeTimeout(WRITE_TIMEOUT, TimeUnit.SECONDS)
-            .callTimeout(60, TimeUnit.SECONDS)
+            .callTimeout(CALL_TIMEOUT, TimeUnit.SECONDS)
             .retryOnConnectionFailure(false)
             .build()
         val contentType = "application/json".toMediaType()
