@@ -122,7 +122,6 @@ class ChartViewModel @Inject constructor(
     private fun observeMarket() {
         combine(symbolFlow, timeframeFlow) { symbol, tf -> symbol to tf }
             .flatMapLatest { (symbol, tf) -> repository.observeCandles(symbol, tf) }
-<<<<<<< HEAD
             // Deduplicate: suppress reanalysis when neither the bar count nor
             // the last bar's price+timestamp changed (handles both historical
             // refreshes and live WebSocket in-place updates to the latest bar).
@@ -133,9 +132,6 @@ class ChartViewModel @Inject constructor(
             .onEach { candles ->
                 viewModelScope.launch { processCandles(candles) }
             }
-=======
-            .onEach { candles -> processCandles(candles) }
->>>>>>> origin/main
             .launchIn(viewModelScope)
     }
 
@@ -157,7 +153,6 @@ class ChartViewModel @Inject constructor(
 
     /**
      * Central candle processing pipeline.
-<<<<<<< HEAD
      * Offloads all CPU-bound indicator/SMC analysis to [defaultDispatcher] and
      * updates the UI state atomically on completion.
      *
@@ -221,54 +216,6 @@ class ChartViewModel @Inject constructor(
 
         // --- AI Decision Engine (run after analysis is ready) ---
         runAiDecision(candles)
-=======
-     *
-     * All CPU-bound work (structure analysis + indicator computation) is
-     * dispatched to [defaultDispatcher] so the main thread stays responsive.
-     * The resulting [ChartUiState] is applied atomically back on the main thread
-     * via the StateFlow collector (Kotlin coroutines ensure safe value delivery).
-     */
-    private fun processCandles(candles: List<Candle>) {
-        viewModelScope.launch {
-            val ind = _uiState.value.indicators
-
-            // Offload heavy computation to the Default (CPU) dispatcher.
-            val (structure, overlays) = withContext(defaultDispatcher) {
-                val s = analyzeStructure(candles)
-                val o = computeIndicators(candles, ind)
-                s to o
-            }
-
-            _uiState.value = _uiState.value.copy(
-                candles = candles,
-                bias = structure.bias,
-                structureBreaks = if (ind.structure) structure.breaks else emptyList(),
-                emaShort = overlays.emaShort,
-                emaLong = overlays.emaLong,
-                bollingerUpper = overlays.bollingerUpper,
-                bollingerMiddle = overlays.bollingerMiddle,
-                bollingerLower = overlays.bollingerLower,
-                superTrendValues = overlays.superTrendValues,
-                superTrendDir = overlays.superTrendDir,
-                parabolicSar = overlays.parabolicSar,
-                vwap = overlays.vwap,
-                ichimokuTenkan = overlays.ichimokuTenkan,
-                ichimokuKijun = overlays.ichimokuKijun,
-                ichimokuSenkouA = overlays.ichimokuSenkouA,
-                ichimokuSenkouB = overlays.ichimokuSenkouB,
-                ichimokuChikou = overlays.ichimokuChikou,
-                orderBlocks = overlays.orderBlocks,
-                fairValueGaps = overlays.fairValueGaps,
-                liquidityPools = overlays.liquidityPools,
-                volumeProfile = overlays.volumeProfile,
-                sessions = overlays.sessions,
-                isLoading = candles.isEmpty() && _uiState.value.error == null,
-            )
-
-            // --- AI Decision Engine (run after analysis is ready) ---
-            runAiDecision(candles)
-        }
->>>>>>> origin/main
     }
 
     /**
@@ -297,17 +244,12 @@ class ChartViewModel @Inject constructor(
 
     /**
      * Run the multi-agent reasoning pipeline and update the UI with the result.
-<<<<<<< HEAD
-     * Only runs when there's sufficient data (>=50 candles). Runs the CPU-bound
-     * orchestrator on [defaultDispatcher] to keep the main thread free.
-=======
      *
      * Guards:
      * - Requires ≥50 candles (insufficient data → clear decision).
      * - Skips re-running if the candle series has not changed since the last
      *   analysis (change detected via a lightweight hash of size + last close).
      * - The orchestrator runs on [defaultDispatcher] to avoid blocking the UI.
->>>>>>> origin/main
      */
     private fun runAiDecision(candles: List<Candle>) {
         if (candles.size < 50) {
@@ -315,8 +257,6 @@ class ChartViewModel @Inject constructor(
             lastAiCandlesHash = 0L
             return
         }
-<<<<<<< HEAD
-=======
         // At this point candles.size >= 50, so candles is non-empty and
         // candles.last() is safe. The guard above covers both empty and
         // insufficient-data cases.
@@ -335,7 +275,6 @@ class ChartViewModel @Inject constructor(
         if (hash == lastAiCandlesHash) return
         lastAiCandlesHash = hash
 
->>>>>>> origin/main
         viewModelScope.launch {
             val mtfCandles = mtfContextProvider.getHtfContext(
                 symbol = symbolFlow.value,
@@ -347,19 +286,12 @@ class ChartViewModel @Inject constructor(
                 candles = candles,
                 mtfCandles = mtfCandles,
             )
-<<<<<<< HEAD
-            val decision = withContext(defaultDispatcher) {
-                val orchestratorResult = orchestrator.analyze(context)
-                decisionEngine.evaluate(orchestratorResult)
-            }
-=======
 
             // Multi-agent analysis is CPU-bound; run it off the main thread.
             val orchestratorResult = withContext(defaultDispatcher) {
                 orchestrator.analyze(context)
             }
             val decision = decisionEngine.evaluate(orchestratorResult)
->>>>>>> origin/main
             _uiState.value = _uiState.value.copy(aiDecision = decision)
 
             // Fire a push alert if the AI approves a signal (cooldown-gated).

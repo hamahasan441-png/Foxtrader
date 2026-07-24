@@ -34,10 +34,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
-<<<<<<< HEAD
-=======
-import androidx.compose.ui.semantics.stateDescription
->>>>>>> origin/main
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -239,29 +235,17 @@ private fun ChartTopBar(
                 .clip(RoundedCornerShape(4.dp))
                 .background(MaterialTheme.colorScheme.primaryContainer)
                 .clickable(
-<<<<<<< HEAD
                     onClickLabel = "Change symbol",
                     role = Role.Button,
                     onClick = onSymbolClick,
                 )
                 .padding(horizontal = 10.dp, vertical = 5.dp),
-=======
-                    onClickLabel = "Open symbol picker",
-                    onClick = onSymbolClick,
-                )
-                .padding(horizontal = 10.dp, vertical = 5.dp)
-                .semantics { contentDescription = "Current symbol: ${state.symbol}. Tap to change." },
->>>>>>> origin/main
         )
         BiasBadge(state.bias)
 
         // LIVE toggle — green when connected, tap to connect/disconnect.
         val live = connectionState == ConnectionState.CONNECTED
-<<<<<<< HEAD
         val liveLabel = if (live) "Disconnect live feed" else "Connect live feed"
-=======
-        val liveLabel = if (live) "LIVE" else if (state.liveEnabled) "CONNECTING" else "OFF"
->>>>>>> origin/main
         Text(
             text = liveLabel,
             style = MaterialTheme.typography.labelSmall,
@@ -271,23 +255,12 @@ private fun ChartTopBar(
                 .clip(RoundedCornerShape(4.dp))
                 .background(if (live) FoxSuccess else MaterialTheme.colorScheme.surfaceVariant)
                 .clickable(
-<<<<<<< HEAD
                     onClickLabel = liveLabel,
                     role = Role.Switch,
                     onClick = onLiveToggle,
                 )
                 .semantics { contentDescription = liveLabel }
                 .padding(horizontal = 6.dp, vertical = 3.dp),
-=======
-                    onClickLabel = if (state.liveEnabled) "Disconnect live feed" else "Connect live feed",
-                    onClick = onLiveToggle,
-                )
-                .padding(horizontal = 6.dp, vertical = 3.dp)
-                .semantics {
-                    role = Role.Switch
-                    stateDescription = if (live) "Live feed connected" else "Live feed disconnected"
-                },
->>>>>>> origin/main
         )
 
         Spacer(Modifier.weight(1f))
@@ -350,7 +323,6 @@ private fun TimeframeRow(
                     )
                     .clickable(
                         onClickLabel = "Select ${tf.label} timeframe",
-<<<<<<< HEAD
                         role = Role.Tab,
                         onClick = { onSelect(tf) },
                     )
@@ -359,16 +331,6 @@ private fun TimeframeRow(
                     }
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 )
-=======
-                        onClick = { onSelect(tf) },
-                    )
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
-                    .semantics {
-                        role = Role.Tab
-                        stateDescription = if (isSelected) "Selected" else "Not selected"
-                    },
-            )
->>>>>>> origin/main
         }
     }
 }
