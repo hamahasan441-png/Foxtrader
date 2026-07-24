@@ -161,82 +161,41 @@ class ChartViewModel @Inject constructor(
     private suspend fun processCandles(candles: List<Candle>) {
         val ind = _uiState.value.indicators
 
-        val result = withContext(defaultDispatcher) {
-            val structure = analyzeStructure(candles)
-
-            // --- Line indicators (computed only when enabled) ---
-            val emaShort = if (ind.ema && candles.size >= 20) TechnicalIndicators.calculateEMA(candles, 20) else null
-            val emaLong = if (ind.ema && candles.size >= 50) TechnicalIndicators.calculateEMA(candles, 50) else null
-            val vwap = if (ind.vwap && candles.isNotEmpty()) TechnicalIndicators.calculateVWAP(candles) else null
-            val ichimoku = if (ind.ichimoku && candles.size >= 52) ichimokuCloud.calculate(candles) else null
-
-            val boll = if (ind.bollinger && candles.size >= 20) bollingerBands.calculate(candles) else null
-            val st = if (ind.superTrend && candles.size >= 15) superTrend.calculate(candles) else null
-            val psar = if (ind.parabolicSar && candles.size >= 2) parabolicSar.calculate(candles).sar else null
-
-            // --- SMC analysis (computed only when its overlay is enabled) ---
-            val orderBlocks = if (ind.orderBlocks) smcDetector.detectOrderBlocks(candles) else emptyList()
-            val fairValueGaps = if (ind.fairValueGaps) smcDetector.detectFairValueGaps(candles) else emptyList()
-            val liquidityPools = if (ind.liquidity) smcDetector.detectLiquidity(candles) else emptyList()
-            val volumeProfile = if (ind.volumeProfile && candles.size >= 20) smcDetector.computeVolumeProfile(candles) else null
-            val sessions = if (ind.sessions) sessionDetector.detectSessions(candles) else emptyList()
-
-            AnalysisResult(
-                structure, emaShort, emaLong, vwap, ichimoku,
-                boll, st, psar,
-                orderBlocks, fairValueGaps, liquidityPools, volumeProfile, sessions,
-            )
+        val (structure, overlays) = withContext(defaultDispatcher) {
+            val s = analyzeStructure(candles)
+            val o = computeIndicators(candles, ind)
+            s to o
         }
 
         _uiState.value = _uiState.value.copy(
             candles = candles,
-            bias = result.structure.bias,
-            structureBreaks = if (ind.structure) result.structure.breaks else emptyList(),
-            emaShort = result.emaShort,
-            emaLong = result.emaLong,
-            bollingerUpper = result.boll?.upper,
-            bollingerMiddle = result.boll?.middle,
-            bollingerLower = result.boll?.lower,
-            superTrendValues = result.st?.values,
-            superTrendDir = result.st?.direction,
-            parabolicSar = result.psar,
-            vwap = result.vwap,
-            ichimokuTenkan = result.ichimoku?.tenkan,
-            ichimokuKijun = result.ichimoku?.kijun,
-            ichimokuSenkouA = result.ichimoku?.senkouA,
-            ichimokuSenkouB = result.ichimoku?.senkouB,
-            ichimokuChikou = result.ichimoku?.chikou,
-            orderBlocks = result.orderBlocks,
-            fairValueGaps = result.fairValueGaps,
-            liquidityPools = result.liquidityPools,
-            volumeProfile = result.volumeProfile,
-            sessions = result.sessions,
+            bias = structure.bias,
+            structureBreaks = if (ind.structure) structure.breaks else emptyList(),
+            emaShort = overlays.emaShort,
+            emaLong = overlays.emaLong,
+            bollingerUpper = overlays.bollingerUpper,
+            bollingerMiddle = overlays.bollingerMiddle,
+            bollingerLower = overlays.bollingerLower,
+            superTrendValues = overlays.superTrendValues,
+            superTrendDir = overlays.superTrendDir,
+            parabolicSar = overlays.parabolicSar,
+            vwap = overlays.vwap,
+            ichimokuTenkan = overlays.ichimokuTenkan,
+            ichimokuKijun = overlays.ichimokuKijun,
+            ichimokuSenkouA = overlays.ichimokuSenkouA,
+            ichimokuSenkouB = overlays.ichimokuSenkouB,
+            ichimokuChikou = overlays.ichimokuChikou,
+            orderBlocks = overlays.orderBlocks,
+            fairValueGaps = overlays.fairValueGaps,
+            liquidityPools = overlays.liquidityPools,
+            volumeProfile = overlays.volumeProfile,
+            sessions = overlays.sessions,
             isLoading = candles.isEmpty() && _uiState.value.error == null,
         )
 
         // --- AI Decision Engine (run after analysis is ready) ---
         runAiDecision(candles)
     }
-
-    /**
-     * Holds the results of a single analysis pass so they can be returned
-     * from a [withContext] block as a typed carrier.
-     */
-    private data class AnalysisResult(
-        val structure: MarketStructure,
-        val emaShort: DoubleArray?,
-        val emaLong: DoubleArray?,
-        val vwap: DoubleArray?,
-        val ichimoku: IchimokuCloud.IchimokuResult?,
-        val boll: BollingerBands.BollingerResult?,
-        val st: SuperTrend.SuperTrendResult?,
-        val psar: DoubleArray?,
-        val orderBlocks: List<OrderBlock>,
-        val fairValueGaps: List<FairValueGap>,
-        val liquidityPools: List<LiquidityPool>,
-        val volumeProfile: VolumeProfile?,
-        val sessions: List<SessionRange>,
-    )
 
     // ========================================================================
     // AI DECISION ENGINE
