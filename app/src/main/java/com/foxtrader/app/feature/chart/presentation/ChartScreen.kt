@@ -34,6 +34,10 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+<<<<<<< HEAD
+=======
+import androidx.compose.ui.semantics.stateDescription
+>>>>>>> origin/main
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -235,19 +239,31 @@ private fun ChartTopBar(
                 .clip(RoundedCornerShape(4.dp))
                 .background(MaterialTheme.colorScheme.primaryContainer)
                 .clickable(
+<<<<<<< HEAD
                     onClickLabel = "Change symbol",
                     role = Role.Button,
                     onClick = onSymbolClick,
                 )
                 .padding(horizontal = 10.dp, vertical = 5.dp),
+=======
+                    onClickLabel = "Open symbol picker",
+                    onClick = onSymbolClick,
+                )
+                .padding(horizontal = 10.dp, vertical = 5.dp)
+                .semantics { contentDescription = "Current symbol: ${state.symbol}. Tap to change." },
+>>>>>>> origin/main
         )
         BiasBadge(state.bias)
 
         // LIVE toggle — green when connected, tap to connect/disconnect.
         val live = connectionState == ConnectionState.CONNECTED
+<<<<<<< HEAD
         val liveLabel = if (live) "Disconnect live feed" else "Connect live feed"
+=======
+        val liveLabel = if (live) "LIVE" else if (state.liveEnabled) "CONNECTING" else "OFF"
+>>>>>>> origin/main
         Text(
-            text = if (live) "LIVE" else if (state.liveEnabled) "..." else "OFF",
+            text = liveLabel,
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
             color = if (live) MaterialTheme.colorScheme.background else FoxNeutral60,
@@ -255,27 +271,38 @@ private fun ChartTopBar(
                 .clip(RoundedCornerShape(4.dp))
                 .background(if (live) FoxSuccess else MaterialTheme.colorScheme.surfaceVariant)
                 .clickable(
+<<<<<<< HEAD
                     onClickLabel = liveLabel,
                     role = Role.Switch,
                     onClick = onLiveToggle,
                 )
                 .semantics { contentDescription = liveLabel }
                 .padding(horizontal = 6.dp, vertical = 3.dp),
+=======
+                    onClickLabel = if (state.liveEnabled) "Disconnect live feed" else "Connect live feed",
+                    onClick = onLiveToggle,
+                )
+                .padding(horizontal = 6.dp, vertical = 3.dp)
+                .semantics {
+                    role = Role.Switch
+                    stateDescription = if (live) "Live feed connected" else "Live feed disconnected"
+                },
+>>>>>>> origin/main
         )
 
         Spacer(Modifier.weight(1f))
 
         // Indicators toggle
         IconButton(onClick = onIndicatorsToggle) {
-            Icon(Icons.Default.ShowChart, contentDescription = "Indicators", tint = FoxNeutral60)
+            Icon(Icons.Default.ShowChart, contentDescription = "Toggle indicators panel", tint = FoxNeutral60)
         }
         // Drawing tools toggle
         IconButton(onClick = onDrawingToggle) {
-            Icon(Icons.Default.Edit, contentDescription = "Drawing tools", tint = FoxNeutral60)
+            Icon(Icons.Default.Edit, contentDescription = "Toggle drawing tools", tint = FoxNeutral60)
         }
         // Replay button
         IconButton(onClick = onReplayStart) {
-            Icon(Icons.Default.Refresh, contentDescription = "Replay mode", tint = FoxNeutral60)
+            Icon(Icons.Default.Refresh, contentDescription = "Start replay mode", tint = FoxNeutral60)
         }
 
         // Price
@@ -285,6 +312,9 @@ private fun ChartTopBar(
                 color = MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.semantics {
+                    contentDescription = "Current price: ${formatPrice(price)}"
+                },
             )
         }
     }
@@ -300,7 +330,8 @@ private fun TimeframeRow(
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
             .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .semantics { contentDescription = "Timeframe selector" },
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Timeframe.entries.forEach { tf ->
@@ -319,6 +350,7 @@ private fun TimeframeRow(
                     )
                     .clickable(
                         onClickLabel = "Select ${tf.label} timeframe",
+<<<<<<< HEAD
                         role = Role.Tab,
                         onClick = { onSelect(tf) },
                     )
@@ -327,6 +359,16 @@ private fun TimeframeRow(
                     }
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 )
+=======
+                        onClick = { onSelect(tf) },
+                    )
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .semantics {
+                        role = Role.Tab
+                        stateDescription = if (isSelected) "Selected" else "Not selected"
+                    },
+            )
+>>>>>>> origin/main
         }
     }
 }
@@ -345,7 +387,8 @@ private fun BiasBadge(bias: Bias) {
         modifier = Modifier
             .clip(RoundedCornerShape(4.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .semantics { contentDescription = "Market bias: $label" },
     )
 }
 

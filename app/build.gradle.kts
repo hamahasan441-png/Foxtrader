@@ -26,6 +26,13 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
+
+        // Backend base URL — override per-environment via local.properties or CI.
+        // Example: set FOXTRADER_BASE_URL=https://api.foxtrader.io/ in CI secrets.
+        val backendUrl = (project.findProperty("FOXTRADER_BASE_URL") as? String)
+            ?: System.getenv("FOXTRADER_BASE_URL")
+            ?: ""
+        buildConfigField("String", "FOXTRADER_BASE_URL", "\"$backendUrl\"")
     }
 
     buildTypes {

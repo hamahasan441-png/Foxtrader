@@ -34,13 +34,32 @@ annotation class AlphaVantageRetrofit
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
 
-    /** FoxTrader backend base URL. 10.0.2.2 = host machine from the emulator. */
-    private const val BASE_URL = "http://10.0.2.2:8000/"
+    /**
+     * FoxTrader backend base URL.
+     * Override at build time by setting FOXTRADER_BASE_URL in your
+     * local.properties or CI environment. Defaults to the local emulator
+     * address used during development. The scheme must always be HTTPS in
+     * staging/production — release builds will throw if a non-HTTPS URL is
+     * configured, preventing accidental cleartext traffic in production.
+     */
+    private val BASE_URL: String get() {
+        val url = BuildConfig.FOXTRADER_BASE_URL.takeIf { it.isNotBlank() }
+            ?: "http://10.0.2.2:8000/"
+        check(BuildConfig.DEBUG || url.startsWith("https://")) {
+            "Release builds require HTTPS for FOXTRADER_BASE_URL. Got: $url"
+        }
+        return url
+    }
 
     /** Binance public API base URL. */
     private const val BINANCE_BASE_URL = "https://api.binance.com/"
     /** Alpha Vantage public API base URL. */
     private const val ALPHA_VANTAGE_BASE_URL = "https://www.alphavantage.co/"
+
+    // Shared timeout constants (seconds).
+    private const val CONNECT_TIMEOUT = 15L
+    private const val READ_TIMEOUT = 30L
+    private const val WRITE_TIMEOUT = 30L
 
     @Provides
     @Singleton
@@ -54,6 +73,7 @@ object NetworkModule {
     @Singleton
     fun provideOkHttp(authInterceptor: AuthInterceptor): OkHttpClient {
         val logging = HttpLoggingInterceptor().apply {
+            // In release builds, log nothing; tokens must never appear in logs.
             level = if (BuildConfig.DEBUG) {
                 HttpLoggingInterceptor.Level.BODY
             } else {
@@ -63,11 +83,17 @@ object NetworkModule {
         return OkHttpClient.Builder()
             .addInterceptor(authInterceptor)
             .addInterceptor(logging)
+<<<<<<< HEAD
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .callTimeout(60, TimeUnit.SECONDS)
             .retryOnConnectionFailure(false)
+=======
+            .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
+            .readTimeout(READ_TIMEOUT, TimeUnit.SECONDS)
+            .writeTimeout(WRITE_TIMEOUT, TimeUnit.SECONDS)
+>>>>>>> origin/main
             .build()
     }
 
@@ -104,11 +130,17 @@ object NetworkModule {
         }
         val client = OkHttpClient.Builder()
             .addInterceptor(logging)
+<<<<<<< HEAD
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .callTimeout(60, TimeUnit.SECONDS)
             .retryOnConnectionFailure(false)
+=======
+            .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
+            .readTimeout(READ_TIMEOUT, TimeUnit.SECONDS)
+            .writeTimeout(WRITE_TIMEOUT, TimeUnit.SECONDS)
+>>>>>>> origin/main
             .build()
         val contentType = "application/json".toMediaType()
         return Retrofit.Builder()
@@ -133,11 +165,17 @@ object NetworkModule {
         }
         val client = OkHttpClient.Builder()
             .addInterceptor(logging)
+<<<<<<< HEAD
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .callTimeout(60, TimeUnit.SECONDS)
             .retryOnConnectionFailure(false)
+=======
+            .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
+            .readTimeout(READ_TIMEOUT, TimeUnit.SECONDS)
+            .writeTimeout(WRITE_TIMEOUT, TimeUnit.SECONDS)
+>>>>>>> origin/main
             .build()
         val contentType = "application/json".toMediaType()
         return Retrofit.Builder()
