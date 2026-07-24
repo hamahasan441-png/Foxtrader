@@ -194,8 +194,12 @@ Foxtrader/
 │       │   │   │       ├── backtest/            # Bar-by-bar backtester
 │       │   │   │       ├── scanner/             # Multi-asset screener
 │       │   │   │       ├── alerts/              # Alert engine
+<<<<<<< HEAD
+│       │   │   │       ├── signal/              # SignalPipeline — post-decision extension point
+=======
 │       │   │   │       ├── ai/                  # AgentOrchestrator, MasterDecisionEngine
 │       │   │   │       │   └── provider/        # AiProviderClient (LLM abstraction)
+>>>>>>> origin/main
 │       │   │   │       └── patterns/            # Candle pattern detector
 │       │   │   ├── data/                        # Android/framework layer
 │       │   │   │   ├── local/                   # Room DB, DAO, entities
@@ -282,6 +286,17 @@ export FOXTRADER_BASE_URL=https://staging.foxtrader.io/
 
 ## Roadmap
 
+<<<<<<< HEAD
+- [x] Live WebSocket data feed (Binance)
+- [x] Full SMC/ICT engine (order blocks, fair value gaps, liquidity sweeps, BOS/CHOCH)
+- [x] LIT (Liquidity-Inducement Theory) agent
+- [x] Backtesting engine (bar-by-bar, Sharpe/Sortino metrics)
+- [x] Trade journal with statistics
+- [x] Push notification alerts
+- [x] Multi-timeframe confluence overlay on chart
+- [x] SignalPipeline extension point for custom post-decision processors
+- [ ] Backtesting Lab UI screen
+=======
 - [x] Hardware-accelerated candlestick chart engine
 - [x] Multi-agent AI confluence analysis (10 agents, offline)
 - [x] SMC/ICT concepts (order blocks, FVGs, liquidity sweeps)
@@ -298,6 +313,7 @@ export FOXTRADER_BASE_URL=https://staging.foxtrader.io/
 - [ ] Backtesting Lab UI screen
 - [ ] Trade journal statistics dashboard
 - [ ] Push notification alerts (WorkManager)
+>>>>>>> origin/main
 - [ ] FastAPI backend (PostgreSQL + Redis)
 - [ ] Social / copy-trading features
 - [ ] Release on Google Play Store

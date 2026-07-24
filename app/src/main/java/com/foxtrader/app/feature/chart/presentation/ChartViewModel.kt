@@ -10,8 +10,14 @@ import com.foxtrader.app.domain.model.ChartPoint
 import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.AgentContext
 import com.foxtrader.app.domain.model.DrawingToolType
+import com.foxtrader.app.domain.model.FairValueGap
+import com.foxtrader.app.domain.model.LiquidityPool
+import com.foxtrader.app.domain.model.MarketStructure
+import com.foxtrader.app.domain.model.OrderBlock
 import com.foxtrader.app.domain.model.ReplayState
+import com.foxtrader.app.domain.model.SessionRange
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.model.VolumeProfile
 import com.foxtrader.app.domain.repository.DrawingRepository
 import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
@@ -28,6 +34,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
@@ -115,7 +122,20 @@ class ChartViewModel @Inject constructor(
     private fun observeMarket() {
         combine(symbolFlow, timeframeFlow) { symbol, tf -> symbol to tf }
             .flatMapLatest { (symbol, tf) -> repository.observeCandles(symbol, tf) }
+<<<<<<< HEAD
+            // Deduplicate: suppress reanalysis when neither the bar count nor
+            // the last bar's price+timestamp changed (handles both historical
+            // refreshes and live WebSocket in-place updates to the latest bar).
+            .distinctUntilChangedBy { list ->
+                val last = list.lastOrNull()
+                "${list.size}:${last?.timestamp}:${last?.close}"
+            }
+            .onEach { candles ->
+                viewModelScope.launch { processCandles(candles) }
+            }
+=======
             .onEach { candles -> processCandles(candles) }
+>>>>>>> origin/main
             .launchIn(viewModelScope)
     }
 
@@ -137,6 +157,71 @@ class ChartViewModel @Inject constructor(
 
     /**
      * Central candle processing pipeline.
+<<<<<<< HEAD
+     * Offloads all CPU-bound indicator/SMC analysis to [defaultDispatcher] and
+     * updates the UI state atomically on completion.
+     *
+     * Must be called from within a coroutine (suspending).
+     */
+    private suspend fun processCandles(candles: List<Candle>) {
+        val ind = _uiState.value.indicators
+
+        val result = withContext(defaultDispatcher) {
+            val structure = analyzeStructure(candles)
+
+            // --- Line indicators (computed only when enabled) ---
+            val emaShort = if (ind.ema && candles.size >= 20) TechnicalIndicators.calculateEMA(candles, 20) else null
+            val emaLong = if (ind.ema && candles.size >= 50) TechnicalIndicators.calculateEMA(candles, 50) else null
+            val vwap = if (ind.vwap && candles.isNotEmpty()) TechnicalIndicators.calculateVWAP(candles) else null
+            val ichimoku = if (ind.ichimoku && candles.size >= 52) ichimokuCloud.calculate(candles) else null
+
+            val boll = if (ind.bollinger && candles.size >= 20) bollingerBands.calculate(candles) else null
+            val st = if (ind.superTrend && candles.size >= 15) superTrend.calculate(candles) else null
+            val psar = if (ind.parabolicSar && candles.size >= 2) parabolicSar.calculate(candles).sar else null
+
+            // --- SMC analysis (computed only when its overlay is enabled) ---
+            val orderBlocks = if (ind.orderBlocks) smcDetector.detectOrderBlocks(candles) else emptyList()
+            val fairValueGaps = if (ind.fairValueGaps) smcDetector.detectFairValueGaps(candles) else emptyList()
+            val liquidityPools = if (ind.liquidity) smcDetector.detectLiquidity(candles) else emptyList()
+            val volumeProfile = if (ind.volumeProfile && candles.size >= 20) smcDetector.computeVolumeProfile(candles) else null
+            val sessions = if (ind.sessions) sessionDetector.detectSessions(candles) else emptyList()
+
+            AnalysisResult(
+                structure, emaShort, emaLong, vwap, ichimoku,
+                boll, st, psar,
+                orderBlocks, fairValueGaps, liquidityPools, volumeProfile, sessions,
+            )
+        }
+
+        _uiState.value = _uiState.value.copy(
+            candles = candles,
+            bias = result.structure.bias,
+            structureBreaks = if (ind.structure) result.structure.breaks else emptyList(),
+            emaShort = result.emaShort,
+            emaLong = result.emaLong,
+            bollingerUpper = result.boll?.upper,
+            bollingerMiddle = result.boll?.middle,
+            bollingerLower = result.boll?.lower,
+            superTrendValues = result.st?.values,
+            superTrendDir = result.st?.direction,
+            parabolicSar = result.psar,
+            vwap = result.vwap,
+            ichimokuTenkan = result.ichimoku?.tenkan,
+            ichimokuKijun = result.ichimoku?.kijun,
+            ichimokuSenkouA = result.ichimoku?.senkouA,
+            ichimokuSenkouB = result.ichimoku?.senkouB,
+            ichimokuChikou = result.ichimoku?.chikou,
+            orderBlocks = result.orderBlocks,
+            fairValueGaps = result.fairValueGaps,
+            liquidityPools = result.liquidityPools,
+            volumeProfile = result.volumeProfile,
+            sessions = result.sessions,
+            isLoading = candles.isEmpty() && _uiState.value.error == null,
+        )
+
+        // --- AI Decision Engine (run after analysis is ready) ---
+        runAiDecision(candles)
+=======
      *
      * All CPU-bound work (structure analysis + indicator computation) is
      * dispatched to [defaultDispatcher] so the main thread stays responsive.
@@ -183,7 +268,28 @@ class ChartViewModel @Inject constructor(
             // --- AI Decision Engine (run after analysis is ready) ---
             runAiDecision(candles)
         }
+>>>>>>> origin/main
     }
+
+    /**
+     * Holds the results of a single analysis pass so they can be returned
+     * from a [withContext] block as a typed carrier.
+     */
+    private data class AnalysisResult(
+        val structure: MarketStructure,
+        val emaShort: DoubleArray?,
+        val emaLong: DoubleArray?,
+        val vwap: DoubleArray?,
+        val ichimoku: IchimokuCloud.IchimokuResult?,
+        val boll: BollingerBands.BollingerResult?,
+        val st: SuperTrend.SuperTrendResult?,
+        val psar: DoubleArray?,
+        val orderBlocks: List<OrderBlock>,
+        val fairValueGaps: List<FairValueGap>,
+        val liquidityPools: List<LiquidityPool>,
+        val volumeProfile: VolumeProfile?,
+        val sessions: List<SessionRange>,
+    )
 
     // ========================================================================
     // AI DECISION ENGINE
@@ -191,12 +297,17 @@ class ChartViewModel @Inject constructor(
 
     /**
      * Run the multi-agent reasoning pipeline and update the UI with the result.
+<<<<<<< HEAD
+     * Only runs when there's sufficient data (>=50 candles). Runs the CPU-bound
+     * orchestrator on [defaultDispatcher] to keep the main thread free.
+=======
      *
      * Guards:
      * - Requires ≥50 candles (insufficient data → clear decision).
      * - Skips re-running if the candle series has not changed since the last
      *   analysis (change detected via a lightweight hash of size + last close).
      * - The orchestrator runs on [defaultDispatcher] to avoid blocking the UI.
+>>>>>>> origin/main
      */
     private fun runAiDecision(candles: List<Candle>) {
         if (candles.size < 50) {
@@ -204,6 +315,8 @@ class ChartViewModel @Inject constructor(
             lastAiCandlesHash = 0L
             return
         }
+<<<<<<< HEAD
+=======
         // At this point candles.size >= 50, so candles is non-empty and
         // candles.last() is safe. The guard above covers both empty and
         // insufficient-data cases.
@@ -222,6 +335,7 @@ class ChartViewModel @Inject constructor(
         if (hash == lastAiCandlesHash) return
         lastAiCandlesHash = hash
 
+>>>>>>> origin/main
         viewModelScope.launch {
             val mtfCandles = mtfContextProvider.getHtfContext(
                 symbol = symbolFlow.value,
@@ -233,12 +347,19 @@ class ChartViewModel @Inject constructor(
                 candles = candles,
                 mtfCandles = mtfCandles,
             )
+<<<<<<< HEAD
+            val decision = withContext(defaultDispatcher) {
+                val orchestratorResult = orchestrator.analyze(context)
+                decisionEngine.evaluate(orchestratorResult)
+            }
+=======
 
             // Multi-agent analysis is CPU-bound; run it off the main thread.
             val orchestratorResult = withContext(defaultDispatcher) {
                 orchestrator.analyze(context)
             }
             val decision = decisionEngine.evaluate(orchestratorResult)
+>>>>>>> origin/main
             _uiState.value = _uiState.value.copy(aiDecision = decision)
 
             // Fire a push alert if the AI approves a signal (cooldown-gated).
@@ -291,7 +412,7 @@ class ChartViewModel @Inject constructor(
     /** Update indicator toggles and immediately recompute against current candles. */
     fun updateIndicators(transform: (IndicatorToggles) -> IndicatorToggles) {
         _uiState.value = _uiState.value.copy(indicators = transform(_uiState.value.indicators))
-        processCandles(_uiState.value.candles)
+        viewModelScope.launch { processCandles(_uiState.value.candles) }
     }
 
     fun openSymbolPicker() {

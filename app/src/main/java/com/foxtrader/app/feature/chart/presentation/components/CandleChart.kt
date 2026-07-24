@@ -187,23 +187,25 @@ fun CandleChart(
             // to the same one-finger drag, doubling/fighting the movement.
             // detectTransformGestures natively reports pan for a single pointer.
             .pointerInput(candles.size) {
-                detectTransformGestures { _, pan, zoom, _ ->
+                detectTransformGestures { centroid, pan, zoom, _ ->
                     // A pan/zoom interaction dismisses the crosshair.
                     if (viewport.crosshairActive) viewport.crosshairActive = false
 
                     val cw = viewport.chartWidth(size.width.toFloat())
-                    val barsPerPx = viewport.visibleBars / cw
+                    val barsPerPx = viewport.visibleBars / cw.coerceAtLeast(1f)
 
                     // Horizontal pan (works for 1 or 2 fingers).
                     if (pan.x != 0f) {
                         viewport.startIndex -= pan.x * barsPerPx
                     }
 
-                    // Pinch zoom toward the viewport center.
+                    // Pinch zoom anchored to the gesture centroid so the bar
+                    // under the user's fingers stays fixed during the zoom.
                     if (zoom != 1f && zoom > 0f) {
-                        val center = viewport.startIndex + viewport.visibleBars / 2f
-                        viewport.visibleBars = viewport.visibleBars / zoom
-                        viewport.startIndex = center - viewport.visibleBars / 2f
+                        val centroidBarIndex = viewport.startIndex + (centroid.x.coerceIn(0f, cw) / cw) * viewport.visibleBars
+                        val centroidFraction = (centroidBarIndex - viewport.startIndex) / viewport.visibleBars.coerceAtLeast(1f)
+                        viewport.visibleBars = (viewport.visibleBars / zoom).coerceIn(5f, candles.size.toFloat().coerceAtLeast(10f))
+                        viewport.startIndex = centroidBarIndex - centroidFraction * viewport.visibleBars
                     }
 
                     viewport.clamp(candles.size)
