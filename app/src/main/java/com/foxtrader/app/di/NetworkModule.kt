@@ -60,6 +60,7 @@ object NetworkModule {
     private const val CONNECT_TIMEOUT = 15L
     private const val READ_TIMEOUT = 30L
     private const val WRITE_TIMEOUT = 30L
+    private const val CALL_TIMEOUT = 60L
 
     @Provides
     @Singleton
@@ -83,17 +84,11 @@ object NetworkModule {
         return OkHttpClient.Builder()
             .addInterceptor(authInterceptor)
             .addInterceptor(logging)
-<<<<<<< HEAD
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
-            .callTimeout(60, TimeUnit.SECONDS)
-            .retryOnConnectionFailure(false)
-=======
             .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
             .readTimeout(READ_TIMEOUT, TimeUnit.SECONDS)
             .writeTimeout(WRITE_TIMEOUT, TimeUnit.SECONDS)
->>>>>>> origin/main
+            .callTimeout(CALL_TIMEOUT, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(false)
             .build()
     }
 
@@ -130,17 +125,11 @@ object NetworkModule {
         }
         val client = OkHttpClient.Builder()
             .addInterceptor(logging)
-<<<<<<< HEAD
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
-            .callTimeout(60, TimeUnit.SECONDS)
-            .retryOnConnectionFailure(false)
-=======
             .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
             .readTimeout(READ_TIMEOUT, TimeUnit.SECONDS)
             .writeTimeout(WRITE_TIMEOUT, TimeUnit.SECONDS)
->>>>>>> origin/main
+            .callTimeout(CALL_TIMEOUT, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(false)
             .build()
         val contentType = "application/json".toMediaType()
         return Retrofit.Builder()
@@ -165,17 +154,11 @@ object NetworkModule {
         }
         val client = OkHttpClient.Builder()
             .addInterceptor(logging)
-<<<<<<< HEAD
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
-            .callTimeout(60, TimeUnit.SECONDS)
-            .retryOnConnectionFailure(false)
-=======
             .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
             .readTimeout(READ_TIMEOUT, TimeUnit.SECONDS)
             .writeTimeout(WRITE_TIMEOUT, TimeUnit.SECONDS)
->>>>>>> origin/main
+            .callTimeout(CALL_TIMEOUT, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(false)
             .build()
         val contentType = "application/json".toMediaType()
         return Retrofit.Builder()
