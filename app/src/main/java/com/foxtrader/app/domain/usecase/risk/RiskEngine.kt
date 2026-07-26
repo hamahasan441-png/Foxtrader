@@ -171,10 +171,10 @@ class RiskEngine @Inject constructor() {
 
         if (tradingHalted) reasons += "Trading halted: $haltReason"
 
-        val maxDaily = currentBalance * (config.maxDailyLossPercent / 100.0)
+        val maxDaily = config.accountBalance * (config.maxDailyLossPercent / 100.0)
         if (dailyLoss >= maxDaily) reasons += "Daily loss limit reached"
 
-        val maxWeekly = currentBalance * (config.maxWeeklyLossPercent / 100.0)
+        val maxWeekly = config.accountBalance * (config.maxWeeklyLossPercent / 100.0)
         if (weeklyLoss >= maxWeekly) reasons += "Weekly loss limit reached"
 
         if (consecutive >= config.maxConsecutiveLosses)
@@ -237,14 +237,16 @@ class RiskEngine @Inject constructor() {
 
     fun getDailyLoss(): Double {
         val dayStart = (System.currentTimeMillis() / 86_400_000L) * 86_400_000L
-        val todayPnl = tradeHistory.filter { it.timestamp >= dayStart }.sumOf { it.pnl }
-        return if (todayPnl < 0) abs(todayPnl) else 0.0
+        return tradeHistory
+            .filter { it.timestamp >= dayStart && it.pnl < 0.0 }
+            .sumOf { abs(it.pnl) }
     }
 
     fun getWeeklyLoss(): Double {
         val weekStart = System.currentTimeMillis() - 7 * 86_400_000L
-        val weekPnl = tradeHistory.filter { it.timestamp >= weekStart }.sumOf { it.pnl }
-        return if (weekPnl < 0) abs(weekPnl) else 0.0
+        return tradeHistory
+            .filter { it.timestamp >= weekStart && it.pnl < 0.0 }
+            .sumOf { abs(it.pnl) }
     }
 
     fun getConsecutiveLosses(): Int {
@@ -280,13 +282,16 @@ class RiskEngine @Inject constructor() {
         val drawdown = getCurrentDrawdown()
         if (drawdown >= config.maxDrawdownPercent) {
             haltTrading("Max drawdown ${drawdown.roundToInt()}% reached")
+            return
         }
         val consecutive = getConsecutiveLosses()
         if (consecutive >= config.maxConsecutiveLosses) {
             haltTrading("$consecutive consecutive losses")
+            return
         }
         val dailyLoss = getDailyLoss()
-        if (dailyLoss >= currentBalance * (config.maxDailyLossPercent / 100.0)) {
+        val maxDailyLoss = config.accountBalance * (config.maxDailyLossPercent / 100.0)
+        if (dailyLoss > maxDailyLoss) {
             haltTrading("Daily loss limit")
         }
     }
@@ -317,7 +322,7 @@ class RiskEngine @Inject constructor() {
     fun updateBalance(balance: Double) {
         synchronized(lock) {
             currentBalance = balance
-            if (balance > peakBalance) peakBalance = balance
+            peakBalance = balance
         }
     }
 

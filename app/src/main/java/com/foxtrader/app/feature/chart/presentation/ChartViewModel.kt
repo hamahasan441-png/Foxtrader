@@ -10,14 +10,8 @@ import com.foxtrader.app.domain.model.ChartPoint
 import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.AgentContext
 import com.foxtrader.app.domain.model.DrawingToolType
-import com.foxtrader.app.domain.model.FairValueGap
-import com.foxtrader.app.domain.model.LiquidityPool
-import com.foxtrader.app.domain.model.MarketStructure
-import com.foxtrader.app.domain.model.OrderBlock
 import com.foxtrader.app.domain.model.ReplayState
-import com.foxtrader.app.domain.model.SessionRange
 import com.foxtrader.app.domain.model.Timeframe
-import com.foxtrader.app.domain.model.VolumeProfile
 import com.foxtrader.app.domain.repository.DrawingRepository
 import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
@@ -122,20 +116,17 @@ class ChartViewModel @Inject constructor(
     private fun observeMarket() {
         combine(symbolFlow, timeframeFlow) { symbol, tf -> symbol to tf }
             .flatMapLatest { (symbol, tf) -> repository.observeCandles(symbol, tf) }
-<<<<<<< HEAD
-            // Deduplicate: suppress reanalysis when neither the bar count nor
-            // the last bar's price+timestamp changed (handles both historical
-            // refreshes and live WebSocket in-place updates to the latest bar).
+            // Deduplicate: suppress reanalysis only when neither the bar count nor
+            // the latest bar's full OHLCV payload changed. Live feeds may update
+            // high/low/volume without changing close, and those changes still need
+            // a chart/SMC recalculation.
             .distinctUntilChangedBy { list ->
                 val last = list.lastOrNull()
-                "${list.size}:${last?.timestamp}:${last?.close}"
+                "${list.size}:${last?.timestamp}:${last?.open}:${last?.high}:${last?.low}:${last?.close}:${last?.volume}"
             }
             .onEach { candles ->
                 viewModelScope.launch { processCandles(candles) }
             }
-=======
-            .onEach { candles -> processCandles(candles) }
->>>>>>> origin/main
             .launchIn(viewModelScope)
     }
 
@@ -157,139 +148,49 @@ class ChartViewModel @Inject constructor(
 
     /**
      * Central candle processing pipeline.
-<<<<<<< HEAD
-     * Offloads all CPU-bound indicator/SMC analysis to [defaultDispatcher] and
-     * updates the UI state atomically on completion.
      *
-     * Must be called from within a coroutine (suspending).
+     * All CPU-bound work (structure analysis + indicator/SMC/session computation)
+     * is dispatched to [defaultDispatcher] so the main thread stays responsive.
+     * Must be called from within a coroutine.
      */
     private suspend fun processCandles(candles: List<Candle>) {
         val ind = _uiState.value.indicators
 
-        val result = withContext(defaultDispatcher) {
-            val structure = analyzeStructure(candles)
-
-            // --- Line indicators (computed only when enabled) ---
-            val emaShort = if (ind.ema && candles.size >= 20) TechnicalIndicators.calculateEMA(candles, 20) else null
-            val emaLong = if (ind.ema && candles.size >= 50) TechnicalIndicators.calculateEMA(candles, 50) else null
-            val vwap = if (ind.vwap && candles.isNotEmpty()) TechnicalIndicators.calculateVWAP(candles) else null
-            val ichimoku = if (ind.ichimoku && candles.size >= 52) ichimokuCloud.calculate(candles) else null
-
-            val boll = if (ind.bollinger && candles.size >= 20) bollingerBands.calculate(candles) else null
-            val st = if (ind.superTrend && candles.size >= 15) superTrend.calculate(candles) else null
-            val psar = if (ind.parabolicSar && candles.size >= 2) parabolicSar.calculate(candles).sar else null
-
-            // --- SMC analysis (computed only when its overlay is enabled) ---
-            val orderBlocks = if (ind.orderBlocks) smcDetector.detectOrderBlocks(candles) else emptyList()
-            val fairValueGaps = if (ind.fairValueGaps) smcDetector.detectFairValueGaps(candles) else emptyList()
-            val liquidityPools = if (ind.liquidity) smcDetector.detectLiquidity(candles) else emptyList()
-            val volumeProfile = if (ind.volumeProfile && candles.size >= 20) smcDetector.computeVolumeProfile(candles) else null
-            val sessions = if (ind.sessions) sessionDetector.detectSessions(candles) else emptyList()
-
-            AnalysisResult(
-                structure, emaShort, emaLong, vwap, ichimoku,
-                boll, st, psar,
-                orderBlocks, fairValueGaps, liquidityPools, volumeProfile, sessions,
-            )
+        val (structure, overlays) = withContext(defaultDispatcher) {
+            val s = analyzeStructure(candles)
+            val o = computeIndicators(candles, ind)
+            s to o
         }
 
         _uiState.value = _uiState.value.copy(
             candles = candles,
-            bias = result.structure.bias,
-            structureBreaks = if (ind.structure) result.structure.breaks else emptyList(),
-            emaShort = result.emaShort,
-            emaLong = result.emaLong,
-            bollingerUpper = result.boll?.upper,
-            bollingerMiddle = result.boll?.middle,
-            bollingerLower = result.boll?.lower,
-            superTrendValues = result.st?.values,
-            superTrendDir = result.st?.direction,
-            parabolicSar = result.psar,
-            vwap = result.vwap,
-            ichimokuTenkan = result.ichimoku?.tenkan,
-            ichimokuKijun = result.ichimoku?.kijun,
-            ichimokuSenkouA = result.ichimoku?.senkouA,
-            ichimokuSenkouB = result.ichimoku?.senkouB,
-            ichimokuChikou = result.ichimoku?.chikou,
-            orderBlocks = result.orderBlocks,
-            fairValueGaps = result.fairValueGaps,
-            liquidityPools = result.liquidityPools,
-            volumeProfile = result.volumeProfile,
-            sessions = result.sessions,
+            bias = structure.bias,
+            structureBreaks = if (ind.structure) structure.breaks else emptyList(),
+            emaShort = overlays.emaShort,
+            emaLong = overlays.emaLong,
+            bollingerUpper = overlays.bollingerUpper,
+            bollingerMiddle = overlays.bollingerMiddle,
+            bollingerLower = overlays.bollingerLower,
+            superTrendValues = overlays.superTrendValues,
+            superTrendDir = overlays.superTrendDir,
+            parabolicSar = overlays.parabolicSar,
+            vwap = overlays.vwap,
+            ichimokuTenkan = overlays.ichimokuTenkan,
+            ichimokuKijun = overlays.ichimokuKijun,
+            ichimokuSenkouA = overlays.ichimokuSenkouA,
+            ichimokuSenkouB = overlays.ichimokuSenkouB,
+            ichimokuChikou = overlays.ichimokuChikou,
+            orderBlocks = overlays.orderBlocks,
+            fairValueGaps = overlays.fairValueGaps,
+            liquidityPools = overlays.liquidityPools,
+            volumeProfile = overlays.volumeProfile,
+            sessions = overlays.sessions,
             isLoading = candles.isEmpty() && _uiState.value.error == null,
         )
 
         // --- AI Decision Engine (run after analysis is ready) ---
         runAiDecision(candles)
-=======
-     *
-     * All CPU-bound work (structure analysis + indicator computation) is
-     * dispatched to [defaultDispatcher] so the main thread stays responsive.
-     * The resulting [ChartUiState] is applied atomically back on the main thread
-     * via the StateFlow collector (Kotlin coroutines ensure safe value delivery).
-     */
-    private fun processCandles(candles: List<Candle>) {
-        viewModelScope.launch {
-            val ind = _uiState.value.indicators
-
-            // Offload heavy computation to the Default (CPU) dispatcher.
-            val (structure, overlays) = withContext(defaultDispatcher) {
-                val s = analyzeStructure(candles)
-                val o = computeIndicators(candles, ind)
-                s to o
-            }
-
-            _uiState.value = _uiState.value.copy(
-                candles = candles,
-                bias = structure.bias,
-                structureBreaks = if (ind.structure) structure.breaks else emptyList(),
-                emaShort = overlays.emaShort,
-                emaLong = overlays.emaLong,
-                bollingerUpper = overlays.bollingerUpper,
-                bollingerMiddle = overlays.bollingerMiddle,
-                bollingerLower = overlays.bollingerLower,
-                superTrendValues = overlays.superTrendValues,
-                superTrendDir = overlays.superTrendDir,
-                parabolicSar = overlays.parabolicSar,
-                vwap = overlays.vwap,
-                ichimokuTenkan = overlays.ichimokuTenkan,
-                ichimokuKijun = overlays.ichimokuKijun,
-                ichimokuSenkouA = overlays.ichimokuSenkouA,
-                ichimokuSenkouB = overlays.ichimokuSenkouB,
-                ichimokuChikou = overlays.ichimokuChikou,
-                orderBlocks = overlays.orderBlocks,
-                fairValueGaps = overlays.fairValueGaps,
-                liquidityPools = overlays.liquidityPools,
-                volumeProfile = overlays.volumeProfile,
-                sessions = overlays.sessions,
-                isLoading = candles.isEmpty() && _uiState.value.error == null,
-            )
-
-            // --- AI Decision Engine (run after analysis is ready) ---
-            runAiDecision(candles)
-        }
->>>>>>> origin/main
     }
-
-    /**
-     * Holds the results of a single analysis pass so they can be returned
-     * from a [withContext] block as a typed carrier.
-     */
-    private data class AnalysisResult(
-        val structure: MarketStructure,
-        val emaShort: DoubleArray?,
-        val emaLong: DoubleArray?,
-        val vwap: DoubleArray?,
-        val ichimoku: IchimokuCloud.IchimokuResult?,
-        val boll: BollingerBands.BollingerResult?,
-        val st: SuperTrend.SuperTrendResult?,
-        val psar: DoubleArray?,
-        val orderBlocks: List<OrderBlock>,
-        val fairValueGaps: List<FairValueGap>,
-        val liquidityPools: List<LiquidityPool>,
-        val volumeProfile: VolumeProfile?,
-        val sessions: List<SessionRange>,
-    )
 
     // ========================================================================
     // AI DECISION ENGINE
@@ -297,17 +198,13 @@ class ChartViewModel @Inject constructor(
 
     /**
      * Run the multi-agent reasoning pipeline and update the UI with the result.
-<<<<<<< HEAD
-     * Only runs when there's sufficient data (>=50 candles). Runs the CPU-bound
-     * orchestrator on [defaultDispatcher] to keep the main thread free.
-=======
      *
      * Guards:
      * - Requires ≥50 candles (insufficient data → clear decision).
      * - Skips re-running if the candle series has not changed since the last
-     *   analysis (change detected via a lightweight hash of size + last close).
-     * - The orchestrator runs on [defaultDispatcher] to avoid blocking the UI.
->>>>>>> origin/main
+     *   analysis (change detected via a lightweight O(1) fingerprint).
+     * - The orchestrator and decision engine run on [defaultDispatcher] to avoid
+     *   blocking the UI.
      */
     private fun runAiDecision(candles: List<Candle>) {
         if (candles.size < 50) {
@@ -315,55 +212,58 @@ class ChartViewModel @Inject constructor(
             lastAiCandlesHash = 0L
             return
         }
-<<<<<<< HEAD
-=======
-        // At this point candles.size >= 50, so candles is non-empty and
-        // candles.last() is safe. The guard above covers both empty and
-        // insufficient-data cases.
-
-        // Lightweight content fingerprint combining four spread-out data points:
-        // size, first open, middle high, last close. This detects the most common
-        // real-world changes (new bars, price updates) while remaining O(1).
+        // Lightweight content fingerprint combining spread-out context with the
+        // full latest-bar OHLCV payload. This keeps the AI pipeline O(1) while
+        // still reacting to live high/low/volume updates where close is unchanged.
         val midIndex = candles.size / 2
+        val last = candles.last()
         val hash = run {
             var h = candles.size.toLong()
+            h = h * 31L + candles.first().timestamp
             h = h * 31L + candles.first().open.toBits()
+            h = h * 31L + candles[midIndex].timestamp
             h = h * 31L + candles[midIndex].high.toBits()
-            h = h * 31L + candles.last().close.toBits()
+            h = h * 31L + last.timestamp
+            h = h * 31L + last.open.toBits()
+            h = h * 31L + last.high.toBits()
+            h = h * 31L + last.low.toBits()
+            h = h * 31L + last.close.toBits()
+            h = h * 31L + last.volume.toBits()
             h
         }
         if (hash == lastAiCandlesHash) return
         lastAiCandlesHash = hash
 
->>>>>>> origin/main
+        val analysisSymbol = symbolFlow.value
+        val analysisTimeframe = timeframeFlow.value
+
         viewModelScope.launch {
             val mtfCandles = mtfContextProvider.getHtfContext(
-                symbol = symbolFlow.value,
-                executionTimeframe = timeframeFlow.value,
+                symbol = analysisSymbol,
+                executionTimeframe = analysisTimeframe,
             )
             val context = AgentContext(
-                symbol = symbolFlow.value,
-                timeframe = timeframeFlow.value,
+                symbol = analysisSymbol,
+                timeframe = analysisTimeframe,
                 candles = candles,
                 mtfCandles = mtfCandles,
             )
-<<<<<<< HEAD
+
+            // Multi-agent analysis and decision scoring are CPU-bound; run them
+            // together off the main thread.
             val decision = withContext(defaultDispatcher) {
                 val orchestratorResult = orchestrator.analyze(context)
                 decisionEngine.evaluate(orchestratorResult)
             }
-=======
 
-            // Multi-agent analysis is CPU-bound; run it off the main thread.
-            val orchestratorResult = withContext(defaultDispatcher) {
-                orchestrator.analyze(context)
-            }
-            val decision = decisionEngine.evaluate(orchestratorResult)
->>>>>>> origin/main
+            // Drop stale AI results if the user changed chart context while this
+            // background analysis was running.
+            if (symbolFlow.value != analysisSymbol || timeframeFlow.value != analysisTimeframe) return@launch
+
             _uiState.value = _uiState.value.copy(aiDecision = decision)
 
             // Fire a push alert if the AI approves a signal (cooldown-gated).
-            val alert = aiAlertService.evaluate(decision, symbolFlow.value)
+            val alert = aiAlertService.evaluate(decision, analysisSymbol)
             if (alert != null) {
                 alertDispatcher.dispatch(alert)
             }
@@ -389,7 +289,8 @@ class ChartViewModel @Inject constructor(
 
     fun onSymbolChange(symbol: String) {
         symbolFlow.value = symbol
-        _uiState.value = _uiState.value.copy(symbol = symbol, showSymbolPicker = false)
+        lastAiCandlesHash = 0L
+        _uiState.value = _uiState.value.copy(symbol = symbol, showSymbolPicker = false, aiDecision = null)
         aiAlertService.resetCooldowns()
         refresh()
         // Re-subscribe live feed to the new symbol only if live is enabled.
@@ -432,7 +333,8 @@ class ChartViewModel @Inject constructor(
 
     fun onTimeframeChange(timeframe: Timeframe) {
         timeframeFlow.value = timeframe
-        _uiState.value = _uiState.value.copy(timeframe = timeframe)
+        lastAiCandlesHash = 0L
+        _uiState.value = _uiState.value.copy(timeframe = timeframe, aiDecision = null)
         refresh()
         // Re-subscribe live feed to the new timeframe only if live is enabled.
         if (_uiState.value.liveEnabled) {

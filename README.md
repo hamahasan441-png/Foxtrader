@@ -194,12 +194,9 @@ Foxtrader/
 │       │   │   │       ├── backtest/            # Bar-by-bar backtester
 │       │   │   │       ├── scanner/             # Multi-asset screener
 │       │   │   │       ├── alerts/              # Alert engine
-<<<<<<< HEAD
-│       │   │   │       ├── signal/              # SignalPipeline — post-decision extension point
-=======
 │       │   │   │       ├── ai/                  # AgentOrchestrator, MasterDecisionEngine
 │       │   │   │       │   └── provider/        # AiProviderClient (LLM abstraction)
->>>>>>> origin/main
+│       │   │   │       ├── signal/              # SignalPipeline — post-decision extension point
 │       │   │   │       └── patterns/            # Candle pattern detector
 │       │   │   ├── data/                        # Android/framework layer
 │       │   │   │   ├── local/                   # Room DB, DAO, entities
@@ -286,34 +283,26 @@ export FOXTRADER_BASE_URL=https://staging.foxtrader.io/
 
 ## Roadmap
 
-<<<<<<< HEAD
+- [x] Hardware-accelerated candlestick chart engine
+- [x] Multi-agent AI confluence analysis (10 agents, offline)
+- [x] SMC/ICT concepts (order blocks, FVGs, liquidity sweeps, BOS/CHOCH)
+- [x] Technical indicators (EMA, Bollinger, SuperTrend, PSAR, Ichimoku, VWAP)
+- [x] Offline-first with Room + sample data seeding
 - [x] Live WebSocket data feed (Binance)
-- [x] Full SMC/ICT engine (order blocks, fair value gaps, liquidity sweeps, BOS/CHOCH)
-- [x] LIT (Liquidity-Inducement Theory) agent
-- [x] Backtesting engine (bar-by-bar, Sharpe/Sortino metrics)
+- [x] Drawing tools (trend lines, Fibonacci, horizontals)
+- [x] Bar-by-bar replay engine and backtesting engine
+- [x] Risk management engine (6 sizing methods)
+- [x] Multi-asset scanner with AI scoring
 - [x] Trade journal with statistics
+- [x] Encrypted credential storage (Android Keystore)
+- [x] External AI provider abstraction (AiProviderClient)
 - [x] Push notification alerts
 - [x] Multi-timeframe confluence overlay on chart
 - [x] SignalPipeline extension point for custom post-decision processors
-- [ ] Backtesting Lab UI screen
-=======
-- [x] Hardware-accelerated candlestick chart engine
-- [x] Multi-agent AI confluence analysis (10 agents, offline)
-- [x] SMC/ICT concepts (order blocks, FVGs, liquidity sweeps)
-- [x] Technical indicators (EMA, Bollinger, SuperTrend, PSAR, Ichimoku, VWAP)
-- [x] Offline-first with Room + sample data seeding
-- [x] Drawing tools (trend lines, Fibonacci, horizontals)
-- [x] Bar-by-bar replay engine
-- [x] Risk management engine (6 sizing methods)
-- [x] Multi-asset scanner with AI scoring
-- [x] Encrypted credential storage (Android Keystore)
-- [x] External AI provider abstraction (AiProviderClient)
-- [ ] Live WebSocket data feed (Binance, Bybit)
+- [ ] Live WebSocket data feed expansion (Bybit)
 - [ ] LIT (Liquidity-Inducement Theory) full implementation
 - [ ] Backtesting Lab UI screen
-- [ ] Trade journal statistics dashboard
-- [ ] Push notification alerts (WorkManager)
->>>>>>> origin/main
+- [ ] Push notification alerts (WorkManager scheduling)
 - [ ] FastAPI backend (PostgreSQL + Redis)
 - [ ] Social / copy-trading features
 - [ ] Release on Google Play Store
