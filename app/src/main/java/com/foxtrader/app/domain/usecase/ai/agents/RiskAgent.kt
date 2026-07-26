@@ -28,7 +28,13 @@ class RiskAgent @Inject constructor(
         val start = System.nanoTime()
         val now = System.currentTimeMillis()
 
-        val check = riskEngine.canOpenTrade(riskAmount = 0.0)
+        // The AI risk agent evaluates account-level gates, not a specific
+        // order ticket. Use the configured per-trade risk as a representative
+        // proposed amount so RiskEngine's positive-risk validation does not
+        // falsely veto an otherwise healthy account.
+        val config = riskEngine.getConfig()
+        val representativeRisk = riskEngine.getBalance() * (config.riskPercentPerTrade / 100.0)
+        val check = riskEngine.canOpenTrade(riskAmount = representativeRisk)
         if (check.allowed) {
             return AgentOutput(
                 agentName = name,
