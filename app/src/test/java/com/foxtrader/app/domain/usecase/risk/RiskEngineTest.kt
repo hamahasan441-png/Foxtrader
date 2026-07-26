@@ -131,6 +131,13 @@ class RiskEngineTest {
     }
 
     @Test
+    fun `proposed risk above per-trade limit is blocked`() {
+        val check = engine.canOpenTrade(150.0)
+        assertFalse(check.allowed)
+        assertTrue(check.reasons.any { it.contains("per-trade limit", ignoreCase = true) })
+    }
+
+    @Test
     fun `trading is blocked when manually halted`() {
         engine.haltTrading("manual halt")
         val check = engine.canOpenTrade(100.0)

@@ -171,6 +171,12 @@ class RiskEngine @Inject constructor() {
 
         if (tradingHalted) reasons += "Trading halted: $haltReason"
 
+        val maxRiskPerTrade = currentBalance * (config.riskPercentPerTrade / 100.0)
+        if (riskAmount <= 0.0) reasons += "Risk amount must be positive"
+        if (riskAmount > maxRiskPerTrade) {
+            reasons += "Proposed risk ${riskAmount.roundToInt()} exceeds per-trade limit ${maxRiskPerTrade.roundToInt()}"
+        }
+
         val maxDaily = config.accountBalance * (config.maxDailyLossPercent / 100.0)
         if (dailyLoss >= maxDaily) reasons += "Daily loss limit reached"
 

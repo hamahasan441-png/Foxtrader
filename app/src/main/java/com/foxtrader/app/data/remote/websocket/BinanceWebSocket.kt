@@ -1,5 +1,6 @@
 package com.foxtrader.app.data.remote.websocket
 
+import com.foxtrader.app.di.PublicMarketDataClient
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.TickUpdate
@@ -26,6 +27,7 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
  * Binance WebSocket market data feed implementation.
@@ -42,8 +44,9 @@ import javax.inject.Inject
  * Symbol mapping: FoxTrader uses "EURUSD" format; Binance uses "eurusd" lowercase.
  * Crypto pairs use Binance native format (BTCUSDT → btcusdt).
  */
+@Singleton
 class BinanceWebSocket @Inject constructor(
-    private val okHttpClient: OkHttpClient,
+    @PublicMarketDataClient private val okHttpClient: OkHttpClient,
 ) : MarketWebSocket {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

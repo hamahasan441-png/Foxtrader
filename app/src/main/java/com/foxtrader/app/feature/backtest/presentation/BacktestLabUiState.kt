@@ -1,0 +1,47 @@
+package com.foxtrader.app.feature.backtest.presentation
+
+import com.foxtrader.app.domain.model.BacktestResult
+import com.foxtrader.app.domain.model.Timeframe
+
+/** Strategy templates available in the Backtesting Lab. */
+enum class BacktestStrategyTemplate(
+    val displayName: String,
+    val description: String,
+) {
+    RSI_MEAN_REVERSION(
+        displayName = "RSI Mean Reversion",
+        description = "Fades RSI extremes with ATR-based 2R/3R exits.",
+    ),
+    EMA_TREND_PULLBACK(
+        displayName = "EMA Trend Pullback",
+        description = "Trades pullbacks in the direction of a 20/50 moving-average trend.",
+    ),
+    ATR_BREAKOUT(
+        displayName = "ATR Breakout",
+        description = "Trades volatility expansion through the recent range.",
+    ),
+}
+
+/** Immutable UI state for the Backtesting Lab screen. */
+data class BacktestLabUiState(
+    val symbol: String = "EURUSD",
+    val timeframe: Timeframe = Timeframe.H1,
+    val strategy: BacktestStrategyTemplate = BacktestStrategyTemplate.RSI_MEAN_REVERSION,
+    val initialBalance: Double = 100_000.0,
+    val riskPercent: Double = 1.0,
+    val aiScoringEnabled: Boolean = true,
+    val availableSymbols: List<String> = DEFAULT_SYMBOLS,
+    val isRunning: Boolean = false,
+    val error: String? = null,
+    val result: BacktestResult? = null,
+    val lastRunTime: Long = 0L,
+) {
+    val hasResult: Boolean get() = result != null
+
+    companion object {
+        val DEFAULT_SYMBOLS = listOf(
+            "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "XAUUSD",
+            "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "NAS100", "US500",
+        )
+    }
+}

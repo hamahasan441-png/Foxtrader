@@ -29,6 +29,8 @@ A native Android trading-analysis app built with **Kotlin 2.0, Jetpack Compose, 
 ### Market Structure Analysis (Non-Repainting)
 - Break of Structure (BOS) detection
 - Change of Character (CHOCH) detection
+- LIT inducement → liquidity sweep → displacement reversal detection
+- SMT correlated-symbol divergence detection for AI confluence
 - Directional bias engine (BULLISH / BEARISH / NEUTRAL)
 - Zero look-ahead — only uses confirmed past data
 
@@ -40,22 +42,31 @@ A native Android trading-analysis app built with **Kotlin 2.0, Jetpack Compose, 
 ### Risk Management Engine
 - 6 position sizing methods: Fixed Lots, Fixed Risk, Percentage, Kelly Criterion, ATR-Based, Volatility
 - 4 stop-loss calculation methods: Fixed, ATR, Volatility, Structure
+- Mandatory risk-gated order entry service before any simulated/live order creation
 - Pre-trade risk gating: daily/weekly loss limits, max drawdown, consecutive loss protection
 - Auto-halt with configurable thresholds
 - Kelly Criterion estimation from trade history
 
 ### Backtesting Engine
+- Backtesting Lab screen with configurable symbol, timeframe, strategy template and risk
 - Bar-by-bar execution with NO look-ahead bias
 - Variable spread modeling (widens with volatility)
 - Commission and slippage simulation
 - Full metrics: Sharpe, Sortino, Calmar, Profit Factor, Win Rate, Max Drawdown, Expectancy, R-Multiples
 - Equity curve with per-bar drawdown tracking
+- AI-gate comparison: all trades vs Master Decision-approved trades
 
 ### Multi-Asset Scanner
 - 30 pre-configured watchlist symbols (Forex, Crypto, Stocks, Indices, Metals, Energy)
 - Composite scoring: trend strength + momentum + volatility + setup quality
 - Category badges: Best Buy, Best Sell, Best Swing, Best Scalp, Best Long-Term
 - Tag system: TRENDING, OVERBOUGHT, OVERSOLD, HIGH_VOL, MOVER
+
+### Trade Journal Intelligence
+- Manual and auto-journaled trades from backtests
+- Performance stats: win rate, expectancy, payoff ratio, profit factor, max drawdown, streaks
+- Setup and emotion breakdowns to identify behavioral leaks
+- Best setup and weakest emotional state insights
 
 ### Alert System
 - Priority-based filtering (LOW, MEDIUM, HIGH, CRITICAL)
@@ -64,8 +75,9 @@ A native Android trading-analysis app built with **Kotlin 2.0, Jetpack Compose, 
 - Acknowledgment tracking
 
 ### Navigation & UX
-- Bottom navigation bar (Chart, Scanner, Settings)
+- Bottom navigation bar (Chart, Scanner, Strategies, Lab, Journal, Settings)
 - Interactive timeframe selector with tappable chips
+- Persisted risk, alert, AI decision, provider, theme, and default-timeframe settings
 - Pull-to-refresh for live data reload
 - Fox Design System (dark-first Material 3 theme with amber accent)
 - Edge-to-edge display
@@ -147,9 +159,10 @@ Additional selectable chart/data providers now include:
 - **Twelve Data**
 - **Interactive Brokers**
 
-Alpha Vantage historical candle fetching is available today.
+Alpha Vantage historical candle fetching is available today. Binance and Bybit crypto symbols support public historical candles plus live WebSocket kline updates through the chart **LIVE** toggle.
 
 Official Alpha Vantage API documentation: https://www.alphavantage.co/documentation/
+Official Bybit V5 API documentation: https://bybit-exchange.github.io/docs/v5/intro
 
 ### Open in Android Studio
 
@@ -288,21 +301,22 @@ export FOXTRADER_BASE_URL=https://staging.foxtrader.io/
 - [x] SMC/ICT concepts (order blocks, FVGs, liquidity sweeps, BOS/CHOCH)
 - [x] Technical indicators (EMA, Bollinger, SuperTrend, PSAR, Ichimoku, VWAP)
 - [x] Offline-first with Room + sample data seeding
-- [x] Live WebSocket data feed (Binance)
+- [x] Live WebSocket data feed (Binance + provider-aware routing)
 - [x] Drawing tools (trend lines, Fibonacci, horizontals)
 - [x] Bar-by-bar replay engine and backtesting engine
 - [x] Risk management engine (6 sizing methods)
 - [x] Multi-asset scanner with AI scoring
-- [x] Trade journal with statistics
+- [x] Trade journal with statistics and behavioral intelligence
 - [x] Encrypted credential storage (Android Keystore)
 - [x] External AI provider abstraction (AiProviderClient)
 - [x] Push notification alerts
 - [x] Multi-timeframe confluence overlay on chart
 - [x] SignalPipeline extension point for custom post-decision processors
-- [ ] Live WebSocket data feed expansion (Bybit)
-- [ ] LIT (Liquidity-Inducement Theory) full implementation
-- [ ] Backtesting Lab UI screen
-- [ ] Push notification alerts (WorkManager scheduling)
+- [x] Live WebSocket data feed expansion (Bybit REST + WebSocket)
+- [x] Push notification alerts (configurable WorkManager scheduling)
+- [x] LIT inducement/sweep/displacement detector
+- [x] LIT cross-symbol SMT expansion
+- [x] Backtesting Lab UI screen with AI-gate comparison
 - [ ] FastAPI backend (PostgreSQL + Redis)
 - [ ] Social / copy-trading features
 - [ ] Release on Google Play Store

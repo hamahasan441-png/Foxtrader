@@ -94,6 +94,8 @@ data class AgentContext(
     val currentPrice: Double = candles.lastOrNull()?.close ?: 0.0,
     /** Optional higher-timeframe candles keyed by timeframe. */
     val mtfCandles: Map<Timeframe, List<Candle>> = emptyMap(),
+    /** Optional correlated-symbol candles for SMT divergence analysis. */
+    val correlatedCandles: Map<String, List<Candle>> = emptyMap(),
     /** Outputs from agents that already ran this cycle (inter-agent communication). */
     val previousOutputs: Map<AgentName, AgentOutput> = emptyMap(),
     // --- Risk agent inputs ---

@@ -1,22 +1,24 @@
 package com.foxtrader.app.di
 
-import com.foxtrader.app.data.remote.websocket.BinanceWebSocket
 import com.foxtrader.app.data.remote.websocket.MarketWebSocket
-import dagger.Binds
+import com.foxtrader.app.data.remote.websocket.ProviderMarketWebSocket
 import dagger.Module
+import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
 /**
- * Hilt module that binds the WebSocket interface to its Binance implementation.
- * Singleton scope — one WebSocket connection shared across all features.
+ * Hilt module exposing the provider-aware WebSocket router.
+ *
+ * Concrete exchange sockets (Binance, Bybit) remain injectable implementation
+ * details; app features depend only on [MarketWebSocket].
  */
 @Module
 @InstallIn(SingletonComponent::class)
-abstract class WebSocketModule {
+object WebSocketModule {
 
-    @Binds
+    @Provides
     @Singleton
-    abstract fun bindMarketWebSocket(impl: BinanceWebSocket): MarketWebSocket
+    fun provideMarketWebSocket(impl: ProviderMarketWebSocket): MarketWebSocket = impl
 }

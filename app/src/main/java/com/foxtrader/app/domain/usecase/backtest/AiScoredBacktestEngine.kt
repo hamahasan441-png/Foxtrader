@@ -1,6 +1,7 @@
 package com.foxtrader.app.domain.usecase.backtest
 
 import com.foxtrader.app.domain.model.AgentContext
+import com.foxtrader.app.domain.model.BacktestConfig
 import com.foxtrader.app.domain.model.BacktestResult
 import com.foxtrader.app.domain.model.BacktestTrade
 import com.foxtrader.app.domain.model.Candle
@@ -34,6 +35,12 @@ class AiScoredBacktestEngine @Inject constructor(
     private val orchestrator: AgentOrchestrator,
     private val decisionEngine: MasterDecisionEngine,
 ) {
+
+    fun updateConfig(config: BacktestConfig) {
+        backtestEngine.updateConfig(config)
+    }
+
+    fun getConfig(): BacktestConfig = backtestEngine.getConfig()
 
     /**
      * Run a standard backtest AND score every trade with the AI pipeline.

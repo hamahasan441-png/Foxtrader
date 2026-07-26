@@ -51,6 +51,7 @@ import com.foxtrader.app.feature.chart.presentation.components.SymbolPickerDialo
 import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxBearishText
 import com.foxtrader.app.ui.theme.FoxBullishText
+import com.foxtrader.app.ui.theme.FoxError
 import com.foxtrader.app.ui.theme.FoxNeutral60
 import com.foxtrader.app.ui.theme.FoxSuccess
 
@@ -247,15 +248,27 @@ private fun ChartTopBar(
 
         // LIVE toggle — green when connected, tap to connect/disconnect.
         val live = connectionState == ConnectionState.CONNECTED
-        val liveLabel = if (live) "LIVE" else if (state.liveEnabled) "CONNECTING" else "OFF"
+        val liveError = connectionState == ConnectionState.ERROR
+        val liveLabel = when {
+            live -> "LIVE"
+            liveError -> "ERROR"
+            state.liveEnabled -> "CONNECTING"
+            else -> "OFF"
+        }
         Text(
             text = liveLabel,
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
-            color = if (live) MaterialTheme.colorScheme.background else FoxNeutral60,
+            color = if (live || liveError) MaterialTheme.colorScheme.background else FoxNeutral60,
             modifier = Modifier
                 .clip(RoundedCornerShape(4.dp))
-                .background(if (live) FoxSuccess else MaterialTheme.colorScheme.surfaceVariant)
+                .background(
+                    when {
+                        live -> FoxSuccess
+                        liveError -> FoxError
+                        else -> MaterialTheme.colorScheme.surfaceVariant
+                    }
+                )
                 .clickable(
                     onClickLabel = if (state.liveEnabled) "Disconnect live feed" else "Connect live feed",
                     onClick = onLiveToggle,
@@ -263,7 +276,11 @@ private fun ChartTopBar(
                 .padding(horizontal = 6.dp, vertical = 3.dp)
                 .semantics {
                     role = Role.Switch
-                    stateDescription = if (live) "Live feed connected" else "Live feed disconnected"
+                    stateDescription = when {
+                        live -> "Live feed connected"
+                        liveError -> "Live feed error"
+                        else -> "Live feed disconnected"
+                    }
                 },
         )
 

@@ -21,6 +21,7 @@ import com.foxtrader.app.domain.usecase.ai.MasterDecisionEngine
 import com.foxtrader.app.domain.usecase.ai.MtfContextProvider
 import com.foxtrader.app.domain.usecase.chart.ComputeIndicatorsUseCase
 import com.foxtrader.app.domain.usecase.drawing.DrawingEngine
+import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.domain.usecase.replay.ReplayEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
@@ -67,10 +68,13 @@ class ChartViewModel @Inject constructor(
     private val aiAlertService: AiAlertService,
     private val alertDispatcher: AlertDispatcher,
     private val drawingRepository: DrawingRepository,
+    private val appPreferences: AppPreferences,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(ChartUiState())
+    private val _uiState = MutableStateFlow(
+        ChartUiState(timeframe = appPreferences.defaultTimeframe.value)
+    )
     val uiState: StateFlow<ChartUiState> = _uiState.asStateFlow()
 
     /** Replay state exposed separately for the overlay composable. */
@@ -79,8 +83,8 @@ class ChartViewModel @Inject constructor(
     /** WebSocket connection state for the UI indicator. */
     val connectionState: StateFlow<ConnectionState> = webSocket.connectionState
 
-    private val symbolFlow = MutableStateFlow(ChartUiState().symbol)
-    private val timeframeFlow = MutableStateFlow(ChartUiState().timeframe)
+    private val symbolFlow = MutableStateFlow(_uiState.value.symbol)
+    private val timeframeFlow = MutableStateFlow(_uiState.value.timeframe)
 
     /**
      * Fingerprint of the last candle series passed to the AI pipeline.
@@ -242,11 +246,16 @@ class ChartViewModel @Inject constructor(
                 symbol = analysisSymbol,
                 executionTimeframe = analysisTimeframe,
             )
+            val correlatedCandles = mtfContextProvider.getCorrelatedContext(
+                symbol = analysisSymbol,
+                timeframe = analysisTimeframe,
+            )
             val context = AgentContext(
                 symbol = analysisSymbol,
                 timeframe = analysisTimeframe,
                 candles = candles,
                 mtfCandles = mtfCandles,
+                correlatedCandles = correlatedCandles,
             )
 
             // Multi-agent analysis and decision scoring are CPU-bound; run them

@@ -10,6 +10,7 @@ import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.ai.AgentOrchestrator
 import com.foxtrader.app.domain.usecase.ai.AiAlertService
 import com.foxtrader.app.domain.usecase.ai.MasterDecisionEngine
+import com.foxtrader.app.domain.usecase.ai.MtfContextProvider
 import com.foxtrader.app.domain.usecase.scanner.ScannerUseCase
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -36,6 +37,7 @@ class ScanAlertWorker @AssistedInject constructor(
     private val scannerUseCase: ScannerUseCase,
     private val orchestrator: AgentOrchestrator,
     private val decisionEngine: MasterDecisionEngine,
+    private val mtfContextProvider: MtfContextProvider,
     private val aiAlertService: AiAlertService,
     private val alertDispatcher: AlertDispatcher,
 ) : CoroutineWorker(appContext, params) {
@@ -64,6 +66,8 @@ class ScanAlertWorker @AssistedInject constructor(
             symbol = symbol,
             timeframe = SCAN_TIMEFRAME,
             candles = candles,
+            mtfCandles = mtfContextProvider.getHtfContext(symbol, SCAN_TIMEFRAME),
+            correlatedCandles = mtfContextProvider.getCorrelatedContext(symbol, SCAN_TIMEFRAME),
         )
 
         val orchestratorResult = orchestrator.analyze(context)

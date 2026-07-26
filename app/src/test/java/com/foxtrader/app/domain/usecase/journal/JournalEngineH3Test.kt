@@ -27,6 +27,9 @@ class JournalEngineH3Test {
         direction: Direction = Direction.BULLISH,
         entryPrice: Double = 1.10000,
         stopLoss: Double = 1.09500,
+        setupType: String = "Test",
+        emotionTag: EmotionTag = EmotionTag.NEUTRAL,
+        entryTime: Long = System.currentTimeMillis(),
     ) = JournalEntry(
         id = "t-${System.nanoTime()}",
         symbol = "EURUSD",
@@ -37,12 +40,12 @@ class JournalEngineH3Test {
         stopLoss = stopLoss,
         takeProfit = 1.11000,
         volume = 1.0,
-        entryTime = System.currentTimeMillis(),
-        exitTime = if (pnl != null) System.currentTimeMillis() + 3600_000 else null,
+        entryTime = entryTime,
+        exitTime = if (pnl != null) entryTime + 3600_000 else null,
         pnl = pnl,
         rMultiple = if (pnl != null) (pnl / abs(entryPrice - stopLoss)) / 100_000.0 else null,
-        setupType = "Test",
-        emotionTag = EmotionTag.NEUTRAL,
+        setupType = setupType,
+        emotionTag = emotionTag,
     )
 
     @Test
@@ -82,6 +85,24 @@ class JournalEngineH3Test {
         )
         val stats = engine.computeStats(entries)
         assertEquals(3.0, stats.profitFactor, 0.01) // 600/200
+    }
+
+    @Test
+    fun `computeStats calculates expectancy payoff drawdown and psychology insights`() {
+        val entries = listOf(
+            entry(pnl = 500.0, setupType = "FVG", emotionTag = EmotionTag.PATIENT, entryTime = 1L),
+            entry(pnl = 300.0, setupType = "FVG", emotionTag = EmotionTag.PATIENT, entryTime = 2L),
+            entry(pnl = -200.0, setupType = "FOMO", emotionTag = EmotionTag.FOMO, entryTime = 3L),
+            entry(pnl = 100.0, setupType = "OB", emotionTag = EmotionTag.NEUTRAL, entryTime = 4L),
+        )
+
+        val stats = engine.computeStats(entries)
+
+        assertEquals(175.0, stats.expectancy, 0.001)
+        assertEquals(1.5, stats.payoffRatio, 0.001)
+        assertEquals(200.0, stats.maxDrawdown, 0.001)
+        assertEquals("FVG", stats.bestSetupByAverageR)
+        assertEquals(EmotionTag.FOMO, stats.weakestEmotionByWinRate)
     }
 
     @Test
