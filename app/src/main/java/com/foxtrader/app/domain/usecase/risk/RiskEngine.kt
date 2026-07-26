@@ -322,7 +322,7 @@ class RiskEngine @Inject constructor() {
     fun updateBalance(balance: Double) {
         synchronized(lock) {
             currentBalance = balance
-            if (balance > peakBalance) peakBalance = balance
+            peakBalance = balance
         }
     }
 
