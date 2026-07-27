@@ -2783,11 +2783,56 @@ to remove.
 | `AssetClassifierTest` | 9 | Forex/crypto/metals/indices/energy inference, the `BTCUSD` ordering trap, whitespace and empty input |
 | `FoxDatabaseMigrationTest` (+1) | 1 | v5→v6 adds both tables, cascade delete works, journal survives |
 
+## PositionCalculator (0 call sites → risk-gated sizing sheet)
+
+`PositionCalculator` is pure arithmetic: risk percent plus stop distance gives a
+lot size. But `RiskEngine.canOpenTrade()` is what the order path actually
+enforces — per-trade risk cap, daily and weekly loss limits, drawdown,
+consecutive losses, trading halt.
+
+`WARNING` Shipping the calculator on its own would have been **actively
+misleading**. The app would hand a trader a size that the order service then
+refuses; worse, during a halt or at a daily loss limit it would keep
+confidently suggesting trades the system has already decided must not happen.
+
+`RiskAwarePositionCalculator` therefore computes the size and immediately asks
+the risk engine whether that risk is permitted, returning both. A blocked
+result still renders its numbers — a trader needs to see *how far over* the
+limit they are — but the verdict is shown first and the size is de-emphasised.
+
+### Instrument type is not cosmetic
+
+`InstrumentType` supplies `pipSize` and `contractSize`, and both feed position
+size directly. `InstrumentTypeResolver` maps a symbol onto the right one,
+reusing the `AssetClassifier` built for watchlists.
+
+`NOTE` Defaulting everything to `FOREX_STANDARD` (pip `0.0001`, contract 100k)
+would misprice a JPY pair by **100x** — a pip on USDJPY is `0.01` — and gold or
+an index by orders of magnitude. This is the one calculation a trader relies on
+to keep their account solvent, so the mapping is unit-tested per asset class
+rather than assumed.
+
+### Validating the stop side
+
+`PositionCalculator` computes `abs(entry - stop)`. That means a "stop" placed
+*above* a long entry is silently absorbed into a plausible-looking size for a
+position that can never stop out where the user believes it will. The
+`Invalid` outcome rejects it explicitly, with the same check applied to targets.
+
+## Testing (part 4)
+
+| Suite | Cases | Covers |
+|-------|-------|--------|
+| `InstrumentTypeResolverTest` | 8 | Per-asset-class contract/pip mapping, the JPY 100x trap, BTC vs alt split, safe fallbacks |
+| `RiskAwarePositionCalculatorTest` | 13 | Wrong-side stop/target rejection, size + R:R arithmetic, per-trade cap breach, halt blocking, optional target |
+
+Position-size arithmetic was additionally cross-checked numerically before
+commit, rather than trusting the assertions to be self-consistent.
+
 ## Remaining Class B backlog
 
 | Engine | LOC | Planned surface |
 |---|---:|---|
-| `PositionCalculator` | 144 | Position-size sheet from chart / AI panel |
 | `MultiChartManager` | 143 | Multi-chart layouts (Sprint 8) |
 | `MarketHeatmap` | 146 | Scanner grid mode |
 | `NewsEngine` | 133 | News feed (`NewsAgent` votes on news the app never fetches) |
