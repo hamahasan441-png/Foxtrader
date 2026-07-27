@@ -7,6 +7,7 @@ import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.ScreenerResult
 import com.foxtrader.app.domain.model.StrategyType
 import com.foxtrader.app.domain.usecase.heatmap.MarketHeatmap
+import kotlinx.collections.immutable.toPersistentList
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -105,7 +106,7 @@ class ScannerUiStateHeatmapTest {
         assertFalse(empty.isSyntheticData)
 
         val populated = ScannerUiState(
-            results = listOf(result("EURUSD", AssetClass.FOREX)),
+            results = listOf(result("EURUSD", AssetClass.FOREX)).toPersistentList(),
             dataSource = CandleSource.SYNTHETIC,
         )
         assertTrue(populated.isSyntheticData)
@@ -115,7 +116,7 @@ class ScannerUiStateHeatmapTest {
     fun `live and cached scans are not badged as synthetic`() {
         listOf(CandleSource.LIVE, CandleSource.CACHED).forEach { source ->
             val state = ScannerUiState(
-                results = listOf(result("EURUSD", AssetClass.FOREX)),
+                results = listOf(result("EURUSD", AssetClass.FOREX)).toPersistentList(),
                 dataSource = source,
             )
             assertFalse("$source must not be badged synthetic", state.isSyntheticData)
