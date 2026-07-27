@@ -95,6 +95,12 @@ android {
     }
 }
 
+composeCompiler {
+    reportsDestination = layout.buildDirectory.dir("reports/compose")
+    metricsDestination = layout.buildDirectory.dir("reports/compose")
+    stabilityConfigurationFile = rootProject.layout.projectDirectory.file("compose-stability.conf")
+}
+
 dependencies {
     // Core
     implementation(libs.androidx.core.ktx)

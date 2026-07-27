@@ -4094,3 +4094,59 @@ At this point the branch now has:
 The remaining bigger Sprint 9 items are now mostly about **deepening** the
 coverage rather than inventing the foundation.
 
+
+---
+
+# Appendix V: Sprint 9 continuation — deeper surface assertions and stability groundwork
+
+This pass continues Sprint 9 in two directions at once:
+
+1. broader instrumentation and benchmark journey coverage,
+2. more explicit Compose-stability groundwork in app state and build config.
+
+## More surface assertions
+
+A new `AnalyticsSurfaceSmokeTest` now proves two more analytical surfaces render
+their primary controls:
+
+- **Alerts inbox** shows its empty state when there are no alerts.
+- **Backtesting Lab** shows configuration controls and its main run action.
+
+These are still smoke tests, but they now cover the app's secondary analytical
+flows rather than only navigation shell presence.
+
+## More benchmark coverage
+
+`ScannerSettingsBenchmark` adds another shell journey across a high-toggle area:
+
+- open Scanner
+- switch HEATMAP / LIST
+- open Settings
+- trigger Save Settings
+
+This broadens Sprint 9's measurement from startup and navigation into
+configuration-heavy flows as well.
+
+## Compose stability groundwork, expanded
+
+The build now writes Compose compiler **reports** and **metrics** and points the
+compiler at a shared `compose-stability.conf` file.
+
+`NOTE` This is not yet full CI enforcement, but it establishes the plumbing so
+stability can be inspected and tightened incrementally rather than introduced as
+one risky all-or-nothing gate.
+
+### Additional immutable UI state adoption
+
+This pass extends immutable UI-facing collections into more screen states:
+
+- `StrategiesUiState.signals`
+- `BacktestLabUiState.availableSymbols`
+- `PortfolioUiState.correlationClusters`
+
+Together with the earlier conversions, this means several of the app's most
+visited screen states now advertise immutable collections directly to Compose.
+
+That reduces accidental recomposition ambiguity and is the right precursor to
+stronger stability checks later in Sprint 9.
+

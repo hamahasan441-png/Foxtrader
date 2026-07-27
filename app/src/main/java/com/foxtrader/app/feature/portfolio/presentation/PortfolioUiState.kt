@@ -3,6 +3,8 @@ package com.foxtrader.app.feature.portfolio.presentation
 import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.usecase.correlation.CorrelationMatrix
 import com.foxtrader.app.domain.usecase.portfolio.PortfolioRiskSnapshot
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 
 /**
  * Immutable UI state for the Portfolio screen.
@@ -13,7 +15,7 @@ import com.foxtrader.app.domain.usecase.portfolio.PortfolioRiskSnapshot
  */
 data class PortfolioUiState(
     val snapshot: PortfolioRiskSnapshot? = null,
-    val correlationClusters: List<CorrelationCluster> = emptyList(),
+    val correlationClusters: ImmutableList<CorrelationCluster> = persistentListOf(),
     val accountEquity: Double = 0.0,
     val dataSource: CandleSource = CandleSource.CACHED,
     val isLoading: Boolean = true,
