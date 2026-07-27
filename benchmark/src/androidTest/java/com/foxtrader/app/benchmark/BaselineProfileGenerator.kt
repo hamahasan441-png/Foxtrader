@@ -39,6 +39,11 @@ class BaselineProfileGenerator {
         device.findObject(By.text("Chart"))?.click()
         device.wait(Until.hasObject(By.text("Fox")), 5_000)
 
+        device.findObject(By.text("1×2"))?.click()
+        device.findObject(By.text("ADD"))?.click()
+        device.findObject(By.text("LINKED"))?.click()
+        device.findObject(By.text("X-SYNC"))?.click()
+
         device.findObject(By.descStartsWith("Alerts inbox"))?.click()
         device.wait(Until.hasObject(By.text("Alerts")), 5_000)
     }

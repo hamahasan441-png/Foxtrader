@@ -25,6 +25,12 @@ import kotlin.math.abs
 // - Support / Resistance auto-zones
 // - Auto Fibonacci retracement grid on the dominant recent swing
 
+private val SupportResistanceDash = PathEffect.dashPathEffect(floatArrayOf(8f, 6f))
+private val AutoFibDash = PathEffect.dashPathEffect(floatArrayOf(6f, 4f))
+private val SupportLabelArgb = android.graphics.Color.parseColor("#66BB6A")
+private val ResistanceLabelArgb = android.graphics.Color.parseColor("#EF5350")
+private val FibLabelArgb = android.graphics.Color.parseColor("#D4A84E")
+
 internal fun DrawScope.drawSupportResistanceZones(
     zones: List<SupportResistanceDetector.SRZone>,
     viewport: ChartViewport,
@@ -55,11 +61,10 @@ internal fun DrawScope.drawSupportResistanceZones(
             start = Offset(0f, centerY),
             end = Offset(cw, centerY),
             strokeWidth = 1f,
-            pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f)),
+            pathEffect = SupportResistanceDash,
         )
 
-        labelPaint.color = if (zone.isSupport) android.graphics.Color.parseColor("#66BB6A")
-        else android.graphics.Color.parseColor("#EF5350")
+        labelPaint.color = if (zone.isSupport) SupportLabelArgb else ResistanceLabelArgb
         drawContext.canvas.nativeCanvas.drawText(
             "${if (zone.isSupport) "S" else "R"} ${zone.touches}x",
             8f,
@@ -143,10 +148,10 @@ internal fun DrawScope.drawAutoFibonacciLevels(
             start = Offset(0f, y),
             end = Offset(cw, y),
             strokeWidth = if (keyLevel) 1.25f else 0.9f,
-            pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 4f)),
+            pathEffect = AutoFibDash,
         )
 
-        labelPaint.color = android.graphics.Color.parseColor("#D4A84E")
+        labelPaint.color = FibLabelArgb
         drawContext.canvas.nativeCanvas.drawText(
             "${level.label} ${formatLayerPrice(level.price)}",
             cw - 8f,

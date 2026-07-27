@@ -4234,3 +4234,50 @@ repeatable cleanup Sprint 9.5 exists to accumulate: fewer transient objects in
 high-frequency draw code means less GC pressure and less risk of frame-time
 spikes during heavy interaction.
 
+
+---
+
+# Appendix Y: Sprint 9 continuation — profile journey refinement and renderer allocation cleanup
+
+This pass continues Sprint 9 in two targeted areas:
+
+1. expanding the baseline-profile journey so it better reflects the chart shell's
+   real hot paths,
+2. reducing a few more avoidable allocations in chart rendering helpers.
+
+## Baseline-profile journey refinement
+
+The baseline-profile collector now visits not only the app's top-level screen
+shell but also the **chart workspace controls** themselves:
+
+- switch to split layout,
+- add a panel,
+- toggle linked state,
+- toggle crosshair sync,
+- then open the Alerts inbox.
+
+`NOTE` This matters because the chart workspace is now part of the app's core
+interactive shell. If the profile only covers startup and plain tab switches, it
+misses code paths the app now executes in one of its most performance-sensitive
+surfaces.
+
+## More renderer allocation cleanup
+
+Further hot-path chart cleanup landed in three files:
+
+- `DrawingRenderer` now hoists preview colors and dash effects.
+- `SmcRenderer` now hoists repeated dash effects used for FVG, liquidity and
+  value-area boundaries.
+- `ChartAdvancedAnalysisLayers` now hoists repeated dashes and parsed ARGB label
+  colors for support/resistance and auto-fib overlays.
+
+These are small individually, but together they keep the chart moving toward the
+Sprint 9 memory/perf requirement: fewer transient objects created during draw
+operations means less GC pressure during continuous interaction.
+
+## Extra smoke coverage
+
+A `SettingsFlowSmokeTest` now verifies the Settings flow can reach the Data
+Provider section and complete the save action, which broadens confidence around
+one of the app's highest-change configuration surfaces.
+
