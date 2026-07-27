@@ -1,9 +1,11 @@
 package com.foxtrader.app.feature.scanner.presentation
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,7 +33,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -42,11 +47,13 @@ import com.foxtrader.app.domain.model.ScannerRiskLevel
 import com.foxtrader.app.domain.model.ScreenerResult
 import com.foxtrader.app.domain.model.StrategyType
 import com.foxtrader.app.domain.model.WatchlistCategory
+import com.foxtrader.app.domain.usecase.heatmap.MarketHeatmap
 import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxBearishText
 import com.foxtrader.app.ui.theme.FoxBullishText
 import com.foxtrader.app.ui.theme.FoxNeutral10
 import com.foxtrader.app.ui.theme.FoxNeutral60
+import com.foxtrader.app.ui.theme.FoxWarning
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -95,6 +102,11 @@ fun ScannerScreen(
                 onSortSelect = viewModel::selectSortMode,
             )
 
+            ViewModeToggle(
+                selected = state.viewMode,
+                onSelect = viewModel::selectViewMode,
+            )
+
             when {
                 state.isLoading -> {
                     Box(
@@ -124,18 +136,248 @@ fun ScannerScreen(
                     }
                 }
                 else -> {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        items(state.filteredResults, key = { it.symbol }) { result ->
-                            ScannerResultCard(result)
+                    Column(Modifier.fillMaxSize()) {
+                        if (state.isSyntheticData) {
+                            SyntheticScanNotice()
+                        }
+                        when (state.viewMode) {
+                            ScannerViewMode.LIST -> LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                items(state.filteredResults, key = { it.symbol }) { result ->
+                                    ScannerResultCard(result)
+                                }
+                            }
+
+                            ScannerViewMode.HEATMAP -> HeatmapGrid(
+                                cells = state.filteredHeatmapCells,
+                                sentiment = state.heatmap?.marketSentiment,
+                                averageChange = state.heatmap?.averageChange ?: 0.0,
+                            )
                         }
                     }
                 }
             }
         }
     }
+}
+
+/**
+ * LIST / HEATMAP switch. Both render the same scan, so toggling never refetches.
+ */
+@Composable
+private fun ViewModeToggle(
+    selected: ScannerViewMode,
+    onSelect: (ScannerViewMode) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        ScannerViewMode.entries.forEach { mode ->
+            val isSelected = mode == selected
+            Text(
+                text = if (mode == ScannerViewMode.LIST) "LIST" else "HEATMAP",
+                color = if (isSelected) androidx.compose.ui.graphics.Color.Black else FoxAmber50,
+                fontWeight = FontWeight.Bold,
+                fontSize = 10.sp,
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(if (isSelected) FoxAmber50 else FoxAmber50.copy(alpha = 0.12f))
+                    .clickable { onSelect(mode) }
+                    .padding(vertical = 6.dp),
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
+/**
+ * Sprint 6 contract. A heatmap over generated bars renders sector rotation
+ * that never happened, which is more convincing — and so more dangerous —
+ * than a single fabricated price.
+ */
+@Composable
+private fun SyntheticScanNotice() {
+    Text(
+        text = "SIMULATED DATA — these moves are generated, not real market prices.",
+        color = FoxWarning,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(FoxWarning.copy(alpha = 0.16f))
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+    )
+}
+
+/**
+ * Treemap-style grid grouped by asset class.
+ *
+ * Cells are grouped rather than laid out in one flat grid because the whole
+ * point of a heatmap is spotting *sector* rotation — a flat sort by change
+ * mixes crypto and FX together and hides exactly that signal.
+ */
+@Composable
+private fun HeatmapGrid(
+    cells: List<MarketHeatmap.HeatmapCell>,
+    sentiment: MarketHeatmap.MarketSentiment?,
+    averageChange: Double,
+) {
+    if (cells.isEmpty()) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("No heatmap data", color = FoxNeutral60, fontSize = 12.sp)
+        }
+        return
+    }
+
+    val grouped = cells.groupBy { it.assetClass }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        item {
+            SentimentHeader(sentiment = sentiment, averageChange = averageChange)
+        }
+        grouped.forEach { (assetClass, groupCells) ->
+            item(key = "header-${assetClass.name}") {
+                Text(
+                    text = assetClass.name,
+                    color = FoxNeutral60,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            // Fixed 3-per-row: enough to compare at a glance without shrinking
+            // the symbol text below legibility on a phone.
+            groupCells.chunked(3).forEachIndexed { rowIndex, rowCells ->
+                item(key = "${assetClass.name}-row-$rowIndex") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        rowCells.forEach { cell ->
+                            HeatmapTile(cell = cell, modifier = Modifier.weight(1f))
+                        }
+                        // Keep the last row's tiles the same width as a full row.
+                        repeat(3 - rowCells.size) {
+                            Spacer(Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SentimentHeader(
+    sentiment: MarketHeatmap.MarketSentiment?,
+    averageChange: Double,
+) {
+    val label = when (sentiment) {
+        MarketHeatmap.MarketSentiment.EXTREME_GREED -> "EXTREME GREED"
+        MarketHeatmap.MarketSentiment.GREED -> "GREED"
+        MarketHeatmap.MarketSentiment.NEUTRAL -> "NEUTRAL"
+        MarketHeatmap.MarketSentiment.FEAR -> "FEAR"
+        MarketHeatmap.MarketSentiment.EXTREME_FEAR -> "EXTREME FEAR"
+        null -> "—"
+    }
+    val accent = when (sentiment) {
+        MarketHeatmap.MarketSentiment.EXTREME_GREED,
+        MarketHeatmap.MarketSentiment.GREED,
+        -> FoxBullishText
+
+        MarketHeatmap.MarketSentiment.FEAR,
+        MarketHeatmap.MarketSentiment.EXTREME_FEAR,
+        -> FoxBearishText
+
+        else -> FoxNeutral60
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(FoxNeutral10)
+            .padding(10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column {
+            Text("Market sentiment", color = FoxNeutral60, fontSize = 9.sp)
+            Text(label, color = accent, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        }
+        Column(horizontalAlignment = Alignment.End) {
+            Text("Average move", color = FoxNeutral60, fontSize = 9.sp)
+            Text(
+                text = formatSignedPercent(averageChange),
+                color = if (averageChange >= 0) FoxBullishText else FoxBearishText,
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun HeatmapTile(
+    cell: MarketHeatmap.HeatmapCell,
+    modifier: Modifier = Modifier,
+) {
+    val base = when (cell.color) {
+        MarketHeatmap.HeatmapColor.STRONG_BULLISH,
+        MarketHeatmap.HeatmapColor.BULLISH,
+        -> FoxBullishText
+
+        MarketHeatmap.HeatmapColor.STRONG_BEARISH,
+        MarketHeatmap.HeatmapColor.BEARISH,
+        -> FoxBearishText
+
+        MarketHeatmap.HeatmapColor.NEUTRAL -> FoxNeutral60
+    }
+    // Floor the alpha so a ~0% mover is still a readable tile rather than a
+    // near-invisible one.
+    val alpha = (0.18f + cell.intensity * 0.62f).coerceIn(0.18f, 0.8f)
+
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(base.copy(alpha = alpha))
+            .padding(vertical = 10.dp, horizontal = 6.dp)
+            .semantics {
+                contentDescription = "${cell.symbol} ${formatSignedPercent(cell.changePercent)}"
+            },
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = cell.symbol,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontWeight = FontWeight.Bold,
+            fontSize = 11.sp,
+            maxLines = 1,
+        )
+        Text(
+            text = formatSignedPercent(cell.changePercent),
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 10.sp,
+        )
+    }
+}
+
+private fun formatSignedPercent(value: Double): String {
+    if (value.isNaN() || value.isInfinite()) return "—"
+    val rounded = kotlin.math.round(value * 100) / 100.0
+    val sign = if (rounded > 0) "+" else ""
+    return "$sign$rounded%"
 }
 
 @Composable
