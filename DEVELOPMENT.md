@@ -2890,6 +2890,61 @@ deleting the unsourced overloads once every caller is migrated.
 
 `MarketHeatmap`'s own 4 tests already existed and now cover reachable code.
 
+## Closing the provenance loophole for good
+
+Sprint 6 added `CandleSource` and a decision-engine veto. Sprints 7.2, 7.5 then
+found **three separate features** that had bypassed the contract entirely:
+
+| Feature | How it escaped |
+|---|---|
+| `ScanAlertWorker` | called `evaluate(result)` — provenance defaulted to `LIVE` |
+| `ScannerViewModel` | called `getCandles(...)` — the unsourced overload |
+| Scanner heatmap | inherited the scanner's unsourced fetch |
+
+Each one produced confident trade narratives over generated bars, and each was
+patched individually as it was found.
+
+`WARNING` Three independent regressions of one contract is a **pattern, not bad
+luck**. Every instance had the same root cause: the unsafe API still existed and
+still compiled, so the wrong path was always one autocomplete away. Patching
+call sites reactively was losing the race — the next feature would have
+reintroduced it.
+
+### The fix: delete the unsafe path
+
+`MarketRepository.getCandles()` is **gone**. The only one-shot read is
+`getSourcedCandles()`, which returns `SourcedCandles`. Callers that genuinely
+need only prices write `.candles` — the point is that *discarding provenance is
+now an explicit, visible act* rather than the default, and the compiler enforces
+it on every future caller.
+
+`NOTE` This was chosen over a detekt rule (the Sprint 10 alternative) because a
+lint rule can be baselined, suppressed or simply not written for the next
+similar API. A deleted function cannot be called.
+
+### Migrating the last four callers
+
+- **`BacktestLabViewModel`** and **`StrategiesViewModel`** now fetch sourced
+  data and pass provenance into `AiScoredBacktestEngine`, which threads it to
+  `MasterDecisionEngine`. The Lab's headline output is its AI-gate comparison;
+  over synthetic bars it now reports an honest **0% approval rate** rather than
+  a fabricated edge.
+- **`StrategiesViewModel.runAiBacktest`** additionally **aborts** on
+  untrustworthy data. It auto-journals its trades into the user's real journal,
+  so proceeding would seed permanent, user-visible performance statistics with
+  trades derived from a random walk — corrupting win rate, expectancy and
+  every behavioural insight computed from them.
+- **`MtfContextProvider`** reads `.candles` explicitly. HTF ladders and
+  correlated peers are *supporting evidence*; the primary series already
+  carries the veto, and failing the whole analysis because a peer symbol was
+  seeded would be a worse outcome than degrading to single-symbol context.
+
+### Testing
+
+| Suite | Cases | Covers |
+|-------|-------|--------|
+| `AiScoredBacktestEngineTest` (+2) | 2 | Zero AI approvals on synthetic data; base execution metrics **unchanged**, proving the veto gates the AI opinion and not the mechanical backtest |
+
 ## Remaining Class B backlog
 
 | Engine | LOC | Planned surface |
