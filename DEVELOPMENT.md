@@ -975,6 +975,8 @@ The "trading engine" is the constellation of pure-domain engines under `domain/u
 
 **Metrics** (`BacktestMetrics`): net/gross profit, win rate, **profit factor**, **expectancy**, avg/largest win/loss, **max drawdown** (abs + %), **Sharpe** (annualized ×√252), **Sortino** (downside deviation), **Calmar** (return% / maxDD%), **recovery factor**, avg holding bars, max consecutive wins/losses, final balance, return %, total commission, plus an **equity curve** and per-trade `R-multiple`.
 
+**Validation analytics** (`BacktestAnalyticsEngine`): walk-forward split (in-sample vs out-of-sample stability), Monte Carlo trade-order randomization, 95% drawdown estimate, worst-case drawdown, median/worst/best final balance, risk-of-ruin %, and deterministic recommendations. These analytics are shown in Backtesting Lab and are required before trusting any strategy template for live use.
+
 `RULE` Any new backtester feature must preserve the `subList(0, i+1)` no-look-ahead invariant and must keep SL-before-TP exit ordering (never resolve TP first when both are touched intra-bar, absent tick data).
 
 `WARNING` Bar-level exits are an approximation: when a single bar touches both SL and TP, real fill order is unknown. FoxTrader assumes SL-first (pessimistic). For higher fidelity, use tick data (Dukascopy) in the replay/backtest path (H2).

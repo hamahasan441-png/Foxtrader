@@ -63,6 +63,7 @@ A native Android trading-analysis app built with **Kotlin 2.0, Jetpack Compose, 
 - Full metrics: Sharpe, Sortino, Calmar, Profit Factor, Win Rate, Max Drawdown, Expectancy, R-Multiples
 - Equity curve with per-bar drawdown tracking
 - AI-gate comparison: all trades vs Master Decision-approved trades
+- Walk-forward validation and Monte Carlo drawdown / risk-of-ruin analytics
 
 ### Multi-Asset Scanner
 - 30 pre-configured watchlist symbols (Forex, Crypto, Stocks, Indices, Metals, Energy)

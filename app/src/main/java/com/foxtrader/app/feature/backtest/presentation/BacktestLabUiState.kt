@@ -2,6 +2,7 @@ package com.foxtrader.app.feature.backtest.presentation
 
 import com.foxtrader.app.domain.model.BacktestResult
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.usecase.backtest.BacktestAnalyticsReport
 
 /** Strategy templates available in the Backtesting Lab. */
 enum class BacktestStrategyTemplate(
@@ -34,6 +35,7 @@ data class BacktestLabUiState(
     val isRunning: Boolean = false,
     val error: String? = null,
     val result: BacktestResult? = null,
+    val analyticsReport: BacktestAnalyticsReport? = null,
     val lastRunTime: Long = 0L,
 ) {
     val hasResult: Boolean get() = result != null

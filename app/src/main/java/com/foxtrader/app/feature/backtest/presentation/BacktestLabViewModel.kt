@@ -10,6 +10,7 @@ import com.foxtrader.app.domain.model.StrategySignal
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.backtest.AiScoredBacktestEngine
+import com.foxtrader.app.domain.usecase.backtest.BacktestAnalyticsEngine
 import com.foxtrader.app.domain.usecase.backtest.BacktestEngine
 import com.foxtrader.app.domain.usecase.backtest.StrategyFunction
 import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
@@ -34,6 +35,7 @@ class BacktestLabViewModel @Inject constructor(
     private val repository: MarketRepository,
     private val backtestEngine: BacktestEngine,
     private val aiScoredBacktestEngine: AiScoredBacktestEngine,
+    private val analyticsEngine: BacktestAnalyticsEngine,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
 
@@ -45,23 +47,23 @@ class BacktestLabViewModel @Inject constructor(
     }
 
     fun setSymbol(symbol: String) {
-        _uiState.update { it.copy(symbol = symbol, result = null, error = null) }
+        _uiState.update { it.copy(symbol = symbol, result = null, analyticsReport = null, error = null) }
     }
 
     fun setTimeframe(timeframe: Timeframe) {
-        _uiState.update { it.copy(timeframe = timeframe, result = null, error = null) }
+        _uiState.update { it.copy(timeframe = timeframe, result = null, analyticsReport = null, error = null) }
     }
 
     fun setStrategy(strategy: BacktestStrategyTemplate) {
-        _uiState.update { it.copy(strategy = strategy, result = null, error = null) }
+        _uiState.update { it.copy(strategy = strategy, result = null, analyticsReport = null, error = null) }
     }
 
     fun setRiskPercent(value: Double) {
-        _uiState.update { it.copy(riskPercent = value.coerceIn(0.1, 5.0), result = null) }
+        _uiState.update { it.copy(riskPercent = value.coerceIn(0.1, 5.0), result = null, analyticsReport = null) }
     }
 
     fun setAiScoringEnabled(enabled: Boolean) {
-        _uiState.update { it.copy(aiScoringEnabled = enabled, result = null) }
+        _uiState.update { it.copy(aiScoringEnabled = enabled, result = null, analyticsReport = null) }
     }
 
     fun runBacktest() {
@@ -100,10 +102,15 @@ class BacktestLabViewModel @Inject constructor(
                     }
                 }
 
+                val analytics = withContext(defaultDispatcher) {
+                    analyticsEngine.analyze(result)
+                }
+
                 _uiState.update {
                     it.copy(
                         isRunning = false,
                         result = result,
+                        analyticsReport = analytics,
                         lastRunTime = System.currentTimeMillis(),
                     )
                 }
