@@ -71,7 +71,10 @@ class BacktestLabViewModel @Inject constructor(
             val state = _uiState.value
             _uiState.update { it.copy(isRunning = true, error = null) }
             try {
-                val candles = repository.getCandles(state.symbol, state.timeframe)
+                // Sourced: an AI-gated backtest over generated bars would
+                // report a fabricated edge, so provenance reaches the engine.
+                val sourced = repository.getSourcedCandles(state.symbol, state.timeframe)
+                val candles = sourced.candles
                 require(candles.size >= MIN_REQUIRED_BARS) {
                     "Need at least $MIN_REQUIRED_BARS candles for a reliable backtest. Got ${candles.size}."
                 }
@@ -90,6 +93,7 @@ class BacktestLabViewModel @Inject constructor(
                             strategy = strategy,
                             symbol = state.symbol,
                             timeframe = state.timeframe,
+                            dataSource = sourced.source,
                         )
                     } else {
                         backtestEngine.updateConfig(config)

@@ -1,6 +1,7 @@
 package com.foxtrader.app.domain.usecase.backtest
 
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.StrategySignal
 import com.foxtrader.app.domain.model.Timeframe
@@ -134,5 +135,44 @@ class AiScoredBacktestEngineTest {
         // Core trade count and net profit should be identical (AI doesn't filter execution).
         assertEquals(baseResult.trades.size, aiResult.trades.size)
         assertEquals(baseResult.metrics.netProfit, aiResult.metrics.netProfit, 0.001)
+    }
+
+    @Test
+    fun `synthetic data yields zero AI approvals`() {
+        // The AI-gate comparison is the headline output of the Lab screen. Over
+        // generated bars it must report an honest 0% approval rate rather than
+        // a fabricated edge a user might trade on.
+        val candles = trendingCandles(200)
+        val result = engine(
+            candles = candles,
+            strategy = simpleStrategy,
+            symbol = "BTCUSDT",
+            timeframe = Timeframe.H1,
+            dataSource = CandleSource.SYNTHETIC,
+        )
+
+        assertTrue("expected trades to score against", result.trades.isNotEmpty())
+        assertTrue(
+            "no trade may be AI-approved on synthetic data",
+            result.trades.none { it.aiApproved == true },
+        )
+    }
+
+    @Test
+    fun `synthetic scoring leaves base execution metrics untouched`() {
+        // The veto gates the AI opinion, not the mechanical backtest: trade
+        // count and P&L must match the ungated run exactly.
+        val candles = trendingCandles(200)
+        val base = backtestEngine(candles, simpleStrategy, "BTCUSDT", Timeframe.H1)
+        val synthetic = engine(
+            candles = candles,
+            strategy = simpleStrategy,
+            symbol = "BTCUSDT",
+            timeframe = Timeframe.H1,
+            dataSource = CandleSource.SYNTHETIC,
+        )
+
+        assertEquals(base.trades.size, synthetic.trades.size)
+        assertEquals(base.metrics.netProfit, synthetic.metrics.netProfit, 0.001)
     }
 }

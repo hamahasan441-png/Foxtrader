@@ -3,9 +3,11 @@ package com.foxtrader.app.di
 import android.content.Context
 import androidx.room.Room
 import com.foxtrader.app.data.local.FoxDatabase
+import com.foxtrader.app.data.local.dao.AlertDao
 import com.foxtrader.app.data.local.dao.CandleDao
 import com.foxtrader.app.data.local.dao.DrawingDao
 import com.foxtrader.app.data.local.dao.JournalDao
+import com.foxtrader.app.data.local.dao.WatchlistDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -22,7 +24,11 @@ object DatabaseModule {
     fun provideDatabase(@ApplicationContext context: Context): FoxDatabase =
         Room.databaseBuilder(context, FoxDatabase::class.java, FoxDatabase.NAME)
             .addMigrations(*FoxDatabase.MIGRATIONS)
-            .fallbackToDestructiveMigration()
+            // NO fallbackToDestructiveMigration(). journal_entries and
+            // chart_drawings hold user-authored data that is not re-derivable;
+            // a missing migration path must throw (and be caught by the
+            // MigrationTest suite in CI) rather than silently wipe the user's
+            // trade history on upgrade.
             .build()
 
     @Provides
@@ -33,4 +39,10 @@ object DatabaseModule {
 
     @Provides
     fun provideDrawingDao(db: FoxDatabase): DrawingDao = db.drawingDao()
+
+    @Provides
+    fun provideAlertDao(db: FoxDatabase): AlertDao = db.alertDao()
+
+    @Provides
+    fun provideWatchlistDao(db: FoxDatabase): WatchlistDao = db.watchlistDao()
 }

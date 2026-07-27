@@ -3,6 +3,7 @@ package com.foxtrader.app.domain.usecase.ai
 import com.foxtrader.app.domain.model.AgentInsight
 import com.foxtrader.app.domain.model.AgentName
 import com.foxtrader.app.domain.model.Bias
+import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.model.DecisionConfig
 import com.foxtrader.app.domain.model.DecisionResult
 import com.foxtrader.app.domain.model.Direction
@@ -33,9 +34,41 @@ class MasterDecisionEngine @Inject constructor() {
     fun updateConfig(newConfig: DecisionConfig) { config = newConfig }
     fun getConfig(): DecisionConfig = config
 
-    fun evaluate(result: OrchestratorResult): DecisionResult {
+    /**
+     * @param dataSource provenance of the candles this analysis was computed
+     *   over. [CandleSource.SYNTHETIC] is an unconditional veto — see below.
+     */
+    fun evaluate(
+        result: OrchestratorResult,
+        dataSource: CandleSource = CandleSource.LIVE,
+    ): DecisionResult {
         val now = System.currentTimeMillis()
         val outputs = result.agentOutputs
+
+        // 0. Data-integrity veto (absolute, not configurable).
+        //
+        // Ranked above the risk veto because it is not a trading opinion: if
+        // the prices are fabricated then every downstream confluence, score and
+        // narrative is fabricated too, and `respectRiskBlock = false` must not
+        // be able to unlock a trade recommendation over a random walk.
+        if (!dataSource.isTrustworthy) {
+            return DecisionResult(
+                approved = false,
+                direction = null,
+                confidence = 0.0,
+                grade = SignalGrade.NO_SIGNAL,
+                confluencePresent = emptyList(),
+                confluenceMissing = RequiredConfluence.all(),
+                blockReasons = listOf(
+                    "SYNTHETIC DATA: analysis ran on generated sample bars, not real market data."
+                ),
+                vetoedBy = null,
+                explanation = "DECISION: NO TRADE. This chart is showing simulated data " +
+                    "(the data provider was unreachable), so no signal can be trusted. " +
+                    "Connect a working data provider in Settings before acting on any setup.",
+                timestamp = now,
+            )
+        }
 
         // 1. Risk / Psychology veto (absolute).
         if (config.respectRiskBlock) {

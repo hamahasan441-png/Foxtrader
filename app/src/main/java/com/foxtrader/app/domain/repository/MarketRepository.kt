@@ -1,6 +1,7 @@
 package com.foxtrader.app.domain.repository
 
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.SourcedCandles
 import com.foxtrader.app.domain.model.Timeframe
 import kotlinx.coroutines.flow.Flow
 
@@ -18,6 +19,16 @@ interface MarketRepository {
     fun observeCandles(symbol: String, timeframe: Timeframe): Flow<List<Candle>>
 
     /**
+     * Observe candles together with their provenance.
+     *
+     * Callers that render prices or authorise trade decisions MUST use this
+     * rather than [observeCandles], so synthetic seed data can be labelled in
+     * the UI and vetoed by the decision engine. See
+     * [com.foxtrader.app.domain.model.CandleSource].
+     */
+    fun observeSourcedCandles(symbol: String, timeframe: Timeframe): Flow<SourcedCandles>
+
+    /**
      * Trigger a refresh from the remote source into the local cache.
      * Returns Result to surface network/parse errors to the caller.
      */
@@ -27,11 +38,20 @@ interface MarketRepository {
     suspend fun upsertCandle(symbol: String, timeframe: Timeframe, candle: Candle)
 
     /**
-     * Get cached candles for a symbol (default timeframe H1).
-     * Convenience for scanner/screener which doesn't need reactive observation.
+     * One-shot fetch of cached candles **with provenance**.
+     *
+     * There is deliberately no unsourced `getCandles` overload. One existed and
+     * was removed: three separate features (the scan alert worker, the scanner,
+     * and the heatmap built on it) each silently bypassed the Sprint 6
+     * provenance contract simply by calling the older API, which still
+     * compiled. Each produced confident trade narratives over generated bars.
+     *
+     * Callers that genuinely only need prices can use `.candles`; the point is
+     * that discarding provenance must be an explicit, visible act rather than
+     * the path of least resistance.
      */
-    suspend fun getCandles(
+    suspend fun getSourcedCandles(
         symbol: String,
         timeframe: Timeframe = Timeframe.H1,
-    ): List<Candle>
+    ): SourcedCandles
 }

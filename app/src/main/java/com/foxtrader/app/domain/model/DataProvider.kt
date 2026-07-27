@@ -13,22 +13,32 @@ package com.foxtrader.app.domain.model
  * ALPACA       — US stocks
  * TWELVE_DATA  — multi-asset REST
  * INTERACTIVE_BROKERS — multi-asset via gateway
+ *
+ * [implemented] marks whether the provider actually has a working fetch path.
+ * Several entries below are declared for the roadmap but have no data-source
+ * implementation; Settings must not accept an API key for those, and the
+ * repository must fail loudly rather than silently falling back to synthetic
+ * data while the user believes they are seeing their broker's prices.
  */
 enum class DataProvider(
     val displayName: String,
     val supportsLive: Boolean,
     val requiresApiKey: Boolean,
     val apiKeyLabel: String? = null,
+    /** True only when a real candle-fetch path exists for this provider. */
+    val implemented: Boolean = false,
 ) {
-    SAMPLE("Sample Data", supportsLive = false, requiresApiKey = false),
-    BINANCE("Binance", supportsLive = true, requiresApiKey = false),
-    BYBIT("Bybit", supportsLive = true, requiresApiKey = false),
+    SAMPLE("Sample Data", supportsLive = false, requiresApiKey = false, implemented = true),
+    BINANCE("Binance", supportsLive = true, requiresApiKey = false, implemented = true),
+    BYBIT("Bybit", supportsLive = true, requiresApiKey = false, implemented = true),
+    // DukascopyAdapter is a stub — binary tick parsing is not implemented.
     DUKASCOPY("Dukascopy", supportsLive = false, requiresApiKey = false),
     ALPHA_VANTAGE(
         "Alpha Vantage",
         supportsLive = false,
         requiresApiKey = true,
         apiKeyLabel = "Alpha Vantage API Key",
+        implemented = true,
     ),
     POLYGON(
         "Polygon.io",
@@ -60,4 +70,10 @@ enum class DataProvider(
         requiresApiKey = true,
         apiKeyLabel = "Interactive Brokers Gateway Key",
     ),
+    ;
+
+    companion object {
+        /** Providers a user can actually select and get real data from. */
+        fun implemented(): List<DataProvider> = entries.filter { it.implemented }
+    }
 }

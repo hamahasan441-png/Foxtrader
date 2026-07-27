@@ -2450,3 +2450,573 @@ and is now consistent.
 `NOTE` The chart camera and the entire performance layer are now pure-JVM testable — no emulator,
 no Robolectric. This is the payoff of keeping `ChartViewport` free of Compose state and the
 profiler free of Android imports.
+
+---
+
+# Appendix G: Sprint 6 Improvement Log — Data Integrity
+
+Sprint 6 addressed the five **Class A** findings from `ENHANCEMENT_MASTERPLAN.md`:
+behaviours that shipped on `main` and could lose user data or mislead a trader about
+where a price came from.
+
+## The synthetic-data problem (A3, A4)
+
+`MarketRepositoryImpl` seeded `SampleData.generate(...)` into the **same** `candles`
+table as real bars on any network failure with an empty cache, with nothing marking
+those rows. The chart, the 10-agent AI, the scanner and the backtester then produced
+confident directional narratives over a random walk. Compounding it, 7 of the 10
+providers in the `DataProvider` enum had **no fetch path at all** while Settings
+happily collected their API keys — so selecting "Polygon.io" and pasting a paid key
+fell through to the seeder and rendered fabricated prices.
+
+**Fix — provenance as a first-class concept.** `CandleSource { LIVE, CACHED,
+SYNTHETIC }` plus `SourcedCandles`.
+
+`NOTE` Provenance is modelled at the **series** level, not on `Candle`. A candle is
+the atomic unit of price maths shared by every indicator; adding a non-numeric field
+would have rippled through ~50 construction sites and every pure function that
+rebuilds bars. Where a bar came from is metadata about a *fetch*, not a property of
+the price.
+
+- `worstOf` collapses a mixed series to its least trustworthy member — a cache of 400
+  real and 100 seeded bars is not "mostly real", it is untrustworthy.
+- An empty series reports `CACHED`, so "no evidence" never reads as "verified live".
+- A non-dismissible **SIMULATED DATA** banner renders while synthetic bars are shown.
+- `DataProvider.implemented` gates the Settings picker; unimplemented providers are
+  listed as "coming soon" and no longer accept keys.
+- `ProviderNotImplementedException` is re-thrown inside `recoverCatching` — a
+  configuration error must not be papered over with synthetic bars.
+- `SAMPLE` gained an explicit branch: choosing it is a deliberate opt-in, tagged.
+
+### The veto ranking matters
+
+The data-integrity veto in `MasterDecisionEngine` is checked at **step 0**, above the
+risk/psychology veto. That ordering is deliberate: the risk veto is gated on
+`config.respectRiskBlock`, and a user who disables it must still not be able to
+unlock a trade recommendation computed over generated data. Fabricated prices are not
+a trading opinion that can be overridden — every downstream confluence, score and
+narrative derived from them is fabricated too.
+
+## The destructive-migration hole (A1, A2)
+
+`DatabaseModule` called `fallbackToDestructiveMigration()` **after**
+`addMigrations(...)`. Room's contract: a missing migration path drops and recreates
+the database — including `journal_entries` and `chart_drawings`, which `FoxDatabase`
+itself documents as "user-authored data that must survive schema upgrades". The
+hand-written migrations were a safety net with a hole cut in the middle. With
+`exportSchema = false`, no test could ever catch it.
+
+- Removed the fallback; enabled `exportSchema`, wired `room.schemaLocation`.
+- `MIGRATION_3_4` adds `candles.source` and **deletes** the legacy candle rows.
+  Pre-v4, synthetic and real bars were written indistinguishably, so any backfill
+  value is a guess — and guessing `LIVE` would launder fabricated prices into the
+  trustworthy set, which is precisely the bug the column exists to fix. Candles are a
+  re-fetchable derived cache; journal and drawings are not, and are untouched.
+
+`WARNING` `MigrationTestHelper.createDatabase(name, v)` materialises the old database
+from `schemas/<v>.json`. Those files only exist for versions exported *after*
+`exportSchema = true` (v4 onward) — v1..v3 shipped with export disabled and the JSON
+cannot be back-filled by hand, because Room verifies a computed `identityHash`
+against it. `FoxDatabaseMigrationTest` therefore materialises legacy versions from
+the exact DDL those versions shipped and applies the real `Migration` objects. The
+final case opens the migrated file through Room *without* fallback, so a schema
+disagreement fails in CI rather than on a device. Full `MigrationTestHelper`
+validation is available for every migration from v4 onward.
+
+## Cache retention (A5)
+
+`CandleDao.prune(symbol, timeframe, keepCount)` caps each series at 5,000 bars after
+every refresh. Previously every live tick appended a row and `observe()` re-emitted
+the entire unbounded series on each change — both a storage leak and the CPU cliff
+behind §9's incremental-analysis work.
+
+## Testing
+
+| Suite | Cases | Covers |
+|-------|-------|--------|
+| `CandleSourceTest` | 8 | Trust semantics, worst-case collapse, empty-series default, storage round-trip |
+| `CandleProvenanceMapperTest` | 7 | The laundering boundary: tagging on write, one bad bar poisoning a series |
+| `MasterDecisionEngineTest` (+4) | 4 | Synthetic veto, ranking above `respectRiskBlock`, default-arg back-compat |
+| `FoxDatabaseMigrationTest` | 4 | User data survives 1→4 with values intact; Room opens the result without fallback |
+
+## Known follow-ups
+
+`WARNING` Two gaps are open and must be closed before Sprint 6 can be called done:
+
+1. **CI does not compile `androidTest`.** The workflow runs `:app:assembleDebug` and
+   `:app:testDebugUnitTest`; neither touches instrumentation sources, so
+   `FoxDatabaseMigrationTest` is currently **unverified** and the green check
+   overstates coverage. Add to `.github/workflows/android.yml`:
+
+   ```yaml
+         - name: Compile instrumentation tests
+           run: ./gradlew :app:assembleDebugAndroidTest --stacktrace --no-daemon --no-configuration-cache
+   ```
+
+   (Ideally followed by `connectedDebugAndroidTest` on an emulator — see §9.4.)
+
+2. **`app/schemas/` is generated but not committed.** Room writes `4.json` at build
+   time; until it is committed, future migrations have no v4 baseline to migrate
+   *from* and `MigrationTestHelper` cannot be used. Run `./gradlew :app:assembleDebug`
+   locally and commit the resulting `app/schemas/**`.
+
+---
+
+# Appendix H: Sprint 7 Improvement Log — Activation (Portfolio)
+
+Sprint 7 attacks the **Class B** backlog from `ENHANCEMENT_MASTERPLAN.md`: eleven
+engines that shipped fully implemented and unit-tested but with **zero call sites**.
+~1,500 lines of tested domain logic delivering no user value. The sprint rule is
+strict: **no new domain engines** — only wiring what exists.
+
+## PortfolioEngine (189 lines, 0 call sites → live screen)
+
+### The position-source problem
+
+`PortfolioEngine.analyze()` consumes `List<Position>`, which the SDK defines as
+coming from a `BrokerAdapter`. Grepping for implementors returns only
+`RiskGatedBrokerExecutor` — **no broker adapter exists**, and per the masterplan none
+will until the risk engine is battle-tested with real capital.
+
+So where does a "portfolio" come from? The honest answer: the trade journal's **open**
+entries are the only record of what the user is actually holding.
+`JournalPositionMapper` bridges them.
+
+Two decisions worth recording:
+
+- **Closed entries are excluded.** They carry realised P&L and contribute zero open
+  exposure; including them would double-count risk that no longer exists.
+- **A missing live price falls back to the entry price**, which yields an unrealised
+  P&L of exactly `0.0`. The alternative — inventing a mark price — would fabricate a
+  number in the one place a trader is most likely to trust it.
+
+### Correlation clusters
+
+`PortfolioEngine` already reports a single `correlatedExposurePercent`: the worst
+cluster's total. That is the correct input for a *risk gate*, but it is not
+*explainable* — a trader reading "correlated exposure 240%" cannot tell which
+positions are the problem.
+
+`CorrelationClusterBuilder` does union-find over the correlation pairs to produce the
+named groups.
+
+`NOTE` Linking is **transitive**: if A~B and B~C are both strong, A, B and C form one
+cluster even when A~C is weak. This is the conservative reading — a chain of strongly
+linked positions can still unwind together — and it is asserted directly in
+`CorrelationClusterBuilderTest`.
+
+`WARNING` The peak correlation keeps its **sign**. Reporting `abs()` would render a
+`-0.95` hedge identically to a `+0.95` compounding cluster, inverting the risk
+reading in exactly the case where it matters most. `Cluster.isHedge` exposes this.
+
+### Navigation placement
+
+Portfolio is a **Journal sub-destination**, not a seventh bottom-bar tab. Material 3
+guidance caps a navigation bar at 3–5 destinations and FoxTrader already runs 6; a
+7th would crowd the labels on small screens. Exposure is derived from journal trades,
+so it belongs in that hierarchy anyway.
+
+### Provenance carried through
+
+Per the Sprint 6 contract, the screen tracks `CandleSource` for the symbols it prices.
+Correlation between two synthetic series is an artefact of the generator seed, not a
+market relationship, so a portfolio priced off generated bars is labelled rather than
+silently trusted.
+
+## Testing
+
+| Suite | Cases | Covers |
+|-------|-------|--------|
+| `JournalPositionMapperTest` | 8 | Closed-trade exclusion, symbol normalisation, honest 0.0 P&L on missing/invalid price, long/short P&L sign |
+| `CorrelationClusterBuilderTest` | 8 | Threshold gating, transitive chains, sign preservation on hedges, unheld-symbol filtering, multi-cluster ordering |
+
+## A CI lesson worth keeping
+
+The first push failed with **`assembleDebug` green and `testDebugUnitTest` red** —
+which reads like a failing assertion but was actually a *compile error in the test
+source set*: `CorrelationClusterBuilderTest` referenced `cluster.isHedge`, a property
+that existed only on the UI-layer `CorrelationCluster`, not on the domain
+`Cluster` the builder returns.
+
+`NOTE` Gradle reports test-source compilation failures through the test task, so
+"build passed, tests failed" does **not** imply an assertion failure. Because the
+sandbox cannot download CI logs, the culprit was isolated by pushing with one suite
+removed — a slow but reliable bisect. The fix moved `isHedge` to the domain type,
+where the sign of a correlation belongs.
+
+The episode also exposed a weak test: `pairs involving unheld symbols are ignored`
+originally passed through the `size >= 2` short-circuit rather than by exercising the
+filter, so it would not have caught a regression. It now holds two symbols and
+asserts that a strong correlation to an *unheld* third symbol creates no cluster.
+
+## SmartAlertEngine + the alert subsystem (0 UI → persistent inbox)
+
+The alert system was the starkest Class B case in the repo. It shipped with:
+
+- `AlertEngine` and `SmartAlertEngine` (205 lines) — domain logic
+- `AlertDispatcher` — Android notification delivery with three channels
+- `ScanAlertWorker` + `ScanAlertScheduler` — periodic background evaluation
+- `AiAlertService` — cooldown and grade gating
+
+...and **no user interface at all**. Every alert was a transient notification:
+swipe it away and the signal was gone forever. `FoxAlert.acknowledged` existed in
+the domain model with nothing in the codebase able to set it.
+
+### Persistence belongs in the dispatcher
+
+Schema v5 adds an `alerts` table (purely additive — no existing table is touched).
+The design decision worth recording is *where* the write happens.
+
+`NOTE` `AlertDispatcher.dispatch()` records the alert itself, rather than each call
+site doing so. There are two dispatch sites today (`ChartViewModel` and
+`ScanAlertWorker`) and there will be more; making history a **side effect of
+delivery** means no future caller can post an alert that silently vanishes.
+
+`WARNING` The write runs on an application-scoped `CoroutineScope(SupervisorJob())`,
+not the caller's scope. `ChartViewModel` dispatches from `viewModelScope`, which is
+cancelled the instant the ViewModel clears — using it would drop the history write
+for an alert the user had *already been shown*.
+
+Retention caps the table at 500 rows. The scan worker fires periodically and forever;
+without a cap this is the same unbounded-growth leak Sprint 6 closed on the candle
+cache.
+
+### Filtering is "and above", not exact match
+
+`AlertsUiState.visibleAlerts` treats the priority filter as a floor. An exact-match
+filter would hide `CRITICAL` alerts from a trader who had filtered to `HIGH` — the
+worst possible failure for a screen whose entire job is surfacing what matters. This
+is asserted directly in `AlertsUiStateTest`.
+
+Acknowledging an alert also calls `AlertDispatcher.cancel()`, so the notification
+shade and the in-app inbox can never disagree about what the user has dealt with.
+
+### A Sprint 6 gap found while wiring this
+
+`ScanAlertWorker.evaluateSymbol()` called `decisionEngine.evaluate(orchestratorResult)`
+**without** the provenance argument, falling back to the `CandleSource.LIVE` default.
+The background scanner could therefore push a push-notification for a signal computed
+entirely over synthetic seed bars — precisely the failure Sprint 6 set out to
+eliminate, surviving in the one code path that runs while the user is not watching.
+
+It now fetches via `getSourcedCandles` and returns early on untrustworthy data, so an
+unreachable provider produces silence rather than a fabricated signal.
+
+`NOTE` This is a good argument for the Sprint 10 static-analysis gate: a defaulted
+parameter silently reintroduced a vetoed behaviour, and only a manual read caught it.
+
+## Testing (part 2)
+
+| Suite | Cases | Covers |
+|-------|-------|--------|
+| `AlertsUiStateTest` | 9 | "And above" priority semantics, unread filter, filter composition, badge independence from the current view |
+| `AlertMapperTest` | 5 | Priority round-trip, null symbol, acknowledged flag, graceful degradation of a corrupt priority string |
+| `FoxDatabaseMigrationTest` (+1) | 1 | v4→v5 adds `alerts` while journal and drawings survive |
+
+## WatchlistManager (0 call sites → persisted, editable watchlists)
+
+Two separate problems met here. `WatchlistManager` (94 lines) was never
+constructed by anything, and it held state in a `mutableListOf` — every list a
+user created would have vanished on process death. Meanwhile the chart's symbol
+picker read `ChartUiState.DEFAULT_SYMBOLS`, a **compiled-in constant**: users
+could not add, remove or reorder instruments at all.
+
+### Membership is a child table, not a delimited column
+
+`watchlist_symbols` is a real table rather than a `"EURUSD;GBPUSD"` string on
+the parent row. That keeps per-symbol asset class and notes, lets a single
+symbol be removed without rewriting the list, and makes ordering persistable.
+
+`NOTE` `position` is an explicit column because **SQL has no inherent row
+order**. Without it, drag-to-reorder could not be saved — the rows would come
+back in whatever order the query planner chose.
+
+`WARNING` The foreign key declares `ON DELETE CASCADE`, and the migration SQL
+must match `WatchlistSymbolEntity`'s declaration *exactly* or Room's schema
+validation rejects the migrated database at open time. The cascade is asserted
+directly in `FoxDatabaseMigrationTest` — deleting a list must not strand its
+symbols as orphan rows.
+
+### Seeding lives in the repository, not the migration
+
+The default watchlist is created on first read (`ensureSeeded`), not by
+`MIGRATION_5_6`. Three reasons: a migration runs with no access to application
+defaults; duplicating the seed list in raw SQL would let it drift from the
+Kotlin source; and migrations only run on *upgrades*, so a fresh install would
+otherwise get no default list at all.
+
+### Why a Mutex, when Room is already transactional
+
+Room guarantees atomicity **per statement**, not per read-modify-write
+*sequence*. Three sequences here are vulnerable:
+
+- `addSymbol` reads `maxPosition()` then inserts — two concurrent calls read the
+  same value and write duplicate positions.
+- `ensureSeeded` checks `countWatchlists()` then inserts — two racing callers
+  each see zero and create a default list.
+- `moveSymbol` reads the list, reorders in memory, and writes it back.
+
+A `Mutex` around each sequence closes all three. The bulk rewrite itself is a
+`@Transaction` so observers never see duplicate or missing positions mid-update.
+
+`removeSymbol` also renumbers positions densely afterwards: leaving a gap would
+make a later index-based `moveSymbol` target the wrong row.
+
+### AssetClassifier ordering
+
+Inferring an asset class from a bare ticker is heuristic, and the check order
+carries the correctness:
+
+`NOTE` Crypto is tested **before** the forex shape. `BTCUSD` is six characters
+with a recognised fiat quote, so a naive "6 chars + both halves are fiat" rule
+would classify it as FX. Indices are matched first of all, since `US500` would
+otherwise fall through to the stock default.
+
+`ChartUiState.DEFAULT_SYMBOLS` was **deleted** rather than left in place. Two
+competing symbol lists in one codebase is exactly the drift this sprint exists
+to remove.
+
+## Testing (part 3)
+
+| Suite | Cases | Covers |
+|-------|-------|--------|
+| `AssetClassifierTest` | 9 | Forex/crypto/metals/indices/energy inference, the `BTCUSD` ordering trap, whitespace and empty input |
+| `FoxDatabaseMigrationTest` (+1) | 1 | v5→v6 adds both tables, cascade delete works, journal survives |
+
+## PositionCalculator (0 call sites → risk-gated sizing sheet)
+
+`PositionCalculator` is pure arithmetic: risk percent plus stop distance gives a
+lot size. But `RiskEngine.canOpenTrade()` is what the order path actually
+enforces — per-trade risk cap, daily and weekly loss limits, drawdown,
+consecutive losses, trading halt.
+
+`WARNING` Shipping the calculator on its own would have been **actively
+misleading**. The app would hand a trader a size that the order service then
+refuses; worse, during a halt or at a daily loss limit it would keep
+confidently suggesting trades the system has already decided must not happen.
+
+`RiskAwarePositionCalculator` therefore computes the size and immediately asks
+the risk engine whether that risk is permitted, returning both. A blocked
+result still renders its numbers — a trader needs to see *how far over* the
+limit they are — but the verdict is shown first and the size is de-emphasised.
+
+### Instrument type is not cosmetic
+
+`InstrumentType` supplies `pipSize` and `contractSize`, and both feed position
+size directly. `InstrumentTypeResolver` maps a symbol onto the right one,
+reusing the `AssetClassifier` built for watchlists.
+
+`NOTE` Defaulting everything to `FOREX_STANDARD` (pip `0.0001`, contract 100k)
+would misprice a JPY pair by **100x** — a pip on USDJPY is `0.01` — and gold or
+an index by orders of magnitude. This is the one calculation a trader relies on
+to keep their account solvent, so the mapping is unit-tested per asset class
+rather than assumed.
+
+### Validating the stop side
+
+`PositionCalculator` computes `abs(entry - stop)`. That means a "stop" placed
+*above* a long entry is silently absorbed into a plausible-looking size for a
+position that can never stop out where the user believes it will. The
+`Invalid` outcome rejects it explicitly, with the same check applied to targets.
+
+## Testing (part 4)
+
+| Suite | Cases | Covers |
+|-------|-------|--------|
+| `InstrumentTypeResolverTest` | 8 | Per-asset-class contract/pip mapping, the JPY 100x trap, BTC vs alt split, safe fallbacks |
+| `RiskAwarePositionCalculatorTest` | 13 | Wrong-side stop/target rejection, size + R:R arithmetic, per-trade cap breach, halt blocking, optional target |
+
+Position-size arithmetic was additionally cross-checked numerically before
+commit, rather than trusting the assertions to be self-consistent.
+
+## MarketHeatmap (0 call sites → Scanner grid view)
+
+The Scanner rendered a flat ranked list. `MarketHeatmap` (146 lines) computed
+per-symbol change, relative strength, colour banding and an aggregate
+`MarketSentiment` — and nothing ever called it.
+
+### Grouping by asset class is the whole point
+
+Tiles are grouped into asset-class sections rather than laid out as one flat
+grid sorted by change.
+
+`NOTE` A flat grid interleaves crypto with FX and metals, which destroys the
+signal a heatmap exists to show: **sector rotation**. Seeing "crypto is green,
+FX is flat, metals are red" is the insight; a single ranked list of movers is
+what the LIST view already provides.
+
+Two smaller rendering decisions:
+
+- Tile alpha is floored at `0.18`. `MarketHeatmap` maps intensity linearly from
+  the size of the move, so a ~0% mover would otherwise render as a nearly
+  invisible tile — the symbol would effectively vanish from the grid.
+- Rows are a fixed three tiles wide, with spacers padding a short final row.
+  Wider rows shrink the symbol text below legibility on a phone.
+
+The sentiment header surfaces `MarketSentiment` and average move, both already
+computed by the engine and previously discarded.
+
+### The filter must follow the view
+
+`filteredHeatmapCells` applies the same asset-class filter the list uses.
+Without it, switching LIST → HEATMAP would silently widen the result set, and
+the two views would disagree about the same scan.
+
+### The third provenance gap
+
+`ScannerViewModel` called `marketRepository.getCandles(...)` — the unsourced
+variant — exactly like `ScanAlertWorker` did before Sprint 7 part 2.
+
+`WARNING` This is now the **third** place the Sprint 6 provenance contract was
+bypassed simply by calling the older, still-available API. The scanner ranks
+opportunities across the whole watchlist, and the heatmap paints sector
+rotation from the same data; over synthetic seed bars it produces a confident,
+*entirely fabricated* market narrative. A fake heatmap is more persuasive than
+a single fake price, because it looks like corroboration.
+
+Fixed by switching to `getSourcedCandles`, collapsing to the worst provenance
+across scanned symbols, and badging the result.
+
+`NOTE` Three independent regressions of the same contract is a pattern, not bad
+luck. The durable fix is Sprint 10's static-analysis gate — a lint rule that
+forbids `getCandles`/`evaluate` without provenance outside the repository — or
+deleting the unsourced overloads once every caller is migrated.
+
+## Testing (part 5)
+
+| Suite | Cases | Covers |
+|-------|-------|--------|
+| `ScannerUiStateHeatmapTest` | 7 | Filter parity between list and grid, empty-filter vs missing-heatmap, synthetic badging requires actual results |
+
+`MarketHeatmap`'s own 4 tests already existed and now cover reachable code.
+
+## Closing the provenance loophole for good
+
+Sprint 6 added `CandleSource` and a decision-engine veto. Sprints 7.2, 7.5 then
+found **three separate features** that had bypassed the contract entirely:
+
+| Feature | How it escaped |
+|---|---|
+| `ScanAlertWorker` | called `evaluate(result)` — provenance defaulted to `LIVE` |
+| `ScannerViewModel` | called `getCandles(...)` — the unsourced overload |
+| Scanner heatmap | inherited the scanner's unsourced fetch |
+
+Each one produced confident trade narratives over generated bars, and each was
+patched individually as it was found.
+
+`WARNING` Three independent regressions of one contract is a **pattern, not bad
+luck**. Every instance had the same root cause: the unsafe API still existed and
+still compiled, so the wrong path was always one autocomplete away. Patching
+call sites reactively was losing the race — the next feature would have
+reintroduced it.
+
+### The fix: delete the unsafe path
+
+`MarketRepository.getCandles()` is **gone**. The only one-shot read is
+`getSourcedCandles()`, which returns `SourcedCandles`. Callers that genuinely
+need only prices write `.candles` — the point is that *discarding provenance is
+now an explicit, visible act* rather than the default, and the compiler enforces
+it on every future caller.
+
+`NOTE` This was chosen over a detekt rule (the Sprint 10 alternative) because a
+lint rule can be baselined, suppressed or simply not written for the next
+similar API. A deleted function cannot be called.
+
+### Migrating the last four callers
+
+- **`BacktestLabViewModel`** and **`StrategiesViewModel`** now fetch sourced
+  data and pass provenance into `AiScoredBacktestEngine`, which threads it to
+  `MasterDecisionEngine`. The Lab's headline output is its AI-gate comparison;
+  over synthetic bars it now reports an honest **0% approval rate** rather than
+  a fabricated edge.
+- **`StrategiesViewModel.runAiBacktest`** additionally **aborts** on
+  untrustworthy data. It auto-journals its trades into the user's real journal,
+  so proceeding would seed permanent, user-visible performance statistics with
+  trades derived from a random walk — corrupting win rate, expectancy and
+  every behavioural insight computed from them.
+- **`MtfContextProvider`** reads `.candles` explicitly. HTF ladders and
+  correlated peers are *supporting evidence*; the primary series already
+  carries the veto, and failing the whole analysis because a peer symbol was
+  seeded would be a worse outcome than degrading to single-symbol context.
+
+### Testing
+
+| Suite | Cases | Covers |
+|-------|-------|--------|
+| `AiScoredBacktestEngineTest` (+2) | 2 | Zero AI approvals on synthetic data; base execution metrics **unchanged**, proving the veto gates the AI opinion and not the mechanical backtest |
+
+## Remaining Class B backlog
+
+| Engine | LOC | Planned surface |
+|---|---:|---|
+| `MultiChartManager` | 143 | Multi-chart layouts (Sprint 8) |
+| `NewsEngine` | 133 | News feed (`NewsAgent` votes on news the app never fetches) |
+| `ConfluenceEngine`, `MarketProfile`, `SupportResistanceDetector`, `FibonacciEngine` | 371 | Chart layers (Sprint 8) |
+| `SeasonalityEngine` | 81 | Analytics surface |
+
+---
+
+# Appendix I: Sprint 8.5 — Splitting the chart monolith
+
+`CandleChart.kt` was **1,200 lines** containing the composable plus **18
+`DrawScope` extensions** — the exact shape a complexity gate exists to catch,
+and the reason four Class B engines (`MarketProfile`,
+`SupportResistanceDetector`, `ConfluenceEngine`, `FibonacciEngine`) were still
+unreachable: every one of them needs a new chart layer.
+
+## Sequencing
+
+`NOTE` The masterplan's own risk register says this refactor "will conflict with
+any concurrent chart work — do it first or last, never in the middle." It was
+done **first**, before the Sprint 8 layer features, so those land in small files
+rather than fighting a moving 1,200-line target.
+
+## Result: 1,200 → 531 lines
+
+The composable retains gesture handling, `Paint` lifecycle and layer
+orchestration. Draw implementations moved to `components/layers/`:
+
+| File | Layers | Contents |
+|---|---|---|
+| `ChartGridLayer` | 0 | Institutional grid |
+| `ChartCandleLayer` | 1 | Viewport-culled candles |
+| `ChartIndicatorLayers` | 2 | EMA, Bollinger, SuperTrend, PSAR, VWAP, Ichimoku |
+| `ChartStructureLayer` | 3–4 | BOS/CHOCH annotations, live price line |
+| `ChartCrosshairLayer` | 5 | Crosshair, OHLC readout |
+| `ChartAxisLayers` | 6–7 | Price scale, time axis |
+| `ChartAutoScale` | — | Visible-content price fitting |
+
+Functions became `internal` rather than `private` so the composable can call
+them across files; they remain module-private, and stay pure `DrawScope`
+extensions holding no Compose state — which is what keeps them inside the
+120 fps budget.
+
+`NOTE` Behaviour is unchanged **by construction**: every function was moved
+verbatim by line range rather than retyped. The only edit was the visibility
+keyword. Constants moved to their single consumer — the Ichimoku palette to the
+indicator layer, the pre-resolved ARGB ints to the crosshair layer.
+
+## What went wrong, and the lesson
+
+The first two pushes failed to compile. Both times the cause was the same: the
+extracted code had resolved symbols through `CandleChart.kt`'s 48-line import
+block, and each new file needed its own.
+
+`WARNING` Round one added imports inferred from reading the code; round two
+added five more found by scanning for unresolved capitalised identifiers.
+Neither converged, because **CI logs are unreachable from the agent sandbox** —
+GitHub serves them from blob storage that the environment blocks, so the actual
+`Unresolved reference` list was never visible. Inference was being used as a
+substitute for the compiler, and it kept missing cases (enum members, operator
+imports, and symbols only reachable through fully-qualified names).
+
+The fix was to stop inferring. Every layer file now carries the **exact import
+set the original file compiled against**, minus the composable/gesture-only
+entries a pure `DrawScope` file can never reference. That is correct by
+construction rather than by inspection, and it went green immediately.
+
+`NOTE` Unused imports are *warnings*, not errors. Trimming them is safe
+follow-up once the split is verified; correctness first. This is also a concrete
+argument for Sprint 10's lint gate — with `lint { abortOnError }` the unused
+entries would be surfaced automatically rather than needing a manual pass.
+

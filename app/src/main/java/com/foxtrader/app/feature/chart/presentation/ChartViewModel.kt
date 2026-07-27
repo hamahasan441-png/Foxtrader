@@ -6,6 +6,7 @@ import com.foxtrader.app.data.remote.websocket.MarketWebSocket
 import com.foxtrader.app.data.alerts.AlertDispatcher
 import com.foxtrader.app.di.DefaultDispatcher
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.model.ChartPoint
 import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.AgentContext
@@ -13,7 +14,9 @@ import com.foxtrader.app.domain.model.DrawingToolType
 import com.foxtrader.app.domain.model.ReplayState
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.repository.DrawingRepository
+import com.foxtrader.app.domain.repository.AlertRepository
 import com.foxtrader.app.domain.repository.MarketRepository
+import com.foxtrader.app.domain.repository.WatchlistRepository
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import com.foxtrader.app.domain.usecase.ai.AgentOrchestrator
 import com.foxtrader.app.domain.usecase.ai.AiAlertService
@@ -37,6 +40,8 @@ import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -72,6 +77,8 @@ class ChartViewModel @Inject constructor(
     private val marketExplanationEngine: MarketExplanationEngine,
     private val aiAlertService: AiAlertService,
     private val alertDispatcher: AlertDispatcher,
+    private val alertRepository: AlertRepository,
+    private val watchlistRepository: WatchlistRepository,
     private val drawingRepository: DrawingRepository,
     private val appPreferences: AppPreferences,
     profiler: PerformanceProfiler,
@@ -99,6 +106,10 @@ class ChartViewModel @Inject constructor(
     /** WebSocket connection state for the UI indicator. */
     val connectionState: StateFlow<ConnectionState> = webSocket.connectionState
 
+    /** Unread alert count for the chart's alerts-bell badge. */
+    val unreadAlertCount: StateFlow<Int> = alertRepository.observeUnacknowledgedCount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
     private val symbolFlow = MutableStateFlow(_uiState.value.symbol)
     private val timeframeFlow = MutableStateFlow(_uiState.value.timeframe)
 
@@ -110,6 +121,7 @@ class ChartViewModel @Inject constructor(
     private var lastAiCandlesHash: Long = 0L
 
     init {
+        observeWatchlist()
         observeMarket()
         observeDrawings()
         observeWebSocketTicks()
@@ -118,6 +130,42 @@ class ChartViewModel @Inject constructor(
             .onEach { cs -> _uiState.value = _uiState.value.copy(connectionState = cs) }
             .launchIn(viewModelScope)
         refresh()
+    }
+
+    /**
+     * Track the default watchlist so the symbol picker reflects the user's own
+     * instruments rather than a compiled-in list.
+     */
+    private fun observeWatchlist() {
+        viewModelScope.launch { watchlistRepository.ensureSeeded() }
+        watchlistRepository.observeWatchlists()
+            .onEach { lists ->
+                val active = lists.firstOrNull { it.isDefault } ?: lists.firstOrNull()
+                _uiState.value = _uiState.value.copy(
+                    availableSymbols = active?.symbolNames.orEmpty(),
+                    activeWatchlistId = active?.id,
+                )
+            }
+            .launchIn(viewModelScope)
+    }
+
+    fun openCalculator() {
+        _uiState.value = _uiState.value.copy(showCalculator = true)
+    }
+
+    fun closeCalculator() {
+        _uiState.value = _uiState.value.copy(showCalculator = false)
+    }
+
+    /** Add a symbol to the active watchlist (normalised by the repository). */
+    fun addSymbolToWatchlist(symbol: String) {
+        val listId = _uiState.value.activeWatchlistId ?: return
+        viewModelScope.launch { watchlistRepository.addSymbol(listId, symbol) }
+    }
+
+    fun removeSymbolFromWatchlist(symbol: String) {
+        val listId = _uiState.value.activeWatchlistId ?: return
+        viewModelScope.launch { watchlistRepository.removeSymbol(listId, symbol) }
     }
 
     /** Observe persisted drawings for the current symbol/timeframe. */
@@ -135,17 +183,20 @@ class ChartViewModel @Inject constructor(
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private fun observeMarket() {
         combine(symbolFlow, timeframeFlow) { symbol, tf -> symbol to tf }
-            .flatMapLatest { (symbol, tf) -> repository.observeCandles(symbol, tf) }
+            .flatMapLatest { (symbol, tf) -> repository.observeSourcedCandles(symbol, tf) }
             // Deduplicate: suppress reanalysis only when neither the bar count nor
             // the latest bar's full OHLCV payload changed. Live feeds may update
             // high/low/volume without changing close, and those changes still need
-            // a chart/SMC recalculation.
-            .distinctUntilChangedBy { list ->
+            // a chart/SMC recalculation. Provenance is part of the key so a
+            // synthetic->real transition always re-runs the pipeline.
+            .distinctUntilChangedBy { sourced ->
+                val list = sourced.candles
                 val last = list.lastOrNull()
-                "${list.size}:${last?.timestamp}:${last?.open}:${last?.high}:${last?.low}:${last?.close}:${last?.volume}"
+                "${sourced.source}:${list.size}:${last?.timestamp}:${last?.open}:" +
+                    "${last?.high}:${last?.low}:${last?.close}:${last?.volume}"
             }
-            .onEach { candles ->
-                viewModelScope.launch { processCandles(candles) }
+            .onEach { sourced ->
+                viewModelScope.launch { processCandles(sourced.candles, sourced.source) }
             }
             .launchIn(viewModelScope)
     }
@@ -173,7 +224,10 @@ class ChartViewModel @Inject constructor(
      * is dispatched to [defaultDispatcher] so the main thread stays responsive.
      * Must be called from within a coroutine.
      */
-    private suspend fun processCandles(candles: List<Candle>) {
+    private suspend fun processCandles(
+        candles: List<Candle>,
+        source: CandleSource = _uiState.value.dataSource,
+    ) {
         val ind = _uiState.value.indicators
 
         val (structure, overlays, marketExplanation) = withContext(defaultDispatcher) {
@@ -191,6 +245,7 @@ class ChartViewModel @Inject constructor(
 
         _uiState.value = _uiState.value.copy(
             candles = candles,
+            dataSource = source,
             bias = structure.bias,
             structureBreaks = if (ind.structure) structure.breaks else emptyList(),
             emaShort = overlays.emaShort,
@@ -217,7 +272,7 @@ class ChartViewModel @Inject constructor(
         )
 
         // --- AI Decision Engine (run after analysis is ready) ---
-        runAiDecision(candles)
+        runAiDecision(candles, source)
     }
 
     // ========================================================================
@@ -234,7 +289,7 @@ class ChartViewModel @Inject constructor(
      * - The orchestrator and decision engine run on [defaultDispatcher] to avoid
      *   blocking the UI.
      */
-    private fun runAiDecision(candles: List<Candle>) {
+    private fun runAiDecision(candles: List<Candle>, dataSource: CandleSource) {
         if (candles.size < 50) {
             _uiState.value = _uiState.value.copy(aiDecision = null)
             lastAiCandlesHash = 0L
@@ -286,7 +341,7 @@ class ChartViewModel @Inject constructor(
             // together off the main thread.
             val decision = withContext(defaultDispatcher) {
                 val orchestratorResult = orchestrator.analyze(context)
-                decisionEngine.evaluate(orchestratorResult)
+                decisionEngine.evaluate(orchestratorResult, dataSource)
             }
 
             // Drop stale AI results if the user changed chart context while this

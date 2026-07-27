@@ -5,6 +5,7 @@ import com.foxtrader.app.domain.model.BacktestConfig
 import com.foxtrader.app.domain.model.BacktestResult
 import com.foxtrader.app.domain.model.BacktestTrade
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.ai.AgentOrchestrator
 import com.foxtrader.app.domain.usecase.ai.MasterDecisionEngine
@@ -50,6 +51,9 @@ class AiScoredBacktestEngine @Inject constructor(
      * @param symbol Symbol being backtested.
      * @param timeframe Execution timeframe.
      * @param htfCandles Optional HTF candles for the AI agents' MTF context.
+     * @param dataSource Provenance of [candles]. Passed to the decision engine
+     *   so an AI-gated backtest over synthetic bars reports an honest 0%
+     *   approval rate rather than a fabricated edge.
      */
     operator fun invoke(
         candles: List<Candle>,
@@ -57,6 +61,7 @@ class AiScoredBacktestEngine @Inject constructor(
         symbol: String = "UNKNOWN",
         timeframe: Timeframe = Timeframe.M15,
         htfCandles: Map<Timeframe, List<Candle>> = emptyMap(),
+        dataSource: CandleSource = CandleSource.LIVE,
     ): BacktestResult {
         // 1. Run the standard backtest first to get all trades.
         val baseResult = backtestEngine(candles, strategy, symbol, timeframe)
@@ -67,7 +72,7 @@ class AiScoredBacktestEngine @Inject constructor(
 
         // 2. Score each trade entry with the AI pipeline.
         val scoredTrades = baseResult.trades.map { trade ->
-            scoreTradeEntry(trade, candles, symbol, timeframe, htfCandles)
+            scoreTradeEntry(trade, candles, symbol, timeframe, htfCandles, dataSource)
         }
 
         // 3. Compute AI-filtered summary.
@@ -98,6 +103,7 @@ class AiScoredBacktestEngine @Inject constructor(
         symbol: String,
         timeframe: Timeframe,
         htfCandles: Map<Timeframe, List<Candle>>,
+        dataSource: CandleSource,
     ): BacktestTrade {
         // Non-repainting: give the AI only candles [0..entryIndex].
         val visibleCandles = candles.subList(0, (trade.entryIndex + 1).coerceAtMost(candles.size))
@@ -112,7 +118,7 @@ class AiScoredBacktestEngine @Inject constructor(
             mtfCandles = htfCandles,
         )
         val orchestratorResult = orchestrator.analyze(context)
-        val decision = decisionEngine.evaluate(orchestratorResult)
+        val decision = decisionEngine.evaluate(orchestratorResult, dataSource)
 
         return trade.copy(
             aiApproved = decision.approved,
