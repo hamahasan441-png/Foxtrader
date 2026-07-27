@@ -2649,11 +2649,74 @@ originally passed through the `size >= 2` short-circuit rather than by exercisin
 filter, so it would not have caught a regression. It now holds two symbols and
 asserts that a strong correlation to an *unheld* third symbol creates no cluster.
 
+## SmartAlertEngine + the alert subsystem (0 UI → persistent inbox)
+
+The alert system was the starkest Class B case in the repo. It shipped with:
+
+- `AlertEngine` and `SmartAlertEngine` (205 lines) — domain logic
+- `AlertDispatcher` — Android notification delivery with three channels
+- `ScanAlertWorker` + `ScanAlertScheduler` — periodic background evaluation
+- `AiAlertService` — cooldown and grade gating
+
+...and **no user interface at all**. Every alert was a transient notification:
+swipe it away and the signal was gone forever. `FoxAlert.acknowledged` existed in
+the domain model with nothing in the codebase able to set it.
+
+### Persistence belongs in the dispatcher
+
+Schema v5 adds an `alerts` table (purely additive — no existing table is touched).
+The design decision worth recording is *where* the write happens.
+
+`NOTE` `AlertDispatcher.dispatch()` records the alert itself, rather than each call
+site doing so. There are two dispatch sites today (`ChartViewModel` and
+`ScanAlertWorker`) and there will be more; making history a **side effect of
+delivery** means no future caller can post an alert that silently vanishes.
+
+`WARNING` The write runs on an application-scoped `CoroutineScope(SupervisorJob())`,
+not the caller's scope. `ChartViewModel` dispatches from `viewModelScope`, which is
+cancelled the instant the ViewModel clears — using it would drop the history write
+for an alert the user had *already been shown*.
+
+Retention caps the table at 500 rows. The scan worker fires periodically and forever;
+without a cap this is the same unbounded-growth leak Sprint 6 closed on the candle
+cache.
+
+### Filtering is "and above", not exact match
+
+`AlertsUiState.visibleAlerts` treats the priority filter as a floor. An exact-match
+filter would hide `CRITICAL` alerts from a trader who had filtered to `HIGH` — the
+worst possible failure for a screen whose entire job is surfacing what matters. This
+is asserted directly in `AlertsUiStateTest`.
+
+Acknowledging an alert also calls `AlertDispatcher.cancel()`, so the notification
+shade and the in-app inbox can never disagree about what the user has dealt with.
+
+### A Sprint 6 gap found while wiring this
+
+`ScanAlertWorker.evaluateSymbol()` called `decisionEngine.evaluate(orchestratorResult)`
+**without** the provenance argument, falling back to the `CandleSource.LIVE` default.
+The background scanner could therefore push a push-notification for a signal computed
+entirely over synthetic seed bars — precisely the failure Sprint 6 set out to
+eliminate, surviving in the one code path that runs while the user is not watching.
+
+It now fetches via `getSourcedCandles` and returns early on untrustworthy data, so an
+unreachable provider produces silence rather than a fabricated signal.
+
+`NOTE` This is a good argument for the Sprint 10 static-analysis gate: a defaulted
+parameter silently reintroduced a vetoed behaviour, and only a manual read caught it.
+
+## Testing (part 2)
+
+| Suite | Cases | Covers |
+|-------|-------|--------|
+| `AlertsUiStateTest` | 9 | "And above" priority semantics, unread filter, filter composition, badge independence from the current view |
+| `AlertMapperTest` | 5 | Priority round-trip, null symbol, acknowledged flag, graceful degradation of a corrupt priority string |
+| `FoxDatabaseMigrationTest` (+1) | 1 | v4→v5 adds `alerts` while journal and drawings survive |
+
 ## Remaining Class B backlog
 
 | Engine | LOC | Planned surface |
 |---|---:|---|
-| `SmartAlertEngine` | 205 | Alerts inbox (engine + dispatcher + worker exist; no UI at all) |
 | `WatchlistManager` | 94 | User-defined watchlists, replacing hardcoded `DEFAULT_SYMBOLS` |
 | `PositionCalculator` | 144 | Position-size sheet from chart / AI panel |
 | `MultiChartManager` | 143 | Multi-chart layouts (Sprint 8) |
