@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -35,7 +34,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.consume
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.contentDescription
@@ -284,7 +282,6 @@ fun MultiChartSection(
                                     onDrag = updateDrag,
                                     onDragEnd = finishDrag,
                                     onDragCancel = cancelDrag,
-                                    onBoundsChanged = { id, rect -> panelBounds[id] = rect },
                                     onRemovePanel = onRemovePanel,
                                     onCrosshairTimestampChange = onPanelCrosshairTimestampChange,
                                     onViewportStateChange = onPanelViewportStateChange,
