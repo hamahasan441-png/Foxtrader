@@ -66,6 +66,8 @@ A native Android trading-analysis app built with **Kotlin 2.0, Jetpack Compose, 
 ### Multi-Asset Scanner
 - 30 pre-configured watchlist symbols (Forex, Crypto, Stocks, Indices, Metals, Energy)
 - Composite scoring: trend strength + momentum + volatility + setup quality
+- Deterministic rationale for every scan result with strategy drivers and risk regime
+- Risk filtering (Low / Moderate / High) and sorting by score, trend, momentum, or volatility
 - Category badges: Best Buy, Best Sell, Best Swing, Best Scalp, Best Long-Term
 - Tag system: TRENDING, OVERBOUGHT, OVERSOLD, HIGH_VOL, MOVER
 

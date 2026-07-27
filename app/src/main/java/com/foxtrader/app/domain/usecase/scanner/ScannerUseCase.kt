@@ -7,6 +7,7 @@ import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.FvgType
 import com.foxtrader.app.domain.model.LiquidityType
 import com.foxtrader.app.domain.model.OrderBlockType
+import com.foxtrader.app.domain.model.ScannerRiskLevel
 import com.foxtrader.app.domain.model.ScreenerOutput
 import com.foxtrader.app.domain.model.ScreenerResult
 import com.foxtrader.app.domain.model.ScreenerSymbol
@@ -178,6 +179,11 @@ class ScannerUseCase @Inject constructor(
             )
         }
 
+        val riskLevel = riskLevelFor(
+            score = signal.score,
+            trendStrength = trendStrength,
+            volatility = volatility,
+        )
         return ScreenerResult(
             symbol = ws.symbol,
             assetClass = ws.assetClass,
@@ -193,6 +199,17 @@ class ScannerUseCase @Inject constructor(
             tags = signal.tags,
             lastPrice = price,
             changePercent = changePercent,
+            riskLevel = riskLevel,
+            rationale = buildRationale(
+                symbol = ws.symbol,
+                strategy = strategy,
+                signal = signal,
+                trendStrength = trendStrength,
+                momentum = momentum,
+                volatility = volatility,
+                changePercent = changePercent,
+                riskLevel = riskLevel,
+            ),
         )
     }
 
@@ -202,6 +219,49 @@ class ScannerUseCase @Inject constructor(
         val setupQuality: Double,
         val tags: List<String>,
     )
+
+    private fun riskLevelFor(
+        score: Int,
+        trendStrength: Double,
+        volatility: Double,
+    ): ScannerRiskLevel = when {
+        score >= 70 && volatility < 55.0 && trendStrength >= 35.0 -> ScannerRiskLevel.LOW
+        score < 45 || volatility >= 75.0 -> ScannerRiskLevel.HIGH
+        else -> ScannerRiskLevel.MODERATE
+    }
+
+    private fun buildRationale(
+        symbol: String,
+        strategy: StrategyType,
+        signal: StrategySignalSnapshot,
+        trendStrength: Double,
+        momentum: Double,
+        volatility: Double,
+        changePercent: Double,
+        riskLevel: ScannerRiskLevel,
+    ): String {
+        val direction = if (signal.direction == Direction.BULLISH) "bullish" else "bearish"
+        val trendText = when {
+            trendStrength >= 70.0 -> "strong trend"
+            trendStrength >= 40.0 -> "developing trend"
+            else -> "weak trend"
+        }
+        val momentumText = when {
+            momentum >= 70.0 -> "strong momentum"
+            momentum >= 45.0 -> "balanced momentum"
+            else -> "weak momentum"
+        }
+        val volatilityText = when {
+            volatility >= 75.0 -> "high volatility"
+            volatility >= 45.0 -> "normal volatility"
+            else -> "controlled volatility"
+        }
+        val tags = signal.tags.take(4).joinToString(", ")
+        val driverText = if (tags.isBlank()) "No special tags" else "Drivers: $tags"
+        return "$symbol ${strategy.label}: $direction scan with ${signal.score}/100 score, " +
+            "$trendText, $momentumText, $volatilityText, ${"%+.2f".format(changePercent)}% change. " +
+            "$driverText. Risk: ${riskLevel.name.lowercase().replaceFirstChar { it.uppercase() }}."
+    }
 
     private fun confluenceSignal(
         changePercent: Double,

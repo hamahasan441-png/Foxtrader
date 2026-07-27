@@ -38,6 +38,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.foxtrader.app.domain.model.AssetClass
 import com.foxtrader.app.domain.model.Direction
+import com.foxtrader.app.domain.model.ScannerRiskLevel
 import com.foxtrader.app.domain.model.ScreenerResult
 import com.foxtrader.app.domain.model.StrategyType
 import com.foxtrader.app.domain.model.WatchlistCategory
@@ -85,6 +86,13 @@ fun ScannerScreen(
             AssetClassFilter(
                 selected = state.selectedAssetClass,
                 onSelect = viewModel::selectAssetClass,
+            )
+
+            ScannerControls(
+                selectedRiskLevel = state.selectedRiskLevel,
+                selectedSortMode = state.selectedSortMode,
+                onRiskSelect = viewModel::selectRiskLevel,
+                onSortSelect = viewModel::selectSortMode,
             )
 
             when {
@@ -214,6 +222,60 @@ private fun AssetClassFilter(
 }
 
 @Composable
+private fun ScannerControls(
+    selectedRiskLevel: ScannerRiskLevel?,
+    selectedSortMode: ScannerSortMode,
+    onRiskSelect: (ScannerRiskLevel?) -> Unit,
+    onSortSelect: (ScannerSortMode) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            item {
+                FilterChip(
+                    selected = selectedRiskLevel == null,
+                    onClick = { onRiskSelect(null) },
+                    label = { Text("All Risk", fontSize = 12.sp) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = FoxAmber50.copy(alpha = 0.2f),
+                        selectedLabelColor = FoxAmber50,
+                    ),
+                )
+            }
+            items(ScannerRiskLevel.entries) { risk ->
+                FilterChip(
+                    selected = selectedRiskLevel == risk,
+                    onClick = { onRiskSelect(risk) },
+                    label = { Text(formatEnumName(risk.name), fontSize = 12.sp) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = FoxAmber50.copy(alpha = 0.2f),
+                        selectedLabelColor = FoxAmber50,
+                    ),
+                )
+            }
+        }
+
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(ScannerSortMode.entries) { sort ->
+                FilterChip(
+                    selected = selectedSortMode == sort,
+                    onClick = { onSortSelect(sort) },
+                    label = { Text("Sort: ${formatEnumName(sort.name)}", fontSize = 12.sp) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = FoxAmber50.copy(alpha = 0.2f),
+                        selectedLabelColor = FoxAmber50,
+                    ),
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun ScannerResultCard(result: ScreenerResult) {
     Card(
         modifier = Modifier
@@ -243,7 +305,11 @@ private fun ScannerResultCard(result: ScreenerResult) {
                     Spacer(Modifier.width(8.dp))
                     TagChip(result.strategy.label)
                 }
-                ScoreBadge(result.score)
+                Column(horizontalAlignment = Alignment.End) {
+                    ScoreBadge(result.score)
+                    Spacer(Modifier.height(2.dp))
+                    RiskBadge(result.riskLevel)
+                }
             }
 
             Spacer(Modifier.height(8.dp))
@@ -263,6 +329,28 @@ private fun ScannerResultCard(result: ScreenerResult) {
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = if (result.changePercent >= 0) FoxBullishText else FoxBearishText,
+                )
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                ScannerMetric("Trend", result.trendStrength.toInt().toString())
+                ScannerMetric("Momentum", result.momentum.toInt().toString())
+                ScannerMetric("Vol", result.volatility.toInt().toString())
+                ScannerMetric("Setup", result.setupQuality.toInt().toString())
+            }
+
+            if (result.rationale.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = result.rationale,
+                    fontSize = 11.sp,
+                    color = FoxNeutral60,
+                    lineHeight = 14.sp,
                 )
             }
 
@@ -288,6 +376,33 @@ private fun ScannerResultCard(result: ScreenerResult) {
             }
         }
     }
+}
+
+@Composable
+private fun ScannerMetric(label: String, value: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+        Text(label, fontSize = 10.sp, color = FoxNeutral60)
+    }
+}
+
+@Composable
+private fun RiskBadge(riskLevel: ScannerRiskLevel) {
+    val (label, color) = when (riskLevel) {
+        ScannerRiskLevel.LOW -> "LOW RISK" to FoxBullishText
+        ScannerRiskLevel.MODERATE -> "MOD" to FoxAmber50
+        ScannerRiskLevel.HIGH -> "HIGH RISK" to FoxBearishText
+    }
+    Text(
+        text = label,
+        fontSize = 9.sp,
+        fontWeight = FontWeight.Bold,
+        color = color,
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(color.copy(alpha = 0.12f))
+            .padding(horizontal = 5.dp, vertical = 1.dp),
+    )
 }
 
 @Composable
@@ -354,3 +469,6 @@ private fun CategoryBadge(category: WatchlistCategory) {
             .padding(horizontal = 6.dp, vertical = 2.dp),
     )
 }
+
+private fun formatEnumName(name: String): String =
+    name.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }
