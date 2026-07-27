@@ -96,6 +96,24 @@ class TechnicalIndicatorsTest {
         assertEquals(0, ema.size)
     }
 
+    @Test
+    fun `incremental EMA matches full recomputation`() {
+        val full = TechnicalIndicators.calculateEMA(trendingUp, 20)
+        val partial = TechnicalIndicators.calculateEMA(trendingUp.take(40), 20)
+
+        val incremental = TechnicalIndicators.calculateEMAIncremental(
+            candles = trendingUp,
+            period = 20,
+            previous = partial,
+            recomputeFrom = 38,
+        )
+
+        assertEquals(full.size, incremental.size)
+        for (i in full.indices) {
+            assertEquals(full[i], incremental[i], tolerance)
+        }
+    }
+
     // ========================================================================
     // SMA TESTS
     // ========================================================================
@@ -178,6 +196,23 @@ class TechnicalIndicatorsTest {
         )
     }
 
+    @Test
+    fun `incremental MACD matches full recomputation`() {
+        val full = TechnicalIndicators.calculateMACD(trendingUp)
+        val partial = TechnicalIndicators.calculateMACD(trendingUp.take(40))
+        val incremental = TechnicalIndicators.calculateMACDIncremental(
+            candles = trendingUp,
+            previous = partial,
+            recomputeFrom = 38,
+        )
+
+        for (i in full.macd.indices) {
+            assertEquals(full.macd[i], incremental.macd[i], tolerance)
+            assertEquals(full.signal[i], incremental.signal[i], tolerance)
+            assertEquals(full.histogram[i], incremental.histogram[i], tolerance)
+        }
+    }
+
     // ========================================================================
     // ATR TESTS
     // ========================================================================
@@ -196,6 +231,22 @@ class TechnicalIndicatorsTest {
         val atr = TechnicalIndicators.calculateATR(flatMarket, 14)
         // ATR should be approximately 2.0 (the consistent range of our test candles)
         assertEquals(2.0, atr.last(), 0.5)
+    }
+
+    @Test
+    fun `incremental ATR matches full recomputation`() {
+        val full = TechnicalIndicators.calculateATR(trendingUp, 14)
+        val partial = TechnicalIndicators.calculateATR(trendingUp.take(40), 14)
+        val incremental = TechnicalIndicators.calculateATRIncremental(
+            candles = trendingUp,
+            period = 14,
+            previous = partial,
+            recomputeFrom = 38,
+        )
+
+        for (i in full.indices) {
+            assertEquals(full[i], incremental[i], tolerance)
+        }
     }
 
     // ========================================================================
@@ -217,6 +268,24 @@ class TechnicalIndicatorsTest {
         assertTrue("+DI should be > -DI in uptrend", result.plusDI[last] > result.minusDI[last])
     }
 
+    @Test
+    fun `incremental ADX matches full recomputation`() {
+        val full = TechnicalIndicators.calculateADX(trendingUp, 14)
+        val partial = TechnicalIndicators.calculateADX(trendingUp.take(40), 14)
+        val incremental = TechnicalIndicators.calculateADXIncremental(
+            candles = trendingUp,
+            period = 14,
+            previous = partial,
+            recomputeFrom = 38,
+        )
+
+        for (i in full.adx.indices) {
+            assertEquals(full.adx[i], incremental.adx[i], tolerance)
+            assertEquals(full.plusDI[i], incremental.plusDI[i], tolerance)
+            assertEquals(full.minusDI[i], incremental.minusDI[i], tolerance)
+        }
+    }
+
     // ========================================================================
     // VWAP TESTS
     // ========================================================================
@@ -233,6 +302,23 @@ class TechnicalIndicatorsTest {
         val c = trendingUp[0]
         val tp = (c.high + c.low + c.close) / 3.0
         assertEquals(tp, vwap[0], tolerance)
+    }
+
+    @Test
+    fun `incremental VWAP matches full recomputation`() {
+        val full = TechnicalIndicators.calculateVWAP(trendingUp)
+        val partial = TechnicalIndicators.calculateVWAP(trendingUp.take(40))
+
+        val incremental = TechnicalIndicators.calculateVWAPIncremental(
+            candles = trendingUp,
+            previous = partial,
+            recomputeFrom = 38,
+        )
+
+        assertEquals(full.size, incremental.size)
+        for (i in full.indices) {
+            assertEquals(full[i], incremental[i], tolerance)
+        }
     }
 
     // ========================================================================

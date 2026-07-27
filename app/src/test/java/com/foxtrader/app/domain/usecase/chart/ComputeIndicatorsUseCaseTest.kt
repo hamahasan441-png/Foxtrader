@@ -1,6 +1,10 @@
 package com.foxtrader.app.domain.usecase.chart
 
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.Direction
+import com.foxtrader.app.domain.usecase.analysis.FibonacciEngine
+import com.foxtrader.app.domain.usecase.analysis.MarketProfile
+import com.foxtrader.app.domain.usecase.analysis.SupportResistanceDetector
 import com.foxtrader.app.domain.usecase.indicators.BollingerBands
 import com.foxtrader.app.domain.usecase.indicators.IchimokuCloud
 import com.foxtrader.app.domain.usecase.indicators.ParabolicSar
@@ -14,6 +18,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import kotlin.math.sin
 
 /**
  * Unit tests for [ComputeIndicatorsUseCase].
@@ -35,12 +40,11 @@ class ComputeIndicatorsUseCaseTest {
             parabolicSar = ParabolicSar(),
             smcDetector = SmcDetector(),
             sessionDetector = SessionDetector(),
+            marketProfile = MarketProfile(),
+            supportResistanceDetector = SupportResistanceDetector(),
+            fibonacciEngine = FibonacciEngine(),
         )
     }
-
-    // ========================================================================
-    // HELPERS
-    // ========================================================================
 
     private fun buildCandles(count: Int, basePrice: Double = 100.0): List<Candle> =
         (0 until count).map { i ->
@@ -55,48 +59,56 @@ class ComputeIndicatorsUseCaseTest {
             )
         }
 
-    // ========================================================================
-    // EMPTY / INSUFFICIENT DATA
-    // ========================================================================
+    private fun buildOscillatingCandles(count: Int = 120): List<Candle> =
+        (0 until count).map { i ->
+            val wave = sin(i / 3.0) * 4.0
+            val base = 100.0 + wave + ((i / 20) % 2) * 1.5
+            Candle(
+                timestamp = 1_700_000_000_000L + i * 60_000L,
+                open = base - 0.3,
+                high = base + 1.2,
+                low = base - 1.2,
+                close = base + 0.3,
+                volume = 900.0 + (i % 10) * 25.0,
+            )
+        }
 
     @Test
     fun `returns null indicators for empty candle list`() {
         val result = useCase(emptyList(), IndicatorToggles())
-        assertNull("EMA should be null for empty candles", result.emaShort)
-        assertNull("EMA long should be null for empty candles", result.emaLong)
-        assertNull("Bollinger should be null for empty candles", result.bollingerUpper)
-        assertNull("VWAP should be null for empty candles", result.vwap)
-        assertTrue("Order blocks should be empty", result.orderBlocks.isEmpty())
-        assertTrue("FVGs should be empty", result.fairValueGaps.isEmpty())
+        assertNull(result.emaShort)
+        assertNull(result.emaLong)
+        assertNull(result.bollingerUpper)
+        assertNull(result.vwap)
+        assertTrue(result.orderBlocks.isEmpty())
+        assertTrue(result.fairValueGaps.isEmpty())
+        assertTrue(result.supportResistanceZones.isEmpty())
+        assertTrue(result.autoFibLevels.isEmpty())
     }
 
     @Test
     fun `returns null EMA when fewer than 20 candles and ema toggle on`() {
         val candles = buildCandles(15)
         val result = useCase(candles, IndicatorToggles(ema = true))
-        assertNull("EMA short needs 20 candles", result.emaShort)
-        assertNull("EMA long needs 50 candles", result.emaLong)
+        assertNull(result.emaShort)
+        assertNull(result.emaLong)
     }
 
     @Test
     fun `returns emaShort but not emaLong when between 20 and 49 candles`() {
         val candles = buildCandles(30)
         val result = useCase(candles, IndicatorToggles(ema = true))
-        assertNotNull("EMA short should be computed with 30 candles", result.emaShort)
-        assertNull("EMA long needs 50 candles, should be null with 30", result.emaLong)
+        assertNotNull(result.emaShort)
+        assertNull(result.emaLong)
         assertEquals(30, result.emaShort!!.size)
     }
-
-    // ========================================================================
-    // TOGGLE GATING
-    // ========================================================================
 
     @Test
     fun `EMA is null when ema toggle is off`() {
         val candles = buildCandles(60)
         val result = useCase(candles, IndicatorToggles(ema = false))
-        assertNull("EMA should not be computed when toggle is off", result.emaShort)
-        assertNull("EMA long should not be computed when toggle is off", result.emaLong)
+        assertNull(result.emaShort)
+        assertNull(result.emaLong)
     }
 
     @Test
@@ -143,9 +155,54 @@ class ComputeIndicatorsUseCaseTest {
         assertTrue(result.sessions.isEmpty())
     }
 
-    // ========================================================================
-    // CORRECT COMPUTATION WHEN ENABLED
-    // ========================================================================
+    @Test
+    fun `market profile is null when toggle is off`() {
+        val candles = buildCandles(80)
+        val result = useCase(candles, IndicatorToggles(marketProfile = false))
+        assertNull(result.marketProfile)
+    }
+
+    @Test
+    fun `market profile is computed when toggle on and sufficient data`() {
+        val candles = buildCandles(80)
+        val result = useCase(candles, IndicatorToggles(marketProfile = true))
+        assertNotNull(result.marketProfile)
+        assertTrue(result.marketProfile!!.levels.isNotEmpty())
+    }
+
+    @Test
+    fun `support resistance zones are empty when toggle is off`() {
+        val candles = buildOscillatingCandles()
+        val result = useCase(candles, IndicatorToggles(supportResistance = false))
+        assertTrue(result.supportResistanceZones.isEmpty())
+    }
+
+    @Test
+    fun `support resistance zones are computed for oscillating data`() {
+        val candles = buildOscillatingCandles()
+        val result = useCase(candles, IndicatorToggles(supportResistance = true))
+        assertTrue(result.supportResistanceZones.isNotEmpty())
+        assertTrue(result.supportResistanceZones.any { it.touches >= 2 })
+    }
+
+    @Test
+    fun `auto fib is empty when toggle is off`() {
+        val candles = buildCandles(80)
+        val result = useCase(candles, IndicatorToggles(fibonacci = false))
+        assertTrue(result.autoFibLevels.isEmpty())
+        assertNull(result.autoFibDirection)
+    }
+
+    @Test
+    fun `auto fib is computed for trending candles`() {
+        val candles = buildCandles(90)
+        val result = useCase(candles, IndicatorToggles(fibonacci = true))
+        assertTrue(result.autoFibLevels.isNotEmpty())
+        assertEquals(Direction.BULLISH, result.autoFibDirection)
+        assertNotNull(result.autoFibSwingHigh)
+        assertNotNull(result.autoFibSwingLow)
+        assertTrue(result.autoFibSwingHigh!! > result.autoFibSwingLow!!)
+    }
 
     @Test
     fun `EMA arrays are correct length when toggle on and sufficient data`() {
@@ -231,17 +288,25 @@ class ComputeIndicatorsUseCaseTest {
         assertNull(result.volumeProfile)
     }
 
-    // ========================================================================
-    // ALL TOGGLES OFF
-    // ========================================================================
-
     @Test
     fun `all indicators null when all toggles off`() {
         val candles = buildCandles(100)
         val toggles = IndicatorToggles(
-            ema = false, bollinger = false, superTrend = false, parabolicSar = false,
-            vwap = false, ichimoku = false, volumeProfile = false,
-            orderBlocks = false, fairValueGaps = false, liquidity = false, sessions = false,
+            ema = false,
+            bollinger = false,
+            superTrend = false,
+            parabolicSar = false,
+            vwap = false,
+            ichimoku = false,
+            volumeProfile = false,
+            marketProfile = false,
+            supportResistance = false,
+            fibonacci = false,
+            confluence = false,
+            orderBlocks = false,
+            fairValueGaps = false,
+            liquidity = false,
+            sessions = false,
             structure = false,
         )
         val result = useCase(candles, toggles)
@@ -253,28 +318,28 @@ class ComputeIndicatorsUseCaseTest {
         assertNull(result.vwap)
         assertNull(result.ichimokuTenkan)
         assertNull(result.volumeProfile)
+        assertNull(result.marketProfile)
+        assertTrue(result.supportResistanceZones.isEmpty())
+        assertTrue(result.autoFibLevels.isEmpty())
         assertTrue(result.orderBlocks.isEmpty())
         assertTrue(result.fairValueGaps.isEmpty())
         assertTrue(result.liquidityPools.isEmpty())
         assertTrue(result.sessions.isEmpty())
     }
 
-    // ========================================================================
-    // DETERMINISM
-    // ========================================================================
-
     @Test
-    fun `same inputs produce identical results (determinism)`() {
+    fun `same inputs produce identical results`() {
         val candles = buildCandles(80)
-        val toggles = IndicatorToggles(ema = true, bollinger = true, vwap = true)
+        val toggles = IndicatorToggles(ema = true, bollinger = true, vwap = true, fibonacci = true)
         val result1 = useCase(candles, toggles)
         val result2 = useCase(candles, toggles)
 
-        // EMA arrays should be element-wise identical
         assertNotNull(result1.emaShort)
         assertNotNull(result2.emaShort)
         result1.emaShort!!.forEachIndexed { i, v ->
-            assertEquals("EMA[$i] should be deterministic", v, result2.emaShort!![i], 0.0)
+            assertEquals(v, result2.emaShort!![i], 0.0)
         }
+        assertEquals(result1, result2)
+        assertEquals(result1.hashCode(), result2.hashCode())
     }
 }

@@ -300,6 +300,43 @@ class ChartViewportTest {
         assertFalse(vp.isAtRightEdge(total = 1_000))
     }
 
+    @Test
+    fun `prepended bars preserve the same visual anchor`() {
+        val vp = ChartViewport(startIndex = 100f, visibleBars = 100f)
+        val anchorX = 250f
+        val before = vp.indexForX(anchorX, chartWidth)
+
+        vp.shiftForPrependedBars(200)
+
+        val after = vp.indexForX(anchorX, chartWidth)
+        assertEquals(before, after - 200f, 0.001f)
+        assertEquals(300f, vp.startIndex, 0.001f)
+    }
+
+    @Test
+    fun `non-positive prepend count is a no-op`() {
+        val vp = ChartViewport(startIndex = 123f, visibleBars = 50f)
+
+        vp.shiftForPrependedBars(0)
+        vp.shiftForPrependedBars(-5)
+
+        assertEquals(123f, vp.startIndex, 0f)
+    }
+
+    @Test
+    fun `snapshot and restore round trip viewport state`() {
+        val vp = ChartViewport(startIndex = 321f, visibleBars = 77f, priceHigh = 150.0, priceLow = 120.0)
+
+        val snapshot = vp.snapshotState()
+        val restored = ChartViewport()
+        restored.restoreState(snapshot, total = 10_000)
+
+        assertEquals(vp.startIndex, restored.startIndex, 0.001f)
+        assertEquals(vp.visibleBars, restored.visibleBars, 0.001f)
+        assertEquals(vp.priceHigh, restored.priceHigh, 0.0)
+        assertEquals(vp.priceLow, restored.priceLow, 0.0)
+    }
+
     // ========================================================================
     // AUTO-SCALE (§4.3)
     // ========================================================================
