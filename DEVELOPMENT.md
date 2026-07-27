@@ -1257,7 +1257,7 @@ Produces the human narrative for a `MasterDecision`: the setup story ("London sw
 
 ## 7.8 Market Explanation Engine
 
-`reference/ai/mentor-assistant.ts` + `market-scanner.ts`: explains the *current state* of a symbol independent of a trade ("HTF bullish, price in premium, likely to seek discount/liquidity below X before continuation"). Powers the mentor/education surface and the scanner's per-symbol rationale.
+`domain/usecase/ai/MarketExplanationEngine.kt` explains the *current state* of a symbol independent of a trade ("HTF bullish, price in premium, likely to seek discount/liquidity below X before continuation"). It deterministically summarizes HTF/local bias, value zone, trend/volatility regime, nearby liquidity, unfilled inefficiencies/order blocks, next objective, key levels, warnings, mentor notes, and tags. It powers the mentor/education surface and the scanner's per-symbol rationale; any LLM usage may only polish this already-computed explanation.
 
 ## 7.9 Optimization Engine
 

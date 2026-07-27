@@ -41,6 +41,7 @@ A native Android trading-analysis app built with **Kotlin 2.0, Jetpack Compose, 
 
 ### Multi-Agent AI Decisioning
 - Deterministic 10-agent confluence analysis with Master Decision gating
+- Market Explanation Engine for symbol context, HTF/local alignment, value zone, liquidity, inefficiency, volatility, and mentor notes
 - Trade Explanation Engine for approved/rejected setup stories, invalidation, risk narrative, checklist, and alert/journal-ready summaries
 - Risk and psychology vetoes always override otherwise valid signals
 - LLM provider abstraction is narration-only; raw candles are never delegated to an LLM for trade authority
