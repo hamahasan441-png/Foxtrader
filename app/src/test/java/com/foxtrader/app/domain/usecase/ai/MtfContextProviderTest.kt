@@ -2,6 +2,8 @@ package com.foxtrader.app.domain.usecase.ai
 
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.model.CandleSource
+import com.foxtrader.app.domain.model.SourcedCandles
 import com.foxtrader.app.domain.repository.MarketRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -45,11 +47,21 @@ class MtfContextProviderTest {
     ) : MarketRepository {
         override fun observeCandles(symbol: String, timeframe: Timeframe): Flow<List<Candle>> = emptyFlow()
 
+        override fun observeSourcedCandles(
+            symbol: String,
+            timeframe: Timeframe,
+        ): Flow<SourcedCandles> = emptyFlow()
+
         override suspend fun refreshCandles(symbol: String, timeframe: Timeframe, limit: Int): Result<Unit> =
             Result.success(Unit)
 
         override suspend fun upsertCandle(symbol: String, timeframe: Timeframe, candle: Candle) = Unit
 
         override suspend fun getCandles(symbol: String, timeframe: Timeframe): List<Candle> = data[symbol].orEmpty()
+
+        override suspend fun getSourcedCandles(
+            symbol: String,
+            timeframe: Timeframe,
+        ): SourcedCandles = SourcedCandles(data[symbol].orEmpty(), CandleSource.LIVE)
     }
 }

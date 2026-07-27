@@ -2,6 +2,7 @@ package com.foxtrader.app.feature.chart.presentation
 
 import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.model.DecisionResult
 import com.foxtrader.app.domain.model.ChartDrawing
 import com.foxtrader.app.domain.model.ConnectionState
@@ -43,6 +44,11 @@ data class ChartUiState(
     val symbol: String = "EURUSD",
     val timeframe: Timeframe = Timeframe.M15,
     val candles: List<Candle> = emptyList(),
+    /**
+     * Provenance of [candles]. Drives the SIMULATED DATA banner and the
+     * decision engine's data-integrity veto.
+     */
+    val dataSource: CandleSource = CandleSource.CACHED,
     val bias: Bias = Bias.NEUTRAL,
 
     // --- Technical analysis ---
@@ -96,6 +102,9 @@ data class ChartUiState(
     val lastPrice: Double? get() = candles.lastOrNull()?.close
     val hasData: Boolean get() = candles.isNotEmpty()
 
+    /** True when the chart is rendering generated bars rather than real prices. */
+    val isSyntheticData: Boolean get() = hasData && dataSource == CandleSource.SYNTHETIC
+
     val hasSmcData: Boolean
         get() = orderBlocks.isNotEmpty() || fairValueGaps.isNotEmpty() || liquidityPools.isNotEmpty()
 
@@ -106,7 +115,8 @@ data class ChartUiState(
         if (this === other) return true
         if (other !is ChartUiState) return false
         return symbol == other.symbol && timeframe == other.timeframe &&
-            candles == other.candles && bias == other.bias &&
+            candles == other.candles && dataSource == other.dataSource &&
+            bias == other.bias &&
             structureBreaks == other.structureBreaks &&
             orderBlocks == other.orderBlocks &&
             fairValueGaps == other.fairValueGaps &&
@@ -130,6 +140,7 @@ data class ChartUiState(
         var result = symbol.hashCode()
         result = 31 * result + timeframe.hashCode()
         result = 31 * result + candles.hashCode()
+        result = 31 * result + dataSource.hashCode()
         result = 31 * result + indicators.hashCode()
         result = 31 * result + connectionState.hashCode()
         result = 31 * result + showIndicatorPanel.hashCode()

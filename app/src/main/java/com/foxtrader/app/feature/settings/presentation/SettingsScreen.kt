@@ -328,12 +328,16 @@ fun SettingsScreen(
             SectionHeader("Data Provider")
 
             SettingsCard {
+                // Only providers with a real fetch path are selectable. Listing
+                // the rest (and taking their API keys) made the app silently
+                // fall back to synthetic data while the user believed they were
+                // seeing their broker's prices.
                 DropdownSetting(
                     label = "Market Data Source",
                     selected = state.dataProvider.displayName,
-                    options = DataProvider.entries.map { it.displayName },
+                    options = DataProvider.implemented().map { it.displayName },
                     onSelect = { name ->
-                        DataProvider.entries.firstOrNull { it.displayName == name }
+                        DataProvider.implemented().firstOrNull { it.displayName == name }
                             ?.let(viewModel::setDataProvider)
                     },
                 )
@@ -348,6 +352,17 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = FoxNeutral60,
                 )
+
+                val planned = DataProvider.entries.filterNot { it.implemented }
+                if (planned.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "Coming soon: " + planned.joinToString { it.displayName } +
+                            ". These are not connected yet, so they are not selectable.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = FoxNeutral60,
+                    )
+                }
                 if (state.dataProvider == DataProvider.BINANCE || state.dataProvider == DataProvider.BYBIT) {
                     Spacer(Modifier.height(4.dp))
                     Text(

@@ -22,4 +22,17 @@ data class CandleEntity(
     val low: Double,
     val close: Double,
     val volume: Double,
+    /**
+     * Provenance ([com.foxtrader.app.domain.model.CandleSource] name).
+     *
+     * Stored per row rather than per series because a single symbol/timeframe
+     * cache can legitimately mix synthetic seed bars with real bars that
+     * arrived later: the refresh path upserts over the seed by timestamp, and
+     * only the rows it actually overwrites become real.
+     *
+     * Legacy rows (schema < 4) cannot be classified — before v4 synthetic and
+     * real bars were written indistinguishably — so MIGRATION_3_4 clears the
+     * cache rather than guessing. See FoxDatabase.MIGRATION_3_4.
+     */
+    val source: String = "LIVE",
 )

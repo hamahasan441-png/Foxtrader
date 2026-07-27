@@ -27,6 +27,11 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
 
+        // Export Room schemas to app/schemas/ so migrations are testable with
+        // MigrationTestHelper. Without this, a broken migration can only be
+        // discovered by a user losing their journal.
+        ksp { arg("room.schemaLocation", "$projectDir/schemas") }
+
         // Backend base URL — override per-environment via local.properties or CI.
         // Example: set FOXTRADER_BASE_URL=https://api.foxtrader.io/ in CI secrets.
         val backendUrl = (project.findProperty("FOXTRADER_BASE_URL") as? String)
@@ -72,6 +77,14 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
+
+    // MigrationTestHelper loads the exported schema JSON from the test APK's
+    // assets, so app/schemas must be on the androidTest asset path.
+    sourceSets {
+        getByName("androidTest") {
+            assets.srcDirs("$projectDir/schemas")
         }
     }
 }
@@ -140,6 +153,10 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation(libs.androidx.test.runner)
+    // Room MigrationTestHelper — validates every migration path against the
+    // exported schemas so user data can never be silently dropped.
+    androidTestImplementation(libs.room.testing)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
 }

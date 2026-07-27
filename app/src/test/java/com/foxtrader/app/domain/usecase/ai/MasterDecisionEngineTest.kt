@@ -5,6 +5,8 @@ import com.foxtrader.app.domain.model.AgentName
 import com.foxtrader.app.domain.model.AgentOutput
 import com.foxtrader.app.domain.model.AgentStatus
 import com.foxtrader.app.domain.model.Bias
+import com.foxtrader.app.domain.model.CandleSource
+import com.foxtrader.app.domain.model.DecisionConfig
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.OrchestratorResult
 import com.foxtrader.app.domain.model.RequiredConfluence
@@ -206,5 +208,55 @@ class MasterDecisionEngineTest {
         assertTrue(decision.approved)
         assertEquals(9, decision.confluencePresent.size)
         assertEquals(SignalGrade.INSTITUTIONAL, decision.grade)
+    }
+
+    // ------------------------------------- data-integrity veto (Sprint 6)
+
+    @Test
+    fun `synthetic data vetoes an otherwise institutional signal`() {
+        // Same inputs that grade INSTITUTIONAL on real data.
+        val decision = engine.evaluate(
+            result(eightConfluenceBullish(), Direction.BULLISH, 80.0),
+            dataSource = CandleSource.SYNTHETIC,
+        )
+
+        assertFalse("synthetic data must never authorise a trade", decision.approved)
+        assertNull(decision.direction)
+        assertEquals(0.0, decision.confidence, 0.0)
+        assertEquals(SignalGrade.NO_SIGNAL, decision.grade)
+        assertTrue(decision.blockReasons.any { it.contains("SYNTHETIC", ignoreCase = true) })
+        assertTrue(decision.explanation.contains("simulated data", ignoreCase = true))
+    }
+
+    @Test
+    fun `synthetic veto outranks the configurable risk veto`() {
+        // respectRiskBlock = false disables the risk veto; it must NOT be able
+        // to unlock a recommendation computed over fabricated prices.
+        engine.updateConfig(DecisionConfig(respectRiskBlock = false))
+
+        val decision = engine.evaluate(
+            result(eightConfluenceBullish(), Direction.BULLISH, 80.0),
+            dataSource = CandleSource.SYNTHETIC,
+        )
+
+        assertFalse(decision.approved)
+        assertTrue(decision.blockReasons.any { it.contains("SYNTHETIC", ignoreCase = true) })
+    }
+
+    @Test
+    fun `live and cached data are not vetoed`() {
+        listOf(CandleSource.LIVE, CandleSource.CACHED).forEach { source ->
+            val decision = engine.evaluate(
+                result(eightConfluenceBullish(), Direction.BULLISH, 80.0),
+                dataSource = source,
+            )
+            assertTrue("$source must not be vetoed", decision.approved)
+        }
+    }
+
+    @Test
+    fun `defaults to live so existing callers are unaffected`() {
+        val decision = engine.evaluate(result(eightConfluenceBullish(), Direction.BULLISH, 80.0))
+        assertTrue(decision.approved)
     }
 }

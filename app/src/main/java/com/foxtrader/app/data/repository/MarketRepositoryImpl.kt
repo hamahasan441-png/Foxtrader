@@ -1,6 +1,7 @@
 package com.foxtrader.app.data.repository
 
 import com.foxtrader.app.data.local.dao.CandleDao
+import com.foxtrader.app.data.mapper.provenance
 import com.foxtrader.app.data.mapper.toDomain
 import com.foxtrader.app.data.mapper.toEntity
 import com.foxtrader.app.data.remote.api.AlphaVantageDataSource
@@ -9,7 +10,10 @@ import com.foxtrader.app.data.remote.api.BybitDataSource
 import com.foxtrader.app.data.remote.api.MarketApi
 import com.foxtrader.app.di.IoDispatcher
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.model.DataProvider
+import com.foxtrader.app.domain.model.ProviderNotImplementedException
+import com.foxtrader.app.domain.model.SourcedCandles
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
@@ -43,6 +47,17 @@ class MarketRepositoryImpl @Inject constructor(
     override fun observeCandles(symbol: String, timeframe: Timeframe): Flow<List<Candle>> =
         dao.observe(symbol, timeframe.label).map { list -> list.map { it.toDomain() } }
 
+    override fun observeSourcedCandles(
+        symbol: String,
+        timeframe: Timeframe,
+    ): Flow<SourcedCandles> =
+        dao.observe(symbol, timeframe.label).map { list ->
+            SourcedCandles(
+                candles = list.map { it.toDomain() },
+                source = list.provenance(),
+            )
+        }
+
     override suspend fun refreshCandles(
         symbol: String,
         timeframe: Timeframe,
@@ -51,6 +66,16 @@ class MarketRepositoryImpl @Inject constructor(
         runCatching {
             val selectedProvider = appPreferences.dataProvider.value
             val alphaKey = appPreferences.getApiKey(DataProvider.ALPHA_VANTAGE).orEmpty()
+
+            // SAMPLE is an explicit user choice to run on synthetic data. Write
+            // it tagged and return early — it must never masquerade as a
+            // successful real fetch.
+            if (selectedProvider == DataProvider.SAMPLE) {
+                val seed = SampleData.generate(symbol, timeframe, limit)
+                dao.upsertAll(seed.map { it.toEntity(symbol, timeframe, CandleSource.SYNTHETIC) })
+                dao.prune(symbol, timeframe.label, MAX_CACHED_BARS)
+                return@runCatching
+            }
 
             val candles: List<Candle> = when {
                 selectedProvider == DataProvider.ALPHA_VANTAGE -> {
@@ -72,16 +97,30 @@ class MarketRepositoryImpl @Inject constructor(
                         )
                     }
                 }
+                !selectedProvider.implemented -> throw ProviderNotImplementedException(
+                    selectedProvider.displayName
+                )
                 else -> fetchDefaultCandles(symbol, timeframe, limit)
             }
-            val entities = candles.map { it.toEntity(symbol, timeframe) }
-            dao.upsertAll(entities)
+            // A successful provider fetch is real data.
+            dao.upsertAll(candles.map { it.toEntity(symbol, timeframe, CandleSource.LIVE) })
+            dao.prune(symbol, timeframe.label, MAX_CACHED_BARS)
         }.recoverCatching { error ->
+            // Selecting an unimplemented provider is a configuration error, not
+            // a transient network fault: surface it instead of papering over it
+            // with synthetic bars the user did not ask for.
+            if (error is ProviderNotImplementedException) throw error
+
             // Network failed — if cache is empty, seed synthetic data so the
             // chart is never blank. Real data replaces it on the next success.
+            //
+            // The seed is tagged SYNTHETIC so the UI can label it and the
+            // decision engine can veto on it. Silently mixing fabricated bars
+            // into the same table as real ones is the single most dangerous
+            // thing this app could do.
             if (dao.count(symbol, timeframe.label) == 0) {
                 val seed = SampleData.generate(symbol, timeframe, limit)
-                dao.upsertAll(seed.map { it.toEntity(symbol, timeframe) })
+                dao.upsertAll(seed.map { it.toEntity(symbol, timeframe, CandleSource.SYNTHETIC) })
             } else {
                 throw error
             }
@@ -103,19 +142,39 @@ class MarketRepositoryImpl @Inject constructor(
         }
     }
 
+    /** Live ticks come from a real feed, so they are LIVE by construction. */
     override suspend fun upsertCandle(symbol: String, timeframe: Timeframe, candle: Candle) =
-        withContext(io) { dao.upsert(candle.toEntity(symbol, timeframe)) }
+        withContext(io) { dao.upsert(candle.toEntity(symbol, timeframe, CandleSource.LIVE)) }
 
     override suspend fun getCandles(symbol: String, timeframe: Timeframe): List<Candle> =
-        withContext(io) {
-            val cached = dao.getAll(symbol, timeframe.label)
-            if (cached.isNotEmpty()) {
-                cached.map { it.toDomain() }
-            } else {
-                // Seed sample data if cache empty (scanner needs data to function)
-                val seed = SampleData.generate(symbol, timeframe, 200)
-                dao.upsertAll(seed.map { it.toEntity(symbol, timeframe) })
-                seed
-            }
+        getSourcedCandles(symbol, timeframe).candles
+
+    override suspend fun getSourcedCandles(
+        symbol: String,
+        timeframe: Timeframe,
+    ): SourcedCandles = withContext(io) {
+        val cached = dao.getAll(symbol, timeframe.label)
+        if (cached.isNotEmpty()) {
+            SourcedCandles(cached.map { it.toDomain() }, cached.provenance())
+        } else {
+            // Seed sample data if cache empty (scanner needs data to function).
+            // Tagged SYNTHETIC so scanner rows built from it are badged, not
+            // presented as a real opportunity.
+            val seed = SampleData.generate(symbol, timeframe, SEED_BARS)
+            dao.upsertAll(seed.map { it.toEntity(symbol, timeframe, CandleSource.SYNTHETIC) })
+            SourcedCandles(seed, CandleSource.SYNTHETIC)
         }
+    }
+
+    private companion object {
+        /**
+         * Hot-cache ceiling per (symbol, timeframe). Enough for the deepest
+         * analysis window and a long scrollback, bounded so a multi-symbol LIVE
+         * session cannot grow the DB without limit.
+         */
+        const val MAX_CACHED_BARS = 5_000
+
+        /** Bars generated when seeding an empty cache for the scanner. */
+        const val SEED_BARS = 200
+    }
 }

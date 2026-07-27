@@ -22,7 +22,11 @@ object DatabaseModule {
     fun provideDatabase(@ApplicationContext context: Context): FoxDatabase =
         Room.databaseBuilder(context, FoxDatabase::class.java, FoxDatabase.NAME)
             .addMigrations(*FoxDatabase.MIGRATIONS)
-            .fallbackToDestructiveMigration()
+            // NO fallbackToDestructiveMigration(). journal_entries and
+            // chart_drawings hold user-authored data that is not re-derivable;
+            // a missing migration path must throw (and be caught by the
+            // MigrationTest suite in CI) rather than silently wipe the user's
+            // trade history on upgrade.
             .build()
 
     @Provides

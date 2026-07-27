@@ -6,6 +6,7 @@ import com.foxtrader.app.data.remote.websocket.MarketWebSocket
 import com.foxtrader.app.data.alerts.AlertDispatcher
 import com.foxtrader.app.di.DefaultDispatcher
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.model.ChartPoint
 import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.AgentContext
@@ -135,17 +136,20 @@ class ChartViewModel @Inject constructor(
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private fun observeMarket() {
         combine(symbolFlow, timeframeFlow) { symbol, tf -> symbol to tf }
-            .flatMapLatest { (symbol, tf) -> repository.observeCandles(symbol, tf) }
+            .flatMapLatest { (symbol, tf) -> repository.observeSourcedCandles(symbol, tf) }
             // Deduplicate: suppress reanalysis only when neither the bar count nor
             // the latest bar's full OHLCV payload changed. Live feeds may update
             // high/low/volume without changing close, and those changes still need
-            // a chart/SMC recalculation.
-            .distinctUntilChangedBy { list ->
+            // a chart/SMC recalculation. Provenance is part of the key so a
+            // synthetic->real transition always re-runs the pipeline.
+            .distinctUntilChangedBy { sourced ->
+                val list = sourced.candles
                 val last = list.lastOrNull()
-                "${list.size}:${last?.timestamp}:${last?.open}:${last?.high}:${last?.low}:${last?.close}:${last?.volume}"
+                "${sourced.source}:${list.size}:${last?.timestamp}:${last?.open}:" +
+                    "${last?.high}:${last?.low}:${last?.close}:${last?.volume}"
             }
-            .onEach { candles ->
-                viewModelScope.launch { processCandles(candles) }
+            .onEach { sourced ->
+                viewModelScope.launch { processCandles(sourced.candles, sourced.source) }
             }
             .launchIn(viewModelScope)
     }
@@ -173,7 +177,10 @@ class ChartViewModel @Inject constructor(
      * is dispatched to [defaultDispatcher] so the main thread stays responsive.
      * Must be called from within a coroutine.
      */
-    private suspend fun processCandles(candles: List<Candle>) {
+    private suspend fun processCandles(
+        candles: List<Candle>,
+        source: CandleSource = _uiState.value.dataSource,
+    ) {
         val ind = _uiState.value.indicators
 
         val (structure, overlays, marketExplanation) = withContext(defaultDispatcher) {
@@ -191,6 +198,7 @@ class ChartViewModel @Inject constructor(
 
         _uiState.value = _uiState.value.copy(
             candles = candles,
+            dataSource = source,
             bias = structure.bias,
             structureBreaks = if (ind.structure) structure.breaks else emptyList(),
             emaShort = overlays.emaShort,
@@ -217,7 +225,7 @@ class ChartViewModel @Inject constructor(
         )
 
         // --- AI Decision Engine (run after analysis is ready) ---
-        runAiDecision(candles)
+        runAiDecision(candles, source)
     }
 
     // ========================================================================
@@ -234,7 +242,7 @@ class ChartViewModel @Inject constructor(
      * - The orchestrator and decision engine run on [defaultDispatcher] to avoid
      *   blocking the UI.
      */
-    private fun runAiDecision(candles: List<Candle>) {
+    private fun runAiDecision(candles: List<Candle>, dataSource: CandleSource) {
         if (candles.size < 50) {
             _uiState.value = _uiState.value.copy(aiDecision = null)
             lastAiCandlesHash = 0L
@@ -286,7 +294,7 @@ class ChartViewModel @Inject constructor(
             // together off the main thread.
             val decision = withContext(defaultDispatcher) {
                 val orchestratorResult = orchestrator.analyze(context)
-                decisionEngine.evaluate(orchestratorResult)
+                decisionEngine.evaluate(orchestratorResult, dataSource)
             }
 
             // Drop stale AI results if the user changed chart context while this
