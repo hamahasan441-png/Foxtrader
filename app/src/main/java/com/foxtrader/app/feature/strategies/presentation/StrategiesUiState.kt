@@ -1,5 +1,6 @@
 package com.foxtrader.app.feature.strategies.presentation
 
+import androidx.compose.runtime.Immutable
 import com.foxtrader.app.domain.model.Direction
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
@@ -7,6 +8,7 @@ import kotlinx.collections.immutable.persistentListOf
 /**
  * A single actionable strategy signal shown on the Strategies screen.
  */
+@Immutable
 data class StrategySignalItem(
     val id: String,
     val symbol: String,
@@ -24,6 +26,7 @@ data class StrategySignalItem(
 /**
  * Immutable UI state for the Strategies screen.
  */
+@Immutable
 data class StrategiesUiState(
     val signals: ImmutableList<StrategySignalItem> = persistentListOf(),
     val isScanning: Boolean = false,

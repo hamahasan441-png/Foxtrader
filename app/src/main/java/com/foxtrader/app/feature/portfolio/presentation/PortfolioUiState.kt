@@ -1,5 +1,6 @@
 package com.foxtrader.app.feature.portfolio.presentation
 
+import androidx.compose.runtime.Immutable
 import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.usecase.correlation.CorrelationMatrix
 import com.foxtrader.app.domain.usecase.portfolio.PortfolioRiskSnapshot
@@ -13,6 +14,7 @@ import kotlinx.collections.immutable.persistentListOf
  * clusters computed over synthetic bars are labelled rather than presented as
  * real relationships (Sprint 6 contract).
  */
+@Immutable
 data class PortfolioUiState(
     val snapshot: PortfolioRiskSnapshot? = null,
     val correlationClusters: ImmutableList<CorrelationCluster> = persistentListOf(),
@@ -29,6 +31,7 @@ data class PortfolioUiState(
  * A group of held symbols whose returns move together strongly enough to be
  * treated as one risk unit.
  */
+@Immutable
 data class CorrelationCluster(
     val symbols: List<String>,
     /** Strongest absolute correlation observed inside the cluster. */

@@ -4200,3 +4200,37 @@ This is the correct order: instrumentation and benchmark foundations first,
 then leak/audit tooling, then deeper allocation cleanup once the measurement
 surface exists.
 
+
+---
+
+# Appendix X: Sprint 9 continuation — chart workspace smoke and hot-path allocation cleanup
+
+This pass keeps Sprint 9 moving in two small but useful directions:
+
+1. one more smoke assertion over the new chart workspace itself,
+2. a first pass at reducing avoidable draw-path allocations in the chart layers.
+
+## Chart workspace smoke coverage
+
+`ChartWorkspaceSmokeTest` now proves the multi-chart toolbar can switch the
+primary chart into split-workspace mode and render the expected workspace
+controls (`DRAG`, `SYM-LINK`, `TF-LINK`).
+
+That matters because the workspace is now one of the app's most stateful UI
+surfaces and deserves at least one instrumentation-level existence check of its
+own, not only benchmark journeys.
+
+## Hot-path allocation cleanup
+
+Two chart-layer cleanups landed:
+
+- `ChartStructureLayer` no longer allocates a new `Path` per structure-break
+  marker; the diamond is drawn with lines instead.
+- dash `PathEffect`s used by structure/live-price/crosshair layers are now
+  hoisted as file-level constants instead of recreated during every draw call.
+
+`NOTE` These are modest changes, but they are exactly the kind of boring,
+repeatable cleanup Sprint 9.5 exists to accumulate: fewer transient objects in
+high-frequency draw code means less GC pressure and less risk of frame-time
+spikes during heavy interaction.
+

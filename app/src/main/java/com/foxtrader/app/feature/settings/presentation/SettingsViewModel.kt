@@ -19,6 +19,7 @@ import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.domain.usecase.risk.RiskEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.collections.immutable.toPersistentMap
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -55,7 +56,7 @@ class SettingsViewModel @Inject constructor(
             ),
             defaultTimeframe = appPreferences.defaultTimeframe.value,
             dataProvider = appPreferences.dataProvider.value,
-            providerApiKeys = appPreferences.apiKeys.value,
+            providerApiKeys = appPreferences.apiKeys.value.toPersistentMap(),
             darkMode = appPreferences.darkMode.value,
             authState = authRepository.authState.value,
             appLockEnabled = appPreferences.appLockEnabled.value,
@@ -69,7 +70,7 @@ class SettingsViewModel @Inject constructor(
             .onEach { state -> _uiState.update { it.copy(authState = state) } }
             .launchIn(viewModelScope)
         appPreferences.apiKeys
-            .onEach { keys -> _uiState.update { it.copy(providerApiKeys = keys) } }
+            .onEach { keys -> _uiState.update { it.copy(providerApiKeys = keys.toPersistentMap()) } }
             .launchIn(viewModelScope)
         appPreferences.riskConfig
             .onEach { config -> _uiState.update { it.copy(riskConfig = config) } }
@@ -131,9 +132,11 @@ class SettingsViewModel @Inject constructor(
         // Persisted on Save to match the rest of editable settings fields.
         _uiState.update { state ->
             state.copy(
-                providerApiKeys = state.providerApiKeys.toMutableMap().apply {
-                    this[state.dataProvider] = value
-                },
+                providerApiKeys = state.providerApiKeys
+                    .toMap()
+                    .toMutableMap()
+                    .apply { this[state.dataProvider] = value }
+                    .toPersistentMap(),
                 saved = false,
             )
         }

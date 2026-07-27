@@ -1,5 +1,6 @@
 package com.foxtrader.app.feature.backtest.presentation
 
+import androidx.compose.runtime.Immutable
 import com.foxtrader.app.domain.model.BacktestResult
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.backtest.BacktestAnalyticsReport
@@ -26,6 +27,7 @@ enum class BacktestStrategyTemplate(
 }
 
 /** Immutable UI state for the Backtesting Lab screen. */
+@Immutable
 data class BacktestLabUiState(
     val symbol: String = "EURUSD",
     val timeframe: Timeframe = Timeframe.H1,

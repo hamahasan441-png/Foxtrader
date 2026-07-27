@@ -1,5 +1,6 @@
 package com.foxtrader.app.feature.alerts.presentation
 
+import androidx.compose.runtime.Immutable
 import com.foxtrader.app.domain.model.AlertPriority
 import com.foxtrader.app.domain.model.FoxAlert
 import kotlinx.collections.immutable.ImmutableList
@@ -8,6 +9,7 @@ import kotlinx.collections.immutable.persistentListOf
 /**
  * Immutable UI state for the Alerts inbox.
  */
+@Immutable
 data class AlertsUiState(
     val alerts: ImmutableList<FoxAlert> = persistentListOf(),
     /** null = show everything. */

@@ -1,5 +1,6 @@
 package com.foxtrader.app.feature.scanner.presentation
 
+import androidx.compose.runtime.Immutable
 import com.foxtrader.app.domain.model.AssetClass
 import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.model.ScannerRiskLevel
@@ -23,6 +24,7 @@ enum class ScannerSortMode {
 /**
  * Immutable UI state for the Scanner screen.
  */
+@Immutable
 data class ScannerUiState(
     val results: ImmutableList<ScreenerResult> = persistentListOf(),
     val selectedStrategy: StrategyType = StrategyType.CONFLUENCE,

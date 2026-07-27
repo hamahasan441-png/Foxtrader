@@ -38,6 +38,7 @@ import kotlin.math.min
 // inside the draw pass would allocate and cost a frame).
 private val BullishTextArgb = android.graphics.Color.parseColor("#4CAF50")
 private val BearishTextArgb = android.graphics.Color.parseColor("#EF5350")
+private val CrosshairDash = PathEffect.dashPathEffect(floatArrayOf(5f, 4f))
 
 /**
  * Professional crosshair with price/time readouts and a snapped OHLC panel.
@@ -64,21 +65,20 @@ internal fun DrawScope.drawCrosshairLayer(
     val cy = viewport.crosshairY.coerceIn(0f, ch)
 
     val crossColor = FoxNeutral60.copy(alpha = 0.7f)
-    val dash = PathEffect.dashPathEffect(floatArrayOf(5f, 4f))
 
     drawLine(
         color = crossColor,
         start = Offset(snappedX, 0f),
         end = Offset(snappedX, ch),
         strokeWidth = 0.8f,
-        pathEffect = dash,
+        pathEffect = CrosshairDash,
     )
     drawLine(
         color = crossColor,
         start = Offset(0f, cy),
         end = Offset(cw, cy),
         strokeWidth = 0.8f,
-        pathEffect = dash,
+        pathEffect = CrosshairDash,
     )
 
     // --- Price label on the right scale ---
@@ -189,14 +189,13 @@ internal fun DrawScope.drawSyncedCrosshairLayer(
 
     val snappedX = viewport.xForIndex(barIdx + 0.5f, cw).coerceIn(0f, cw)
     val crossColor = FoxNeutral60.copy(alpha = 0.55f)
-    val dash = PathEffect.dashPathEffect(floatArrayOf(5f, 4f))
 
     drawLine(
         color = crossColor,
         start = Offset(snappedX, 0f),
         end = Offset(snappedX, ch),
         strokeWidth = 0.8f,
-        pathEffect = dash,
+        pathEffect = CrosshairDash,
     )
 
     val bar = candles[barIdx]
