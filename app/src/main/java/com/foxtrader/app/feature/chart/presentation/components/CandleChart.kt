@@ -56,9 +56,9 @@ import com.foxtrader.app.feature.chart.presentation.components.layers.drawTimeAx
 import com.foxtrader.app.ui.theme.FoxNeutral5
 import kotlin.math.max
 
-private val AxisLabelArgb = AxisLabelArgb
-private val OhlcLabelArgb = OhlcLabelArgb
-private val LoadingHistoryArgb = LoadingHistoryArgb
+private val AxisLabelArgb = android.graphics.Color.parseColor("#99999F")
+private val OhlcLabelArgb = android.graphics.Color.parseColor("#C4C9D4")
+private val LoadingHistoryArgb = android.graphics.Color.parseColor("#D4A84E")
 
 /**
  * Professional-grade candlestick chart engine.
