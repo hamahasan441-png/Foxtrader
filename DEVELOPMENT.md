@@ -1253,7 +1253,7 @@ MasterDecision {
 
 ## 7.7 Trade Explanation Engine
 
-Produces the human narrative for a `MasterDecision`: the setup story ("London sweep of Asian low → CHoCH → bullish FVG + unmitigated demand OB in discount, OTE 0.705"), the satisfied/missing confluences, the R:R and invalidation, and the risk verdict. Backed deterministically by templates; optionally polished by the narration LLM ([7.3](#73-prompt-strategy-for-the-narration-llm-only)). Also feeds the journal (auto-annotation) and alerts (rich alert bodies).
+Produces the human narrative for a `MasterDecision`: the setup story ("London sweep of Asian low → CHoCH → bullish FVG + unmitigated demand OB in discount, OTE 0.705"), the satisfied/missing confluences, the R:R and invalidation, and the risk verdict. Implemented by `domain/usecase/ai/TradeExplanationEngine.kt` as deterministic templates; optionally polished by the narration LLM ([7.3](#73-prompt-strategy-for-the-narration-llm-only)). Also feeds the journal (auto-annotation) and alerts (rich alert bodies).
 
 ## 7.8 Market Explanation Engine
 
