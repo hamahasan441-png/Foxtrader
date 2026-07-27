@@ -5,11 +5,13 @@ import com.foxtrader.app.data.repository.AuthRepositoryImpl
 import com.foxtrader.app.data.repository.DrawingRepositoryImpl
 import com.foxtrader.app.data.repository.JournalRepositoryImpl
 import com.foxtrader.app.data.repository.MarketRepositoryImpl
+import com.foxtrader.app.data.repository.WatchlistRepositoryImpl
 import com.foxtrader.app.domain.repository.AlertRepository
 import com.foxtrader.app.domain.repository.AuthRepository
 import com.foxtrader.app.domain.repository.DrawingRepository
 import com.foxtrader.app.domain.repository.JournalRepository
 import com.foxtrader.app.domain.repository.MarketRepository
+import com.foxtrader.app.domain.repository.WatchlistRepository
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -43,4 +45,8 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindAlertRepository(impl: AlertRepositoryImpl): AlertRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindWatchlistRepository(impl: WatchlistRepositoryImpl): WatchlistRepository
 }

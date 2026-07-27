@@ -167,6 +167,8 @@ fun ChartScreen(
             selected = state.symbol,
             onSelect = viewModel::onSymbolChange,
             onDismiss = viewModel::closeSymbolPicker,
+            onAddSymbol = viewModel::addSymbolToWatchlist,
+            onRemoveSymbol = viewModel::removeSymbolFromWatchlist,
         )
 
         // --- Chart area with pull-to-refresh ---

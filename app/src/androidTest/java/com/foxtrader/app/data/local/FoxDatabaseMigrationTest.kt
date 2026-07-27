@@ -254,7 +254,47 @@ class FoxDatabaseMigrationTest {
     }
 
     @Test
-    fun fullChain1To5_thenRoomOpensWithoutFallback() {
+    fun migration5To6_addsWatchlistTables_withCascadeDelete() {
+        val db = createV3WithUserData()
+        db.execSQL(INSERT_JOURNAL)
+        FoxDatabase.MIGRATION_3_4.migrate(db)
+        FoxDatabase.MIGRATION_4_5.migrate(db)
+
+        FoxDatabase.MIGRATION_5_6.migrate(db)
+
+        assertEquals(0, db.countOf("watchlists"))
+        assertEquals(0, db.countOf("watchlist_symbols"))
+
+        // User data is untouched by an additive migration.
+        db.query("SELECT notes FROM journal_entries WHERE id = 'j1'").use { c ->
+            assertTrue("journal entry was lost during 5->6", c.moveToFirst())
+            assertEquals("runner", c.getString(0))
+        }
+
+        // The FK must cascade, or deleting a list would strand its symbols.
+        db.execSQL("PRAGMA foreign_keys = ON")
+        db.execSQL(
+            "INSERT INTO watchlists (id, name, isDefault, createdAt) " +
+                "VALUES ('w1', 'Main', 1, 1000)"
+        )
+        db.execSQL(
+            "INSERT INTO watchlist_symbols " +
+                "(watchlistId, symbol, assetClass, position, notes, addedAt) " +
+                "VALUES ('w1', 'EURUSD', 'FOREX', 0, '', 1000)"
+        )
+        assertEquals(1, db.countOf("watchlist_symbols"))
+
+        db.execSQL("DELETE FROM watchlists WHERE id = 'w1'")
+        assertEquals(
+            "deleting a watchlist must cascade to its symbols",
+            0,
+            db.countOf("watchlist_symbols"),
+        )
+        db.close()
+    }
+
+    @Test
+    fun fullChain1To6_thenRoomOpensWithoutFallback() {
         val db = openRaw(1) { d ->
             d.execSQL(DDL_CANDLES_V1)
             d.execSQL(DDL_CANDLES_INDEX_V1)
@@ -269,7 +309,8 @@ class FoxDatabaseMigrationTest {
         db.execSQL(INSERT_DRAWING)
         FoxDatabase.MIGRATION_3_4.migrate(db)
         FoxDatabase.MIGRATION_4_5.migrate(db)
-        db.version = 5
+        FoxDatabase.MIGRATION_5_6.migrate(db)
+        db.version = 6
         db.close()
 
         // Room must accept the migrated file WITHOUT destructive fallback. If a

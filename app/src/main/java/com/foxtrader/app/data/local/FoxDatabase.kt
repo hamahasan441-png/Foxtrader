@@ -8,10 +8,13 @@ import com.foxtrader.app.data.local.dao.AlertDao
 import com.foxtrader.app.data.local.dao.CandleDao
 import com.foxtrader.app.data.local.dao.DrawingDao
 import com.foxtrader.app.data.local.dao.JournalDao
+import com.foxtrader.app.data.local.dao.WatchlistDao
 import com.foxtrader.app.data.local.entity.AlertEntity
 import com.foxtrader.app.data.local.entity.CandleEntity
 import com.foxtrader.app.data.local.entity.DrawingEntity
 import com.foxtrader.app.data.local.entity.JournalEntity
+import com.foxtrader.app.data.local.entity.WatchlistEntity
+import com.foxtrader.app.data.local.entity.WatchlistSymbolEntity
 
 /**
  * The FoxTrader local database (Room).
@@ -24,6 +27,7 @@ import com.foxtrader.app.data.local.entity.JournalEntity
  * - v3: adds chart_drawings table (user-authored, syncable).
  * - v4: adds candles.source (provenance — real vs synthetic bars).
  * - v5: adds alerts table (dispatched alert history + acknowledgement).
+ * - v6: adds watchlists + watchlist_symbols (user-authored, must persist).
  *
  * `exportSchema = true` writes the schema JSON to app/schemas/, which is what
  * makes MigrationTestHelper possible. Destructive fallback is deliberately NOT
@@ -37,8 +41,10 @@ import com.foxtrader.app.data.local.entity.JournalEntity
         JournalEntity::class,
         DrawingEntity::class,
         AlertEntity::class,
+        WatchlistEntity::class,
+        WatchlistSymbolEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class FoxDatabase : RoomDatabase() {
@@ -46,6 +52,7 @@ abstract class FoxDatabase : RoomDatabase() {
     abstract fun journalDao(): JournalDao
     abstract fun drawingDao(): DrawingDao
     abstract fun alertDao(): AlertDao
+    abstract fun watchlistDao(): WatchlistDao
 
     companion object {
         const val NAME = "foxtrader.db"
@@ -163,6 +170,58 @@ abstract class FoxDatabase : RoomDatabase() {
             }
         }
 
-        val MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+        /**
+         * v5 -> v6: create the watchlist tables.
+         *
+         * Additive. Seeding the default watchlist is deliberately NOT done here
+         * — a migration runs on a background thread with no access to app
+         * defaults, and duplicating the seed list in SQL would let it drift
+         * from the Kotlin source. The repository seeds on first read instead,
+         * which also covers fresh installs (where no migration ever runs).
+         *
+         * NOTE the FK declaration must match WatchlistSymbolEntity exactly
+         * (CASCADE on delete) or Room's schema validation rejects the result.
+         */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS watchlists (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        isDefault INTEGER NOT NULL,
+                        createdAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS watchlist_symbols (
+                        watchlistId TEXT NOT NULL,
+                        symbol TEXT NOT NULL,
+                        assetClass TEXT NOT NULL,
+                        position INTEGER NOT NULL,
+                        notes TEXT NOT NULL,
+                        addedAt INTEGER NOT NULL,
+                        PRIMARY KEY(watchlistId, symbol),
+                        FOREIGN KEY(watchlistId) REFERENCES watchlists(id)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_watchlist_symbols_watchlistId_position " +
+                        "ON watchlist_symbols (watchlistId, position)"
+                )
+            }
+        }
+
+        val MIGRATIONS = arrayOf(
+            MIGRATION_1_2,
+            MIGRATION_2_3,
+            MIGRATION_3_4,
+            MIGRATION_4_5,
+            MIGRATION_5_6,
+        )
     }
 }

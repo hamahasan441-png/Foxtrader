@@ -7,6 +7,7 @@ import com.foxtrader.app.data.local.dao.AlertDao
 import com.foxtrader.app.data.local.dao.CandleDao
 import com.foxtrader.app.data.local.dao.DrawingDao
 import com.foxtrader.app.data.local.dao.JournalDao
+import com.foxtrader.app.data.local.dao.WatchlistDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -41,4 +42,7 @@ object DatabaseModule {
 
     @Provides
     fun provideAlertDao(db: FoxDatabase): AlertDao = db.alertDao()
+
+    @Provides
+    fun provideWatchlistDao(db: FoxDatabase): WatchlistDao = db.watchlistDao()
 }

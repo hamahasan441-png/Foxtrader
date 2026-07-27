@@ -16,6 +16,7 @@ import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.repository.DrawingRepository
 import com.foxtrader.app.domain.repository.AlertRepository
 import com.foxtrader.app.domain.repository.MarketRepository
+import com.foxtrader.app.domain.repository.WatchlistRepository
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import com.foxtrader.app.domain.usecase.ai.AgentOrchestrator
 import com.foxtrader.app.domain.usecase.ai.AiAlertService
@@ -77,6 +78,7 @@ class ChartViewModel @Inject constructor(
     private val aiAlertService: AiAlertService,
     private val alertDispatcher: AlertDispatcher,
     private val alertRepository: AlertRepository,
+    private val watchlistRepository: WatchlistRepository,
     private val drawingRepository: DrawingRepository,
     private val appPreferences: AppPreferences,
     profiler: PerformanceProfiler,
@@ -119,6 +121,7 @@ class ChartViewModel @Inject constructor(
     private var lastAiCandlesHash: Long = 0L
 
     init {
+        observeWatchlist()
         observeMarket()
         observeDrawings()
         observeWebSocketTicks()
@@ -127,6 +130,34 @@ class ChartViewModel @Inject constructor(
             .onEach { cs -> _uiState.value = _uiState.value.copy(connectionState = cs) }
             .launchIn(viewModelScope)
         refresh()
+    }
+
+    /**
+     * Track the default watchlist so the symbol picker reflects the user's own
+     * instruments rather than a compiled-in list.
+     */
+    private fun observeWatchlist() {
+        viewModelScope.launch { watchlistRepository.ensureSeeded() }
+        watchlistRepository.observeWatchlists()
+            .onEach { lists ->
+                val active = lists.firstOrNull { it.isDefault } ?: lists.firstOrNull()
+                _uiState.value = _uiState.value.copy(
+                    availableSymbols = active?.symbolNames.orEmpty(),
+                    activeWatchlistId = active?.id,
+                )
+            }
+            .launchIn(viewModelScope)
+    }
+
+    /** Add a symbol to the active watchlist (normalised by the repository). */
+    fun addSymbolToWatchlist(symbol: String) {
+        val listId = _uiState.value.activeWatchlistId ?: return
+        viewModelScope.launch { watchlistRepository.addSymbol(listId, symbol) }
+    }
+
+    fun removeSymbolFromWatchlist(symbol: String) {
+        val listId = _uiState.value.activeWatchlistId ?: return
+        viewModelScope.launch { watchlistRepository.removeSymbol(listId, symbol) }
     }
 
     /** Observe persisted drawings for the current symbol/timeframe. */

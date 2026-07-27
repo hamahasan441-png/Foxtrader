@@ -87,7 +87,14 @@ data class ChartUiState(
     val indicators: IndicatorToggles = IndicatorToggles(),
     val showIndicatorPanel: Boolean = false,
     val showSymbolPicker: Boolean = false,
-    val availableSymbols: List<String> = DEFAULT_SYMBOLS,
+    /**
+     * Symbols from the user's active watchlist. Empty until the repository
+     * emits. The seed list now lives in WatchlistRepositoryImpl and is a
+     * starting point the user can edit, not a compiled-in list.
+     */
+    val availableSymbols: List<String> = emptyList(),
+    /** Active (default) watchlist id, or null before the first emission. */
+    val activeWatchlistId: String? = null,
     val connectionState: ConnectionState = ConnectionState.DISCONNECTED,
     val liveEnabled: Boolean = false,
 
@@ -116,6 +123,8 @@ data class ChartUiState(
         if (other !is ChartUiState) return false
         return symbol == other.symbol && timeframe == other.timeframe &&
             candles == other.candles && dataSource == other.dataSource &&
+            availableSymbols == other.availableSymbols &&
+            activeWatchlistId == other.activeWatchlistId &&
             bias == other.bias &&
             structureBreaks == other.structureBreaks &&
             orderBlocks == other.orderBlocks &&
@@ -150,12 +159,4 @@ data class ChartUiState(
         return result
     }
 
-    companion object {
-        val DEFAULT_SYMBOLS = listOf(
-            "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD",
-            "EURJPY", "GBPJPY", "XAUUSD", "XAGUSD",
-            "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT",
-            "US30", "NAS100", "US500", "WTIUSD",
-        )
-    }
 }
