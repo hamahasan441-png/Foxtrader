@@ -2559,3 +2559,105 @@ behind §9's incremental-analysis work.
    time; until it is committed, future migrations have no v4 baseline to migrate
    *from* and `MigrationTestHelper` cannot be used. Run `./gradlew :app:assembleDebug`
    locally and commit the resulting `app/schemas/**`.
+
+---
+
+# Appendix H: Sprint 7 Improvement Log — Activation (Portfolio)
+
+Sprint 7 attacks the **Class B** backlog from `ENHANCEMENT_MASTERPLAN.md`: eleven
+engines that shipped fully implemented and unit-tested but with **zero call sites**.
+~1,500 lines of tested domain logic delivering no user value. The sprint rule is
+strict: **no new domain engines** — only wiring what exists.
+
+## PortfolioEngine (189 lines, 0 call sites → live screen)
+
+### The position-source problem
+
+`PortfolioEngine.analyze()` consumes `List<Position>`, which the SDK defines as
+coming from a `BrokerAdapter`. Grepping for implementors returns only
+`RiskGatedBrokerExecutor` — **no broker adapter exists**, and per the masterplan none
+will until the risk engine is battle-tested with real capital.
+
+So where does a "portfolio" come from? The honest answer: the trade journal's **open**
+entries are the only record of what the user is actually holding.
+`JournalPositionMapper` bridges them.
+
+Two decisions worth recording:
+
+- **Closed entries are excluded.** They carry realised P&L and contribute zero open
+  exposure; including them would double-count risk that no longer exists.
+- **A missing live price falls back to the entry price**, which yields an unrealised
+  P&L of exactly `0.0`. The alternative — inventing a mark price — would fabricate a
+  number in the one place a trader is most likely to trust it.
+
+### Correlation clusters
+
+`PortfolioEngine` already reports a single `correlatedExposurePercent`: the worst
+cluster's total. That is the correct input for a *risk gate*, but it is not
+*explainable* — a trader reading "correlated exposure 240%" cannot tell which
+positions are the problem.
+
+`CorrelationClusterBuilder` does union-find over the correlation pairs to produce the
+named groups.
+
+`NOTE` Linking is **transitive**: if A~B and B~C are both strong, A, B and C form one
+cluster even when A~C is weak. This is the conservative reading — a chain of strongly
+linked positions can still unwind together — and it is asserted directly in
+`CorrelationClusterBuilderTest`.
+
+`WARNING` The peak correlation keeps its **sign**. Reporting `abs()` would render a
+`-0.95` hedge identically to a `+0.95` compounding cluster, inverting the risk
+reading in exactly the case where it matters most. `Cluster.isHedge` exposes this.
+
+### Navigation placement
+
+Portfolio is a **Journal sub-destination**, not a seventh bottom-bar tab. Material 3
+guidance caps a navigation bar at 3–5 destinations and FoxTrader already runs 6; a
+7th would crowd the labels on small screens. Exposure is derived from journal trades,
+so it belongs in that hierarchy anyway.
+
+### Provenance carried through
+
+Per the Sprint 6 contract, the screen tracks `CandleSource` for the symbols it prices.
+Correlation between two synthetic series is an artefact of the generator seed, not a
+market relationship, so a portfolio priced off generated bars is labelled rather than
+silently trusted.
+
+## Testing
+
+| Suite | Cases | Covers |
+|-------|-------|--------|
+| `JournalPositionMapperTest` | 8 | Closed-trade exclusion, symbol normalisation, honest 0.0 P&L on missing/invalid price, long/short P&L sign |
+| `CorrelationClusterBuilderTest` | 8 | Threshold gating, transitive chains, sign preservation on hedges, unheld-symbol filtering, multi-cluster ordering |
+
+## A CI lesson worth keeping
+
+The first push failed with **`assembleDebug` green and `testDebugUnitTest` red** —
+which reads like a failing assertion but was actually a *compile error in the test
+source set*: `CorrelationClusterBuilderTest` referenced `cluster.isHedge`, a property
+that existed only on the UI-layer `CorrelationCluster`, not on the domain
+`Cluster` the builder returns.
+
+`NOTE` Gradle reports test-source compilation failures through the test task, so
+"build passed, tests failed" does **not** imply an assertion failure. Because the
+sandbox cannot download CI logs, the culprit was isolated by pushing with one suite
+removed — a slow but reliable bisect. The fix moved `isHedge` to the domain type,
+where the sign of a correlation belongs.
+
+The episode also exposed a weak test: `pairs involving unheld symbols are ignored`
+originally passed through the `size >= 2` short-circuit rather than by exercising the
+filter, so it would not have caught a regression. It now holds two symbols and
+asserts that a strong correlation to an *unheld* third symbol creates no cluster.
+
+## Remaining Class B backlog
+
+| Engine | LOC | Planned surface |
+|---|---:|---|
+| `SmartAlertEngine` | 205 | Alerts inbox (engine + dispatcher + worker exist; no UI at all) |
+| `WatchlistManager` | 94 | User-defined watchlists, replacing hardcoded `DEFAULT_SYMBOLS` |
+| `PositionCalculator` | 144 | Position-size sheet from chart / AI panel |
+| `MultiChartManager` | 143 | Multi-chart layouts (Sprint 8) |
+| `MarketHeatmap` | 146 | Scanner grid mode |
+| `NewsEngine` | 133 | News feed (`NewsAgent` votes on news the app never fetches) |
+| `ConfluenceEngine`, `MarketProfile`, `SupportResistanceDetector`, `FibonacciEngine` | 371 | Chart layers (Sprint 8) |
+| `SeasonalityEngine` | 81 | Analytics surface |
