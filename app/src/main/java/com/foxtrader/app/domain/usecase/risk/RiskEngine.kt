@@ -161,13 +161,21 @@ class RiskEngine @Inject constructor() {
     // PRE-TRADE RISK CHECK
     // ========================================================================
 
-    fun canOpenTrade(riskAmount: Double): RiskCheckResult {
+    fun canOpenTrade(
+        riskAmount: Double,
+        currentPortfolioExposurePercent: Double = 0.0,
+        proposedExposurePercent: Double = 0.0,
+        currentCorrelatedExposurePercent: Double = 0.0,
+        proposedCorrelatedExposurePercent: Double = 0.0,
+    ): RiskCheckResult {
         val reasons = mutableListOf<String>()
 
         val dailyLoss = getDailyLoss()
         val weeklyLoss = getWeeklyLoss()
         val consecutive = getConsecutiveLosses()
         val drawdown = getCurrentDrawdown()
+        val portfolioExposure = (currentPortfolioExposurePercent + proposedExposurePercent).coerceAtLeast(0.0)
+        val correlatedExposure = (currentCorrelatedExposurePercent + proposedCorrelatedExposurePercent).coerceAtLeast(0.0)
 
         if (tradingHalted) reasons += "Trading halted: $haltReason"
 
@@ -175,6 +183,14 @@ class RiskEngine @Inject constructor() {
         if (riskAmount <= 0.0) reasons += "Risk amount must be positive"
         if (riskAmount > maxRiskPerTrade) {
             reasons += "Proposed risk ${riskAmount.roundToInt()} exceeds per-trade limit ${maxRiskPerTrade.roundToInt()}"
+        }
+
+        if (portfolioExposure > config.maxPortfolioExposurePercent) {
+            reasons += "Portfolio exposure ${portfolioExposure.roundToInt()}% exceeds limit ${config.maxPortfolioExposurePercent.roundToInt()}%"
+        }
+
+        if (correlatedExposure > config.maxCorrelatedExposurePercent) {
+            reasons += "Correlated exposure ${correlatedExposure.roundToInt()}% exceeds limit ${config.maxCorrelatedExposurePercent.roundToInt()}%"
         }
 
         val maxDaily = config.accountBalance * (config.maxDailyLossPercent / 100.0)
@@ -196,7 +212,7 @@ class RiskEngine @Inject constructor() {
             currentWeeklyLoss = weeklyLoss,
             consecutiveLosses = consecutive,
             currentDrawdown = drawdown,
-            portfolioExposure = 0.0, // simplified — no open-position tracking in domain layer
+            portfolioExposure = portfolioExposure,
         )
     }
 

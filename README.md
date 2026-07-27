@@ -43,7 +43,7 @@ A native Android trading-analysis app built with **Kotlin 2.0, Jetpack Compose, 
 - 6 position sizing methods: Fixed Lots, Fixed Risk, Percentage, Kelly Criterion, ATR-Based, Volatility
 - 4 stop-loss calculation methods: Fixed, ATR, Volatility, Structure
 - Mandatory risk-gated order and broker-execution services before any simulated/live order creation
-- Pre-trade risk gating: daily/weekly loss limits, max drawdown, consecutive loss protection
+- Pre-trade risk gating: per-trade risk, portfolio exposure, correlated exposure, daily/weekly loss limits, max drawdown, consecutive loss protection
 - Auto-halt with configurable thresholds
 - Kelly Criterion estimation from trade history
 
