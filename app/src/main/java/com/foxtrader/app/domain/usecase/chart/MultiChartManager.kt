@@ -1,6 +1,7 @@
 package com.foxtrader.app.domain.usecase.chart
 
 import com.foxtrader.app.domain.model.Timeframe
+import kotlinx.serialization.Serializable
 import javax.inject.Inject
 import javax.inject.Singleton
 import java.util.UUID
@@ -184,6 +185,7 @@ data class ChartPanelSeed(
 /**
  * Multi-chart layout presets.
  */
+@Serializable
 enum class ChartLayout(val columns: Int, val rows: Int) {
     SINGLE(1, 1),
     HORIZONTAL_SPLIT(2, 1),
