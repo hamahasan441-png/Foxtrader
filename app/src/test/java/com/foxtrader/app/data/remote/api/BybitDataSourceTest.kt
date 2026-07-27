@@ -72,6 +72,7 @@ class BybitDataSourceTest {
             symbol: String,
             interval: String,
             limit: Int,
+            end: Long?,
         ): BybitKlineResponse {
             this.category = category
             this.symbol = symbol

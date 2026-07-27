@@ -61,5 +61,14 @@ class MtfContextProviderTest {
             symbol: String,
             timeframe: Timeframe,
         ): SourcedCandles = SourcedCandles(data[symbol].orEmpty(), CandleSource.LIVE)
+
+        override suspend fun loadOlderCandles(
+            symbol: String,
+            timeframe: Timeframe,
+            beforeTimestamp: Long,
+            limit: Int,
+        ): Result<SourcedCandles> = Result.success(
+            SourcedCandles(emptyList(), CandleSource.CACHED)
+        )
     }
 }
