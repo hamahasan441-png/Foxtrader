@@ -6,20 +6,40 @@ import android.content.Context
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.foxtrader.app.domain.model.AlertPriority
+import com.foxtrader.app.di.IoDispatcher
 import com.foxtrader.app.domain.model.FoxAlert
+import com.foxtrader.app.domain.repository.AlertRepository
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
  * Android-native alert dispatcher.
- * Bridges the domain [AlertEngine] output to Android's notification system
- * using NotificationCompat for backward compatibility (API 29+).
+ * Bridges domain alert output to Android's notification system using
+ * NotificationCompat for backward compatibility (API 29+).
+ *
+ * Dispatching also **records the alert to the inbox**. Persistence is done here
+ * rather than at each call site deliberately: a notification the user swipes
+ * away used to be gone forever, and making history a side effect of delivery
+ * means no future caller can post an alert that silently vanishes.
  */
 @Singleton
 class AlertDispatcher @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val alertRepository: AlertRepository,
+    @IoDispatcher private val io: CoroutineDispatcher,
 ) {
+
+    /**
+     * Scope for persistence. Deliberately application-scoped (SupervisorJob):
+     * a caller's coroutine may be cancelled the moment its ViewModel clears,
+     * which must not drop the history write for an alert already shown.
+     */
+    private val scope = CoroutineScope(SupervisorJob() + io)
 
     companion object {
         const val CHANNEL_TRADING = "fox_trading_alerts"
@@ -35,9 +55,11 @@ class AlertDispatcher @Inject constructor(
     }
 
     /**
-     * Dispatch a [FoxAlert] as an Android notification.
+     * Dispatch a [FoxAlert] as an Android notification and record it in the
+     * inbox.
      */
     fun dispatch(alert: FoxAlert) {
+        scope.launch { alertRepository.record(alert) }
         val channelId = when (alert.priority) {
             AlertPriority.CRITICAL, AlertPriority.HIGH -> CHANNEL_RISK
             AlertPriority.MEDIUM -> CHANNEL_TRADING

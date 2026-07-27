@@ -26,6 +26,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.foxtrader.app.feature.auth.presentation.LoginScreen
+import com.foxtrader.app.feature.alerts.presentation.AlertsScreen
 import com.foxtrader.app.feature.backtest.presentation.BacktestLabScreen
 import com.foxtrader.app.feature.chart.presentation.ChartScreen
 import com.foxtrader.app.feature.journal.presentation.JournalScreen
@@ -42,6 +43,7 @@ object FoxRoutes {
     const val BACKTEST_LAB = "backtest_lab"
     const val JOURNAL = "journal"
     const val PORTFOLIO = "portfolio"
+    const val ALERTS = "alerts"
     const val SETTINGS = "settings"
     const val LOGIN = "login"
 }
@@ -83,7 +85,16 @@ fun FoxNavHost(
             modifier = Modifier.padding(innerPadding),
         ) {
             composable(FoxRoutes.CHART) {
-                ChartScreen()
+                ChartScreen(
+                    onNavigateToAlerts = { navController.navigate(FoxRoutes.ALERTS) },
+                )
+            }
+            // Alerts is reachable from the Chart top bar rather than a 7th
+            // bottom tab: Material 3 caps the bar at 5 destinations (already
+            // exceeded at 6), and the chart is where a trader reacts to a
+            // signal.
+            composable(FoxRoutes.ALERTS) {
+                AlertsScreen()
             }
             composable(FoxRoutes.SCANNER) {
                 ScannerScreen()

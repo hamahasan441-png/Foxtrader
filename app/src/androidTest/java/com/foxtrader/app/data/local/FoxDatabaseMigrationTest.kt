@@ -219,7 +219,42 @@ class FoxDatabaseMigrationTest {
     }
 
     @Test
-    fun fullChain1To4_thenRoomOpensWithoutFallback() {
+    fun migration4To5_addsAlertsTable_andPreservesUserData() {
+        val db = createV3WithUserData()
+        db.execSQL(INSERT_JOURNAL)
+        db.execSQL(INSERT_DRAWING)
+        FoxDatabase.MIGRATION_3_4.migrate(db)
+
+        FoxDatabase.MIGRATION_4_5.migrate(db)
+
+        // New table exists and is empty.
+        assertEquals(0, db.countOf("alerts"))
+
+        // Purely additive: user-authored data is untouched.
+        db.query("SELECT notes FROM journal_entries WHERE id = 'j1'").use { c ->
+            assertTrue("journal entry was lost during 4->5", c.moveToFirst())
+            assertEquals("runner", c.getString(0))
+        }
+        db.query("SELECT label FROM chart_drawings WHERE id = 'd1'").use { c ->
+            assertTrue("drawing was lost during 4->5", c.moveToFirst())
+            assertEquals("resistance", c.getString(0))
+        }
+
+        // The table accepts a write with the expected shape.
+        db.execSQL(
+            "INSERT INTO alerts (id, title, body, priority, symbol, timestamp, acknowledged) " +
+                "VALUES ('a1', 'BUY EURUSD', 'body', 'HIGH', 'EURUSD', 1000, 0)"
+        )
+        db.query("SELECT priority, acknowledged FROM alerts WHERE id = 'a1'").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals("HIGH", c.getString(0))
+            assertEquals(0, c.getInt(1))
+        }
+        db.close()
+    }
+
+    @Test
+    fun fullChain1To5_thenRoomOpensWithoutFallback() {
         val db = openRaw(1) { d ->
             d.execSQL(DDL_CANDLES_V1)
             d.execSQL(DDL_CANDLES_INDEX_V1)
@@ -233,7 +268,8 @@ class FoxDatabaseMigrationTest {
         FoxDatabase.MIGRATION_2_3.migrate(db)
         db.execSQL(INSERT_DRAWING)
         FoxDatabase.MIGRATION_3_4.migrate(db)
-        db.version = 4
+        FoxDatabase.MIGRATION_4_5.migrate(db)
+        db.version = 5
         db.close()
 
         // Room must accept the migrated file WITHOUT destructive fallback. If a
@@ -251,6 +287,10 @@ class FoxDatabaseMigrationTest {
             val entries = journal.getAll()
             assertEquals(1, entries.size)
             assertEquals("runner", entries.first().notes)
+
+            // The v5 table is queryable through its DAO, which also proves the
+            // migrated shape matches AlertEntity.
+            room.alertDao().acknowledgeAll()
         }
         assertTrue("Room could not open the migrated database", room.isOpen)
         room.close()

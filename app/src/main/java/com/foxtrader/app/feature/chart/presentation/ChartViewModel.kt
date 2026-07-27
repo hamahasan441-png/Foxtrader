@@ -14,6 +14,7 @@ import com.foxtrader.app.domain.model.DrawingToolType
 import com.foxtrader.app.domain.model.ReplayState
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.repository.DrawingRepository
+import com.foxtrader.app.domain.repository.AlertRepository
 import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import com.foxtrader.app.domain.usecase.ai.AgentOrchestrator
@@ -38,6 +39,8 @@ import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -73,6 +76,7 @@ class ChartViewModel @Inject constructor(
     private val marketExplanationEngine: MarketExplanationEngine,
     private val aiAlertService: AiAlertService,
     private val alertDispatcher: AlertDispatcher,
+    private val alertRepository: AlertRepository,
     private val drawingRepository: DrawingRepository,
     private val appPreferences: AppPreferences,
     profiler: PerformanceProfiler,
@@ -99,6 +103,10 @@ class ChartViewModel @Inject constructor(
 
     /** WebSocket connection state for the UI indicator. */
     val connectionState: StateFlow<ConnectionState> = webSocket.connectionState
+
+    /** Unread alert count for the chart's alerts-bell badge. */
+    val unreadAlertCount: StateFlow<Int> = alertRepository.observeUnacknowledgedCount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     private val symbolFlow = MutableStateFlow(_uiState.value.symbol)
     private val timeframeFlow = MutableStateFlow(_uiState.value.timeframe)

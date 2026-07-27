@@ -59,8 +59,13 @@ class ScanAlertWorker @AssistedInject constructor(
     }
 
     private suspend fun evaluateSymbol(symbol: String) {
-        val candles = repository.getCandles(symbol, SCAN_TIMEFRAME)
+        // Sourced fetch: a background scan must not push a notification for a
+        // signal computed over synthetic seed bars. The decision engine vetoes
+        // on provenance, but only if it is actually told what it is analysing.
+        val sourced = repository.getSourcedCandles(symbol, SCAN_TIMEFRAME)
+        val candles = sourced.candles
         if (candles.size < MIN_BARS) return
+        if (!sourced.source.isTrustworthy) return
 
         val context = AgentContext(
             symbol = symbol,
@@ -71,7 +76,7 @@ class ScanAlertWorker @AssistedInject constructor(
         )
 
         val orchestratorResult = orchestrator.analyze(context)
-        val decision = decisionEngine.evaluate(orchestratorResult)
+        val decision = decisionEngine.evaluate(orchestratorResult, sourced.source)
 
         val alert = aiAlertService.evaluate(decision, symbol)
         if (alert != null) {

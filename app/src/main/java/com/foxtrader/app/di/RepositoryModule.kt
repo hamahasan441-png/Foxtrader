@@ -1,9 +1,11 @@
 package com.foxtrader.app.di
 
+import com.foxtrader.app.data.repository.AlertRepositoryImpl
 import com.foxtrader.app.data.repository.AuthRepositoryImpl
 import com.foxtrader.app.data.repository.DrawingRepositoryImpl
 import com.foxtrader.app.data.repository.JournalRepositoryImpl
 import com.foxtrader.app.data.repository.MarketRepositoryImpl
+import com.foxtrader.app.domain.repository.AlertRepository
 import com.foxtrader.app.domain.repository.AuthRepository
 import com.foxtrader.app.domain.repository.DrawingRepository
 import com.foxtrader.app.domain.repository.JournalRepository
@@ -37,4 +39,8 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindDrawingRepository(impl: DrawingRepositoryImpl): DrawingRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindAlertRepository(impl: AlertRepositoryImpl): AlertRepository
 }

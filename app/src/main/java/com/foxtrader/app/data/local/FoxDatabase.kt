@@ -4,9 +4,11 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.foxtrader.app.data.local.dao.AlertDao
 import com.foxtrader.app.data.local.dao.CandleDao
 import com.foxtrader.app.data.local.dao.DrawingDao
 import com.foxtrader.app.data.local.dao.JournalDao
+import com.foxtrader.app.data.local.entity.AlertEntity
 import com.foxtrader.app.data.local.entity.CandleEntity
 import com.foxtrader.app.data.local.entity.DrawingEntity
 import com.foxtrader.app.data.local.entity.JournalEntity
@@ -21,6 +23,7 @@ import com.foxtrader.app.data.local.entity.JournalEntity
  * - v2: adds journal_entries table (user-authored, syncable).
  * - v3: adds chart_drawings table (user-authored, syncable).
  * - v4: adds candles.source (provenance — real vs synthetic bars).
+ * - v5: adds alerts table (dispatched alert history + acknowledgement).
  *
  * `exportSchema = true` writes the schema JSON to app/schemas/, which is what
  * makes MigrationTestHelper possible. Destructive fallback is deliberately NOT
@@ -29,14 +32,20 @@ import com.foxtrader.app.data.local.entity.JournalEntity
  * device.
  */
 @Database(
-    entities = [CandleEntity::class, JournalEntity::class, DrawingEntity::class],
-    version = 4,
+    entities = [
+        CandleEntity::class,
+        JournalEntity::class,
+        DrawingEntity::class,
+        AlertEntity::class,
+    ],
+    version = 5,
     exportSchema = true,
 )
 abstract class FoxDatabase : RoomDatabase() {
     abstract fun candleDao(): CandleDao
     abstract fun journalDao(): JournalDao
     abstract fun drawingDao(): DrawingDao
+    abstract fun alertDao(): AlertDao
 
     companion object {
         const val NAME = "foxtrader.db"
@@ -122,6 +131,38 @@ abstract class FoxDatabase : RoomDatabase() {
             }
         }
 
-        val MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+        /**
+         * v4 -> v5: create the alerts table.
+         *
+         * Purely additive — no existing table is touched, so user data is
+         * unaffected. Alerts are a derived record of what was dispatched, but
+         * they are still kept across upgrades: acknowledgement state is a small
+         * piece of user intent and there is no cost to preserving it.
+         */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS alerts (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        title TEXT NOT NULL,
+                        body TEXT NOT NULL,
+                        priority TEXT NOT NULL,
+                        symbol TEXT,
+                        timestamp INTEGER NOT NULL,
+                        acknowledged INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_alerts_timestamp ON alerts (timestamp)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_alerts_acknowledged ON alerts (acknowledged)"
+                )
+            }
+        }
+
+        val MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
     }
 }

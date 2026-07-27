@@ -3,6 +3,7 @@ package com.foxtrader.app.di
 import android.content.Context
 import androidx.room.Room
 import com.foxtrader.app.data.local.FoxDatabase
+import com.foxtrader.app.data.local.dao.AlertDao
 import com.foxtrader.app.data.local.dao.CandleDao
 import com.foxtrader.app.data.local.dao.DrawingDao
 import com.foxtrader.app.data.local.dao.JournalDao
@@ -37,4 +38,7 @@ object DatabaseModule {
 
     @Provides
     fun provideDrawingDao(db: FoxDatabase): DrawingDao = db.drawingDao()
+
+    @Provides
+    fun provideAlertDao(db: FoxDatabase): AlertDao = db.alertDao()
 }

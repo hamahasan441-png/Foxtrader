@@ -13,9 +13,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.filled.Warning
@@ -83,11 +85,13 @@ import com.foxtrader.app.ui.theme.FoxSuccess
 @Composable
 fun ChartScreen(
     modifier: Modifier = Modifier,
+    onNavigateToAlerts: () -> Unit = {},
     viewModel: ChartViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val replayState by viewModel.replayState.collectAsStateWithLifecycle()
     val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
+    val unreadAlerts by viewModel.unreadAlertCount.collectAsStateWithLifecycle()
 
     // --- Render performance instrumentation (DEVELOPMENT.md §4.14) ---
     val monitor = viewModel.performanceMonitor
@@ -119,6 +123,8 @@ fun ChartScreen(
         ChartTopBar(
             state = state,
             connectionState = connectionState,
+            unreadAlerts = unreadAlerts,
+            onAlertsClick = onNavigateToAlerts,
             onSymbolClick = viewModel::openSymbolPicker,
             onIndicatorsToggle = viewModel::toggleIndicatorPanel,
             onLiveToggle = viewModel::toggleLive,
@@ -268,6 +274,8 @@ fun ChartScreen(
 private fun ChartTopBar(
     state: ChartUiState,
     connectionState: ConnectionState,
+    unreadAlerts: Int,
+    onAlertsClick: () -> Unit,
     onSymbolClick: () -> Unit,
     onIndicatorsToggle: () -> Unit,
     onLiveToggle: () -> Unit,
@@ -354,6 +362,8 @@ private fun ChartTopBar(
         IconButton(onClick = onReplayStart) {
             Icon(Icons.Default.Refresh, contentDescription = "Start replay mode", tint = FoxNeutral60)
         }
+        // Alerts inbox, with unread badge.
+        AlertsBellButton(unreadCount = unreadAlerts, onClick = onAlertsClick)
 
         // Price
         state.lastPrice?.let { price ->
@@ -419,6 +429,38 @@ private fun TimeframeRow(
  * trader forgetting that the provider was unreachable and reading a fabricated
  * random walk as their broker's price feed. It stays until real data arrives.
  */
+/** Alerts entry point with an unread-count badge overlaid on the bell. */
+@Composable
+private fun AlertsBellButton(unreadCount: Int, onClick: () -> Unit) {
+    Box {
+        IconButton(onClick = onClick) {
+            Icon(
+                imageVector = Icons.Default.Notifications,
+                contentDescription = if (unreadCount > 0) {
+                    "Alerts inbox, $unreadCount unread"
+                } else {
+                    "Alerts inbox"
+                },
+                tint = if (unreadCount > 0) FoxAmber50 else FoxNeutral60,
+            )
+        }
+        if (unreadCount > 0) {
+            Text(
+                text = if (unreadCount > 9) "9+" else unreadCount.toString(),
+                color = MaterialTheme.colorScheme.background,
+                fontSize = 8.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 4.dp, end = 2.dp)
+                    .clip(CircleShape)
+                    .background(FoxAmber50)
+                    .padding(horizontal = 4.dp),
+            )
+        }
+    }
+}
+
 @Composable
 private fun SyntheticDataBanner(visible: Boolean) {
     if (!visible) return
