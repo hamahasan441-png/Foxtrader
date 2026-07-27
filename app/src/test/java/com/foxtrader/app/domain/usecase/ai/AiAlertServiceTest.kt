@@ -19,7 +19,7 @@ class AiAlertServiceTest {
 
     @Before
     fun setup() {
-        service = AiAlertService()
+        service = AiAlertService(TradeExplanationEngine())
         service.cooldownMs = 5 * 60_000L
     }
 

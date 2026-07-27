@@ -24,7 +24,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class AiAlertService @Inject constructor(
-    private val tradeExplanationEngine: TradeExplanationEngine = TradeExplanationEngine(),
+    private val tradeExplanationEngine: TradeExplanationEngine,
 ) {
 
     // ConcurrentHashMap for safe access from multiple coroutines.
