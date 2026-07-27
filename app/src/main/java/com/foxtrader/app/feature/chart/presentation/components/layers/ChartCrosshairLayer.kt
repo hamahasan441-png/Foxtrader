@@ -14,6 +14,7 @@ import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxNeutral10
 import com.foxtrader.app.ui.theme.FoxNeutral20
 import com.foxtrader.app.ui.theme.FoxNeutral60
+import java.util.Locale
 import kotlin.math.abs
 
 // Layer 5 — bar-snapped crosshair and its OHLC readout panel.

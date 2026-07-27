@@ -9,6 +9,8 @@ import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.feature.chart.presentation.components.ChartViewport
 import com.foxtrader.app.ui.theme.FoxAmber50
+import com.foxtrader.app.ui.theme.FoxBearish
+import com.foxtrader.app.ui.theme.FoxBullish
 import com.foxtrader.app.ui.theme.FoxNeutral10
 import com.foxtrader.app.ui.theme.FoxNeutral20
 import com.foxtrader.app.ui.theme.FoxNeutral5

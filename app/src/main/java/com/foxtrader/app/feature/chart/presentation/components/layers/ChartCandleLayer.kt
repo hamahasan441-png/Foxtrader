@@ -2,6 +2,7 @@ package com.foxtrader.app.feature.chart.presentation.components.layers
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.feature.chart.presentation.components.ChartViewport
