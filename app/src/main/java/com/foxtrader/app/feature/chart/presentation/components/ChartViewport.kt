@@ -7,11 +7,13 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.log10
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
+import kotlin.math.roundToInt
 
 /**
  * Chart viewport — the "camera" over the candle series.
@@ -60,7 +62,7 @@ class ChartViewport(
     fun chartHeight(totalHeight: Float): Float = (totalHeight - timeAxisHeight).coerceAtLeast(1f)
 
     // ========================================================================
-    // FLING / VELOCITY STATE
+    // FLING / VELOCITY STATE (DEVELOPMENT.md §4.9)
     // ========================================================================
 
     /** Current horizontal velocity in bars/second (set on finger lift). */
@@ -68,6 +70,65 @@ class ChartViewport(
 
     /** Whether fling animation is currently active. */
     var isFling: Boolean = false
+
+    /**
+     * Start a fling from a lift-off velocity expressed in **pixels/second**.
+     *
+     * The pixel velocity is converted into bar-space using the current zoom
+     * level so the deceleration feels identical at every zoom. Velocities below
+     * [MIN_FLING_BARS_PER_SEC] are ignored (a slow lift-off is not a fling).
+     *
+     * @return true when a fling was actually started.
+     */
+    fun startFling(velocityPxPerSec: Float, chartAreaWidth: Float): Boolean {
+        val barsPerPx = visibleBars / chartAreaWidth.coerceAtLeast(1f)
+        // Dragging right (positive px velocity) moves the viewport left in bar space.
+        val barsPerSec = -velocityPxPerSec * barsPerPx
+        if (abs(barsPerSec) < MIN_FLING_BARS_PER_SEC) {
+            stopFling()
+            return false
+        }
+        velocityBarsPerSec = barsPerSec.coerceIn(-MAX_FLING_BARS_PER_SEC, MAX_FLING_BARS_PER_SEC)
+        isFling = true
+        return true
+    }
+
+    /**
+     * Advance an in-flight fling by [deltaSeconds] of wall-clock time.
+     *
+     * Uses exponential (friction-based) deceleration, which is the model
+     * Android's own scrollers use: `v *= friction^dt`. This is frame-rate
+     * independent — a 120 Hz device and a 60 Hz device travel the same distance.
+     *
+     * `PERF` Pure math, zero allocation. Safe to call once per frame.
+     *
+     * @return true while the fling is still running, false once it settled.
+     */
+    fun advanceFling(deltaSeconds: Float, total: Int): Boolean {
+        if (!isFling) return false
+        val dt = deltaSeconds.coerceIn(0f, MAX_FLING_STEP_SECONDS)
+        startIndex += velocityBarsPerSec * dt
+        velocityBarsPerSec *= FLING_FRICTION.pow(dt)
+
+        val maxStart = max(0f, total - visibleBars)
+        // Hitting a hard bound kills the fling immediately (no rubber-banding).
+        if (startIndex <= 0f || startIndex >= maxStart) {
+            startIndex = startIndex.coerceIn(0f, maxStart)
+            stopFling()
+            return false
+        }
+        if (abs(velocityBarsPerSec) < MIN_FLING_BARS_PER_SEC) {
+            stopFling()
+            return false
+        }
+        return true
+    }
+
+    /** Cancel any in-flight fling (called when a new touch lands). */
+    fun stopFling() {
+        isFling = false
+        velocityBarsPerSec = 0f
+    }
 
     // ========================================================================
     // CROSSHAIR STATE
@@ -87,6 +148,19 @@ class ChartViewport(
 
     /** Total width (needed for crosshair index calc). Set externally. */
     var crosshairTotalWidth: Float = 1f
+
+    /**
+     * Bar index under the crosshair, snapped to the nearest bar centre and
+     * clamped into `[0, total - 1]`. Returns -1 when there is no data.
+     *
+     * `RULE` (DEVELOPMENT.md §4.7) Crosshair readouts must always resolve to a
+     * real, in-range bar — never to a fractional or out-of-bounds index.
+     */
+    fun snappedCrosshairIndex(total: Int, chartAreaWidth: Float): Int {
+        if (total <= 0) return -1
+        val raw = indexForX(crosshairX.coerceIn(0f, chartAreaWidth), chartAreaWidth)
+        return raw.roundToInt().coerceIn(0, total - 1)
+    }
 
     // ========================================================================
     // COORDINATE TRANSFORMS
@@ -114,6 +188,56 @@ class ChartViewport(
 
     /** Pixel width of a single bar within the chart area. */
     fun barWidthPx(chartAreaWidth: Float): Float = chartAreaWidth / visibleBars
+
+    // ========================================================================
+    // CAMERA OPERATIONS
+    // ========================================================================
+
+    /**
+     * Pan the camera horizontally by a finger delta in pixels.
+     *
+     * Positive [panPx] (finger moving right) reveals *older* bars, matching the
+     * direct-manipulation model required by DEVELOPMENT.md §4.9.
+     */
+    fun panByPixels(panPx: Float, chartAreaWidth: Float) {
+        if (panPx == 0f) return
+        startIndex -= panPx * (visibleBars / chartAreaWidth.coerceAtLeast(1f))
+    }
+
+    /**
+     * Pinch-zoom anchored to the gesture centroid.
+     *
+     * `RULE` (DEVELOPMENT.md §4.6) The bar under the user's fingers must stay
+     * pinned during the zoom. This is the hard-won "no viewport jump" invariant
+     * — do not replace it with a centre-anchored zoom.
+     *
+     * @param zoom scale factor from `detectTransformGestures` (>1 = zoom in).
+     * @param centroidX centroid x in chart-area pixels.
+     */
+    fun zoomBy(zoom: Float, centroidX: Float, chartAreaWidth: Float, total: Int) {
+        if (zoom == 1f || zoom <= 0f) return
+        val cw = chartAreaWidth.coerceAtLeast(1f)
+        val anchorBar = startIndex + (centroidX.coerceIn(0f, cw) / cw) * visibleBars
+        val anchorFraction = (anchorBar - startIndex) / visibleBars.coerceAtLeast(1f)
+        val maxBars = max(MIN_VISIBLE_BARS, total.toFloat())
+        visibleBars = (visibleBars / zoom).coerceIn(MIN_VISIBLE_BARS, maxBars)
+        startIndex = anchorBar - anchorFraction * visibleBars
+    }
+
+    /**
+     * Reset the camera to the most recent [barCount] bars ("go to now").
+     * Used by the double-tap gesture and the chart's initial layout.
+     */
+    fun resetToLatest(total: Int, barCount: Float = DEFAULT_VISIBLE_BARS) {
+        if (total <= 0) return
+        visibleBars = min(barCount, total.toFloat()).coerceAtLeast(MIN_VISIBLE_BARS)
+        startIndex = max(0f, total - visibleBars)
+        stopFling()
+    }
+
+    /** Whether the right edge of the viewport is pinned to the newest bar. */
+    fun isAtRightEdge(total: Int, toleranceBars: Float = 1f): Boolean =
+        startIndex + visibleBars >= total - toleranceBars
 
     // ========================================================================
     // AUTO-SCALE
@@ -144,7 +268,7 @@ class ChartViewport(
     // ========================================================================
 
     /** Clamp the viewport to valid bounds. */
-    fun clamp(total: Int, minBars: Float = 10f, maxBars: Float = 100_000f) {
+    fun clamp(total: Int, minBars: Float = MIN_VISIBLE_BARS, maxBars: Float = MAX_VISIBLE_BARS) {
         visibleBars = visibleBars.coerceIn(minBars, maxBars)
         val maxStart = max(0f, total - visibleBars)
         startIndex = startIndex.coerceIn(0f, maxStart)
@@ -215,4 +339,30 @@ class ChartViewport(
 
     fun copyState(): ChartViewport =
         ChartViewport(startIndex, visibleBars, priceHigh, priceLow)
+
+    companion object {
+        /** Max zoom-in: never fewer than this many bars on screen. */
+        const val MIN_VISIBLE_BARS = 10f
+
+        /** Max zoom-out: bounds the cull-loop cost (DEVELOPMENT.md §4.8). */
+        const val MAX_VISIBLE_BARS = 100_000f
+
+        /** Default window on first layout / after "go to now". */
+        const val DEFAULT_VISIBLE_BARS = 120f
+
+        /**
+         * Per-second velocity retention during a fling (`v *= friction^dt`).
+         * 0.06 ≈ a ~1.2 s glide, tuned to feel like a native Android scroller.
+         */
+        const val FLING_FRICTION = 0.06f
+
+        /** Below this speed the fling is considered settled. */
+        const val MIN_FLING_BARS_PER_SEC = 0.5f
+
+        /** Safety cap so a violent swipe cannot teleport across the dataset. */
+        const val MAX_FLING_BARS_PER_SEC = 4_000f
+
+        /** Clamp for a single integration step (guards against frame stalls). */
+        const val MAX_FLING_STEP_SECONDS = 0.05f
+    }
 }

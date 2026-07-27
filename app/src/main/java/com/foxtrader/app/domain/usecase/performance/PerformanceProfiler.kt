@@ -2,8 +2,7 @@ package com.foxtrader.app.domain.usecase.performance
 
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.math.max
-import kotlin.math.min
+import kotlin.math.roundToInt
 
 /**
  * Performance Profiler — monitors chart rendering and app performance.
@@ -34,13 +33,32 @@ class PerformanceProfiler @Inject constructor() {
         const val SPIKE_THRESHOLD_MS = 32f      // > 2 frame budgets = spike
     }
 
+    private val lock = Any()
+
     private val frameTimesMs = FloatArray(HISTORY_SIZE)
-    private var frameIndex = 0
+
+    /** Scratch buffer for percentile sorting — avoids per-query allocation. */
+    private val sortScratch = FloatArray(HISTORY_SIZE)
+
+    /** Write cursor into the ring buffer, always in `[0, HISTORY_SIZE)`. */
+    private var cursor = 0
+
+    /** Number of populated slots, saturating at [HISTORY_SIZE]. */
+    private var windowCount = 0
+
     private var frameCount = 0L
     private var lastFrameTimeNs = 0L
+
+    /** Running sum of the retained window — makes the average O(1). */
+    private var windowSumMs = 0f
+
     private var totalDroppedFrames = 0L
     private var totalSpikes = 0L
+
+    @Volatile
     private var isActive = false
+
+    @Volatile
     private var targetFps = TARGET_FPS_60
 
     // ========================================================================
@@ -51,28 +69,44 @@ class PerformanceProfiler @Inject constructor() {
      * Call at the start of each frame render.
      * Returns the time since last frame in milliseconds.
      */
-    fun beginFrame(): Float {
+    fun beginFrame(): Float = synchronized(lock) {
         val now = System.nanoTime()
         val deltaMs = if (lastFrameTimeNs > 0) (now - lastFrameTimeNs) / 1_000_000f else 0f
         lastFrameTimeNs = now
-        return deltaMs
+        deltaMs
     }
 
     /**
      * Call at the end of frame render with the render duration.
      * Records timing and detects issues.
+     *
+     * `PERF` O(1) and allocation-free — this runs on the render path for every
+     * single frame, so it must never sort, copy, or box.
      */
     fun endFrame(renderDurationMs: Float) {
         if (!isActive) return
+        if (renderDurationMs.isNaN() || renderDurationMs < 0f) return
 
-        frameTimesMs[frameIndex % HISTORY_SIZE] = renderDurationMs
-        frameIndex++
-        frameCount++
+        synchronized(lock) {
+            // Maintain the running sum by subtracting the sample being evicted.
+            // An explicit cursor (rather than `frameCount % HISTORY_SIZE`) keeps
+            // the index bounded forever — a long-lived session must never be
+            // able to overflow it into a negative array index.
+            windowSumMs += renderDurationMs - frameTimesMs[cursor]
+            frameTimesMs[cursor] = renderDurationMs
+            cursor = (cursor + 1) % HISTORY_SIZE
+            if (windowCount < HISTORY_SIZE) windowCount++
+            frameCount++
 
-        val budget = if (targetFps >= TARGET_FPS_120) FRAME_BUDGET_120_MS else FRAME_BUDGET_60_MS
-        if (renderDurationMs > budget) totalDroppedFrames++
-        if (renderDurationMs > SPIKE_THRESHOLD_MS) totalSpikes++
+            val budget = frameBudgetMs()
+            if (renderDurationMs > budget) totalDroppedFrames++
+            if (renderDurationMs > SPIKE_THRESHOLD_MS) totalSpikes++
+        }
     }
+
+    /** The frame budget in ms for the currently configured target refresh rate. */
+    fun frameBudgetMs(): Float =
+        if (targetFps >= TARGET_FPS_120) FRAME_BUDGET_120_MS else FRAME_BUDGET_60_MS
 
     // ========================================================================
     // METRICS
@@ -80,30 +114,55 @@ class PerformanceProfiler @Inject constructor() {
 
     /** Current FPS based on rolling average of frame times. */
     fun getCurrentFps(): Float {
-        val count = min(frameIndex, HISTORY_SIZE)
-        if (count == 0) return 0f
-        val avgMs = frameTimesMs.take(count).average().toFloat()
-        return if (avgMs > 0) 1000f / avgMs else 0f
+        val avgMs = getAverageFrameTimeMs()
+        return if (avgMs > 0f) 1000f / avgMs else 0f
     }
 
-    /** Average frame render time in milliseconds. */
-    fun getAverageFrameTimeMs(): Float {
-        val count = min(frameIndex, HISTORY_SIZE)
-        if (count == 0) return 0f
-        return frameTimesMs.take(count).average().toFloat()
+    /**
+     * Average frame render time in milliseconds over the rolling window.
+     *
+     * `PERF` O(1) via the maintained running sum — no copying or boxing.
+     */
+    fun getAverageFrameTimeMs(): Float = synchronized(lock) {
+        if (windowCount == 0) 0f else windowSumMs / windowCount
     }
 
     /** Worst frame time in the history window. */
-    fun getWorstFrameTimeMs(): Float {
-        val count = min(frameIndex, HISTORY_SIZE)
-        if (count == 0) return 0f
-        return frameTimesMs.take(count).max()
+    fun getWorstFrameTimeMs(): Float = synchronized(lock) {
+        var worst = 0f
+        for (i in 0 until windowCount) {
+            if (frameTimesMs[i] > worst) worst = frameTimesMs[i]
+        }
+        worst
+    }
+
+    /**
+     * Frame time at the given percentile (0..100) of the rolling window.
+     *
+     * The p95/p99 tail is what users actually perceive as jank — a healthy
+     * average with a bad p99 still feels broken, so [DEVELOPMENT.md §9.1]
+     * budgets are validated against percentiles, not just the mean.
+     */
+    fun getPercentileFrameTimeMs(percentile: Float): Float = synchronized(lock) {
+        if (windowCount == 0) return@synchronized 0f
+        System.arraycopy(frameTimesMs, 0, sortScratch, 0, windowCount)
+        java.util.Arrays.sort(sortScratch, 0, windowCount)
+        val rank = ((percentile.coerceIn(0f, 100f) / 100f) * (windowCount - 1)).roundToInt()
+        sortScratch[rank.coerceIn(0, windowCount - 1)]
     }
 
     /** Frame budget usage as percentage (0-100+). */
-    fun getBudgetUsagePercent(): Float {
-        val budget = if (targetFps >= TARGET_FPS_120) FRAME_BUDGET_120_MS else FRAME_BUDGET_60_MS
-        return (getAverageFrameTimeMs() / budget) * 100f
+    fun getBudgetUsagePercent(): Float = (getAverageFrameTimeMs() / frameBudgetMs()) * 100f
+
+    /** Percentage of frames in the window that exceeded the budget (0-100). */
+    fun getDroppedFrameRatePercent(): Float = synchronized(lock) {
+        if (windowCount == 0) return@synchronized 0f
+        val budget = frameBudgetMs()
+        var over = 0
+        for (i in 0 until windowCount) {
+            if (frameTimesMs[i] > budget) over++
+        }
+        (over.toFloat() / windowCount) * 100f
     }
 
     /** Total dropped frames since profiling started. */
@@ -136,10 +195,12 @@ class PerformanceProfiler @Inject constructor() {
         fps = getCurrentFps(),
         avgFrameTimeMs = getAverageFrameTimeMs(),
         worstFrameTimeMs = getWorstFrameTimeMs(),
+        p95FrameTimeMs = getPercentileFrameTimeMs(95f),
         budgetUsagePercent = getBudgetUsagePercent(),
-        droppedFrames = totalDroppedFrames,
-        spikes = totalSpikes,
-        totalFrames = frameCount,
+        droppedFrameRatePercent = getDroppedFrameRatePercent(),
+        droppedFrames = synchronized(lock) { totalDroppedFrames },
+        spikes = synchronized(lock) { totalSpikes },
+        totalFrames = synchronized(lock) { frameCount },
         tier = getPerformanceTier(),
         targetFps = targetFps,
     )
@@ -149,18 +210,22 @@ class PerformanceProfiler @Inject constructor() {
     // ========================================================================
 
     fun start(targetFps: Int = TARGET_FPS_60) {
-        isActive = true
         this.targetFps = targetFps
         reset()
+        isActive = true
     }
 
     fun stop() {
         isActive = false
     }
 
-    fun reset() {
+    fun isActive(): Boolean = isActive
+
+    fun reset() = synchronized(lock) {
         frameTimesMs.fill(0f)
-        frameIndex = 0
+        windowSumMs = 0f
+        cursor = 0
+        windowCount = 0
         frameCount = 0
         totalDroppedFrames = 0
         totalSpikes = 0
@@ -186,7 +251,9 @@ data class PerformanceSnapshot(
     val fps: Float,
     val avgFrameTimeMs: Float,
     val worstFrameTimeMs: Float,
+    val p95FrameTimeMs: Float,
     val budgetUsagePercent: Float,
+    val droppedFrameRatePercent: Float,
     val droppedFrames: Long,
     val spikes: Long,
     val totalFrames: Long,

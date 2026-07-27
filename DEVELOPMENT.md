@@ -48,6 +48,8 @@ The word **"must"** is normative. **"Should"** is a strong recommendation. **"Ma
 - [Appendix B: Dependency Version Catalog](#appendix-b-dependency-version-catalog)
 - [Appendix C: Troubleshooting Reference](#appendix-c-troubleshooting-reference)
 - [Appendix D: Glossary](#appendix-d-glossary)
+- [Appendix E: Sprint 2/3/4 Improvement Log](#appendix-e-sprint-234-improvement-log)
+- [Appendix F: Sprint 5 Improvement Log](#appendix-f-sprint-5-improvement-log--chart-engine-instrumentation--camera-physics)
 
 ---
 
@@ -747,7 +749,14 @@ Two independent `pointerInput` modifiers, keyed on `candles.size`:
    - Horizontal pan: `startIndex -= pan.x * (visibleBars / chartWidth)`.
    - Pinch zoom **toward viewport center**: `visibleBars /= zoom`, re-center `startIndex`.
    - After mutation: `clamp(...)`, `autoScale(...)`, `invalidateTick++`.
-2. **Crosshair:** `detectTapGestures(onLongPress = { activate + position }, onTap = { dismiss })`.
+2. **Crosshair + reset:** `detectTapGestures(onLongPress = { activate + position }, onDoubleTap = { resetToLatest }, onTap = { dismiss })`.
+3. **Velocity tracking:** an `awaitEachGesture` loop feeds a `VelocityTracker` and starts a fling on lift-off ([4.9](#49-animation--frame-scheduling)). It observes pointer positions **without consuming events**, so pan/zoom behaviour is untouched.
+
+`WARNING` In the velocity-tracking loop, suspend on `awaitFirstDown()` **before** calling `viewport.stopFling()`. Cancelling the fling first kills every fling the instant it starts, because `awaitEachGesture` re-enters as soon as the previous gesture ends.
+
+`RULE` A pinch must never fling. The tracker resets whenever a second pointer goes down, so a two-finger zoom settles exactly where the fingers left it.
+
+`RULE` Camera mutations go through `ChartViewport.panByPixels` / `zoomBy` / `resetToLatest` rather than being open-coded in the composable. Keeping the maths in the viewport is what makes the camera unit-testable on the JVM (`ChartViewportTest`).
 
 `WARNING` **The drift bug.** A previous implementation used *both* a transform handler and a separate drag handler; both applied pan to a single-finger drag, doubling/fighting the movement. **Do not reintroduce a separate `detectDragGestures` for pan.** `detectTransformGestures` natively reports single-pointer pan. This is a hard-won invariant — keep pan and zoom in one handler.
 
@@ -755,9 +764,11 @@ Two independent `pointerInput` modifiers, keyed on `candles.size`:
 
 ## 4.7 Crosshair
 
-- Activated by long-press; deactivated by tap or any pan/zoom.
-- Draws dashed vertical + horizontal lines, plus filled amber readout labels: **price** on the right scale (via `priceForY` + `formatPrice`) and **time** on the bottom axis (snapped to nearest bar via `indexForX` + `formatTime`).
-- `RULE` Crosshair coordinates are clamped to the chart area; the snapped bar index is `coerceIn(0, candles.size - 1)`.
+- Activated by long-press; **dragging while active moves the crosshair instead of the camera** (desktop-terminal behaviour, and the only way to inspect a specific bar precisely). Deactivated by tap, double-tap, or a pan/zoom that starts outside crosshair mode.
+- The **vertical line snaps to the centre of the bar under the finger**; the horizontal line tracks the finger freely so any price level can be read. A line floating between two bars would make the OHLC readout ambiguous.
+- Draws dashed vertical + horizontal lines, plus filled amber readout labels: **price** on the right scale (via `priceForY` + `formatPrice`) and **time** on the bottom axis (via `formatTime`). Edge labels are clamped so they stay fully on screen.
+- **OHLC readout panel:** a compact `O/H/L/C` + percentage-change box anchored to the top of the chart, tinted bullish/bearish by the bar's own direction. It flips to the opposite side of the crosshair when it would otherwise run off the right edge.
+- `RULE` Crosshair coordinates are clamped to the chart area. The snapped bar index comes from `ChartViewport.snappedCrosshairIndex(total, chartAreaWidth)`, which rounds to the nearest bar, clamps into `[0, total - 1]`, and returns `-1` when there is no data. Never index candles with a raw `indexForX` result.
 
 ## 4.8 Infinite Scrolling & Infinite Zoom
 
@@ -769,9 +780,18 @@ Two independent `pointerInput` modifiers, keyed on `candles.size`:
 
 ## 4.9 Animation & Frame Scheduling
 
-- Current interactions are **direct-manipulation** (1:1 with the finger) — no easing needed for pan/zoom, which is correct for a trading chart (predictability over flourish).
-- **Fling** state exists in the viewport (`velocityBarsPerSec`, `isFling`). When implemented, fling animates `startIndex` with a decelerating curve driven by a Compose `Animatable`/`withFrameNanos` loop, bumping `invalidateTick` per frame and stopping when velocity ≈ 0 or a bound is hit.
-- **Frame scheduling:** the `PerformanceProfiler` brackets each frame (`beginFrame()` / `endFrame(durationMs)`), enabling FPS/percentile tracking and adaptive quality. The reference `engine/scheduler.ts` is the model for a future explicit frame scheduler that coalesces data updates + redraws to the display refresh (via `Choreographer`/`withFrameNanos`).
+- Direct manipulation is 1:1 with the finger — no easing on pan/zoom, which is correct for a trading chart (predictability over flourish).
+- **Fling (implemented).** On lift-off, `ChartViewport.startFling(velocityPxPerSec, chartAreaWidth)` converts the pixel velocity into bar-space using the current zoom, so deceleration feels identical whether 20 or 5,000 bars are on screen. `advanceFling(dt, total)` then integrates it once per frame inside a `withFrameNanos` loop.
+- **Friction model:** `v *= FLING_FRICTION^dt` (exponential decay, the model Android's own scrollers use).
+
+  `RULE` The decay must be **frame-rate independent**. Because the friction is raised to the power of the elapsed time, a 120 Hz device and a 60 Hz device travel the same distance for the same flick. Never write `v *= friction` per frame — that makes fling distance depend on refresh rate. Covered by `ChartViewportTest.fling distance is frame-rate independent`.
+
+- **Bounds:** hitting `startIndex == 0` or `total - visibleBars` kills the fling immediately (no rubber-banding — an overscroll bounce on a price chart reads as a data glitch). Velocity is capped at `MAX_FLING_BARS_PER_SEC` so a violent swipe cannot teleport across the dataset, and settles below `MIN_FLING_BARS_PER_SEC`.
+
+  `PERF` The `withFrameNanos` loop is **started by a fling** (keyed on a `flingTick` counter) and exits as soon as the fling settles. An always-on frame loop would wake the chart on every vsync while the user is doing nothing, draining battery for zero benefit.
+
+- **Live-edge following:** when new bars arrive while the camera is parked at the right edge, the window follows them; if the user has scrolled back into history, their position is left alone. `ChartViewport.isAtRightEdge(total)` is the predicate.
+- **Frame scheduling:** `ChartPerformanceMonitor` brackets every draw pass (`beginFrame()` before layer 0, `endFrame()` after layer 7) and feeds the `PerformanceProfiler`. The reference `engine/scheduler.ts` remains the model for a future scheduler that coalesces data updates with the display refresh.
 
 ## 4.10 Overlay & Drawing Engines
 
@@ -817,14 +837,44 @@ FoxTrader targets **120 FPS** (8.33 ms/frame) and guarantees **≥ 60 FPS** (16.
 - Each level toggles features via `QualitySettings`: grid lines, volume profile, indicators, sessions, structure annotations, anti-alias, and `maxVisibleIndicatorPoints`. `MINIMAL` = candles only (emergency).
 
 ```
-Frame → profiler.endFrame(ms) → tier
+CandleChart draw pass
+  monitor.beginFrame()                        ← before layer 0
+  … draw layers, gated by monitor.quality …
+  monitor.endFrame()                          ← after layer 7
          │
-         ▼
- AdaptiveQualityController.evaluate() → QualitySettings
-         │  (e.g. drop volumeProfile at MEDIUM, sessions+annotations at LOW)
-         ▼
- CandleChart reads settings and skips disabled layers next frame
+         ├─→ profiler.endFrame(durationMs)          → tier
+         ├─→ qualityController.evaluate()           → QualitySettings (next frame)
+         └─→ onSnapshot(PerformanceSnapshot)        → debug HUD (throttled, ~4 Hz)
 ```
+
+**`ChartPerformanceMonitor`** — the bridge between the domain profiler and the renderer:
+
+- Owned by `ChartViewModel`, so frame history and the current quality level **survive configuration changes** instead of resetting the chart to `ULTRA` mid-interaction.
+- Started with the display's *actual* refresh rate (`view.display.refreshRate`), so a 120 Hz panel is measured against 8.33 ms and a 60 Hz panel against 16.67 ms. A hard-coded target would either under-report jank or over-degrade quality.
+- Publishes snapshots at most every `SNAPSHOT_INTERVAL_NANOS` (250 ms).
+
+  `PERF` Frame timings arrive at 60–120 Hz. Routing each one through `mutableStateOf`/`StateFlow` would schedule a recomposition per frame and the *measurement* would become the bottleneck. The monitor holds plain fields and pushes to the HUD via a throttled callback.
+
+`RULE` Quality settings are applied on the frame **after** they are computed (`monitor.quality` is read once at the top of the draw pass). Mutating what a frame draws while it is drawing tears the layer stack.
+
+`RULE` `CandleChart` must render at `QualitySettings.FULL` when no monitor is attached, so Compose previews and screenshot tests are never silently degraded.
+
+**Profiler implementation notes:**
+
+- `endFrame` is **O(1) and allocation-free**: a running `windowSumMs` makes the average a division, and an explicit `cursor` keeps the ring-buffer index bounded forever (deriving it from a monotonic frame counter would eventually overflow into a negative array index on a long-lived session).
+- Percentiles (`getPercentileFrameTimeMs`) sort into a **preallocated scratch buffer**, never a fresh array. `p95` is tracked alongside the mean because the tail is what users perceive as jank — a healthy average with a bad p99 still feels broken.
+- Non-finite and negative durations are rejected rather than poisoning the running sum.
+
+**Hysteresis contract** (`AdaptiveQualityControllerTest` is the executable spec):
+
+| Tier | Action |
+|------|--------|
+| `CRITICAL` | Step down **immediately** |
+| `DEGRADED` | Step down after `DOWNGRADE_THRESHOLD` (5) **consecutive** bad frames |
+| `GOOD` / `ACCEPTABLE` | Hold — inside budget, but no headroom to spend |
+| `EXCELLENT` | Step up after `UPGRADE_THRESHOLD` (60) **consecutive** excellent frames |
+
+`RULE` Both streaks must be **consecutive**: any non-matching frame resets the counter. Counting cumulative frames instead lets an alternating good/bad pattern oscillate the quality level, which flickers layers on and off — visibly worse than simply holding a lower quality.
 
 ### 4.15 Benchmark Targets (Chart)
 
@@ -847,6 +897,10 @@ Frame → profiler.endFrame(ms) → tier
 - [ ] Every chart-area layer clipped to `(cw, ch)`.
 - [ ] `PerformanceProfiler` active in debug; no CRITICAL tiers during interaction.
 - [ ] Single unified pan/zoom gesture handler (no separate drag pan).
+- [ ] Draw pass bracketed by `monitor.beginFrame()` / `monitor.endFrame()`.
+- [ ] Every optional layer gated on `monitor.quality`; renderer defaults to `QualitySettings.FULL`.
+- [ ] Fling loop is fling-triggered, not always-on.
+- [ ] Camera maths lives in `ChartViewport` (testable), not inline in the composable.
 
 `TROUBLESHOOT` *Chart doesn't respond to touch* → a parent composable (e.g., `verticalScroll`) is consuming gestures. Ensure `CandleChart` owns its `pointerInput` modifiers and the parent does not wrap it in a competing scroll container.
 
@@ -2285,3 +2339,114 @@ daily loss); resume; Kelly criterion; balance tracking; reset.
 ### SignalPipelineTest (8 cases)
 Covers: passthrough/empty pipeline identity; single and multi-processor ordering; exception
 swallowing; veto (approved → disapproved); all-processors-run-even-when-disapproved contract.
+
+---
+
+# Appendix F: Sprint 5 Improvement Log — Chart Engine Instrumentation & Camera Physics
+
+Sprint 5 closed the gap between what [Section 4](#4-chart-engine-bible) specified and what the
+renderer actually did. Three subsystems were fully specified in this document but had **zero call
+sites** in the app; they are now wired, tested, and enforced.
+
+## Adaptive Quality & Profiling (§4.14) — wired end to end
+
+`PerformanceProfiler` and `AdaptiveQualityController` existed as `@Singleton`s that nothing ever
+called: no frame was ever measured, no layer was ever degraded, and the §4.15 benchmark table was
+unverifiable in practice.
+
+**`ChartPerformanceMonitor`** (`feature/chart/presentation/components/`) now bridges them into the
+render pass. It is owned by `ChartViewModel` so frame history and quality level survive rotation,
+is started with the display's real refresh rate, and brackets every draw pass. Optional layers
+(grid, sessions, volume profile, indicators, structure annotations) are gated on the resulting
+`QualitySettings`, computed at the end of the *previous* frame.
+
+**`PerformanceOverlay`** renders the debug HUD (FPS, avg/p95/worst frame time, budget usage,
+dropped-frame rate, active quality tier), gated behind `BuildConfig.DEBUG`.
+
+### Profiler correctness fixes
+
+The profiler's own hot path was not fit for the job it was documenting:
+
+- **`take(count).average()` on every query** allocated a boxed `List<Float>` per call. Replaced
+  with a running `windowSumMs`, making `getAverageFrameTimeMs()` O(1) and allocation-free.
+- **Ring-buffer index could overflow.** `frameIndex % HISTORY_SIZE` goes *negative* once the
+  monotonic counter overflows `Int`, throwing from the array write on a long-lived session.
+  Replaced with an explicit bounded `cursor` plus a saturating `windowCount`.
+- **Documented thread safety did not exist.** The KDoc claimed "synchronized access to frame
+  history" while every field was unguarded, despite reads coming from the UI and writes from the
+  render thread. Added a real monitor lock plus `@Volatile` on the lock-free flags.
+- **Added p95 tracking and a dropped-frame *rate*.** The tail is what users perceive as jank; a
+  healthy mean with a bad p99 still feels broken. Percentiles sort into a preallocated scratch
+  buffer.
+- **Input validation:** NaN/negative durations are rejected instead of poisoning the running sum.
+
+### Quality controller hysteresis fix
+
+The controller counted `framesAtCurrentLevel` cumulatively, so *non-consecutive* bad frames
+accumulated into a downgrade and the "upgrade slowly" guarantee leaked: alternating good/bad
+frames could walk quality down and back up, flickering layers on and off. Replaced with separate
+**consecutive** streak counters (`consecutiveBadFrames` / `consecutiveGoodFrames`), each reset by
+any non-matching tier. `GOOD`/`ACCEPTABLE` now explicitly *hold* the current level.
+
+## Fling / Momentum Scrolling (§4.9) — implemented
+
+`velocityBarsPerSec` and `isFling` had been declared on `ChartViewport` since the first commit and
+were read by nothing; pans stopped dead on finger lift.
+
+- `startFling()` converts lift-off pixel velocity into bar-space via the current zoom, so a flick
+  feels the same at every zoom level. Velocity is capped and a slow lift-off is not a fling.
+- `advanceFling()` integrates `v *= FLING_FRICTION^dt` — **frame-rate independent** by
+  construction, so 60 Hz and 120 Hz devices travel the same distance (asserted in
+  `ChartViewportTest`).
+- The `withFrameNanos` loop is *started by a fling* and exits on settle, rather than running
+  permanently and waking the chart on every vsync.
+- Velocity is tracked in a non-consuming `awaitEachGesture` pass, leaving the single unified
+  pan/zoom handler (and the §4.6 anti-drift invariant) untouched. A pinch resets the tracker so
+  two-finger zooms never fling.
+
+`WARNING` (now also recorded in §4.6) `awaitFirstDown()` must be awaited **before**
+`stopFling()`, or every fling is cancelled the instant it begins.
+
+## Crosshair Upgrade (§4.7)
+
+- Dragging while the crosshair is active now moves the **crosshair**, not the camera.
+- The vertical line **snaps to the bar centre** via the new
+  `ChartViewport.snappedCrosshairIndex()`, which rounds, clamps, and returns `-1` for empty data —
+  replacing an open-coded `roundToInt().coerceIn(...)` that assumed a non-empty list.
+- Added an **OHLC + percentage-change readout panel**, tinted by bar direction, that flips sides
+  near the right edge. Edge time labels are clamped to stay fully on screen.
+
+## Camera API Extraction (§4.6)
+
+Pan and zoom maths moved out of the composable into `ChartViewport.panByPixels()` / `zoomBy()` /
+`resetToLatest()` / `isAtRightEdge()`. Previously the gesture handler open-coded the centroid-anchor
+algebra inline, which meant the single most important interaction in the app could not be tested
+without an emulator. Magic numbers became named constants (`MIN_VISIBLE_BARS`, `MAX_VISIBLE_BARS`,
+`DEFAULT_VISIBLE_BARS`); the inline zoom clamp also disagreed with `clamp()`'s floor (`5f` vs `10f`)
+and is now consistent.
+
+### Additional chart fixes
+
+- **Double-tap to "go to now"** — resets the camera to the most recent bars.
+- **Live-edge following** — when new bars arrive and the user is parked at the right edge, the
+  window follows; if they have scrolled into history, their position is preserved. Previously new
+  data left the viewport stranded mid-history.
+- **Live last-price tag on the price scale** — replaced a two-line `// Last price label` TODO
+  comment that had shipped as dead commentary.
+- **Stale-closure fix** — gesture handlers are keyed on `candles.size`, so toggling an indicator
+  (which swaps arrays without changing the bar count) left them holding an auto-scale closure over
+  stale overlay data. Fixed with `rememberUpdatedState`.
+- Auto-scale argument list hoisted into one lambda instead of being duplicated at each call site.
+
+## Testing
+
+| Suite | Cases | Covers |
+|-------|-------|--------|
+| `ChartViewportTest` | 30 | Transform round-trips, pan/zoom/centroid anchoring, clamping, fling physics (incl. frame-rate independence and bound termination), auto-scale, nice grids, price formatting, crosshair snapping, layout gutters |
+| `PerformanceProfilerTest` | 22 | Activation gating, rolling-window eviction, running-sum accuracy across wraps, percentiles, budget/tier mapping at 60 vs 120 Hz, dropped-frame vs spike accounting, input validation, snapshot/reset |
+| `AdaptiveQualityControllerTest` | 16 | Fast downgrade, slow upgrade, streak resets, ceiling/floor, anti-oscillation, monotonic settings ladder |
+| `ChartPerformanceMonitorTest` | 13 | Frame bracketing, unmatched/double `endFrame`, quality response to slow frames, snapshot throttling, session restart |
+
+`NOTE` The chart camera and the entire performance layer are now pure-JVM testable — no emulator,
+no Robolectric. This is the payoff of keeping `ChartViewport` free of Compose state and the
+profiler free of Android imports.

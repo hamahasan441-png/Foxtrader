@@ -26,10 +26,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -39,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.foxtrader.app.BuildConfig
 import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.Timeframe
@@ -46,7 +52,9 @@ import com.foxtrader.app.feature.chart.presentation.components.CandleChart
 import com.foxtrader.app.feature.chart.presentation.components.AiDecisionPanel
 import com.foxtrader.app.feature.chart.presentation.components.DrawingToolbar
 import com.foxtrader.app.feature.chart.presentation.components.IndicatorPanel
+import com.foxtrader.app.domain.usecase.performance.PerformanceSnapshot
 import com.foxtrader.app.feature.chart.presentation.components.MarketContextPanel
+import com.foxtrader.app.feature.chart.presentation.components.PerformanceOverlay
 import com.foxtrader.app.feature.chart.presentation.components.ReplayControlBar
 import com.foxtrader.app.feature.chart.presentation.components.SymbolPickerDialog
 import com.foxtrader.app.ui.theme.FoxAmber50
@@ -66,6 +74,7 @@ import com.foxtrader.app.ui.theme.FoxSuccess
  * - Replay mode controls
  * - Connection state indicator
  * - Pull-to-refresh
+ * - Debug render-performance HUD (debug builds only)
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -76,6 +85,26 @@ fun ChartScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val replayState by viewModel.replayState.collectAsStateWithLifecycle()
     val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
+
+    // --- Render performance instrumentation (DEVELOPMENT.md §4.14) ---
+    val monitor = viewModel.performanceMonitor
+    val view = LocalView.current
+    var perfSnapshot by remember { mutableStateOf<PerformanceSnapshot?>(null) }
+
+    DisposableEffect(view) {
+        // Profile against the *actual* refresh rate of this display: a 120 Hz
+        // panel has an 8.33 ms budget, a 60 Hz panel 16.67 ms. Using a fixed
+        // target would either under-report jank or over-degrade quality.
+        val refreshHz = view.display?.refreshRate?.toInt()?.coerceAtLeast(60) ?: 60
+        monitor.start(refreshHz)
+        if (BuildConfig.DEBUG) {
+            monitor.onSnapshot = { perfSnapshot = it }
+        }
+        onDispose {
+            monitor.onSnapshot = null
+            monitor.stop()
+        }
+    }
 
     Column(
         modifier = modifier
@@ -171,6 +200,7 @@ fun ChartScreen(
                             sessions = state.sessions,
                             drawings = state.drawings,
                             volumeProfile = state.volumeProfile,
+                            performanceMonitor = monitor,
                         )
                         state.isLoading -> CircularProgressIndicator(color = FoxAmber50)
                         state.error != null -> Text(
@@ -202,6 +232,17 @@ fun ChartScreen(
                     .align(Alignment.TopEnd)
                     .padding(end = 8.dp, top = 8.dp),
             )
+
+            // --- Debug FPS / frame-budget HUD (debug builds only) ---
+            if (BuildConfig.DEBUG) {
+                PerformanceOverlay(
+                    snapshot = perfSnapshot,
+                    qualityLevel = monitor.qualityLevel,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(start = 8.dp, bottom = 8.dp),
+                )
+            }
 
             // --- Replay control bar (bottom overlay) ---
             ReplayControlBar(

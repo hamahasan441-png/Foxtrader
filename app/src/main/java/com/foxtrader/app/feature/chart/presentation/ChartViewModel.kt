@@ -22,8 +22,11 @@ import com.foxtrader.app.domain.usecase.ai.MasterDecisionEngine
 import com.foxtrader.app.domain.usecase.ai.MtfContextProvider
 import com.foxtrader.app.domain.usecase.chart.ComputeIndicatorsUseCase
 import com.foxtrader.app.domain.usecase.drawing.DrawingEngine
+import com.foxtrader.app.domain.usecase.performance.AdaptiveQualityController
+import com.foxtrader.app.domain.usecase.performance.PerformanceProfiler
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.domain.usecase.replay.ReplayEngine
+import com.foxtrader.app.feature.chart.presentation.components.ChartPerformanceMonitor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -71,8 +74,19 @@ class ChartViewModel @Inject constructor(
     private val alertDispatcher: AlertDispatcher,
     private val drawingRepository: DrawingRepository,
     private val appPreferences: AppPreferences,
+    profiler: PerformanceProfiler,
+    qualityController: AdaptiveQualityController,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
+
+    /**
+     * Render-loop instrumentation for the chart (DEVELOPMENT.md §4.14).
+     *
+     * Owned by the ViewModel so it survives configuration changes: rotating the
+     * device keeps the accumulated frame history and the current adaptive
+     * quality level instead of resetting the chart to ULTRA mid-interaction.
+     */
+    val performanceMonitor = ChartPerformanceMonitor(profiler, qualityController)
 
     private val _uiState = MutableStateFlow(
         ChartUiState(timeframe = appPreferences.defaultTimeframe.value)
