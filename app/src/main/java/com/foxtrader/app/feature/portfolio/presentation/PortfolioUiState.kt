@@ -35,6 +35,6 @@ data class CorrelationCluster(
     val combinedExposurePercent: Double,
     val strength: CorrelationMatrix.CorrelationStrength,
 ) {
-    /** Negative peak = the pair hedges rather than compounds. */
+    /** Mirrors CorrelationClusterBuilder.Cluster.isHedge (domain semantics). */
     val isHedge: Boolean get() = peakCorrelation < 0.0
 }

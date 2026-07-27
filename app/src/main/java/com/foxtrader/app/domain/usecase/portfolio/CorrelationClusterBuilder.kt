@@ -29,7 +29,15 @@ class CorrelationClusterBuilder @Inject constructor() {
         val peakCorrelation: Double,
         val combinedExposurePercent: Double,
         val strength: CorrelationMatrix.CorrelationStrength,
-    )
+    ) {
+        /**
+         * A negative peak means the members move *against* each other, so the
+         * cluster partly self-hedges rather than compounding exposure. This is
+         * domain semantics (the sign of a correlation), not presentation, so it
+         * lives here rather than in the UI model.
+         */
+        val isHedge: Boolean get() = peakCorrelation < 0.0
+    }
 
     /**
      * @param exposureBySymbol uppercase symbol → exposure percent of equity.
