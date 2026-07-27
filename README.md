@@ -39,9 +39,10 @@ A native Android trading-analysis app built with **Kotlin 2.0, Jetpack Compose, 
 - RSI, MACD, ADX (+DI/-DI)
 - ATR, Momentum, Relative Volume, Volatility
 
-### Risk Management Engine
+### Risk Management & Portfolio Engine
 - 6 position sizing methods: Fixed Lots, Fixed Risk, Percentage, Kelly Criterion, ATR-Based, Volatility
 - 4 stop-loss calculation methods: Fixed, ATR, Volatility, Structure
+- Portfolio engine for open-position exposure, net directional exposure, unrealized P&L, concentration warnings, and correlation clusters
 - Mandatory risk-gated order and broker-execution services before any simulated/live order creation
 - Pre-trade risk gating: per-trade risk, portfolio exposure, correlated exposure, daily/weekly loss limits, max drawdown, consecutive loss protection
 - Auto-halt with configurable thresholds

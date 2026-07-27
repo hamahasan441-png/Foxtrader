@@ -1018,8 +1018,8 @@ Two engines: `AlertEngine` (rules + delivery gating) and `SmartAlertEngine` (con
 
 ## 5.11 Portfolio Engine
 
-- **Today:** `RiskEngine` tracks account balance, peak, drawdown, and exposure percentages; `CorrelationMatrix` computes pairwise correlations (to cap correlated exposure, `maxCorrelatedExposurePercent = 200%`, `correlationThreshold = 0.7`); `MarketHeatmap` visualizes relative strength.
-- **H2:** open-position tracking, real portfolio exposure (currently simplified to `0.0` in `RiskCheckResult`), multi-symbol P&L aggregation, and correlation-aware sizing.
+- **Today:** `RiskEngine` tracks account balance, peak, drawdown, and exposure percentages; `PortfolioEngine` converts broker position snapshots into total/long/short/net exposure, unrealized P&L, largest-symbol concentration, and correlation-cluster exposure; `CorrelationMatrix` computes pairwise correlations (to cap correlated exposure, `maxCorrelatedExposurePercent = 200%`, `correlationThreshold = 0.7`); `MarketHeatmap` visualizes relative strength.
+- **H2:** persistent open-position tracking, multi-symbol realized + unrealized P&L attribution, broker-synced position reconciliation, and adaptive correlation-aware sizing.
 
 ## 5.12 Trade Journal Engine
 
