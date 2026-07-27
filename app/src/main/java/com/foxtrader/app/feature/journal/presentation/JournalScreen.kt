@@ -16,11 +16,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -52,6 +54,7 @@ import com.foxtrader.app.ui.theme.FoxNeutral60
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun JournalScreen(
+    onNavigateToPortfolio: () -> Unit = {},
     viewModel: JournalViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -70,6 +73,15 @@ fun JournalScreen(
             TopAppBar(
                 title = {
                     Text("Journal", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                },
+                actions = {
+                    IconButton(onClick = onNavigateToPortfolio) {
+                        Icon(
+                            imageVector = Icons.Default.PieChart,
+                            contentDescription = "Open portfolio exposure",
+                            tint = FoxAmber50,
+                        )
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,

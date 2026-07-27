@@ -29,6 +29,7 @@ import com.foxtrader.app.feature.auth.presentation.LoginScreen
 import com.foxtrader.app.feature.backtest.presentation.BacktestLabScreen
 import com.foxtrader.app.feature.chart.presentation.ChartScreen
 import com.foxtrader.app.feature.journal.presentation.JournalScreen
+import com.foxtrader.app.feature.portfolio.presentation.PortfolioScreen
 import com.foxtrader.app.feature.scanner.presentation.ScannerScreen
 import com.foxtrader.app.feature.settings.presentation.SettingsScreen
 import com.foxtrader.app.feature.strategies.presentation.StrategiesScreen
@@ -40,6 +41,7 @@ object FoxRoutes {
     const val STRATEGIES = "strategies"
     const val BACKTEST_LAB = "backtest_lab"
     const val JOURNAL = "journal"
+    const val PORTFOLIO = "portfolio"
     const val SETTINGS = "settings"
     const val LOGIN = "login"
 }
@@ -93,7 +95,16 @@ fun FoxNavHost(
                 BacktestLabScreen()
             }
             composable(FoxRoutes.JOURNAL) {
-                JournalScreen()
+                JournalScreen(
+                    onNavigateToPortfolio = { navController.navigate(FoxRoutes.PORTFOLIO) },
+                )
+            }
+            // Portfolio lives under Journal rather than as a 7th bottom tab:
+            // Material 3 guidance caps the bar at 5 destinations (already
+            // exceeded at 6), and open exposure is derived from open journal
+            // trades, so it belongs in that hierarchy.
+            composable(FoxRoutes.PORTFOLIO) {
+                PortfolioScreen()
             }
             composable(FoxRoutes.SETTINGS) {
                 SettingsScreen(
