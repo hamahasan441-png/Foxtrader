@@ -1,18 +1,31 @@
 package com.foxtrader.app.feature.chart.presentation.components.layers
 
+import android.graphics.Paint
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.nativeCanvas
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.Direction
+import com.foxtrader.app.domain.model.StructureBreak
+import com.foxtrader.app.domain.model.StructureBreakType
+import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.feature.chart.presentation.components.ChartViewport
 import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxBearish
 import com.foxtrader.app.ui.theme.FoxBullish
+import com.foxtrader.app.ui.theme.FoxNeutral10
+import com.foxtrader.app.ui.theme.FoxNeutral20
+import com.foxtrader.app.ui.theme.FoxNeutral5
 import com.foxtrader.app.ui.theme.FoxNeutral60
+import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.max
+import kotlin.math.min
 
 // Layer 2 — indicator overlays (EMA, Bollinger, SuperTrend, PSAR, VWAP, Ichimoku).
 //
