@@ -163,6 +163,9 @@ dependencies {
     // Startup / baseline profile installation
     implementation(libs.androidx.profileinstaller)
 
+    // Memory / leak audit (debug only)
+    debugImplementation(libs.leakcanary.android)
+
     // Testing
     testImplementation(libs.junit)
     testImplementation(libs.mockk)

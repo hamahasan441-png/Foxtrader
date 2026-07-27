@@ -4150,3 +4150,53 @@ visited screen states now advertise immutable collections directly to Compose.
 That reduces accidental recomposition ambiguity and is the right precursor to
 stronger stability checks later in Sprint 9.
 
+
+---
+
+# Appendix W: Sprint 9 continuation — interaction smoke, workspace benchmark, and memory groundwork
+
+This pass continues Sprint 9 in three focused ways:
+
+1. adds interaction-level smoke tests on top of the earlier surface-presence tests,
+2. benchmarks the new multi-chart workspace controls directly,
+3. lays the first runtime groundwork for Sprint 9.5's memory / leak audit.
+
+## Interaction smoke tests
+
+A new `FeatureInteractionSmokeTest` now checks two simple but meaningful user
+interactions rather than only route reachability:
+
+- **Scanner** can switch between `LIST` and `HEATMAP` mode.
+- **Settings** can trigger the save action and surface the saved state.
+
+`NOTE` These are still intentionally conservative. The point is to prove that the
+primary interaction widgets stay wired after refactors, not to encode fragile
+pixel- or timing-sensitive behavior in instrumentation.
+
+## Multi-chart workspace benchmark
+
+`ChartWorkspaceBenchmark` adds a benchmark journey for the Sprint 8 workspace
+itself:
+
+- add a panel,
+- switch to split layout,
+- toggle linked/unlinked state,
+- toggle symbol/timeframe link groups,
+- toggle crosshair sync.
+
+That matters because the workspace is now part of the chart's hot shell and can
+regress independently of raw pan/zoom rendering. Measuring only chart scroll
+would miss that entire class of interaction cost.
+
+## Memory groundwork
+
+`LeakCanary` is now wired as a **debug-only** dependency.
+
+`NOTE` This does not by itself complete Sprint 9.5, but it turns future leak
+inspection from "we should remember to add a tool later" into a real debug-time
+feedback path already present in the build.
+
+This is the correct order: instrumentation and benchmark foundations first,
+then leak/audit tooling, then deeper allocation cleanup once the measurement
+surface exists.
+
