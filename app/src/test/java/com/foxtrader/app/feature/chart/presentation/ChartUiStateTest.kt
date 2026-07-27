@@ -9,6 +9,7 @@ import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.ai.MarketExplanation
 import com.foxtrader.app.domain.usecase.analysis.SupportResistanceDetector
 import com.foxtrader.app.domain.usecase.mtf.ConfluenceEngine
+import kotlinx.collections.immutable.toPersistentList
 import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
@@ -54,7 +55,7 @@ class ChartUiStateTest {
                     isSupport = true,
                     lastTouchIndex = 42,
                 )
-            )
+            ).toPersistentList()
         )
 
         assertNotEquals(base, withZones)
