@@ -2450,3 +2450,112 @@ and is now consistent.
 `NOTE` The chart camera and the entire performance layer are now pure-JVM testable — no emulator,
 no Robolectric. This is the payoff of keeping `ChartViewport` free of Compose state and the
 profiler free of Android imports.
+
+---
+
+# Appendix G: Sprint 6 Improvement Log — Data Integrity
+
+Sprint 6 addressed the five **Class A** findings from `ENHANCEMENT_MASTERPLAN.md`:
+behaviours that shipped on `main` and could lose user data or mislead a trader about
+where a price came from.
+
+## The synthetic-data problem (A3, A4)
+
+`MarketRepositoryImpl` seeded `SampleData.generate(...)` into the **same** `candles`
+table as real bars on any network failure with an empty cache, with nothing marking
+those rows. The chart, the 10-agent AI, the scanner and the backtester then produced
+confident directional narratives over a random walk. Compounding it, 7 of the 10
+providers in the `DataProvider` enum had **no fetch path at all** while Settings
+happily collected their API keys — so selecting "Polygon.io" and pasting a paid key
+fell through to the seeder and rendered fabricated prices.
+
+**Fix — provenance as a first-class concept.** `CandleSource { LIVE, CACHED,
+SYNTHETIC }` plus `SourcedCandles`.
+
+`NOTE` Provenance is modelled at the **series** level, not on `Candle`. A candle is
+the atomic unit of price maths shared by every indicator; adding a non-numeric field
+would have rippled through ~50 construction sites and every pure function that
+rebuilds bars. Where a bar came from is metadata about a *fetch*, not a property of
+the price.
+
+- `worstOf` collapses a mixed series to its least trustworthy member — a cache of 400
+  real and 100 seeded bars is not "mostly real", it is untrustworthy.
+- An empty series reports `CACHED`, so "no evidence" never reads as "verified live".
+- A non-dismissible **SIMULATED DATA** banner renders while synthetic bars are shown.
+- `DataProvider.implemented` gates the Settings picker; unimplemented providers are
+  listed as "coming soon" and no longer accept keys.
+- `ProviderNotImplementedException` is re-thrown inside `recoverCatching` — a
+  configuration error must not be papered over with synthetic bars.
+- `SAMPLE` gained an explicit branch: choosing it is a deliberate opt-in, tagged.
+
+### The veto ranking matters
+
+The data-integrity veto in `MasterDecisionEngine` is checked at **step 0**, above the
+risk/psychology veto. That ordering is deliberate: the risk veto is gated on
+`config.respectRiskBlock`, and a user who disables it must still not be able to
+unlock a trade recommendation computed over generated data. Fabricated prices are not
+a trading opinion that can be overridden — every downstream confluence, score and
+narrative derived from them is fabricated too.
+
+## The destructive-migration hole (A1, A2)
+
+`DatabaseModule` called `fallbackToDestructiveMigration()` **after**
+`addMigrations(...)`. Room's contract: a missing migration path drops and recreates
+the database — including `journal_entries` and `chart_drawings`, which `FoxDatabase`
+itself documents as "user-authored data that must survive schema upgrades". The
+hand-written migrations were a safety net with a hole cut in the middle. With
+`exportSchema = false`, no test could ever catch it.
+
+- Removed the fallback; enabled `exportSchema`, wired `room.schemaLocation`.
+- `MIGRATION_3_4` adds `candles.source` and **deletes** the legacy candle rows.
+  Pre-v4, synthetic and real bars were written indistinguishably, so any backfill
+  value is a guess — and guessing `LIVE` would launder fabricated prices into the
+  trustworthy set, which is precisely the bug the column exists to fix. Candles are a
+  re-fetchable derived cache; journal and drawings are not, and are untouched.
+
+`WARNING` `MigrationTestHelper.createDatabase(name, v)` materialises the old database
+from `schemas/<v>.json`. Those files only exist for versions exported *after*
+`exportSchema = true` (v4 onward) — v1..v3 shipped with export disabled and the JSON
+cannot be back-filled by hand, because Room verifies a computed `identityHash`
+against it. `FoxDatabaseMigrationTest` therefore materialises legacy versions from
+the exact DDL those versions shipped and applies the real `Migration` objects. The
+final case opens the migrated file through Room *without* fallback, so a schema
+disagreement fails in CI rather than on a device. Full `MigrationTestHelper`
+validation is available for every migration from v4 onward.
+
+## Cache retention (A5)
+
+`CandleDao.prune(symbol, timeframe, keepCount)` caps each series at 5,000 bars after
+every refresh. Previously every live tick appended a row and `observe()` re-emitted
+the entire unbounded series on each change — both a storage leak and the CPU cliff
+behind §9's incremental-analysis work.
+
+## Testing
+
+| Suite | Cases | Covers |
+|-------|-------|--------|
+| `CandleSourceTest` | 8 | Trust semantics, worst-case collapse, empty-series default, storage round-trip |
+| `CandleProvenanceMapperTest` | 7 | The laundering boundary: tagging on write, one bad bar poisoning a series |
+| `MasterDecisionEngineTest` (+4) | 4 | Synthetic veto, ranking above `respectRiskBlock`, default-arg back-compat |
+| `FoxDatabaseMigrationTest` | 4 | User data survives 1→4 with values intact; Room opens the result without fallback |
+
+## Known follow-ups
+
+`WARNING` Two gaps are open and must be closed before Sprint 6 can be called done:
+
+1. **CI does not compile `androidTest`.** The workflow runs `:app:assembleDebug` and
+   `:app:testDebugUnitTest`; neither touches instrumentation sources, so
+   `FoxDatabaseMigrationTest` is currently **unverified** and the green check
+   overstates coverage. Add to `.github/workflows/android.yml`:
+
+   ```yaml
+         - name: Compile instrumentation tests
+           run: ./gradlew :app:assembleDebugAndroidTest --stacktrace --no-daemon --no-configuration-cache
+   ```
+
+   (Ideally followed by `connectedDebugAndroidTest` on an emulator — see §9.4.)
+
+2. **`app/schemas/` is generated but not committed.** Room writes `4.json` at build
+   time; until it is committed, future migrations have no v4 baseline to migrate
+   *from* and `MigrationTestHelper` cannot be used. Run `./gradlew :app:assembleDebug`
+   locally and commit the resulting `app/schemas/**`.
