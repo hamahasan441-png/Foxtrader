@@ -56,6 +56,10 @@ import com.foxtrader.app.feature.chart.presentation.components.layers.drawTimeAx
 import com.foxtrader.app.ui.theme.FoxNeutral5
 import kotlin.math.max
 
+private val AxisLabelArgb = AxisLabelArgb
+private val OhlcLabelArgb = OhlcLabelArgb
+private val LoadingHistoryArgb = LoadingHistoryArgb
+
 /**
  * Professional-grade candlestick chart engine.
  *
@@ -145,7 +149,7 @@ fun CandleChart(
     // Native Paint objects (reused across frames — zero allocation in draw loop)
     val priceLabelPaint = remember {
         Paint().apply {
-            color = android.graphics.Color.parseColor("#99999F")
+            color = AxisLabelArgb
             textSize = with(density) { 10.dp.toPx() }
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
             isAntiAlias = true
@@ -154,7 +158,7 @@ fun CandleChart(
     }
     val timeLabelPaint = remember {
         Paint().apply {
-            color = android.graphics.Color.parseColor("#99999F")
+            color = AxisLabelArgb
             textSize = with(density) { 9.dp.toPx() }
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
             isAntiAlias = true
@@ -181,7 +185,7 @@ fun CandleChart(
     // OHLC readout shown next to the crosshair (left-aligned monospace).
     val ohlcLabelPaint = remember {
         Paint().apply {
-            color = android.graphics.Color.parseColor("#C4C9D4")
+            color = OhlcLabelArgb
             textSize = with(density) { 9.dp.toPx() }
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
             isAntiAlias = true
@@ -635,7 +639,7 @@ fun CandleChart(
 
         if (isLoadingOlder) {
             timeLabelPaint.textAlign = Paint.Align.LEFT
-            timeLabelPaint.color = android.graphics.Color.parseColor("#D4A84E")
+            timeLabelPaint.color = LoadingHistoryArgb
             drawContext.canvas.nativeCanvas.drawText(
                 "Loading history…",
                 8f,
@@ -643,7 +647,7 @@ fun CandleChart(
                 timeLabelPaint,
             )
             timeLabelPaint.textAlign = Paint.Align.CENTER
-            timeLabelPaint.color = android.graphics.Color.parseColor("#99999F")
+            timeLabelPaint.color = AxisLabelArgb
         }
 
         // Close the frame: records the duration, recomputes adaptive quality for

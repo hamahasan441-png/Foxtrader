@@ -33,6 +33,8 @@ import kotlin.math.min
 
 private val StructureDash = PathEffect.dashPathEffect(floatArrayOf(4f, 3f))
 private val LivePriceDash = PathEffect.dashPathEffect(floatArrayOf(8f, 6f))
+private val StructureBullishLabelArgb = android.graphics.Color.parseColor("#4CAF50")
+private val StructureBearishLabelArgb = android.graphics.Color.parseColor("#EF5350")
 private const val DiamondHalfHeight = 5f
 private const val DiamondHalfWidth = 4f
 
@@ -83,8 +85,8 @@ internal fun DrawScope.drawStructureLayer(
             StructureBreakType.IDM -> "IDM"
         }
         labelPaint.color = when (brk.direction) {
-            Direction.BULLISH -> android.graphics.Color.parseColor("#4CAF50")
-            Direction.BEARISH -> android.graphics.Color.parseColor("#EF5350")
+            Direction.BULLISH -> StructureBullishLabelArgb
+            Direction.BEARISH -> StructureBearishLabelArgb
         }
         drawContext.canvas.nativeCanvas.drawText(
             label,

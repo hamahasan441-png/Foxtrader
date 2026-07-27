@@ -1,5 +1,6 @@
 package com.foxtrader.app.feature.chart.presentation
 
+import androidx.compose.runtime.Immutable
 import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.CandleSource
@@ -27,6 +28,7 @@ import kotlinx.collections.immutable.persistentListOf
  * Which indicators are currently enabled on the chart.
  * Immutable — toggled via the chart's indicator panel.
  */
+@Immutable
 data class IndicatorToggles(
     val ema: Boolean = true,
     val bollinger: Boolean = false,
@@ -63,7 +65,7 @@ data class ChartUiState(
     val bias: Bias = Bias.NEUTRAL,
 
     // --- Technical analysis ---
-    val structureBreaks: List<StructureBreak> = emptyList(),
+    val structureBreaks: ImmutableList<StructureBreak> = persistentListOf(),
     val emaShort: DoubleArray? = null,  // EMA(20)
     val emaLong: DoubleArray? = null,   // EMA(50)
     val bollingerUpper: DoubleArray? = null,
@@ -80,22 +82,22 @@ data class ChartUiState(
     val ichimokuChikou: DoubleArray? = null,
 
     // --- Smart Money Concepts ---
-    val orderBlocks: List<OrderBlock> = emptyList(),
-    val fairValueGaps: List<FairValueGap> = emptyList(),
-    val liquidityPools: List<LiquidityPool> = emptyList(),
+    val orderBlocks: ImmutableList<OrderBlock> = persistentListOf(),
+    val fairValueGaps: ImmutableList<FairValueGap> = persistentListOf(),
+    val liquidityPools: ImmutableList<LiquidityPool> = persistentListOf(),
     val volumeProfile: com.foxtrader.app.domain.model.VolumeProfile? = null,
     val marketProfile: MarketProfile.ProfileResult? = null,
-    val supportResistanceZones: List<SupportResistanceDetector.SRZone> = emptyList(),
-    val autoFibLevels: List<FibonacciEngine.FibLevel> = emptyList(),
+    val supportResistanceZones: ImmutableList<SupportResistanceDetector.SRZone> = persistentListOf(),
+    val autoFibLevels: ImmutableList<FibonacciEngine.FibLevel> = persistentListOf(),
     val autoFibDirection: Direction? = null,
     val autoFibSwingHigh: Double? = null,
     val autoFibSwingLow: Double? = null,
 
     // --- Trading sessions ---
-    val sessions: List<SessionRange> = emptyList(),
+    val sessions: ImmutableList<SessionRange> = persistentListOf(),
 
     // --- Drawing tools ---
-    val drawings: List<ChartDrawing> = emptyList(),
+    val drawings: ImmutableList<ChartDrawing> = persistentListOf(),
     val drawingMode: DrawingMode = DrawingMode.NONE,
     val activeTool: DrawingToolType? = null,
     val showDrawingToolbar: Boolean = false,

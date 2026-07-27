@@ -40,6 +40,7 @@ import com.foxtrader.app.domain.usecase.preferences.PersistedMultiChartState
 import com.foxtrader.app.domain.usecase.replay.ReplayEngine
 import com.foxtrader.app.feature.chart.presentation.components.ChartPerformanceMonitor
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Job
@@ -214,7 +215,7 @@ class ChartViewModel @Inject constructor(
     private fun observeDrawings() {
         combine(symbolFlow, timeframeFlow) { s, tf -> s to tf }
             .flatMapLatest { (symbol, tf) -> drawingRepository.observe(symbol, tf) }
-            .onEach { drawings -> _uiState.value = _uiState.value.copy(drawings = drawings) }
+            .onEach { drawings -> _uiState.value = _uiState.value.copy(drawings = drawings.toPersistentList()) }
             .launchIn(viewModelScope)
     }
 
@@ -496,7 +497,7 @@ class ChartViewModel @Inject constructor(
             candles = candles,
             dataSource = source,
             bias = computation.bias,
-            structureBreaks = if (ind.structure) computation.structureBreaks else emptyList(),
+            structureBreaks = if (ind.structure) computation.structureBreaks.toPersistentList() else persistentListOf(),
             emaShort = computation.overlays.emaShort,
             emaLong = computation.overlays.emaLong,
             bollingerUpper = computation.overlays.bollingerUpper,
@@ -511,17 +512,17 @@ class ChartViewModel @Inject constructor(
             ichimokuSenkouA = computation.overlays.ichimokuSenkouA,
             ichimokuSenkouB = computation.overlays.ichimokuSenkouB,
             ichimokuChikou = computation.overlays.ichimokuChikou,
-            orderBlocks = computation.overlays.orderBlocks,
-            fairValueGaps = computation.overlays.fairValueGaps,
-            liquidityPools = computation.overlays.liquidityPools,
+            orderBlocks = computation.overlays.orderBlocks.toPersistentList(),
+            fairValueGaps = computation.overlays.fairValueGaps.toPersistentList(),
+            liquidityPools = computation.overlays.liquidityPools.toPersistentList(),
             volumeProfile = computation.overlays.volumeProfile,
             marketProfile = computation.overlays.marketProfile,
-            supportResistanceZones = computation.overlays.supportResistanceZones,
-            autoFibLevels = computation.overlays.autoFibLevels,
+            supportResistanceZones = computation.overlays.supportResistanceZones.toPersistentList(),
+            autoFibLevels = computation.overlays.autoFibLevels.toPersistentList(),
             autoFibDirection = computation.overlays.autoFibDirection,
             autoFibSwingHigh = computation.overlays.autoFibSwingHigh,
             autoFibSwingLow = computation.overlays.autoFibSwingLow,
-            sessions = computation.overlays.sessions,
+            sessions = computation.overlays.sessions.toPersistentList(),
             marketExplanation = computation.marketExplanation,
             confluence = if (ind.confluence) _uiState.value.confluence else null,
             isLoading = candles.isEmpty() && _uiState.value.error == null,
@@ -1263,7 +1264,7 @@ class ChartViewModel @Inject constructor(
         val completed = drawingEngine.placePoint(point)
         _uiState.value = _uiState.value.copy(
             drawingMode = drawingEngine.mode,
-            drawings = drawingEngine.getVisibleDrawings(),
+            drawings = drawingEngine.getVisibleDrawings().toPersistentList(),
         )
         // Persist the completed drawing to Room.
         if (completed != null) {
