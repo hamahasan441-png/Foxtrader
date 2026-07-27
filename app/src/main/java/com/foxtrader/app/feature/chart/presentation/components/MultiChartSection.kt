@@ -28,19 +28,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.consume
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -126,7 +122,6 @@ fun MultiChartSection(
     var timeframeEditorPanelId by remember { mutableStateOf<String?>(null) }
     var draggedPanelId by remember { mutableStateOf<String?>(null) }
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
-    val panelBounds = remember { mutableStateMapOf<String, Rect>() }
     val symbolEditorPanel = state.panels.firstOrNull { it.id == symbolEditorPanelId }
     val timeframeEditorPanel = state.panels.firstOrNull { it.id == timeframeEditorPanelId }
 
@@ -169,33 +164,19 @@ fun MultiChartSection(
         dragOffset = Offset.Zero
     }
     val finishDrag: (String) -> Unit = { id ->
-        val sourceRect = panelBounds[id] ?: Rect(0f, 0f, 0f, 0f)
-        val sourceCenter = Offset(
-            x = (sourceRect.left + sourceRect.right) / 2f,
-            y = (sourceRect.top + sourceRect.bottom) / 2f,
-        )
-        val movedCenter = sourceCenter + dragOffset
-        val targetId = state.panels
-            .map { it.id }
-            .firstOrNull { otherId ->
-                if (otherId == id) return@firstOrNull false
-                val rect = panelBounds[otherId] ?: return@firstOrNull false
-                movedCenter.x in rect.left..rect.right && movedCenter.y in rect.top..rect.bottom
+        val fromIndex = state.panels.indexOfFirst { it.id == id }
+        if (fromIndex >= 0) {
+            val horizontal = kotlin.math.abs(dragOffset.x) >= kotlin.math.abs(dragOffset.y)
+            val delta = when {
+                horizontal && dragOffset.x > DRAG_THRESHOLD_PX -> 1
+                horizontal && dragOffset.x < -DRAG_THRESHOLD_PX -> -1
+                !horizontal && dragOffset.y > DRAG_THRESHOLD_PX -> 2
+                !horizontal && dragOffset.y < -DRAG_THRESHOLD_PX -> -2
+                else -> 0
             }
-            ?: state.panels
-                .filter { it.id != id }
-                .minByOrNull { other ->
-                    val rect = panelBounds[other.id] ?: Rect(0f, 0f, 0f, 0f)
-                    val center = Offset(
-                        x = (rect.left + rect.right) / 2f,
-                        y = (rect.top + rect.bottom) / 2f,
-                    )
-                    val dx = center.x - movedCenter.x
-                    val dy = center.y - movedCenter.y
-                    dx * dx + dy * dy
-                }?.id
-        val targetIndex = targetId?.let { target -> state.panels.indexOfFirst { it.id == target } } ?: -1
-        if (targetIndex >= 0) onMovePanel(id, targetIndex)
+            val targetIndex = (fromIndex + delta).coerceIn(0, state.panels.lastIndex)
+            if (targetIndex != fromIndex) onMovePanel(id, targetIndex)
+        }
         draggedPanelId = null
         dragOffset = Offset.Zero
     }
@@ -231,7 +212,6 @@ fun MultiChartSection(
                             onDrag = updateDrag,
                             onDragEnd = finishDrag,
                             onDragCancel = cancelDrag,
-                            onBoundsChanged = { id, rect -> panelBounds[id] = rect },
                             onRemovePanel = onRemovePanel,
                             onCrosshairTimestampChange = onPanelCrosshairTimestampChange,
                             onViewportStateChange = onPanelViewportStateChange,
@@ -266,7 +246,6 @@ fun MultiChartSection(
                             onDrag = updateDrag,
                             onDragEnd = finishDrag,
                             onDragCancel = cancelDrag,
-                            onBoundsChanged = { id, rect -> panelBounds[id] = rect },
                             onRemovePanel = onRemovePanel,
                             onCrosshairTimestampChange = onPanelCrosshairTimestampChange,
                             onViewportStateChange = onPanelViewportStateChange,
@@ -340,7 +319,6 @@ private fun MultiChartPanelCard(
     onDrag: (Offset) -> Unit,
     onDragEnd: (String) -> Unit,
     onDragCancel: () -> Unit,
-    onBoundsChanged: (String, Rect) -> Unit,
     onRemovePanel: (String) -> Unit,
     onCrosshairTimestampChange: (String, Long?) -> Unit,
     onViewportStateChange: (String, com.foxtrader.app.domain.usecase.chart.ChartViewportState) -> Unit,
@@ -354,7 +332,6 @@ private fun MultiChartPanelCard(
     Column(
         modifier = modifier
             .fillMaxHeight()
-            .onGloballyPositioned { coordinates -> onBoundsChanged(panel.id, coordinates.boundsInRoot()) }
             .graphicsLayer {
                 if (activeDrag) {
                     translationX = dragOffset.x
@@ -661,3 +638,5 @@ private fun SourceBadge(text: String) {
 
 private fun formatMiniPrice(price: Double): String =
     if (price >= 1000) String.format("%,.2f", price) else String.format("%.4f", price)
+
+private const val DRAG_THRESHOLD_PX = 48f
