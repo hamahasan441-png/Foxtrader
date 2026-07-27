@@ -2713,11 +2713,80 @@ parameter silently reintroduced a vetoed behaviour, and only a manual read caugh
 | `AlertMapperTest` | 5 | Priority round-trip, null symbol, acknowledged flag, graceful degradation of a corrupt priority string |
 | `FoxDatabaseMigrationTest` (+1) | 1 | v4→v5 adds `alerts` while journal and drawings survive |
 
+## WatchlistManager (0 call sites → persisted, editable watchlists)
+
+Two separate problems met here. `WatchlistManager` (94 lines) was never
+constructed by anything, and it held state in a `mutableListOf` — every list a
+user created would have vanished on process death. Meanwhile the chart's symbol
+picker read `ChartUiState.DEFAULT_SYMBOLS`, a **compiled-in constant**: users
+could not add, remove or reorder instruments at all.
+
+### Membership is a child table, not a delimited column
+
+`watchlist_symbols` is a real table rather than a `"EURUSD;GBPUSD"` string on
+the parent row. That keeps per-symbol asset class and notes, lets a single
+symbol be removed without rewriting the list, and makes ordering persistable.
+
+`NOTE` `position` is an explicit column because **SQL has no inherent row
+order**. Without it, drag-to-reorder could not be saved — the rows would come
+back in whatever order the query planner chose.
+
+`WARNING` The foreign key declares `ON DELETE CASCADE`, and the migration SQL
+must match `WatchlistSymbolEntity`'s declaration *exactly* or Room's schema
+validation rejects the migrated database at open time. The cascade is asserted
+directly in `FoxDatabaseMigrationTest` — deleting a list must not strand its
+symbols as orphan rows.
+
+### Seeding lives in the repository, not the migration
+
+The default watchlist is created on first read (`ensureSeeded`), not by
+`MIGRATION_5_6`. Three reasons: a migration runs with no access to application
+defaults; duplicating the seed list in raw SQL would let it drift from the
+Kotlin source; and migrations only run on *upgrades*, so a fresh install would
+otherwise get no default list at all.
+
+### Why a Mutex, when Room is already transactional
+
+Room guarantees atomicity **per statement**, not per read-modify-write
+*sequence*. Three sequences here are vulnerable:
+
+- `addSymbol` reads `maxPosition()` then inserts — two concurrent calls read the
+  same value and write duplicate positions.
+- `ensureSeeded` checks `countWatchlists()` then inserts — two racing callers
+  each see zero and create a default list.
+- `moveSymbol` reads the list, reorders in memory, and writes it back.
+
+A `Mutex` around each sequence closes all three. The bulk rewrite itself is a
+`@Transaction` so observers never see duplicate or missing positions mid-update.
+
+`removeSymbol` also renumbers positions densely afterwards: leaving a gap would
+make a later index-based `moveSymbol` target the wrong row.
+
+### AssetClassifier ordering
+
+Inferring an asset class from a bare ticker is heuristic, and the check order
+carries the correctness:
+
+`NOTE` Crypto is tested **before** the forex shape. `BTCUSD` is six characters
+with a recognised fiat quote, so a naive "6 chars + both halves are fiat" rule
+would classify it as FX. Indices are matched first of all, since `US500` would
+otherwise fall through to the stock default.
+
+`ChartUiState.DEFAULT_SYMBOLS` was **deleted** rather than left in place. Two
+competing symbol lists in one codebase is exactly the drift this sprint exists
+to remove.
+
+## Testing (part 3)
+
+| Suite | Cases | Covers |
+|-------|-------|--------|
+| `AssetClassifierTest` | 9 | Forex/crypto/metals/indices/energy inference, the `BTCUSD` ordering trap, whitespace and empty input |
+| `FoxDatabaseMigrationTest` (+1) | 1 | v5→v6 adds both tables, cascade delete works, journal survives |
+
 ## Remaining Class B backlog
 
 | Engine | LOC | Planned surface |
 |---|---:|---|
-| `WatchlistManager` | 94 | User-defined watchlists, replacing hardcoded `DEFAULT_SYMBOLS` |
 | `PositionCalculator` | 144 | Position-size sheet from chart / AI panel |
 | `MultiChartManager` | 143 | Multi-chart layouts (Sprint 8) |
 | `MarketHeatmap` | 146 | Scanner grid mode |
