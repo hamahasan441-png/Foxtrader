@@ -3939,3 +3939,48 @@ Still remaining for the sprint:
 - Compose stability metrics and enforcement
 - memory/leak audit
 
+
+---
+
+# Appendix S: Sprint 9 continuation — navigation smoke and benchmark journeys
+
+This pass extends the Sprint 9 foundation from Appendix R with the next layer
+of real journeys.
+
+## Additional instrumentation smoke coverage
+
+The first instrumentation pass proved the app launches and a few primary
+surfaces are reachable. This continuation widens that into secondary navigation
+coverage:
+
+- **Strategies** screen opens and exposes its rescan action
+- **Backtesting Lab** opens and exposes the main run action
+- **Alerts inbox** opens from the chart top bar entry point
+
+`NOTE` These are still smoke tests, intentionally. Sprint 9's first job is to
+prove the navigation graph and primary user journeys survive refactors. Detailed
+screen-behavior assertions can now layer on top of a working instrumentation
+harness instead of being invented in a vacuum.
+
+## Additional benchmark journey
+
+A new macrobenchmark path now measures **bottom-navigation transitions** across
+real destinations:
+
+- Chart → Scanner
+- Scanner → Strategies
+- Strategies → Lab
+- Lab → Chart
+
+This complements the startup and chart-interaction journeys by covering app
+shell performance rather than only the render hot path.
+
+## Why this matters
+
+A benchmark suite that only measures startup and one chart gesture would still
+miss a common class of regressions: navigation recomposition cost, destination
+initialisation overhead, and top-level state restoration jank.
+
+Adding a navigation benchmark turns Sprint 9 from "chart perf only" into
+**whole-app interactive perf proof**.
+
