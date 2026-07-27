@@ -2829,12 +2829,72 @@ position that can never stop out where the user believes it will. The
 Position-size arithmetic was additionally cross-checked numerically before
 commit, rather than trusting the assertions to be self-consistent.
 
+## MarketHeatmap (0 call sites → Scanner grid view)
+
+The Scanner rendered a flat ranked list. `MarketHeatmap` (146 lines) computed
+per-symbol change, relative strength, colour banding and an aggregate
+`MarketSentiment` — and nothing ever called it.
+
+### Grouping by asset class is the whole point
+
+Tiles are grouped into asset-class sections rather than laid out as one flat
+grid sorted by change.
+
+`NOTE` A flat grid interleaves crypto with FX and metals, which destroys the
+signal a heatmap exists to show: **sector rotation**. Seeing "crypto is green,
+FX is flat, metals are red" is the insight; a single ranked list of movers is
+what the LIST view already provides.
+
+Two smaller rendering decisions:
+
+- Tile alpha is floored at `0.18`. `MarketHeatmap` maps intensity linearly from
+  the size of the move, so a ~0% mover would otherwise render as a nearly
+  invisible tile — the symbol would effectively vanish from the grid.
+- Rows are a fixed three tiles wide, with spacers padding a short final row.
+  Wider rows shrink the symbol text below legibility on a phone.
+
+The sentiment header surfaces `MarketSentiment` and average move, both already
+computed by the engine and previously discarded.
+
+### The filter must follow the view
+
+`filteredHeatmapCells` applies the same asset-class filter the list uses.
+Without it, switching LIST → HEATMAP would silently widen the result set, and
+the two views would disagree about the same scan.
+
+### The third provenance gap
+
+`ScannerViewModel` called `marketRepository.getCandles(...)` — the unsourced
+variant — exactly like `ScanAlertWorker` did before Sprint 7 part 2.
+
+`WARNING` This is now the **third** place the Sprint 6 provenance contract was
+bypassed simply by calling the older, still-available API. The scanner ranks
+opportunities across the whole watchlist, and the heatmap paints sector
+rotation from the same data; over synthetic seed bars it produces a confident,
+*entirely fabricated* market narrative. A fake heatmap is more persuasive than
+a single fake price, because it looks like corroboration.
+
+Fixed by switching to `getSourcedCandles`, collapsing to the worst provenance
+across scanned symbols, and badging the result.
+
+`NOTE` Three independent regressions of the same contract is a pattern, not bad
+luck. The durable fix is Sprint 10's static-analysis gate — a lint rule that
+forbids `getCandles`/`evaluate` without provenance outside the repository — or
+deleting the unsourced overloads once every caller is migrated.
+
+## Testing (part 5)
+
+| Suite | Cases | Covers |
+|-------|-------|--------|
+| `ScannerUiStateHeatmapTest` | 7 | Filter parity between list and grid, empty-filter vs missing-heatmap, synthetic badging requires actual results |
+
+`MarketHeatmap`'s own 4 tests already existed and now cover reachable code.
+
 ## Remaining Class B backlog
 
 | Engine | LOC | Planned surface |
 |---|---:|---|
 | `MultiChartManager` | 143 | Multi-chart layouts (Sprint 8) |
-| `MarketHeatmap` | 146 | Scanner grid mode |
 | `NewsEngine` | 133 | News feed (`NewsAgent` votes on news the app never fetches) |
 | `ConfluenceEngine`, `MarketProfile`, `SupportResistanceDetector`, `FibonacciEngine` | 371 | Chart layers (Sprint 8) |
 | `SeasonalityEngine` | 81 | Analytics surface |
