@@ -4050,3 +4050,47 @@ strong-skipping checks, and compiler-enforced hot-path hygiene. Doing this first
 means later enforcement can reveal *real* unstable edges rather than simply
 failing on obvious mutable collections everywhere.
 
+
+---
+
+# Appendix U: Sprint 9 continuation — broader surface smoke tests and shell benchmarks
+
+This pass pushes the Sprint 9 foundation wider across the app shell.
+
+## Additional instrumentation smoke coverage
+
+A new `FeatureSurfaceSmokeTest` now checks two more classes of UI contract:
+
+- the **Scanner** exposes its strategy and LIST/HEATMAP mode controls,
+- **Settings** exposes its core configuration sections.
+
+`NOTE` These are still intentionally smoke-level assertions. The goal is to make
+navigation regressions and missing-surface failures obvious in CI without tying
+the suite to unstable layout details.
+
+## Additional benchmark journey
+
+A new `PortfolioAlertsBenchmark` measures another realistic shell flow:
+
+- Chart → Journal
+- Journal → Portfolio
+- back to Chart
+- Chart → Alerts inbox
+
+That matters because Sprint 9 is about proving whole-app interaction quality,
+not only startup and chart-only gestures. Navigation to secondary analytical
+surfaces can still regress frame timing even if the chart itself stays fast.
+
+## Current Sprint 9 footing
+
+At this point the branch now has:
+
+- macrobenchmark scaffolding,
+- startup + chart + navigation + portfolio/alerts journeys,
+- baseline-profile collection scaffolding,
+- multi-screen instrumentation smoke tests,
+- early immutable collection adoption for UI state.
+
+The remaining bigger Sprint 9 items are now mostly about **deepening** the
+coverage rather than inventing the foundation.
+
