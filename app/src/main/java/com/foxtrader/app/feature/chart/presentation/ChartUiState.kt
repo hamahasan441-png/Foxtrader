@@ -11,6 +11,7 @@ import com.foxtrader.app.domain.model.FairValueGap
 import com.foxtrader.app.domain.model.LiquidityPool
 import com.foxtrader.app.domain.model.OrderBlock
 import com.foxtrader.app.domain.model.SessionRange
+import com.foxtrader.app.domain.usecase.ai.MarketExplanation
 import com.foxtrader.app.domain.model.StructureBreak
 import com.foxtrader.app.domain.model.Timeframe
 
@@ -88,8 +89,9 @@ data class ChartUiState(
     val isLoading: Boolean = true,
     val error: String? = null,
 
-    // --- AI Decision Engine ---
+    // --- AI / Market Context ---
     val aiDecision: DecisionResult? = null,
+    val marketExplanation: MarketExplanation? = null,
 ) {
     val lastPrice: Double? get() = candles.lastOrNull()?.close
     val hasData: Boolean get() = candles.isNotEmpty()
@@ -119,7 +121,9 @@ data class ChartUiState(
             showSymbolPicker == other.showSymbolPicker &&
             connectionState == other.connectionState &&
             liveEnabled == other.liveEnabled &&
-            isLoading == other.isLoading && error == other.error
+            isLoading == other.isLoading && error == other.error &&
+            aiDecision == other.aiDecision &&
+            marketExplanation == other.marketExplanation
     }
 
     override fun hashCode(): Int {
@@ -130,6 +134,8 @@ data class ChartUiState(
         result = 31 * result + connectionState.hashCode()
         result = 31 * result + showIndicatorPanel.hashCode()
         result = 31 * result + showSymbolPicker.hashCode()
+        result = 31 * result + (aiDecision?.hashCode() ?: 0)
+        result = 31 * result + (marketExplanation?.hashCode() ?: 0)
         return result
     }
 

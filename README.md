@@ -24,6 +24,7 @@ A native Android trading-analysis app built with **Kotlin 2.0, Jetpack Compose, 
 - Viewport culling (only visible bars drawn — handles 100,000+ candles at 120fps)
 - Auto-scaling price axis with institutional grid lines (1-2-5 progression)
 - Live last-price dashed reference line
+- Deterministic market-context overlay with value zone, volatility, HTF alignment and next objective
 - 9 timeframes: 1m, 5m, 15m, 30m, 1H, 4H, 1D, 1W, 1M
 
 ### Market Structure Analysis (Non-Repainting)

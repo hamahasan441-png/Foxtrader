@@ -46,6 +46,7 @@ import com.foxtrader.app.feature.chart.presentation.components.CandleChart
 import com.foxtrader.app.feature.chart.presentation.components.AiDecisionPanel
 import com.foxtrader.app.feature.chart.presentation.components.DrawingToolbar
 import com.foxtrader.app.feature.chart.presentation.components.IndicatorPanel
+import com.foxtrader.app.feature.chart.presentation.components.MarketContextPanel
 import com.foxtrader.app.feature.chart.presentation.components.ReplayControlBar
 import com.foxtrader.app.feature.chart.presentation.components.SymbolPickerDialog
 import com.foxtrader.app.ui.theme.FoxAmber50
@@ -192,6 +193,14 @@ fun ChartScreen(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(start = 8.dp, top = 8.dp),
+            )
+
+            // --- Deterministic market context (top-right overlay) ---
+            MarketContextPanel(
+                explanation = state.marketExplanation,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(end = 8.dp, top = 8.dp),
             )
 
             // --- Replay control bar (bottom overlay) ---
