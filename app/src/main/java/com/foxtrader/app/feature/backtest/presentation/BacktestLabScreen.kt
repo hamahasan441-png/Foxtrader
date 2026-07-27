@@ -260,36 +260,35 @@ private fun AnalyticsCard(analytics: BacktestAnalyticsReport?) {
         Spacer(Modifier.height(10.dp))
         if (analytics == null) {
             Text("Run a backtest to compute walk-forward and Monte Carlo analytics.", color = FoxNeutral60, fontSize = 12.sp)
-            return@LabCard
-        }
-
-        val walkForward = analytics.walkForward
-        if (walkForward == null) {
-            Text("Walk-forward validation needs at least 4 trades.", color = FoxNeutral60, fontSize = 12.sp)
         } else {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                MetricTile("WF Stability", "${walkForward.stabilityScore}", FoxAmber50, Modifier.weight(1f))
-                MetricTile("OOS PF", ratio(walkForward.outOfSample.profitFactor), FoxAmber50, Modifier.weight(1f))
+            val walkForward = analytics.walkForward
+            if (walkForward == null) {
+                Text("Walk-forward validation needs at least 4 trades.", color = FoxNeutral60, fontSize = 12.sp)
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    MetricTile("WF Stability", "${walkForward.stabilityScore}", FoxAmber50, Modifier.weight(1f))
+                    MetricTile("OOS PF", ratio(walkForward.outOfSample.profitFactor), FoxAmber50, Modifier.weight(1f))
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(walkForward.verdict, color = FoxNeutral60, fontSize = 12.sp)
             }
-            Spacer(Modifier.height(6.dp))
-            Text(walkForward.verdict, color = FoxNeutral60, fontSize = 12.sp)
-        }
 
-        Spacer(Modifier.height(10.dp))
-        val monteCarlo = analytics.monteCarlo
-        if (monteCarlo == null) {
-            Text("Monte Carlo needs at least 6 trades.", color = FoxNeutral60, fontSize = 12.sp)
-        } else {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                MetricTile("95% DD", money(-monteCarlo.confidence95MaxDrawdown), FoxBearishText, Modifier.weight(1f))
-                MetricTile("Ruin Risk", percent(monteCarlo.riskOfRuinPercent), FoxBearishText, Modifier.weight(1f))
-            }
-        }
-
-        if (analytics.recommendations.isNotEmpty()) {
             Spacer(Modifier.height(10.dp))
-            analytics.recommendations.take(3).forEach { recommendation ->
-                Text("• $recommendation", color = FoxNeutral60, fontSize = 11.sp)
+            val monteCarlo = analytics.monteCarlo
+            if (monteCarlo == null) {
+                Text("Monte Carlo needs at least 6 trades.", color = FoxNeutral60, fontSize = 12.sp)
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    MetricTile("95% DD", money(-monteCarlo.confidence95MaxDrawdown), FoxBearishText, Modifier.weight(1f))
+                    MetricTile("Ruin Risk", percent(monteCarlo.riskOfRuinPercent), FoxBearishText, Modifier.weight(1f))
+                }
+            }
+
+            if (analytics.recommendations.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                analytics.recommendations.take(3).forEach { recommendation ->
+                    Text("• $recommendation", color = FoxNeutral60, fontSize = 11.sp)
+                }
             }
         }
     }
