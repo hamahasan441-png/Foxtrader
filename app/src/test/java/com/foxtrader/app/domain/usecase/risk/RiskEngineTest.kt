@@ -131,6 +131,38 @@ class RiskEngineTest {
     }
 
     @Test
+    fun `proposed risk above per-trade limit is blocked`() {
+        val check = engine.canOpenTrade(150.0)
+        assertFalse(check.allowed)
+        assertTrue(check.reasons.any { it.contains("per-trade limit", ignoreCase = true) })
+    }
+
+    @Test
+    fun `portfolio exposure above limit is blocked`() {
+        engine.updateConfig(engine.getConfig().copy(maxPortfolioExposurePercent = 100.0))
+        val check = engine.canOpenTrade(
+            riskAmount = 50.0,
+            currentPortfolioExposurePercent = 80.0,
+            proposedExposurePercent = 30.0,
+        )
+        assertFalse(check.allowed)
+        assertEquals(110.0, check.portfolioExposure, 0.001)
+        assertTrue(check.reasons.any { it.contains("Portfolio exposure", ignoreCase = true) })
+    }
+
+    @Test
+    fun `correlated exposure above limit is blocked`() {
+        engine.updateConfig(engine.getConfig().copy(maxCorrelatedExposurePercent = 120.0))
+        val check = engine.canOpenTrade(
+            riskAmount = 50.0,
+            currentCorrelatedExposurePercent = 90.0,
+            proposedCorrelatedExposurePercent = 40.0,
+        )
+        assertFalse(check.allowed)
+        assertTrue(check.reasons.any { it.contains("Correlated exposure", ignoreCase = true) })
+    }
+
+    @Test
     fun `trading is blocked when manually halted`() {
         engine.haltTrading("manual halt")
         val check = engine.canOpenTrade(100.0)

@@ -55,6 +55,7 @@ class AlertDispatcher @Inject constructor(
             .setSmallIcon(android.R.drawable.ic_dialog_info) // TODO: replace with fox icon
             .setContentTitle(alert.title)
             .setContentText(alert.body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(alert.body))
             .setPriority(importance)
             .setAutoCancel(true)
             .setGroup("fox_alerts")

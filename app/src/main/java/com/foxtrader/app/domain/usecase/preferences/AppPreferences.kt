@@ -5,13 +5,21 @@ import android.content.SharedPreferences
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.foxtrader.app.di.IoDispatcher
+import com.foxtrader.app.domain.model.AlertConfig
+import com.foxtrader.app.domain.model.AlertPriority
 import com.foxtrader.app.domain.model.DataProvider
+import com.foxtrader.app.domain.model.PositionSizingMethod
+import com.foxtrader.app.domain.model.RiskConfig
+import com.foxtrader.app.domain.model.Timeframe
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -41,11 +49,35 @@ class AppPreferences @Inject constructor(
     private val _dataProvider = MutableStateFlow(DataProvider.SAMPLE)
     val dataProvider: StateFlow<DataProvider> = _dataProvider.asStateFlow()
 
+    private val _defaultTimeframe = MutableStateFlow(Timeframe.M15)
+    val defaultTimeframe: StateFlow<Timeframe> = _defaultTimeframe.asStateFlow()
+
     private val _darkMode = MutableStateFlow(true)
     val darkMode: StateFlow<Boolean> = _darkMode.asStateFlow()
 
     private val _appLockEnabled = MutableStateFlow(false)
     val appLockEnabled: StateFlow<Boolean> = _appLockEnabled.asStateFlow()
+
+    private val _backgroundScanEnabled = MutableStateFlow(true)
+    val backgroundScanEnabled: StateFlow<Boolean> = _backgroundScanEnabled.asStateFlow()
+
+    private val _backgroundScanIntervalMinutes = MutableStateFlow(DEFAULT_BACKGROUND_SCAN_INTERVAL_MINUTES)
+    val backgroundScanIntervalMinutes: StateFlow<Int> = _backgroundScanIntervalMinutes.asStateFlow()
+
+    private val _aiMinConfluences = MutableStateFlow(DEFAULT_AI_MIN_CONFLUENCES)
+    val aiMinConfluences: StateFlow<Int> = _aiMinConfluences.asStateFlow()
+
+    private val _aiMinConfidence = MutableStateFlow(DEFAULT_AI_MIN_CONFIDENCE)
+    val aiMinConfidence: StateFlow<Int> = _aiMinConfidence.asStateFlow()
+
+    private val _aiAlertCooldownMinutes = MutableStateFlow(DEFAULT_AI_ALERT_COOLDOWN_MINUTES)
+    val aiAlertCooldownMinutes: StateFlow<Int> = _aiAlertCooldownMinutes.asStateFlow()
+
+    private val _riskConfig = MutableStateFlow(RiskConfig())
+    val riskConfig: StateFlow<RiskConfig> = _riskConfig.asStateFlow()
+
+    private val _alertConfig = MutableStateFlow(AlertConfig())
+    val alertConfig: StateFlow<AlertConfig> = _alertConfig.asStateFlow()
 
     private val _apiKeys = MutableStateFlow<Map<DataProvider, String>>(emptyMap())
     val apiKeys: StateFlow<Map<DataProvider, String>> = _apiKeys.asStateFlow()
@@ -56,9 +88,30 @@ class AppPreferences @Inject constructor(
             context.dataStore.data.collect { prefs ->
                 _darkMode.value = prefs[KEY_DARK_MODE] ?: true
                 _appLockEnabled.value = prefs[KEY_APP_LOCK] ?: false
+                _backgroundScanEnabled.value = prefs[KEY_BACKGROUND_SCAN_ENABLED] ?: true
+                _backgroundScanIntervalMinutes.value = (
+                    prefs[KEY_BACKGROUND_SCAN_INTERVAL_MINUTES]
+                        ?: DEFAULT_BACKGROUND_SCAN_INTERVAL_MINUTES
+                    ).coerceIn(
+                        MIN_BACKGROUND_SCAN_INTERVAL_MINUTES,
+                        MAX_BACKGROUND_SCAN_INTERVAL_MINUTES,
+                    )
+                _aiMinConfluences.value = (prefs[KEY_AI_MIN_CONFLUENCES] ?: DEFAULT_AI_MIN_CONFLUENCES)
+                    .coerceIn(MIN_AI_CONFLUENCES, MAX_AI_CONFLUENCES)
+                _aiMinConfidence.value = (prefs[KEY_AI_MIN_CONFIDENCE] ?: DEFAULT_AI_MIN_CONFIDENCE)
+                    .coerceIn(MIN_AI_CONFIDENCE, MAX_AI_CONFIDENCE)
+                _aiAlertCooldownMinutes.value = (
+                    prefs[KEY_AI_ALERT_COOLDOWN_MINUTES]
+                        ?: DEFAULT_AI_ALERT_COOLDOWN_MINUTES
+                    ).coerceIn(MIN_AI_ALERT_COOLDOWN_MINUTES, MAX_AI_ALERT_COOLDOWN_MINUTES)
                 _dataProvider.value = prefs[KEY_PROVIDER]?.let { name ->
                     runCatching { DataProvider.valueOf(name) }.getOrDefault(DataProvider.SAMPLE)
                 } ?: DataProvider.SAMPLE
+                _defaultTimeframe.value = prefs[KEY_DEFAULT_TIMEFRAME]?.let { label ->
+                    Timeframe.fromLabel(label)
+                } ?: Timeframe.M15
+                _riskConfig.value = readRiskConfig(prefs)
+                _alertConfig.value = readAlertConfig(prefs)
                 val storedApiKeys = loadPersistedApiKeys()
                 val legacyAlphaKey = prefs[KEY_ALPHA_VANTAGE_API_KEY].orEmpty()
                 if (
@@ -79,6 +132,11 @@ class AppPreferences @Inject constructor(
         scope.launch { context.dataStore.edit { it[KEY_PROVIDER] = provider.name } }
     }
 
+    fun setDefaultTimeframe(timeframe: Timeframe) {
+        _defaultTimeframe.value = timeframe
+        scope.launch { context.dataStore.edit { it[KEY_DEFAULT_TIMEFRAME] = timeframe.label } }
+    }
+
     fun setDarkMode(enabled: Boolean) {
         _darkMode.value = enabled
         scope.launch { context.dataStore.edit { it[KEY_DARK_MODE] = enabled } }
@@ -87,6 +145,84 @@ class AppPreferences @Inject constructor(
     fun setAppLockEnabled(enabled: Boolean) {
         _appLockEnabled.value = enabled
         scope.launch { context.dataStore.edit { it[KEY_APP_LOCK] = enabled } }
+    }
+
+    fun setBackgroundScanEnabled(enabled: Boolean) {
+        _backgroundScanEnabled.value = enabled
+        scope.launch { context.dataStore.edit { it[KEY_BACKGROUND_SCAN_ENABLED] = enabled } }
+    }
+
+    fun setBackgroundScanIntervalMinutes(minutes: Int) {
+        val coerced = minutes.coerceIn(
+            MIN_BACKGROUND_SCAN_INTERVAL_MINUTES,
+            MAX_BACKGROUND_SCAN_INTERVAL_MINUTES,
+        )
+        _backgroundScanIntervalMinutes.value = coerced
+        scope.launch { context.dataStore.edit { it[KEY_BACKGROUND_SCAN_INTERVAL_MINUTES] = coerced } }
+    }
+
+    fun setBackgroundScanConfig(enabled: Boolean, intervalMinutes: Int) {
+        val coerced = intervalMinutes.coerceIn(
+            MIN_BACKGROUND_SCAN_INTERVAL_MINUTES,
+            MAX_BACKGROUND_SCAN_INTERVAL_MINUTES,
+        )
+        _backgroundScanEnabled.value = enabled
+        _backgroundScanIntervalMinutes.value = coerced
+        scope.launch {
+            context.dataStore.edit {
+                it[KEY_BACKGROUND_SCAN_ENABLED] = enabled
+                it[KEY_BACKGROUND_SCAN_INTERVAL_MINUTES] = coerced
+            }
+        }
+    }
+
+    fun setAiDecisionConfig(
+        minConfluences: Int,
+        minConfidence: Int,
+        alertCooldownMinutes: Int,
+    ) {
+        val confluences = minConfluences.coerceIn(MIN_AI_CONFLUENCES, MAX_AI_CONFLUENCES)
+        val confidence = minConfidence.coerceIn(MIN_AI_CONFIDENCE, MAX_AI_CONFIDENCE)
+        val cooldown = alertCooldownMinutes.coerceIn(
+            MIN_AI_ALERT_COOLDOWN_MINUTES,
+            MAX_AI_ALERT_COOLDOWN_MINUTES,
+        )
+        _aiMinConfluences.value = confluences
+        _aiMinConfidence.value = confidence
+        _aiAlertCooldownMinutes.value = cooldown
+        scope.launch {
+            context.dataStore.edit {
+                it[KEY_AI_MIN_CONFLUENCES] = confluences
+                it[KEY_AI_MIN_CONFIDENCE] = confidence
+                it[KEY_AI_ALERT_COOLDOWN_MINUTES] = cooldown
+            }
+        }
+    }
+
+    fun setRiskConfig(config: RiskConfig) {
+        _riskConfig.value = config
+        scope.launch {
+            context.dataStore.edit {
+                it[KEY_RISK_PERCENT_PER_TRADE] = config.riskPercentPerTrade
+                it[KEY_RISK_SIZING_METHOD] = config.sizingMethod.name
+                it[KEY_RISK_MAX_DAILY_LOSS_PERCENT] = config.maxDailyLossPercent
+                it[KEY_RISK_MAX_DRAWDOWN_PERCENT] = config.maxDrawdownPercent
+                it[KEY_RISK_MAX_CONSECUTIVE_LOSSES] = config.maxConsecutiveLosses
+                it[KEY_RISK_ATR_STOP_MULTIPLIER] = config.atrStopMultiplier
+            }
+        }
+    }
+
+    fun setAlertConfig(config: AlertConfig) {
+        _alertConfig.value = config
+        scope.launch {
+            context.dataStore.edit {
+                it[KEY_ALERT_SOUND_ENABLED] = config.soundEnabled
+                it[KEY_ALERT_MIN_PRIORITY] = config.minPriority.name
+                it[KEY_ALERT_MAX_PER_HOUR] = config.maxAlertsPerHour
+                it[KEY_ALERT_COOLDOWN_MS] = config.cooldownMs
+            }
+        }
     }
 
     fun setApiKey(provider: DataProvider, key: String) {
@@ -113,6 +249,34 @@ class AppPreferences @Inject constructor(
         if (!p.supportsLive) return false
         if (p.requiresApiKey && _apiKeys.value[p].isNullOrBlank()) return false
         return true
+    }
+
+    private fun readRiskConfig(prefs: Preferences): RiskConfig {
+        val defaults = RiskConfig()
+        val sizingMethod = prefs[KEY_RISK_SIZING_METHOD]?.let { name ->
+            runCatching { PositionSizingMethod.valueOf(name) }.getOrDefault(defaults.sizingMethod)
+        } ?: defaults.sizingMethod
+        return defaults.copy(
+            sizingMethod = sizingMethod,
+            riskPercentPerTrade = prefs[KEY_RISK_PERCENT_PER_TRADE] ?: defaults.riskPercentPerTrade,
+            maxDailyLossPercent = prefs[KEY_RISK_MAX_DAILY_LOSS_PERCENT] ?: defaults.maxDailyLossPercent,
+            maxDrawdownPercent = prefs[KEY_RISK_MAX_DRAWDOWN_PERCENT] ?: defaults.maxDrawdownPercent,
+            maxConsecutiveLosses = prefs[KEY_RISK_MAX_CONSECUTIVE_LOSSES] ?: defaults.maxConsecutiveLosses,
+            atrStopMultiplier = prefs[KEY_RISK_ATR_STOP_MULTIPLIER] ?: defaults.atrStopMultiplier,
+        )
+    }
+
+    private fun readAlertConfig(prefs: Preferences): AlertConfig {
+        val defaults = AlertConfig()
+        val minPriority = prefs[KEY_ALERT_MIN_PRIORITY]?.let { name ->
+            runCatching { AlertPriority.valueOf(name) }.getOrDefault(defaults.minPriority)
+        } ?: defaults.minPriority
+        return defaults.copy(
+            soundEnabled = prefs[KEY_ALERT_SOUND_ENABLED] ?: defaults.soundEnabled,
+            minPriority = minPriority,
+            maxAlertsPerHour = prefs[KEY_ALERT_MAX_PER_HOUR] ?: defaults.maxAlertsPerHour,
+            cooldownMs = prefs[KEY_ALERT_COOLDOWN_MS] ?: defaults.cooldownMs,
+        )
     }
 
     private fun loadPersistedApiKeys(): Map<DataProvider, String> =
@@ -145,9 +309,38 @@ class AppPreferences @Inject constructor(
 
     private companion object {
         const val SECURE_PREFS_FILE_NAME = "fox_provider_keys"
+        const val MIN_BACKGROUND_SCAN_INTERVAL_MINUTES = 15
+        const val MAX_BACKGROUND_SCAN_INTERVAL_MINUTES = 240
+        const val DEFAULT_BACKGROUND_SCAN_INTERVAL_MINUTES = 15
+        const val MIN_AI_CONFLUENCES = 1
+        const val MAX_AI_CONFLUENCES = 9
+        const val DEFAULT_AI_MIN_CONFLUENCES = 5
+        const val MIN_AI_CONFIDENCE = 10
+        const val MAX_AI_CONFIDENCE = 100
+        const val DEFAULT_AI_MIN_CONFIDENCE = 55
+        const val MIN_AI_ALERT_COOLDOWN_MINUTES = 1
+        const val MAX_AI_ALERT_COOLDOWN_MINUTES = 60
+        const val DEFAULT_AI_ALERT_COOLDOWN_MINUTES = 5
+
         val KEY_DARK_MODE = booleanPreferencesKey("dark_mode")
         val KEY_APP_LOCK = booleanPreferencesKey("app_lock_enabled")
+        val KEY_BACKGROUND_SCAN_ENABLED = booleanPreferencesKey("background_scan_enabled")
+        val KEY_BACKGROUND_SCAN_INTERVAL_MINUTES = intPreferencesKey("background_scan_interval_minutes")
+        val KEY_AI_MIN_CONFLUENCES = intPreferencesKey("ai_min_confluences")
+        val KEY_AI_MIN_CONFIDENCE = intPreferencesKey("ai_min_confidence")
+        val KEY_AI_ALERT_COOLDOWN_MINUTES = intPreferencesKey("ai_alert_cooldown_minutes")
+        val KEY_RISK_PERCENT_PER_TRADE = doublePreferencesKey("risk_percent_per_trade")
+        val KEY_RISK_SIZING_METHOD = stringPreferencesKey("risk_sizing_method")
+        val KEY_RISK_MAX_DAILY_LOSS_PERCENT = doublePreferencesKey("risk_max_daily_loss_percent")
+        val KEY_RISK_MAX_DRAWDOWN_PERCENT = doublePreferencesKey("risk_max_drawdown_percent")
+        val KEY_RISK_MAX_CONSECUTIVE_LOSSES = intPreferencesKey("risk_max_consecutive_losses")
+        val KEY_RISK_ATR_STOP_MULTIPLIER = doublePreferencesKey("risk_atr_stop_multiplier")
+        val KEY_ALERT_SOUND_ENABLED = booleanPreferencesKey("alert_sound_enabled")
+        val KEY_ALERT_MIN_PRIORITY = stringPreferencesKey("alert_min_priority")
+        val KEY_ALERT_MAX_PER_HOUR = intPreferencesKey("alert_max_per_hour")
+        val KEY_ALERT_COOLDOWN_MS = longPreferencesKey("alert_cooldown_ms")
         val KEY_PROVIDER = stringPreferencesKey("data_provider")
+        val KEY_DEFAULT_TIMEFRAME = stringPreferencesKey("default_timeframe")
         val KEY_ALPHA_VANTAGE_API_KEY = stringPreferencesKey("alpha_vantage_api_key")
     }
 }

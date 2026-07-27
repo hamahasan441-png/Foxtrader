@@ -5,7 +5,7 @@ package com.foxtrader.app.domain.model
  *
  * SAMPLE       — built-in offline sample data (no network)
  * BINANCE      — Binance spot WebSocket + REST (crypto)
- * BYBIT        — Bybit (crypto derivatives)
+ * BYBIT        — Bybit spot REST + WebSocket (crypto)
  * DUKASCOPY    — forex / CFD tick history
  * ALPHA_VANTAGE — stocks / forex REST
  * POLYGON      — stocks / forex / crypto

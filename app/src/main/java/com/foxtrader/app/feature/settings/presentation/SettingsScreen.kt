@@ -265,6 +265,65 @@ fun SettingsScreen(
                 )
             }
 
+            // === AI DECISION ENGINE ===
+            SectionHeader("AI Decision Engine")
+
+            SettingsCard {
+                SliderSetting(
+                    label = "Min Confluences",
+                    value = state.aiConfig.minConfluences.toFloat(),
+                    range = 1f..9f,
+                    suffix = "",
+                    onValueChange = { viewModel.setMinConfluences(it.toInt()) },
+                )
+
+                Spacer(Modifier.height(12.dp))
+
+                SliderSetting(
+                    label = "Min Confidence",
+                    value = state.aiConfig.minConfidence.toFloat(),
+                    range = 10f..100f,
+                    suffix = "%",
+                    onValueChange = { viewModel.setMinConfidence(it.toInt()) },
+                )
+
+                Spacer(Modifier.height(12.dp))
+
+                SliderSetting(
+                    label = "Signal Cooldown",
+                    value = state.aiConfig.alertCooldownMinutes.toFloat(),
+                    range = 1f..60f,
+                    suffix = " min",
+                    onValueChange = { viewModel.setAlertCooldownMinutes(it.toInt()) },
+                )
+
+                Spacer(Modifier.height(12.dp))
+
+                SwitchSetting(
+                    label = "Background Scan Alerts",
+                    checked = state.aiConfig.backgroundScanEnabled,
+                    onCheckedChange = viewModel::setBackgroundScanEnabled,
+                )
+
+                if (state.aiConfig.backgroundScanEnabled) {
+                    Spacer(Modifier.height(12.dp))
+                    SliderSetting(
+                        label = "Scan Interval",
+                        value = state.aiConfig.backgroundScanIntervalMinutes.toFloat(),
+                        range = 15f..240f,
+                        suffix = " min",
+                        onValueChange = { viewModel.setBackgroundScanIntervalMinutes(it.toInt()) },
+                    )
+                }
+
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "WorkManager runs the watchlist AI gate in the background with Android battery constraints. Risk and psychology vetoes always remain authoritative.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = FoxNeutral60,
+                )
+            }
+
             // === DATA ===
             SectionHeader("Data Provider")
 
@@ -289,6 +348,14 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = FoxNeutral60,
                 )
+                if (state.dataProvider == DataProvider.BINANCE || state.dataProvider == DataProvider.BYBIT) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "Live chart routing is active for ${state.dataProvider.displayName} crypto symbols.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = FoxNeutral60,
+                    )
+                }
                 if (state.dataProvider.requiresApiKey) {
                     Spacer(Modifier.height(12.dp))
                     OutlinedTextField(
@@ -395,7 +462,7 @@ private fun SliderSetting(
                 // NOTE: never embed `suffix` inside the format string — a bare
                 // "%" (e.g. "%.1f%") throws UnknownFormatConversionException and
                 // crashed the whole Settings screen. Build the suffix separately.
-                text = if (suffix == "") "${value.toInt()}" else "%.1f".format(value) + suffix,
+                text = formatSliderValue(value, suffix),
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = FoxAmber50,
@@ -411,6 +478,13 @@ private fun SliderSetting(
             ),
         )
     }
+}
+
+private fun formatSliderValue(value: Float, suffix: String): String {
+    if (suffix.isEmpty()) return value.toInt().toString()
+    val whole = value.toInt().toFloat() == value
+    val formatted = if (whole) value.toInt().toString() else "%.1f".format(value)
+    return formatted + suffix
 }
 
 @Composable

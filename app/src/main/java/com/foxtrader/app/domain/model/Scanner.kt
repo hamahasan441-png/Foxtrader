@@ -10,6 +10,13 @@ enum class WatchlistCategory {
     BEST_BUY, BEST_SELL, BEST_SWING, BEST_SCALP, BEST_LONG_TERM
 }
 
+/** Scanner risk regime for a result. */
+enum class ScannerRiskLevel {
+    LOW,
+    MODERATE,
+    HIGH,
+}
+
 /** A symbol on the screener watchlist. */
 data class ScreenerSymbol(
     val symbol: String,
@@ -34,6 +41,8 @@ data class ScreenerResult(
     val tags: List<String>,
     val lastPrice: Double,
     val changePercent: Double,
+    val riskLevel: ScannerRiskLevel = ScannerRiskLevel.MODERATE,
+    val rationale: String = "",
 )
 
 /** Aggregate screener output. */

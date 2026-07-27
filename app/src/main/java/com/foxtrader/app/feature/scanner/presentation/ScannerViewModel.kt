@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.foxtrader.app.domain.model.AssetClass
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.ScannerRiskLevel
 import com.foxtrader.app.domain.model.StrategyType
 import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.scanner.ScannerUseCase
@@ -57,6 +58,14 @@ class ScannerViewModel @Inject constructor(
 
     fun selectAssetClass(assetClass: AssetClass?) {
         _uiState.update { it.copy(selectedAssetClass = assetClass) }
+    }
+
+    fun selectRiskLevel(riskLevel: ScannerRiskLevel?) {
+        _uiState.update { it.copy(selectedRiskLevel = riskLevel) }
+    }
+
+    fun selectSortMode(sortMode: ScannerSortMode) {
+        _uiState.update { it.copy(selectedSortMode = sortMode) }
     }
 
     fun selectStrategy(strategy: StrategyType) {

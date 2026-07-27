@@ -17,10 +17,12 @@ import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import com.foxtrader.app.domain.usecase.ai.AgentOrchestrator
 import com.foxtrader.app.domain.usecase.ai.AiAlertService
+import com.foxtrader.app.domain.usecase.ai.MarketExplanationEngine
 import com.foxtrader.app.domain.usecase.ai.MasterDecisionEngine
 import com.foxtrader.app.domain.usecase.ai.MtfContextProvider
 import com.foxtrader.app.domain.usecase.chart.ComputeIndicatorsUseCase
 import com.foxtrader.app.domain.usecase.drawing.DrawingEngine
+import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.domain.usecase.replay.ReplayEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
@@ -64,13 +66,17 @@ class ChartViewModel @Inject constructor(
     private val orchestrator: AgentOrchestrator,
     private val decisionEngine: MasterDecisionEngine,
     private val mtfContextProvider: MtfContextProvider,
+    private val marketExplanationEngine: MarketExplanationEngine,
     private val aiAlertService: AiAlertService,
     private val alertDispatcher: AlertDispatcher,
     private val drawingRepository: DrawingRepository,
+    private val appPreferences: AppPreferences,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(ChartUiState())
+    private val _uiState = MutableStateFlow(
+        ChartUiState(timeframe = appPreferences.defaultTimeframe.value)
+    )
     val uiState: StateFlow<ChartUiState> = _uiState.asStateFlow()
 
     /** Replay state exposed separately for the overlay composable. */
@@ -79,8 +85,8 @@ class ChartViewModel @Inject constructor(
     /** WebSocket connection state for the UI indicator. */
     val connectionState: StateFlow<ConnectionState> = webSocket.connectionState
 
-    private val symbolFlow = MutableStateFlow(ChartUiState().symbol)
-    private val timeframeFlow = MutableStateFlow(ChartUiState().timeframe)
+    private val symbolFlow = MutableStateFlow(_uiState.value.symbol)
+    private val timeframeFlow = MutableStateFlow(_uiState.value.timeframe)
 
     /**
      * Fingerprint of the last candle series passed to the AI pipeline.
@@ -156,10 +162,17 @@ class ChartViewModel @Inject constructor(
     private suspend fun processCandles(candles: List<Candle>) {
         val ind = _uiState.value.indicators
 
-        val (structure, overlays) = withContext(defaultDispatcher) {
+        val (structure, overlays, marketExplanation) = withContext(defaultDispatcher) {
             val s = analyzeStructure(candles)
             val o = computeIndicators(candles, ind)
-            s to o
+            val explanation = if (candles.size >= 50) {
+                marketExplanationEngine.explain(
+                    symbol = symbolFlow.value,
+                    timeframe = timeframeFlow.value,
+                    candles = candles,
+                )
+            } else null
+            Triple(s, o, explanation)
         }
 
         _uiState.value = _uiState.value.copy(
@@ -185,6 +198,7 @@ class ChartViewModel @Inject constructor(
             liquidityPools = overlays.liquidityPools,
             volumeProfile = overlays.volumeProfile,
             sessions = overlays.sessions,
+            marketExplanation = marketExplanation,
             isLoading = candles.isEmpty() && _uiState.value.error == null,
         )
 
@@ -242,11 +256,16 @@ class ChartViewModel @Inject constructor(
                 symbol = analysisSymbol,
                 executionTimeframe = analysisTimeframe,
             )
+            val correlatedCandles = mtfContextProvider.getCorrelatedContext(
+                symbol = analysisSymbol,
+                timeframe = analysisTimeframe,
+            )
             val context = AgentContext(
                 symbol = analysisSymbol,
                 timeframe = analysisTimeframe,
                 candles = candles,
                 mtfCandles = mtfCandles,
+                correlatedCandles = correlatedCandles,
             )
 
             // Multi-agent analysis and decision scoring are CPU-bound; run them
@@ -260,7 +279,19 @@ class ChartViewModel @Inject constructor(
             // background analysis was running.
             if (symbolFlow.value != analysisSymbol || timeframeFlow.value != analysisTimeframe) return@launch
 
-            _uiState.value = _uiState.value.copy(aiDecision = decision)
+            val htfExplanation = withContext(defaultDispatcher) {
+                marketExplanationEngine.explain(
+                    symbol = analysisSymbol,
+                    timeframe = analysisTimeframe,
+                    candles = candles,
+                    htfCandles = mtfCandles,
+                )
+            }
+
+            _uiState.value = _uiState.value.copy(
+                aiDecision = decision,
+                marketExplanation = htfExplanation,
+            )
 
             // Fire a push alert if the AI approves a signal (cooldown-gated).
             val alert = aiAlertService.evaluate(decision, analysisSymbol)

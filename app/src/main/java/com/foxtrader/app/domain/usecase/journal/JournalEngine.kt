@@ -168,7 +168,12 @@ class JournalEngine @Inject constructor() {
 
         val winRate = if (closed.isNotEmpty()) (wins.size.toDouble() / closed.size) * 100.0 else 0.0
         val avgR = closed.mapNotNull { it.rMultiple }.average().takeIf { !it.isNaN() } ?: 0.0
+        val avgWin = if (wins.isNotEmpty()) grossProfit / wins.size else 0.0
+        val avgLoss = if (losses.isNotEmpty()) grossLoss / losses.size else 0.0
+        val expectancy = (winRate / 100.0) * avgWin - ((100.0 - winRate) / 100.0) * avgLoss
+        val payoffRatio = if (avgLoss > 0.0) avgWin / avgLoss else if (avgWin > 0.0) Double.MAX_VALUE else 0.0
         val profitFactor = if (grossLoss > 0) grossProfit / grossLoss else if (grossProfit > 0) Double.MAX_VALUE else 0.0
+        val maxDrawdown = calculateMaxDrawdown(closed)
 
         // Streaks
         var maxWins = 0; var maxLosses = 0; var curWins = 0; var curLosses = 0
@@ -177,20 +182,33 @@ class JournalEngine @Inject constructor() {
             else { curLosses++; curWins = 0; maxLosses = max(maxLosses, curLosses) }
         }
 
-        // Setup breakdown
+        // Setup / psychology breakdown
         val tradesBySetup = closed.groupBy { it.setupType }.mapValues { it.value.size }
         val tradesByEmotion = closed.groupBy { it.emotionTag }.mapValues { it.value.size }
+        val bestSetupByAverageR = closed
+            .groupBy { it.setupType }
+            .maxByOrNull { (_, trades) -> trades.mapNotNull { it.rMultiple }.averageOrZero() }
+            ?.key
+        val weakestEmotionByWinRate = closed
+            .groupBy { it.emotionTag }
+            .minByOrNull { (_, trades) -> trades.winRate() }
+            ?.key
 
-        val avgHoldingTime = closed.mapNotNull { it.holdingTimeMs }.average().toLong()
-        val avgRating = closed.map { it.rating }.average()
+        val avgHoldingTime = closed.mapNotNull { it.holdingTimeMs }.average().takeIf { !it.isNaN() }?.toLong() ?: 0L
+        val avgRating = closed.map { it.rating }.average().takeIf { !it.isNaN() } ?: 0.0
 
         return JournalStats(
             totalTrades = closed.size,
             winRate = winRate,
             averageRMultiple = avgR,
             totalPnl = totalPnl,
+            averageWin = avgWin,
+            averageLoss = avgLoss,
+            expectancy = expectancy,
+            payoffRatio = payoffRatio,
             bestTrade = closed.maxOf { it.pnl ?: 0.0 },
             worstTrade = closed.minOf { it.pnl ?: 0.0 },
+            maxDrawdown = maxDrawdown,
             averageHoldingTimeMs = avgHoldingTime,
             profitFactor = profitFactor,
             consecutiveWins = maxWins,
@@ -198,7 +216,28 @@ class JournalEngine @Inject constructor() {
             averageRating = avgRating,
             tradesBySetup = tradesBySetup,
             tradesByEmotion = tradesByEmotion,
+            bestSetupByAverageR = bestSetupByAverageR,
+            weakestEmotionByWinRate = weakestEmotionByWinRate,
         )
+    }
+
+    private fun calculateMaxDrawdown(closed: List<JournalEntry>): Double {
+        var equity = 0.0
+        var peak = 0.0
+        var maxDrawdown = 0.0
+        for (entry in closed.sortedBy { it.entryTime }) {
+            equity += entry.pnl ?: 0.0
+            peak = max(peak, equity)
+            maxDrawdown = max(maxDrawdown, peak - equity)
+        }
+        return maxDrawdown
+    }
+
+    private fun List<Double>.averageOrZero(): Double = average().takeIf { !it.isNaN() } ?: 0.0
+
+    private fun List<JournalEntry>.winRate(): Double {
+        if (isEmpty()) return 0.0
+        return count { it.isWin }.toDouble() / size
     }
 
     /**

@@ -5,6 +5,7 @@ import com.foxtrader.app.data.mapper.toDomain
 import com.foxtrader.app.data.mapper.toEntity
 import com.foxtrader.app.data.remote.api.AlphaVantageDataSource
 import com.foxtrader.app.data.remote.api.BinanceDataSource
+import com.foxtrader.app.data.remote.api.BybitDataSource
 import com.foxtrader.app.data.remote.api.MarketApi
 import com.foxtrader.app.di.IoDispatcher
 import com.foxtrader.app.domain.model.Candle
@@ -33,6 +34,7 @@ class MarketRepositoryImpl @Inject constructor(
     private val dao: CandleDao,
     private val api: MarketApi,
     private val binance: BinanceDataSource,
+    private val bybit: BybitDataSource,
     private val alphaVantage: AlphaVantageDataSource,
     private val appPreferences: AppPreferences,
     @IoDispatcher private val io: CoroutineDispatcher,
@@ -59,6 +61,14 @@ class MarketRepositoryImpl @Inject constructor(
                         throw IllegalStateException(
                             "Alpha Vantage returned no candle data for $symbol ${timeframe.label}. " +
                                 "Check supported symbols/timeframes in Alpha Vantage docs, API key validity, and rate limits."
+                        )
+                    }
+                }
+                selectedProvider == DataProvider.BYBIT && bybit.isBybitSymbol(symbol) -> {
+                    bybit.fetchCandles(symbol, timeframe, limit).ifEmpty {
+                        throw IllegalStateException(
+                            "Bybit returned no candle data for $symbol ${timeframe.label}. " +
+                                "Check that the spot symbol is supported by Bybit."
                         )
                     }
                 }

@@ -1,7 +1,11 @@
 package com.foxtrader.app
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -12,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.foxtrader.app.data.auth.BiometricAuthManager
@@ -33,6 +38,10 @@ import javax.inject.Inject
 @AndroidEntryPoint
 class MainActivity : FragmentActivity() {
 
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* User choice is respected; alerts degrade gracefully if denied. */ }
+
     @Inject
     lateinit var appPreferences: AppPreferences
 
@@ -42,6 +51,7 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        requestNotificationPermissionIfNeeded()
         setContent {
             // Drive the theme from the user's dark-mode preference so the
             // Settings toggle actually takes effect app-wide.
@@ -65,6 +75,17 @@ class MainActivity : FragmentActivity() {
                 },
                 onUnlock = { unlocked = true },
             )
+        }
+    }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        val granted = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.POST_NOTIFICATIONS,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 }

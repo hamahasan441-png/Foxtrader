@@ -6,11 +6,13 @@ import com.foxtrader.app.domain.repository.MarketRepository
 import javax.inject.Inject
 
 /**
- * Provides multi-timeframe candle context for the AI agent system.
+ * Provides multi-timeframe and correlated-symbol candle context for the AI agent system.
  *
  * Given the user's current (execution) timeframe, this fetches candles from
  * relevant higher timeframes (HTFs) via the repository and returns them as a
  * map suitable for [com.foxtrader.app.domain.model.AgentContext.mtfCandles].
+ * It can also fetch a small peer set for SMT divergence via
+ * [com.foxtrader.app.domain.model.AgentContext.correlatedCandles].
  *
  * Design notes:
  * - HTFs are determined relative to the execution TF (always look UP).
@@ -53,6 +55,28 @@ class MtfContextProvider @Inject constructor(
     }.getOrElse { emptyMap() }
 
     /**
+     * Fetch same-timeframe correlated symbols for SMT divergence analysis.
+     *
+     * Returns a small, deterministic peer set to bound CPU and DB work. Missing
+     * or insufficient peer data is ignored so the AI pipeline degrades to normal
+     * single-symbol analysis rather than failing.
+     */
+    suspend fun getCorrelatedContext(
+        symbol: String,
+        timeframe: Timeframe,
+    ): Map<String, List<Candle>> = runCatching {
+        val peers = correlatedPeers(symbol).take(MAX_CORRELATED_PEERS)
+        val result = LinkedHashMap<String, List<Candle>>(peers.size)
+        for (peer in peers) {
+            val candles = runCatching { repository.getCandles(peer, timeframe) }.getOrElse { emptyList() }
+            if (candles.size >= MIN_BARS) {
+                result[peer] = candles
+            }
+        }
+        result as Map<String, List<Candle>>
+    }.getOrElse { emptyMap() }
+
+    /**
      * Returns up to 3 higher timeframes above [tf], ordered from closest to
      * furthest. E.g. for M15 → [H1, H4, D1]; for H4 → [D1, W1, MN].
      */
@@ -64,9 +88,29 @@ class MtfContextProvider @Inject constructor(
         return all.drop(idx + 1).take(MAX_HTF_COUNT)
     }
 
+    private fun correlatedPeers(symbol: String): List<String> = when (symbol.uppercase()) {
+        "EURUSD" -> listOf("GBPUSD", "AUDUSD")
+        "GBPUSD" -> listOf("EURUSD", "AUDUSD")
+        "AUDUSD" -> listOf("NZDUSD", "EURUSD")
+        "NZDUSD" -> listOf("AUDUSD", "EURUSD")
+        "USDJPY" -> listOf("USDCHF", "USDCAD")
+        "USDCHF" -> listOf("USDJPY", "USDCAD")
+        "XAUUSD" -> listOf("XAGUSD")
+        "XAGUSD" -> listOf("XAUUSD")
+        "BTCUSDT" -> listOf("ETHUSDT", "SOLUSDT")
+        "ETHUSDT" -> listOf("BTCUSDT", "SOLUSDT")
+        "SOLUSDT" -> listOf("BTCUSDT", "ETHUSDT")
+        "BNBUSDT" -> listOf("BTCUSDT", "ETHUSDT")
+        "NAS100" -> listOf("US500", "US30")
+        "US500" -> listOf("NAS100", "US30")
+        "US30" -> listOf("US500", "NAS100")
+        else -> emptyList()
+    }.filterNot { it.equals(symbol, ignoreCase = true) }
+
     private companion object {
         const val MIN_BARS = 50
         const val MAX_HTF_COUNT = 3
+        const val MAX_CORRELATED_PEERS = 2
 
         /** Timeframes ordered lowest → highest. */
         val ORDERED_TIMEFRAMES = listOf(

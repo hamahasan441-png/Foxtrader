@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.foxtrader.app.domain.model.Direction
+import com.foxtrader.app.domain.model.EmotionTag
 import com.foxtrader.app.domain.model.JournalEntry
 import com.foxtrader.app.domain.model.JournalStats
 import com.foxtrader.app.ui.theme.FoxAmber50
@@ -115,9 +116,10 @@ fun JournalScreen(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    // Stats card at top
+                    // Stats cards at top
                     if (state.showStats) {
                         item { StatsCard(state.stats) }
+                        item { JournalAnalyticsCard(state.stats) }
                     }
 
                     // Trade entries
@@ -155,7 +157,7 @@ private fun StatsCard(stats: JournalStats) {
                 StatItem("Trades", stats.totalTrades.toString())
                 StatItem("Win Rate", "%.1f%%".format(stats.winRate))
                 StatItem("Avg R", "%.2f".format(stats.averageRMultiple))
-                StatItem("P/F", "%.2f".format(stats.profitFactor))
+                StatItem("P/F", formatRatio(stats.profitFactor))
             }
 
             Spacer(Modifier.height(8.dp))
@@ -169,7 +171,92 @@ private fun StatsCard(stats: JournalStats) {
                 StatItem("Worst", "%.2f".format(stats.worstTrade))
                 StatItem("Streak W/L", "${stats.consecutiveWins}/${stats.consecutiveLosses}")
             }
+
+            Spacer(Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                StatItem("Expectancy", "%.2f".format(stats.expectancy))
+                StatItem("Payoff", formatRatio(stats.payoffRatio))
+                StatItem("Max DD", "%.2f".format(stats.maxDrawdown))
+                StatItem("Rating", "%.1f".format(stats.averageRating))
+            }
         }
+    }
+}
+
+@Composable
+private fun JournalAnalyticsCard(stats: JournalStats) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        colors = CardDefaults.cardColors(containerColor = FoxNeutral10),
+        shape = RoundedCornerShape(16.dp),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                "Journal Intelligence",
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp,
+                color = FoxAmber50,
+            )
+            Spacer(Modifier.height(10.dp))
+
+            stats.bestSetupByAverageR?.let { setup ->
+                InsightLine("Best setup by average R", setup)
+            }
+            stats.weakestEmotionByWinRate?.let { emotion ->
+                InsightLine("Weakest emotion state", formatEnumName(emotion.name))
+            }
+
+            if (stats.tradesBySetup.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                Text("Setup Mix", fontSize = 12.sp, color = FoxNeutral60, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(4.dp))
+                stats.tradesBySetup.entries
+                    .sortedByDescending { it.value }
+                    .take(4)
+                    .forEach { (setup, count) -> BreakdownRow(setup, count, stats.totalTrades) }
+            }
+
+            if (stats.tradesByEmotion.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                Text("Emotion Mix", fontSize = 12.sp, color = FoxNeutral60, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(4.dp))
+                stats.tradesByEmotion.entries
+                    .sortedByDescending { it.value }
+                    .take(4)
+                    .forEach { (emotion, count) -> BreakdownRow(formatEnumName(emotion.name), count, stats.totalTrades) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InsightLine(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, fontSize = 12.sp, color = FoxNeutral60)
+        Text(value, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+    }
+}
+
+@Composable
+private fun BreakdownRow(label: String, count: Int, total: Int) {
+    val pct = if (total > 0) (count.toDouble() / total) * 100.0 else 0.0
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+        Text("$count • %.0f%%".format(pct), fontSize = 11.sp, color = FoxNeutral60)
     }
 }
 
@@ -261,6 +348,15 @@ private fun JournalEntryCard(entry: JournalEntry) {
                 Text(entry.timeframe.label, fontSize = 11.sp, color = FoxNeutral60)
             }
 
+            if (entry.rating > 0 || entry.emotionTag != EmotionTag.NEUTRAL) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "Rating ${if (entry.rating > 0) "${entry.rating}/5" else "—"} • ${formatEnumName(entry.emotionTag.name)}",
+                    fontSize = 11.sp,
+                    color = FoxNeutral60.copy(alpha = 0.8f),
+                )
+            }
+
             // Notes (if any)
             if (entry.notes.isNotBlank()) {
                 Spacer(Modifier.height(4.dp))
@@ -274,3 +370,12 @@ private fun JournalEntryCard(entry: JournalEntry) {
         }
     }
 }
+
+private fun formatRatio(value: Double): String = when {
+    value == Double.MAX_VALUE -> "∞"
+    value.isFinite() -> "%.2f".format(value)
+    else -> "—"
+}
+
+private fun formatEnumName(name: String): String =
+    name.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }

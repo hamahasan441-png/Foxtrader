@@ -975,6 +975,8 @@ The "trading engine" is the constellation of pure-domain engines under `domain/u
 
 **Metrics** (`BacktestMetrics`): net/gross profit, win rate, **profit factor**, **expectancy**, avg/largest win/loss, **max drawdown** (abs + %), **Sharpe** (annualized ×√252), **Sortino** (downside deviation), **Calmar** (return% / maxDD%), **recovery factor**, avg holding bars, max consecutive wins/losses, final balance, return %, total commission, plus an **equity curve** and per-trade `R-multiple`.
 
+**Validation analytics** (`BacktestAnalyticsEngine`): walk-forward split (in-sample vs out-of-sample stability), Monte Carlo trade-order randomization, 95% drawdown estimate, worst-case drawdown, median/worst/best final balance, risk-of-ruin %, and deterministic recommendations. These analytics are shown in Backtesting Lab and are required before trusting any strategy template for live use.
+
 `RULE` Any new backtester feature must preserve the `subList(0, i+1)` no-look-ahead invariant and must keep SL-before-TP exit ordering (never resolve TP first when both are touched intra-bar, absent tick data).
 
 `WARNING` Bar-level exits are an approximation: when a single bar touches both SL and TP, real fill order is unknown. FoxTrader assumes SL-first (pessimistic). For higher fidelity, use tick data (Dukascopy) in the replay/backtest path (H2).
@@ -1018,8 +1020,8 @@ Two engines: `AlertEngine` (rules + delivery gating) and `SmartAlertEngine` (con
 
 ## 5.11 Portfolio Engine
 
-- **Today:** `RiskEngine` tracks account balance, peak, drawdown, and exposure percentages; `CorrelationMatrix` computes pairwise correlations (to cap correlated exposure, `maxCorrelatedExposurePercent = 200%`, `correlationThreshold = 0.7`); `MarketHeatmap` visualizes relative strength.
-- **H2:** open-position tracking, real portfolio exposure (currently simplified to `0.0` in `RiskCheckResult`), multi-symbol P&L aggregation, and correlation-aware sizing.
+- **Today:** `RiskEngine` tracks account balance, peak, drawdown, and exposure percentages; `PortfolioEngine` converts broker position snapshots into total/long/short/net exposure, unrealized P&L, largest-symbol concentration, and correlation-cluster exposure; `CorrelationMatrix` computes pairwise correlations (to cap correlated exposure, `maxCorrelatedExposurePercent = 200%`, `correlationThreshold = 0.7`); `MarketHeatmap` visualizes relative strength.
+- **H2:** persistent open-position tracking, multi-symbol realized + unrealized P&L attribution, broker-synced position reconciliation, and adaptive correlation-aware sizing.
 
 ## 5.12 Trade Journal Engine
 
@@ -1253,11 +1255,11 @@ MasterDecision {
 
 ## 7.7 Trade Explanation Engine
 
-Produces the human narrative for a `MasterDecision`: the setup story ("London sweep of Asian low → CHoCH → bullish FVG + unmitigated demand OB in discount, OTE 0.705"), the satisfied/missing confluences, the R:R and invalidation, and the risk verdict. Backed deterministically by templates; optionally polished by the narration LLM ([7.3](#73-prompt-strategy-for-the-narration-llm-only)). Also feeds the journal (auto-annotation) and alerts (rich alert bodies).
+Produces the human narrative for a `MasterDecision`: the setup story ("London sweep of Asian low → CHoCH → bullish FVG + unmitigated demand OB in discount, OTE 0.705"), the satisfied/missing confluences, the R:R and invalidation, and the risk verdict. Implemented by `domain/usecase/ai/TradeExplanationEngine.kt` as deterministic templates; optionally polished by the narration LLM ([7.3](#73-prompt-strategy-for-the-narration-llm-only)). Also feeds the journal (auto-annotation) and alerts (rich alert bodies).
 
 ## 7.8 Market Explanation Engine
 
-`reference/ai/mentor-assistant.ts` + `market-scanner.ts`: explains the *current state* of a symbol independent of a trade ("HTF bullish, price in premium, likely to seek discount/liquidity below X before continuation"). Powers the mentor/education surface and the scanner's per-symbol rationale.
+`domain/usecase/ai/MarketExplanationEngine.kt` explains the *current state* of a symbol independent of a trade ("HTF bullish, price in premium, likely to seek discount/liquidity below X before continuation"). It deterministically summarizes HTF/local bias, value zone, trend/volatility regime, nearby liquidity, unfilled inefficiencies/order blocks, next objective, key levels, warnings, mentor notes, and tags. It powers the mentor/education surface and the scanner's per-symbol rationale; any LLM usage may only polish this already-computed explanation.
 
 ## 7.9 Optimization Engine
 

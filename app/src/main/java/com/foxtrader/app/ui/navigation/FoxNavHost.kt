@@ -5,6 +5,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -25,6 +26,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.foxtrader.app.feature.auth.presentation.LoginScreen
+import com.foxtrader.app.feature.backtest.presentation.BacktestLabScreen
 import com.foxtrader.app.feature.chart.presentation.ChartScreen
 import com.foxtrader.app.feature.journal.presentation.JournalScreen
 import com.foxtrader.app.feature.scanner.presentation.ScannerScreen
@@ -36,6 +38,7 @@ object FoxRoutes {
     const val CHART = "chart"
     const val SCANNER = "scanner"
     const val STRATEGIES = "strategies"
+    const val BACKTEST_LAB = "backtest_lab"
     const val JOURNAL = "journal"
     const val SETTINGS = "settings"
     const val LOGIN = "login"
@@ -52,6 +55,7 @@ private val bottomTabs = listOf(
     BottomNavTab(FoxRoutes.CHART, "Chart", Icons.Default.BarChart),
     BottomNavTab(FoxRoutes.SCANNER, "Scanner", Icons.Default.Search),
     BottomNavTab(FoxRoutes.STRATEGIES, "Strategies", Icons.Default.TrendingUp),
+    BottomNavTab(FoxRoutes.BACKTEST_LAB, "Lab", Icons.Default.ShowChart),
     BottomNavTab(FoxRoutes.JOURNAL, "Journal", Icons.Default.Book),
     BottomNavTab(FoxRoutes.SETTINGS, "Settings", Icons.Default.Settings),
 )
@@ -84,6 +88,9 @@ fun FoxNavHost(
             }
             composable(FoxRoutes.STRATEGIES) {
                 StrategiesScreen()
+            }
+            composable(FoxRoutes.BACKTEST_LAB) {
+                BacktestLabScreen()
             }
             composable(FoxRoutes.JOURNAL) {
                 JournalScreen()

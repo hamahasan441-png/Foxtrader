@@ -1,6 +1,7 @@
 package com.foxtrader.app.feature.settings.presentation
 
 import androidx.lifecycle.ViewModel
+import com.foxtrader.app.data.alerts.ScanAlertScheduler
 import com.foxtrader.app.data.auth.BiometricAuthManager
 import com.foxtrader.app.data.sync.SyncManager
 import com.foxtrader.app.domain.model.AlertConfig
@@ -21,6 +22,7 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
@@ -37,12 +39,21 @@ class SettingsViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val syncManager: SyncManager,
     private val biometricAuthManager: BiometricAuthManager,
+    private val scanAlertScheduler: ScanAlertScheduler,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
         SettingsUiState(
-            riskConfig = riskEngine.getConfig(),
-            alertConfig = alertEngine.getConfig(),
+            riskConfig = appPreferences.riskConfig.value,
+            alertConfig = appPreferences.alertConfig.value,
+            aiConfig = AiConfig(
+                minConfluences = appPreferences.aiMinConfluences.value,
+                minConfidence = appPreferences.aiMinConfidence.value,
+                alertCooldownMinutes = appPreferences.aiAlertCooldownMinutes.value,
+                backgroundScanEnabled = appPreferences.backgroundScanEnabled.value,
+                backgroundScanIntervalMinutes = appPreferences.backgroundScanIntervalMinutes.value,
+            ),
+            defaultTimeframe = appPreferences.defaultTimeframe.value,
             dataProvider = appPreferences.dataProvider.value,
             providerApiKeys = appPreferences.apiKeys.value,
             darkMode = appPreferences.darkMode.value,
@@ -59,6 +70,34 @@ class SettingsViewModel @Inject constructor(
             .launchIn(viewModelScope)
         appPreferences.apiKeys
             .onEach { keys -> _uiState.update { it.copy(providerApiKeys = keys) } }
+            .launchIn(viewModelScope)
+        appPreferences.riskConfig
+            .onEach { config -> _uiState.update { it.copy(riskConfig = config) } }
+            .launchIn(viewModelScope)
+        appPreferences.alertConfig
+            .onEach { config -> _uiState.update { it.copy(alertConfig = config) } }
+            .launchIn(viewModelScope)
+        appPreferences.defaultTimeframe
+            .onEach { tf -> _uiState.update { it.copy(defaultTimeframe = tf) } }
+            .launchIn(viewModelScope)
+        combine(
+            appPreferences.aiMinConfluences,
+            appPreferences.aiMinConfidence,
+            appPreferences.aiAlertCooldownMinutes,
+            appPreferences.backgroundScanEnabled,
+            appPreferences.backgroundScanIntervalMinutes,
+        ) { confluences, confidence, cooldown, enabled, interval ->
+            AiConfig(
+                minConfluences = confluences,
+                minConfidence = confidence,
+                alertCooldownMinutes = cooldown,
+                backgroundScanEnabled = enabled,
+                backgroundScanIntervalMinutes = interval,
+            )
+        }
+            .onEach { aiConfig ->
+                _uiState.update { it.copy(aiConfig = aiConfig) }
+            }
             .launchIn(viewModelScope)
     }
 
@@ -178,12 +217,29 @@ class SettingsViewModel @Inject constructor(
         _uiState.update { it.copy(aiConfig = it.aiConfig.copy(backgroundScanEnabled = enabled), saved = false) }
     }
 
+    fun setBackgroundScanIntervalMinutes(value: Int) {
+        _uiState.update {
+            it.copy(
+                aiConfig = it.aiConfig.copy(
+                    backgroundScanIntervalMinutes = value.coerceIn(
+                        ScanAlertScheduler.MIN_PERIODIC_INTERVAL_MINUTES,
+                        MAX_BACKGROUND_SCAN_INTERVAL_MINUTES,
+                    )
+                ),
+                saved = false,
+            )
+        }
+    }
+
     // --- Save ---
 
     fun save() {
         val state = _uiState.value
         riskEngine.updateConfig(state.riskConfig)
         alertEngine.updateConfig(state.alertConfig)
+        appPreferences.setRiskConfig(state.riskConfig)
+        appPreferences.setAlertConfig(state.alertConfig)
+        appPreferences.setDefaultTimeframe(state.defaultTimeframe)
 
         // Propagate AI config to the decision engine and alert service.
         decisionEngine.updateConfig(
@@ -193,10 +249,27 @@ class SettingsViewModel @Inject constructor(
             )
         )
         aiAlertService.cooldownMs = state.aiConfig.alertCooldownMinutes * 60_000L
+        appPreferences.setAiDecisionConfig(
+            minConfluences = state.aiConfig.minConfluences,
+            minConfidence = state.aiConfig.minConfidence,
+            alertCooldownMinutes = state.aiConfig.alertCooldownMinutes,
+        )
+        appPreferences.setBackgroundScanConfig(
+            enabled = state.aiConfig.backgroundScanEnabled,
+            intervalMinutes = state.aiConfig.backgroundScanIntervalMinutes,
+        )
+        scanAlertScheduler.apply(
+            enabled = state.aiConfig.backgroundScanEnabled,
+            intervalMinutes = state.aiConfig.backgroundScanIntervalMinutes,
+        )
         state.providerApiKeys.forEach { (provider, key) ->
             appPreferences.setApiKey(provider, key)
         }
 
         _uiState.update { it.copy(saved = true) }
+    }
+
+    private companion object {
+        const val MAX_BACKGROUND_SCAN_INTERVAL_MINUTES = 240
     }
 }

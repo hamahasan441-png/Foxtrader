@@ -10,6 +10,7 @@ import com.foxtrader.app.domain.model.OrchestratorResult
 import com.foxtrader.app.domain.model.RequiredConfluence
 import com.foxtrader.app.domain.model.SignalGrade
 import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
  * MASTER DECISION ENGINE — the ultimate gatekeeper.
@@ -24,6 +25,7 @@ import javax.inject.Inject
  * Kotlin port of the reference `master-decision-engine.ts`. Pure and
  * deterministic given an [OrchestratorResult].
  */
+@Singleton
 class MasterDecisionEngine @Inject constructor() {
 
     private var config: DecisionConfig = DecisionConfig()
