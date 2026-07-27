@@ -149,6 +149,14 @@ class ChartViewModel @Inject constructor(
             .launchIn(viewModelScope)
     }
 
+    fun openCalculator() {
+        _uiState.value = _uiState.value.copy(showCalculator = true)
+    }
+
+    fun closeCalculator() {
+        _uiState.value = _uiState.value.copy(showCalculator = false)
+    }
+
     /** Add a symbol to the active watchlist (normalised by the repository). */
     fun addSymbolToWatchlist(symbol: String) {
         val listId = _uiState.value.activeWatchlistId ?: return

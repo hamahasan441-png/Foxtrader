@@ -16,6 +16,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
@@ -61,6 +62,7 @@ import com.foxtrader.app.domain.usecase.performance.PerformanceSnapshot
 import com.foxtrader.app.feature.chart.presentation.components.MarketContextPanel
 import com.foxtrader.app.feature.chart.presentation.components.PerformanceOverlay
 import com.foxtrader.app.feature.chart.presentation.components.ReplayControlBar
+import com.foxtrader.app.feature.calculator.presentation.PositionCalculatorSheet
 import com.foxtrader.app.feature.chart.presentation.components.SymbolPickerDialog
 import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxBearishText
@@ -125,6 +127,7 @@ fun ChartScreen(
             connectionState = connectionState,
             unreadAlerts = unreadAlerts,
             onAlertsClick = onNavigateToAlerts,
+            onCalculatorClick = viewModel::openCalculator,
             onSymbolClick = viewModel::openSymbolPicker,
             onIndicatorsToggle = viewModel::toggleIndicatorPanel,
             onLiveToggle = viewModel::toggleLive,
@@ -170,6 +173,14 @@ fun ChartScreen(
             onAddSymbol = viewModel::addSymbolToWatchlist,
             onRemoveSymbol = viewModel::removeSymbolFromWatchlist,
         )
+
+        if (state.showCalculator) {
+            PositionCalculatorSheet(
+                symbol = state.symbol,
+                lastPrice = state.lastPrice,
+                onDismiss = viewModel::closeCalculator,
+            )
+        }
 
         // --- Chart area with pull-to-refresh ---
         Box(
@@ -278,6 +289,7 @@ private fun ChartTopBar(
     connectionState: ConnectionState,
     unreadAlerts: Int,
     onAlertsClick: () -> Unit,
+    onCalculatorClick: () -> Unit,
     onSymbolClick: () -> Unit,
     onIndicatorsToggle: () -> Unit,
     onLiveToggle: () -> Unit,
@@ -363,6 +375,14 @@ private fun ChartTopBar(
         // Replay button
         IconButton(onClick = onReplayStart) {
             Icon(Icons.Default.Refresh, contentDescription = "Start replay mode", tint = FoxNeutral60)
+        }
+        // Position-size calculator
+        IconButton(onClick = onCalculatorClick) {
+            Icon(
+                Icons.Default.Calculate,
+                contentDescription = "Open position size calculator",
+                tint = FoxNeutral60,
+            )
         }
         // Alerts inbox, with unread badge.
         AlertsBellButton(unreadCount = unreadAlerts, onClick = onAlertsClick)

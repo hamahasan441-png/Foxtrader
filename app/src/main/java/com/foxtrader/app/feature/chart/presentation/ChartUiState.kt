@@ -87,6 +87,7 @@ data class ChartUiState(
     val indicators: IndicatorToggles = IndicatorToggles(),
     val showIndicatorPanel: Boolean = false,
     val showSymbolPicker: Boolean = false,
+    val showCalculator: Boolean = false,
     /**
      * Symbols from the user's active watchlist. Empty until the repository
      * emits. The seed list now lives in WatchlistRepositoryImpl and is a
@@ -138,6 +139,7 @@ data class ChartUiState(
             indicators == other.indicators &&
             showIndicatorPanel == other.showIndicatorPanel &&
             showSymbolPicker == other.showSymbolPicker &&
+            showCalculator == other.showCalculator &&
             connectionState == other.connectionState &&
             liveEnabled == other.liveEnabled &&
             isLoading == other.isLoading && error == other.error &&
@@ -154,6 +156,7 @@ data class ChartUiState(
         result = 31 * result + connectionState.hashCode()
         result = 31 * result + showIndicatorPanel.hashCode()
         result = 31 * result + showSymbolPicker.hashCode()
+        result = 31 * result + showCalculator.hashCode()
         result = 31 * result + (aiDecision?.hashCode() ?: 0)
         result = 31 * result + (marketExplanation?.hashCode() ?: 0)
         return result
