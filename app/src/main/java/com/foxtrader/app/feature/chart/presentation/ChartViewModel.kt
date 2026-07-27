@@ -40,6 +40,7 @@ import com.foxtrader.app.domain.usecase.preferences.PersistedMultiChartState
 import com.foxtrader.app.domain.usecase.replay.ReplayEngine
 import com.foxtrader.app.feature.chart.presentation.components.ChartPerformanceMonitor
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -183,7 +184,7 @@ class ChartViewModel @Inject constructor(
             .onEach { lists ->
                 val active = lists.firstOrNull { it.isDefault } ?: lists.firstOrNull()
                 _uiState.value = _uiState.value.copy(
-                    availableSymbols = active?.symbolNames.orEmpty(),
+                    availableSymbols = active?.symbolNames.orEmpty().toPersistentList(),
                     activeWatchlistId = active?.id,
                 )
             }
@@ -1212,7 +1213,7 @@ class ChartViewModel @Inject constructor(
             symbolLinkEnabled = multiChartSymbolLinkEnabled,
             timeframeLinkEnabled = multiChartTimeframeLinkEnabled,
             crosshairSyncEnabled = multiChartManager.isCrosshairSynced(),
-            panels = ordered,
+            panels = ordered.toPersistentList(),
         )
         _uiState.value = _uiState.value.copy(syncedCrosshairTimestamp = primaryCrosshairTimestamp)
     }

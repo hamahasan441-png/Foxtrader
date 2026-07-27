@@ -135,6 +135,7 @@ dependencies {
 
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.collections.immutable)
 
     // DataStore
     implementation(libs.androidx.datastore.preferences)

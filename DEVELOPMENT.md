@@ -3984,3 +3984,69 @@ initialisation overhead, and top-level state restoration jank.
 Adding a navigation benchmark turns Sprint 9 from "chart perf only" into
 **whole-app interactive perf proof**.
 
+
+---
+
+# Appendix T: Sprint 9 continuation — stability groundwork and broader journey coverage
+
+This pass continues Sprint 9 in three practical ways:
+
+1. broadens instrumentation smoke coverage,
+2. refines the baseline-profile and navigation benchmark journeys,
+3. starts real Compose-stability groundwork through immutable UI collections.
+
+## Wider smoke coverage
+
+A new `JournalPortfolioSmokeTest` now proves:
+
+- the Journal destination opens,
+- its empty state renders,
+- the Portfolio route is reachable from the Journal top-bar action.
+
+This complements the earlier Chart / Scanner / Strategies / Lab / Alerts smoke
+paths and makes the app-shell navigation proof meaningfully broader.
+
+## Baseline-profile journey refinement
+
+The baseline-profile collection journey now exercises more of the app's hot
+navigation shell:
+
+- Settings
+- Journal
+- Portfolio
+- Chart
+- Alerts
+
+`NOTE` A baseline profile should reflect the flows users actually take after
+launch, not just app start plus one tap. Expanding the journey makes the profile
+more representative of FoxTrader's real shell behavior.
+
+The navigation benchmark was widened similarly so whole-app transitions are part
+of the measured path, not only chart-only motion.
+
+## Compose stability groundwork
+
+Sprint 9 calls for immutable UI-facing collections. Rather than flipping every
+screen state object at once, this pass starts with the surfaces already touched
+most heavily by the new chart workspace and the navigation smoke suite:
+
+- `MultiChartUiState.panels`
+- `AlertsUiState.alerts`
+- `ScannerUiState.results`
+- `JournalUiState.entries`
+- `ChartUiState.availableSymbols`
+
+These now use persistent immutable collections in UI state.
+
+`NOTE` This is an intentionally staged adoption. The chart hot path still has
+other mutable-list fields (e.g. structure and SMC overlays) that should be moved
+later, but starting with the highest-churn state objects reduces recomposition
+ambiguity without turning the sprint into a giant type-migration.
+
+## Why this matters before deeper compiler enforcement
+
+Immutable UI collections are the low-risk precursor to stability metrics,
+strong-skipping checks, and compiler-enforced hot-path hygiene. Doing this first
+means later enforcement can reveal *real* unstable edges rather than simply
+failing on obvious mutable collections everywhere.
+

@@ -2,12 +2,14 @@ package com.foxtrader.app.feature.alerts.presentation
 
 import com.foxtrader.app.domain.model.AlertPriority
 import com.foxtrader.app.domain.model.FoxAlert
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 
 /**
  * Immutable UI state for the Alerts inbox.
  */
 data class AlertsUiState(
-    val alerts: List<FoxAlert> = emptyList(),
+    val alerts: ImmutableList<FoxAlert> = persistentListOf(),
     /** null = show everything. */
     val priorityFilter: AlertPriority? = null,
     val unreadOnly: Boolean = false,

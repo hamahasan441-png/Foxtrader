@@ -29,7 +29,17 @@ class BaselineProfileGenerator {
         device.findObject(By.text("Settings"))?.click()
         device.wait(Until.hasObject(By.text("Settings")), 5_000)
 
+        device.findObject(By.text("Journal"))?.click()
+        device.wait(Until.hasObject(By.text("Journal")), 5_000)
+
+        device.findObject(By.desc("Open portfolio exposure"))?.click()
+        device.wait(Until.hasObject(By.text("Portfolio")), 5_000)
+        device.pressBack()
+
         device.findObject(By.text("Chart"))?.click()
         device.wait(Until.hasObject(By.text("Fox")), 5_000)
+
+        device.findObject(By.descStartsWith("Alerts inbox"))?.click()
+        device.wait(Until.hasObject(By.text("Alerts")), 5_000)
     }
 }

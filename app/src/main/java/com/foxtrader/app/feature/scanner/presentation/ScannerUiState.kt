@@ -6,6 +6,8 @@ import com.foxtrader.app.domain.model.ScannerRiskLevel
 import com.foxtrader.app.domain.model.ScreenerResult
 import com.foxtrader.app.domain.model.StrategyType
 import com.foxtrader.app.domain.usecase.heatmap.MarketHeatmap
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 
 /** How the scanner renders its results. */
 enum class ScannerViewMode { LIST, HEATMAP }
@@ -22,7 +24,7 @@ enum class ScannerSortMode {
  * Immutable UI state for the Scanner screen.
  */
 data class ScannerUiState(
-    val results: List<ScreenerResult> = emptyList(),
+    val results: ImmutableList<ScreenerResult> = persistentListOf(),
     val selectedStrategy: StrategyType = StrategyType.CONFLUENCE,
     val selectedAssetClass: AssetClass? = null, // null = ALL
     val selectedRiskLevel: ScannerRiskLevel? = null, // null = ALL

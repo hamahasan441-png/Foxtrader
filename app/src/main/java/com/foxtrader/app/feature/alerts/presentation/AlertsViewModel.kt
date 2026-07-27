@@ -6,6 +6,7 @@ import com.foxtrader.app.data.alerts.AlertDispatcher
 import com.foxtrader.app.domain.model.AlertPriority
 import com.foxtrader.app.domain.repository.AlertRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -34,7 +35,7 @@ class AlertsViewModel @Inject constructor(
     init {
         alertRepository.observeAlerts()
             .onEach { alerts ->
-                _uiState.update { it.copy(alerts = alerts, isLoading = false) }
+                _uiState.update { it.copy(alerts = alerts.toPersistentList(), isLoading = false) }
             }
             .launchIn(viewModelScope)
     }

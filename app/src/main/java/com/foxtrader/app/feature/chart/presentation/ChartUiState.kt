@@ -20,6 +20,8 @@ import com.foxtrader.app.domain.usecase.analysis.FibonacciEngine
 import com.foxtrader.app.domain.usecase.analysis.MarketProfile
 import com.foxtrader.app.domain.usecase.analysis.SupportResistanceDetector
 import com.foxtrader.app.domain.usecase.mtf.ConfluenceEngine
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 
 /**
  * Which indicators are currently enabled on the chart.
@@ -108,7 +110,7 @@ data class ChartUiState(
      * emits. The seed list now lives in WatchlistRepositoryImpl and is a
      * starting point the user can edit, not a compiled-in list.
      */
-    val availableSymbols: List<String> = emptyList(),
+    val availableSymbols: ImmutableList<String> = persistentListOf(),
     /** Active (default) watchlist id, or null before the first emission. */
     val activeWatchlistId: String? = null,
     val connectionState: ConnectionState = ConnectionState.DISCONNECTED,

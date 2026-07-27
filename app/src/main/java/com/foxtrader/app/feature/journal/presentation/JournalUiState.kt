@@ -5,6 +5,8 @@ import com.foxtrader.app.domain.model.EmotionTag
 import com.foxtrader.app.domain.model.JournalEntry
 import com.foxtrader.app.domain.model.JournalStats
 import com.foxtrader.app.domain.model.Timeframe
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 
 /**
  * Draft state for the "Log Trade" form.
@@ -38,7 +40,7 @@ data class LogTradeForm(
  * Immutable UI state for the Journal screen.
  */
 data class JournalUiState(
-    val entries: List<JournalEntry> = emptyList(),
+    val entries: ImmutableList<JournalEntry> = persistentListOf(),
     val stats: JournalStats = JournalStats(),
     val showStats: Boolean = true,
     val isLoading: Boolean = false,

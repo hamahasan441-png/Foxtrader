@@ -4,6 +4,8 @@ import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.usecase.chart.ChartLayout
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 
 /**
  * Lightweight UI state for the supplemental multi-chart monitor.
@@ -17,7 +19,7 @@ data class MultiChartUiState(
     val symbolLinkEnabled: Boolean = true,
     val timeframeLinkEnabled: Boolean = true,
     val crosshairSyncEnabled: Boolean = true,
-    val panels: List<MultiChartPanelUiState> = emptyList(),
+    val panels: ImmutableList<MultiChartPanelUiState> = persistentListOf(),
 )
 
 data class MultiChartPanelUiState(

@@ -39,6 +39,7 @@ retrofitSerialization = "1.0.0"
 
 # Coroutines
 coroutines = "1.9.0"
+immutableCollections = "0.3.8"
 
 # DataStore (settings)
 datastore = "1.1.1"
@@ -108,6 +109,7 @@ retrofit-kotlinx-serialization = { group = "com.jakewharton.retrofit", name = "r
 
 # Coroutines
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+kotlinx-collections-immutable = { group = "org.jetbrains.kotlinx", name = "kotlinx-collections-immutable", version.ref = "immutableCollections" }
 
 # DataStore
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
