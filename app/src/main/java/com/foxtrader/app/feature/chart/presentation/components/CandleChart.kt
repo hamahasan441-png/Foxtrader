@@ -13,6 +13,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -25,14 +26,22 @@ import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.StructureBreak
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.usecase.analysis.FibonacciEngine
+import com.foxtrader.app.domain.usecase.analysis.MarketProfile
+import com.foxtrader.app.domain.usecase.analysis.SupportResistanceDetector
+import com.foxtrader.app.domain.usecase.chart.ChartViewportState
 import com.foxtrader.app.domain.usecase.performance.QualitySettings
 import com.foxtrader.app.feature.chart.presentation.components.layers.autoScaleToVisibleContent
+import com.foxtrader.app.feature.chart.presentation.components.layers.drawAutoFibonacciLevels
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawBollinger
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawCandleLayer
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawCrosshairLayer
+import com.foxtrader.app.feature.chart.presentation.components.layers.drawSyncedCrosshairLayer
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawGridLayer
+import com.foxtrader.app.feature.chart.presentation.components.layers.drawMarketProfile
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawIchimoku
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawIndicatorLayer
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawLineSeries
@@ -40,6 +49,7 @@ import com.foxtrader.app.feature.chart.presentation.components.layers.drawLivePr
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawParabolicSar
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawPriceScale
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawStructureLayer
+import com.foxtrader.app.feature.chart.presentation.components.layers.drawSupportResistanceZones
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawSuperTrend
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawTimeAxis
 import com.foxtrader.app.ui.theme.FoxNeutral5
@@ -78,6 +88,9 @@ fun CandleChart(
     modifier: Modifier = Modifier,
     structureBreaks: List<StructureBreak> = emptyList(),
     timeframe: Timeframe = Timeframe.M15,
+    seriesKey: String = "",
+    initialViewportState: ChartViewportState? = null,
+    onViewportStateChange: (ChartViewportState) -> Unit = {},
     performanceMonitor: ChartPerformanceMonitor? = null,
     emaShort: DoubleArray? = null,
     emaLong: DoubleArray? = null,
@@ -99,6 +112,17 @@ fun CandleChart(
     sessions: List<com.foxtrader.app.domain.model.SessionRange> = emptyList(),
     drawings: List<com.foxtrader.app.domain.model.ChartDrawing> = emptyList(),
     volumeProfile: com.foxtrader.app.domain.model.VolumeProfile? = null,
+    marketProfile: MarketProfile.ProfileResult? = null,
+    supportResistanceZones: List<SupportResistanceDetector.SRZone> = emptyList(),
+    autoFibLevels: List<FibonacciEngine.FibLevel> = emptyList(),
+    autoFibDirection: Direction? = null,
+    autoFibSwingHigh: Double? = null,
+    autoFibSwingLow: Double? = null,
+    canLoadOlder: Boolean = false,
+    isLoadingOlder: Boolean = false,
+    onLoadOlder: () -> Unit = {},
+    syncedCrosshairTimestamp: Long? = null,
+    onCrosshairTimestampChange: (Long?) -> Unit = {},
 ) {
     val density = LocalDensity.current
 
@@ -109,6 +133,7 @@ fun CandleChart(
             timeAxisHeight = with(density) { 24.dp.toPx() }
         }
     }
+    val publishViewportState: () -> Unit = { onViewportStateChange(viewport.snapshotState()) }
 
     // Redraw trigger — bumped after every gesture frame.
     var invalidateTick by remember { mutableIntStateOf(0) }
@@ -166,6 +191,10 @@ fun CandleChart(
     // Whether the camera was pinned to the newest bar before this data update.
     // Used to keep the chart "following" live bars without fighting the user.
     val followLiveEdge = remember { booleanArrayOf(true) }
+    var previousFirstTimestamp by remember { mutableStateOf<Long?>(null) }
+    var previousSize by remember { mutableIntStateOf(0) }
+    var lastRequestedBefore by remember { mutableStateOf<Long?>(null) }
+    var viewportSeriesKey by remember { mutableStateOf<String?>(null) }
 
     /**
      * Re-run auto-scaling for the current viewport window.
@@ -210,9 +239,15 @@ fun CandleChart(
     val rescale: () -> Unit = { rescaleState.value() }
 
     // Initialise the viewport when data arrives or grows.
-    remember(candles.size) {
-        if (viewport.visibleBars <= 0f || viewport.startIndex == 0f) {
-            viewport.resetToLatest(candles.size)
+    remember(candles.size, seriesKey, initialViewportState) {
+        if (viewport.visibleBars <= 0f || viewportSeriesKey != seriesKey) {
+            if (initialViewportState != null) {
+                viewport.restoreState(initialViewportState, candles.size)
+            } else {
+                viewport.resetToLatest(candles.size)
+            }
+            viewportSeriesKey = seriesKey
+            followLiveEdge[0] = viewport.isAtRightEdge(candles.size)
         } else if (followLiveEdge[0]) {
             // `RULE` (DEVELOPMENT.md §4.8) When new bars arrive while the user
             // is parked at the live edge, follow them. If the user has scrolled
@@ -222,6 +257,51 @@ fun CandleChart(
         viewport.clamp(candles.size)
         rescale()
         candles.size
+    }
+
+    LaunchedEffect(seriesKey, candles.size) {
+        publishViewportState()
+    }
+
+    LaunchedEffect(seriesKey) {
+        previousFirstTimestamp = candles.firstOrNull()?.timestamp
+        previousSize = candles.size
+        lastRequestedBefore = null
+    }
+
+    LaunchedEffect(candles.firstOrNull()?.timestamp, candles.size) {
+        val firstTimestamp = candles.firstOrNull()?.timestamp
+        val previousFirst = previousFirstTimestamp
+        if (
+            previousFirst != null &&
+            firstTimestamp != null &&
+            firstTimestamp < previousFirst &&
+            candles.size > previousSize
+        ) {
+            viewport.shiftForPrependedBars(candles.size - previousSize)
+            viewport.clamp(candles.size)
+            rescale()
+            publishViewportState()
+            invalidateTick++
+        }
+        previousFirstTimestamp = firstTimestamp
+        previousSize = candles.size
+        if (firstTimestamp != null && firstTimestamp != lastRequestedBefore) {
+            lastRequestedBefore = null
+        }
+    }
+
+    LaunchedEffect(invalidateTick, candles.firstOrNull()?.timestamp, canLoadOlder, isLoadingOlder) {
+        val firstTimestamp = candles.firstOrNull()?.timestamp ?: return@LaunchedEffect
+        if (
+            canLoadOlder &&
+            !isLoadingOlder &&
+            viewport.startIndex <= HISTORY_PREFETCH_THRESHOLD_BARS &&
+            lastRequestedBefore != firstTimestamp
+        ) {
+            lastRequestedBefore = firstTimestamp
+            onLoadOlder()
+        }
     }
 
     // ------------------------------------------------------------------------
@@ -245,6 +325,7 @@ fun CandleChart(
                 viewport.clamp(candles.size)
                 rescale()
                 followLiveEdge[0] = viewport.isAtRightEdge(candles.size)
+                publishViewportState()
                 invalidateTick++
             }
         }
@@ -317,6 +398,8 @@ fun CandleChart(
                         viewport.crosshairY = (viewport.crosshairY + pan.y)
                             .coerceIn(0f, viewport.chartHeight(size.height.toFloat()))
                         viewport.crosshairTotalWidth = size.width.toFloat()
+                        val crosshairIndex = viewport.snappedCrosshairIndex(candles.size, cw)
+                        onCrosshairTimestampChange(candles.getOrNull(crosshairIndex)?.timestamp)
                         invalidateTick++
                         return@detectTransformGestures
                     }
@@ -327,6 +410,7 @@ fun CandleChart(
                     viewport.clamp(candles.size)
                     rescale()
                     followLiveEdge[0] = viewport.isAtRightEdge(candles.size)
+                    publishViewportState()
                     invalidateTick++
                 }
             }
@@ -339,19 +423,24 @@ fun CandleChart(
                         viewport.crosshairX = offset.x.coerceIn(0f, viewport.chartWidth(size.width.toFloat()))
                         viewport.crosshairY = offset.y.coerceIn(0f, viewport.chartHeight(size.height.toFloat()))
                         viewport.crosshairTotalWidth = size.width.toFloat()
+                        val crosshairIndex = viewport.snappedCrosshairIndex(candles.size, viewport.chartWidth(size.width.toFloat()))
+                        onCrosshairTimestampChange(candles.getOrNull(crosshairIndex)?.timestamp)
                         invalidateTick++
                     },
                     onDoubleTap = {
                         // "Go to now" — snap back to the most recent bars.
                         viewport.crosshairActive = false
+                        onCrosshairTimestampChange(null)
                         viewport.resetToLatest(candles.size)
                         viewport.clamp(candles.size)
                         rescale()
                         followLiveEdge[0] = true
+                        publishViewportState()
                         invalidateTick++
                     },
                     onTap = {
                         viewport.crosshairActive = false
+                        onCrosshairTimestampChange(null)
                         invalidateTick++
                     },
                 )
@@ -386,6 +475,18 @@ fun CandleChart(
         if (sessions.isNotEmpty() && quality.sessions) {
             clipRect(right = cw, bottom = ch) {
                 drawSessionBackgrounds(sessions, viewport, cw, ch)
+            }
+        }
+
+        if (marketProfile != null && quality.volumeProfile) {
+            clipRect(right = cw, bottom = ch) {
+                drawMarketProfile(marketProfile, viewport, cw, ch)
+            }
+        }
+
+        if (supportResistanceZones.isNotEmpty() && quality.structureAnnotations) {
+            clipRect(right = cw, bottom = ch) {
+                drawSupportResistanceZones(supportResistanceZones, viewport, cw, ch, structureLabelPaint)
             }
         }
 
@@ -455,6 +556,21 @@ fun CandleChart(
             }
         }
 
+        if (autoFibLevels.isNotEmpty()) {
+            clipRect(right = cw, bottom = ch) {
+                drawAutoFibonacciLevels(
+                    levels = autoFibLevels,
+                    direction = autoFibDirection,
+                    swingHigh = autoFibSwingHigh,
+                    swingLow = autoFibSwingLow,
+                    viewport = viewport,
+                    cw = cw,
+                    ch = ch,
+                    labelPaint = structureLabelPaint,
+                )
+            }
+        }
+
         // ====================================================================
         // LAYER 4: LIVE PRICE REFERENCE LINE
         // ====================================================================
@@ -484,6 +600,17 @@ fun CandleChart(
                 ohlcPaint = ohlcLabelPaint,
                 timeframe = timeframe,
             )
+        } else if (syncedCrosshairTimestamp != null) {
+            drawSyncedCrosshairLayer(
+                syncedTimestamp = syncedCrosshairTimestamp,
+                candles = candles,
+                viewport = viewport,
+                cw = cw,
+                ch = ch,
+                labelPaint = crosshairLabelPaint,
+                ohlcPaint = ohlcLabelPaint,
+                timeframe = timeframe,
+            )
         }
 
         // ====================================================================
@@ -505,8 +632,23 @@ fun CandleChart(
         // ====================================================================
         drawTimeAxis(viewport, candles, cw, ch, totalW, totalH, timeLabelPaint, timeframe)
 
+        if (isLoadingOlder) {
+            timeLabelPaint.textAlign = Paint.Align.LEFT
+            timeLabelPaint.color = android.graphics.Color.parseColor("#D4A84E")
+            drawContext.canvas.nativeCanvas.drawText(
+                "Loading history…",
+                8f,
+                16f,
+                timeLabelPaint,
+            )
+            timeLabelPaint.textAlign = Paint.Align.CENTER
+            timeLabelPaint.color = android.graphics.Color.parseColor("#99999F")
+        }
+
         // Close the frame: records the duration, recomputes adaptive quality for
         // the next frame, and publishes a throttled snapshot to the debug HUD.
         performanceMonitor?.endFrame()
     }
 }
+
+private const val HISTORY_PREFETCH_THRESHOLD_BARS = 24f

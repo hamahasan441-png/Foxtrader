@@ -55,9 +55,12 @@ import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.ui.theme.FoxWarning
 import com.foxtrader.app.feature.chart.presentation.components.CandleChart
+import com.foxtrader.app.feature.chart.presentation.components.ConfluenceRibbon
 import com.foxtrader.app.feature.chart.presentation.components.AiDecisionPanel
 import com.foxtrader.app.feature.chart.presentation.components.DrawingToolbar
 import com.foxtrader.app.feature.chart.presentation.components.IndicatorPanel
+import com.foxtrader.app.feature.chart.presentation.components.MultiChartSection
+import com.foxtrader.app.feature.chart.presentation.components.MultiChartToolbar
 import com.foxtrader.app.domain.usecase.performance.PerformanceSnapshot
 import com.foxtrader.app.feature.chart.presentation.components.MarketContextPanel
 import com.foxtrader.app.feature.chart.presentation.components.PerformanceOverlay
@@ -91,6 +94,7 @@ fun ChartScreen(
     viewModel: ChartViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val multiChartState by viewModel.multiChartState.collectAsStateWithLifecycle()
     val replayState by viewModel.replayState.collectAsStateWithLifecycle()
     val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
     val unreadAlerts by viewModel.unreadAlertCount.collectAsStateWithLifecycle()
@@ -142,6 +146,21 @@ fun ChartScreen(
         TimeframeRow(
             selected = state.timeframe,
             onSelect = viewModel::onTimeframeChange,
+        )
+
+        MultiChartToolbar(
+            layout = multiChartState.layout,
+            linkedToPrimary = multiChartState.linkedToPrimary,
+            symbolLinkEnabled = multiChartState.symbolLinkEnabled,
+            timeframeLinkEnabled = multiChartState.timeframeLinkEnabled,
+            crosshairSyncEnabled = multiChartState.crosshairSyncEnabled,
+            canAddPanel = multiChartState.panels.size < 4,
+            onLayoutChange = viewModel::setMultiChartLayout,
+            onToggleLinking = viewModel::toggleMultiChartLinking,
+            onToggleSymbolLink = viewModel::toggleMultiChartSymbolLink,
+            onToggleTimeframeLink = viewModel::toggleMultiChartTimeframeLink,
+            onToggleCrosshairSync = viewModel::toggleMultiChartCrosshairSync,
+            onAddPanel = viewModel::addMultiChartPanel,
         )
 
         // --- Indicator toggle panel (slides in when active) ---
@@ -205,6 +224,9 @@ fun ChartScreen(
                             modifier = Modifier.fillMaxSize(),
                             structureBreaks = state.structureBreaks,
                             timeframe = state.timeframe,
+                            seriesKey = "${state.symbol}:${state.timeframe.label}",
+                            initialViewportState = viewModel.currentPrimaryViewportState(),
+                            onViewportStateChange = viewModel::onPrimaryViewportStateChange,
                             emaShort = state.emaShort,
                             emaLong = state.emaLong,
                             bollingerUpper = state.bollingerUpper,
@@ -225,6 +247,17 @@ fun ChartScreen(
                             sessions = state.sessions,
                             drawings = state.drawings,
                             volumeProfile = state.volumeProfile,
+                            marketProfile = state.marketProfile,
+                            supportResistanceZones = state.supportResistanceZones,
+                            autoFibLevels = state.autoFibLevels,
+                            autoFibDirection = state.autoFibDirection,
+                            autoFibSwingHigh = state.autoFibSwingHigh,
+                            autoFibSwingLow = state.autoFibSwingLow,
+                            canLoadOlder = !state.historyEndReached && !replayState.isActive,
+                            isLoadingOlder = state.isLoadingOlder && !replayState.isActive,
+                            onLoadOlder = viewModel::loadOlderHistory,
+                            syncedCrosshairTimestamp = state.syncedCrosshairTimestamp,
+                            onCrosshairTimestampChange = viewModel::onPrimaryCrosshairTimestampChange,
                             performanceMonitor = monitor,
                         )
                         state.isLoading -> CircularProgressIndicator(color = FoxAmber50)
@@ -258,6 +291,13 @@ fun ChartScreen(
                     .padding(end = 8.dp, top = 8.dp),
             )
 
+            ConfluenceRibbon(
+                result = if (state.indicators.confluence) state.confluence else null,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 8.dp),
+            )
+
             // --- Debug FPS / frame-budget HUD (debug builds only) ---
             if (BuildConfig.DEBUG) {
                 PerformanceOverlay(
@@ -280,6 +320,22 @@ fun ChartScreen(
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
+
+        MultiChartSection(
+            state = multiChartState,
+            availableSymbols = state.availableSymbols,
+            primarySymbol = state.symbol,
+            primaryTimeframe = state.timeframe,
+            onPanelActivate = viewModel::setActiveMultiChartPanel,
+            onSetPanelSymbol = viewModel::setMultiChartPanelSymbol,
+            onSetPanelTimeframe = viewModel::setMultiChartPanelTimeframe,
+            onResetPanelToPrimary = viewModel::resetMultiChartPanelToPrimary,
+            onMovePanel = viewModel::moveMultiChartPanelToIndex,
+            onRemovePanel = viewModel::removeMultiChartPanel,
+            onPanelCrosshairTimestampChange = viewModel::onMultiChartPanelCrosshairTimestampChange,
+            onPanelViewportStateChange = viewModel::onMultiChartPanelViewportStateChange,
+            panelViewportState = viewModel::currentMultiChartPanelViewportState,
+        )
     }
 }
 

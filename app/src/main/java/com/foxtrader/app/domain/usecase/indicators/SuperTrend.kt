@@ -17,24 +17,69 @@ class SuperTrend @Inject constructor() {
     data class SuperTrendResult(
         val values: DoubleArray,        // The SuperTrend line
         val direction: IntArray,        // +1 = bullish (line below price), -1 = bearish
+        val finalUpperBands: DoubleArray,
+        val finalLowerBands: DoubleArray,
     )
 
     fun calculate(
         candles: List<Candle>,
         atrPeriod: Int = 10,
         multiplier: Double = 3.0,
+    ): SuperTrendResult = calculateIncremental(
+        candles = candles,
+        previous = null,
+        recomputeFrom = 0,
+        atrPeriod = atrPeriod,
+        multiplier = multiplier,
+    )
+
+    fun calculateIncremental(
+        candles: List<Candle>,
+        previous: SuperTrendResult?,
+        recomputeFrom: Int,
+        atrPeriod: Int = 10,
+        multiplier: Double = 3.0,
     ): SuperTrendResult {
         val n = candles.size
         val st = DoubleArray(n)
         val dir = IntArray(n)
-        if (n == 0) return SuperTrendResult(st, dir)
+        val finalUpperBands = DoubleArray(n)
+        val finalLowerBands = DoubleArray(n)
+        if (n == 0) return SuperTrendResult(st, dir, finalUpperBands, finalLowerBands)
 
-        val atr = TechnicalIndicators.calculateATR(candles, atrPeriod)
-        var finalUpper = 0.0
-        var finalLower = 0.0
-        var prevDir = 1
+        val atr = TechnicalIndicators.calculateATRIncremental(
+            candles = candles,
+            period = atrPeriod,
+            previous = null,
+            recomputeFrom = recomputeFrom,
+        )
+        val startIndex = if (previous != null && recomputeFrom > 0) {
+            maxOf(0, recomputeFrom - 1)
+        } else {
+            0
+        }
+        if (
+            previous != null &&
+            startIndex > 0 &&
+            previous.values.size >= startIndex &&
+            previous.direction.size >= startIndex &&
+            previous.finalUpperBands.size >= startIndex &&
+            previous.finalLowerBands.size >= startIndex
+        ) {
+            System.arraycopy(previous.values, 0, st, 0, startIndex)
+            System.arraycopy(previous.direction, 0, dir, 0, startIndex)
+            System.arraycopy(previous.finalUpperBands, 0, finalUpperBands, 0, startIndex)
+            System.arraycopy(previous.finalLowerBands, 0, finalLowerBands, 0, startIndex)
+        }
 
-        for (i in 0 until n) {
+        var finalUpper = if (
+            startIndex > 0 && previous != null && previous.finalUpperBands.size >= startIndex
+        ) previous.finalUpperBands[startIndex - 1] else 0.0
+        var finalLower = if (
+            startIndex > 0 && previous != null && previous.finalLowerBands.size >= startIndex
+        ) previous.finalLowerBands[startIndex - 1] else 0.0
+
+        for (i in startIndex until n) {
             val hl2 = (candles[i].high + candles[i].low) / 2.0
             val basicUpper = hl2 + multiplier * atr[i]
             val basicLower = hl2 - multiplier * atr[i]
@@ -42,6 +87,8 @@ class SuperTrend @Inject constructor() {
             if (i == 0) {
                 finalUpper = basicUpper
                 finalLower = basicLower
+                finalUpperBands[i] = finalUpper
+                finalLowerBands[i] = finalLower
                 st[i] = basicUpper
                 dir[i] = 1
                 continue
@@ -51,17 +98,19 @@ class SuperTrend @Inject constructor() {
             finalUpper = if (basicUpper < finalUpper || prevClose > finalUpper) basicUpper else finalUpper
             finalLower = if (basicLower > finalLower || prevClose < finalLower) basicLower else finalLower
 
+            val prevDir = dir[i - 1]
             val close = candles[i].close
-            prevDir = dir[i - 1]
             val newDir = when {
                 prevDir == 1 && close < finalLower -> -1
                 prevDir == -1 && close > finalUpper -> 1
                 else -> prevDir
             }
             dir[i] = newDir
+            finalUpperBands[i] = finalUpper
+            finalLowerBands[i] = finalLower
             st[i] = if (newDir == 1) finalLower else finalUpper
         }
-        return SuperTrendResult(st, dir)
+        return SuperTrendResult(st, dir, finalUpperBands, finalLowerBands)
     }
 
     /** Current trend direction at the last bar. */

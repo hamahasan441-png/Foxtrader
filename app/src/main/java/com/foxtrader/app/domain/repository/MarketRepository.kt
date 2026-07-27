@@ -54,4 +54,19 @@ interface MarketRepository {
         symbol: String,
         timeframe: Timeframe = Timeframe.H1,
     ): SourcedCandles
+
+    /**
+     * Fetch an older page of history strictly before [beforeTimestamp].
+     *
+     * This powers chart prepend paging without inflating the hot Room cache:
+     * the returned page is merged in-memory by the chart layer rather than
+     * persisted indefinitely. Callers receive provenance so a page sourced from
+     * synthetic data can still be labelled and vetoed.
+     */
+    suspend fun loadOlderCandles(
+        symbol: String,
+        timeframe: Timeframe,
+        beforeTimestamp: Long,
+        limit: Int = 500,
+    ): Result<SourcedCandles>
 }

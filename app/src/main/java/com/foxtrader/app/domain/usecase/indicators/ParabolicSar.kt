@@ -18,6 +18,8 @@ class ParabolicSar @Inject constructor() {
     data class SarResult(
         val sar: DoubleArray,
         val isUptrend: BooleanArray,
+        val accelerationFactor: DoubleArray,
+        val extremePoint: DoubleArray,
     )
 
     fun calculate(
@@ -25,28 +27,67 @@ class ParabolicSar @Inject constructor() {
         accelerationStart: Double = 0.02,
         accelerationStep: Double = 0.02,
         accelerationMax: Double = 0.2,
+    ): SarResult = calculateIncremental(
+        candles = candles,
+        previous = null,
+        recomputeFrom = 0,
+        accelerationStart = accelerationStart,
+        accelerationStep = accelerationStep,
+        accelerationMax = accelerationMax,
+    )
+
+    fun calculateIncremental(
+        candles: List<Candle>,
+        previous: SarResult?,
+        recomputeFrom: Int,
+        accelerationStart: Double = 0.02,
+        accelerationStep: Double = 0.02,
+        accelerationMax: Double = 0.2,
     ): SarResult {
         val n = candles.size
         val sar = DoubleArray(n)
         val up = BooleanArray(n)
-        if (n < 2) return SarResult(sar, up)
+        val afSeries = DoubleArray(n)
+        val epSeries = DoubleArray(n)
+        if (n < 2) return SarResult(sar, up, afSeries, epSeries)
 
-        var uptrend = candles[1].close >= candles[0].close
-        var af = accelerationStart
-        var ep = if (uptrend) candles[0].high else candles[0].low
-        sar[0] = if (uptrend) candles[0].low else candles[0].high
-        up[0] = uptrend
+        val startIndex = if (previous != null && recomputeFrom > 0) max(0, recomputeFrom - 1) else 0
+        if (
+            previous != null &&
+            startIndex > 0 &&
+            previous.sar.size >= startIndex &&
+            previous.isUptrend.size >= startIndex &&
+            previous.accelerationFactor.size >= startIndex &&
+            previous.extremePoint.size >= startIndex
+        ) {
+            System.arraycopy(previous.sar, 0, sar, 0, startIndex)
+            System.arraycopy(previous.isUptrend, 0, up, 0, startIndex)
+            System.arraycopy(previous.accelerationFactor, 0, afSeries, 0, startIndex)
+            System.arraycopy(previous.extremePoint, 0, epSeries, 0, startIndex)
+        }
 
-        for (i in 1 until n) {
+        var uptrend = if (startIndex > 0 && previous != null) previous.isUptrend[startIndex - 1]
+        else candles[1].close >= candles[0].close
+        var af = if (startIndex > 0 && previous != null) previous.accelerationFactor[startIndex - 1]
+        else accelerationStart
+        var ep = if (startIndex > 0 && previous != null) previous.extremePoint[startIndex - 1]
+        else if (uptrend) candles[0].high else candles[0].low
+
+        if (startIndex == 0) {
+            sar[0] = if (uptrend) candles[0].low else candles[0].high
+            up[0] = uptrend
+            afSeries[0] = af
+            epSeries[0] = ep
+        }
+
+        for (i in max(1, startIndex) until n) {
             val prevSar = sar[i - 1]
             var current = prevSar + af * (ep - prevSar)
 
             if (uptrend) {
-                // SAR can't be above the prior two lows
                 current = min(current, candles[i - 1].low)
                 if (i >= 2) current = min(current, candles[i - 2].low)
                 if (candles[i].low < current) {
-                    // Reversal to downtrend
                     uptrend = false
                     current = ep
                     ep = candles[i].low
@@ -70,7 +111,9 @@ class ParabolicSar @Inject constructor() {
             }
             sar[i] = current
             up[i] = uptrend
+            afSeries[i] = af
+            epSeries[i] = ep
         }
-        return SarResult(sar, up)
+        return SarResult(sar, up, afSeries, epSeries)
     }
 }

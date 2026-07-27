@@ -46,6 +46,27 @@ class BinanceDataSource @Inject constructor(
     }
 
     /**
+     * Fetch a page of history strictly before [beforeTimestamp].
+     */
+    suspend fun fetchCandlesBefore(
+        symbol: String,
+        timeframe: Timeframe,
+        beforeTimestamp: Long,
+        limit: Int = 500,
+    ): List<Candle> {
+        val klines = binanceApi.getKlines(
+            symbol = symbol.uppercase(),
+            interval = timeframeToInterval(timeframe),
+            limit = limit.coerceIn(1, 1000),
+            endTime = (beforeTimestamp - 1L).coerceAtLeast(0L),
+        )
+        return klines.mapNotNull { it.toCandle() }
+            .filter { it.timestamp < beforeTimestamp }
+            .sortedBy { it.timestamp }
+            .takeLast(limit.coerceIn(1, 1000))
+    }
+
+    /**
      * Returns true if the given symbol is likely a Binance-supported crypto pair.
      * Simple heuristic: ends with USDT, BUSD, BTC, ETH, or BNB.
      */

@@ -4,6 +4,7 @@ import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.model.DecisionResult
+import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.ChartDrawing
 import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.DrawingMode
@@ -15,6 +16,10 @@ import com.foxtrader.app.domain.model.SessionRange
 import com.foxtrader.app.domain.usecase.ai.MarketExplanation
 import com.foxtrader.app.domain.model.StructureBreak
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.usecase.analysis.FibonacciEngine
+import com.foxtrader.app.domain.usecase.analysis.MarketProfile
+import com.foxtrader.app.domain.usecase.analysis.SupportResistanceDetector
+import com.foxtrader.app.domain.usecase.mtf.ConfluenceEngine
 
 /**
  * Which indicators are currently enabled on the chart.
@@ -28,6 +33,10 @@ data class IndicatorToggles(
     val vwap: Boolean = false,
     val ichimoku: Boolean = false,
     val volumeProfile: Boolean = false,
+    val marketProfile: Boolean = false,
+    val supportResistance: Boolean = false,
+    val fibonacci: Boolean = false,
+    val confluence: Boolean = false,
     val orderBlocks: Boolean = true,
     val fairValueGaps: Boolean = true,
     val liquidity: Boolean = true,
@@ -73,6 +82,12 @@ data class ChartUiState(
     val fairValueGaps: List<FairValueGap> = emptyList(),
     val liquidityPools: List<LiquidityPool> = emptyList(),
     val volumeProfile: com.foxtrader.app.domain.model.VolumeProfile? = null,
+    val marketProfile: MarketProfile.ProfileResult? = null,
+    val supportResistanceZones: List<SupportResistanceDetector.SRZone> = emptyList(),
+    val autoFibLevels: List<FibonacciEngine.FibLevel> = emptyList(),
+    val autoFibDirection: Direction? = null,
+    val autoFibSwingHigh: Double? = null,
+    val autoFibSwingLow: Double? = null,
 
     // --- Trading sessions ---
     val sessions: List<SessionRange> = emptyList(),
@@ -101,11 +116,15 @@ data class ChartUiState(
 
     // --- Loading / error ---
     val isLoading: Boolean = true,
+    val isLoadingOlder: Boolean = false,
+    val historyEndReached: Boolean = false,
     val error: String? = null,
 
     // --- AI / Market Context ---
     val aiDecision: DecisionResult? = null,
     val marketExplanation: MarketExplanation? = null,
+    val confluence: ConfluenceEngine.ConfluenceResult? = null,
+    val syncedCrosshairTimestamp: Long? = null,
 ) {
     val lastPrice: Double? get() = candles.lastOrNull()?.close
     val hasData: Boolean get() = candles.isNotEmpty()
@@ -131,6 +150,13 @@ data class ChartUiState(
             orderBlocks == other.orderBlocks &&
             fairValueGaps == other.fairValueGaps &&
             liquidityPools == other.liquidityPools &&
+            volumeProfile == other.volumeProfile &&
+            marketProfile == other.marketProfile &&
+            supportResistanceZones == other.supportResistanceZones &&
+            autoFibLevels == other.autoFibLevels &&
+            autoFibDirection == other.autoFibDirection &&
+            autoFibSwingHigh == other.autoFibSwingHigh &&
+            autoFibSwingLow == other.autoFibSwingLow &&
             sessions == other.sessions &&
             drawings == other.drawings &&
             drawingMode == other.drawingMode &&
@@ -142,9 +168,14 @@ data class ChartUiState(
             showCalculator == other.showCalculator &&
             connectionState == other.connectionState &&
             liveEnabled == other.liveEnabled &&
-            isLoading == other.isLoading && error == other.error &&
+            isLoading == other.isLoading &&
+            isLoadingOlder == other.isLoadingOlder &&
+            historyEndReached == other.historyEndReached &&
+            error == other.error &&
             aiDecision == other.aiDecision &&
-            marketExplanation == other.marketExplanation
+            marketExplanation == other.marketExplanation &&
+            confluence == other.confluence &&
+            syncedCrosshairTimestamp == other.syncedCrosshairTimestamp
     }
 
     override fun hashCode(): Int {
@@ -153,12 +184,23 @@ data class ChartUiState(
         result = 31 * result + candles.hashCode()
         result = 31 * result + dataSource.hashCode()
         result = 31 * result + indicators.hashCode()
+        result = 31 * result + (volumeProfile?.hashCode() ?: 0)
+        result = 31 * result + (marketProfile?.hashCode() ?: 0)
+        result = 31 * result + supportResistanceZones.hashCode()
+        result = 31 * result + autoFibLevels.hashCode()
+        result = 31 * result + (autoFibDirection?.hashCode() ?: 0)
+        result = 31 * result + (autoFibSwingHigh?.hashCode() ?: 0)
+        result = 31 * result + (autoFibSwingLow?.hashCode() ?: 0)
         result = 31 * result + connectionState.hashCode()
         result = 31 * result + showIndicatorPanel.hashCode()
         result = 31 * result + showSymbolPicker.hashCode()
         result = 31 * result + showCalculator.hashCode()
+        result = 31 * result + isLoadingOlder.hashCode()
+        result = 31 * result + historyEndReached.hashCode()
         result = 31 * result + (aiDecision?.hashCode() ?: 0)
         result = 31 * result + (marketExplanation?.hashCode() ?: 0)
+        result = 31 * result + (confluence?.hashCode() ?: 0)
+        result = 31 * result + (syncedCrosshairTimestamp?.hashCode() ?: 0)
         return result
     }
 

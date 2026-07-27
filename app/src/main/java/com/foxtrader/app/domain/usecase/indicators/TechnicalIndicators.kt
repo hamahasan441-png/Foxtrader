@@ -17,13 +17,37 @@ object TechnicalIndicators {
     // ========================================================================
 
     /** Exponential Moving Average */
-    fun calculateEMA(candles: List<Candle>, period: Int): DoubleArray {
+    fun calculateEMA(candles: List<Candle>, period: Int): DoubleArray =
+        calculateEMAIncremental(candles, period, previous = null, recomputeFrom = 0)
+
+    /**
+     * Incremental EMA recomputation.
+     *
+     * Reuses [previous] values before [recomputeFrom] when possible, then
+     * resumes the recursive EMA calculation from that anchor onward.
+     */
+    fun calculateEMAIncremental(
+        candles: List<Candle>,
+        period: Int,
+        previous: DoubleArray?,
+        recomputeFrom: Int,
+    ): DoubleArray {
         val ema = DoubleArray(candles.size)
         if (candles.isEmpty()) return ema
         val k = 2.0 / (period + 1)
-        ema[0] = candles[0].close
-        for (i in 1 until candles.size) {
-            ema[i] = candles[i].close * k + ema[i - 1] * (1 - k)
+        val start = recomputeFrom.coerceIn(0, candles.lastIndex)
+
+        if (previous != null && previous.size >= start && start > 0) {
+            System.arraycopy(previous, 0, ema, 0, start)
+            ema[start - 1] = previous[start - 1]
+            for (i in start until candles.size) {
+                ema[i] = candles[i].close * k + ema[i - 1] * (1 - k)
+            }
+        } else {
+            ema[0] = candles[0].close
+            for (i in 1 until candles.size) {
+                ema[i] = candles[i].close * k + ema[i - 1] * (1 - k)
+            }
         }
         return ema
     }
@@ -44,13 +68,35 @@ object TechnicalIndicators {
     // VWAP — Volume Weighted Average Price (session-anchored, resets daily)
     // ========================================================================
 
-    fun calculateVWAP(candles: List<Candle>): DoubleArray {
+    fun calculateVWAP(candles: List<Candle>): DoubleArray =
+        calculateVWAPIncremental(candles, previous = null, recomputeFrom = 0)
+
+    /**
+     * Incremental VWAP recomputation.
+     *
+     * Because VWAP resets at the UTC day boundary, recomputation resumes from
+     * the start of the day containing [recomputeFrom]. Earlier completed days
+     * are copied from [previous] when available.
+     */
+    fun calculateVWAPIncremental(
+        candles: List<Candle>,
+        previous: DoubleArray?,
+        recomputeFrom: Int,
+    ): DoubleArray {
         val vwap = DoubleArray(candles.size)
+        if (candles.isEmpty()) return vwap
+
+        val requestedStart = recomputeFrom.coerceIn(0, candles.lastIndex)
+        val start = findUtcDayStartIndex(candles, requestedStart)
         var cumulativeTPV = 0.0
         var cumulativeVolume = 0.0
         var currentDay = -1L
 
-        for (i in candles.indices) {
+        if (previous != null && previous.size >= start && start > 0) {
+            System.arraycopy(previous, 0, vwap, 0, start)
+        }
+
+        for (i in start until candles.size) {
             val c = candles[i]
             val day = c.timestamp / 86_400_000L // UTC day boundary
 
@@ -64,7 +110,6 @@ object TechnicalIndicators {
             val volume = if (c.volume > 0.0) c.volume else 1.0
             cumulativeTPV += typicalPrice * volume
             cumulativeVolume += volume
-
             vwap[i] = if (cumulativeVolume > 0.0) cumulativeTPV / cumulativeVolume else typicalPrice
         }
         return vwap
@@ -80,13 +125,28 @@ object TechnicalIndicators {
         val minusDI: DoubleArray,
     )
 
-    fun calculateADX(candles: List<Candle>, period: Int = 14): ADXResult {
+    fun calculateADX(candles: List<Candle>, period: Int = 14): ADXResult =
+        calculateADXIncremental(candles, period, previous = null, recomputeFrom = 0)
+
+    fun calculateADXIncremental(
+        candles: List<Candle>,
+        period: Int = 14,
+        previous: ADXResult?,
+        recomputeFrom: Int,
+    ): ADXResult {
         val len = candles.size
         val adx = DoubleArray(len)
         val plusDI = DoubleArray(len)
         val minusDI = DoubleArray(len)
 
         if (len < period * 2) return ADXResult(adx, plusDI, minusDI)
+
+        val startIndex = if (previous != null && recomputeFrom > 0) max(0, recomputeFrom - period * 2) else 0
+        if (previous != null && startIndex > 0) {
+            System.arraycopy(previous.adx, 0, adx, 0, minOf(startIndex, previous.adx.size))
+            System.arraycopy(previous.plusDI, 0, plusDI, 0, minOf(startIndex, previous.plusDI.size))
+            System.arraycopy(previous.minusDI, 0, minusDI, 0, minOf(startIndex, previous.minusDI.size))
+        }
 
         val tr = DoubleArray(len)
         val plusDM = DoubleArray(len)
@@ -107,7 +167,6 @@ object TechnicalIndicators {
             minusDM[i] = if (downMove > upMove && downMove > 0) downMove else 0.0
         }
 
-        // Wilder's smoothing — initial sum
         var smoothedTR = 0.0
         var smoothedPlusDM = 0.0
         var smoothedMinusDM = 0.0
@@ -132,7 +191,6 @@ object TechnicalIndicators {
             dx[i] = if (diSum > 0) (abs(plusDI[i] - minusDI[i]) / diSum) * 100 else 0.0
         }
 
-        // ADX = smoothed DX
         var adxSum = 0.0
         for (i in period until minOf(period * 2, len)) adxSum += dx[i]
         if (period * 2 - 1 < len) adx[period * 2 - 1] = adxSum / period
@@ -183,34 +241,58 @@ object TechnicalIndicators {
         val macd: DoubleArray,
         val signal: DoubleArray,
         val histogram: DoubleArray,
+        val fastEma: DoubleArray,
+        val slowEma: DoubleArray,
     )
 
-    fun calculateMACD(candles: List<Candle>, fast: Int = 12, slow: Int = 26, signalPeriod: Int = 9): MACDResult {
-        val emaFast = calculateEMA(candles, fast)
-        val emaSlow = calculateEMA(candles, slow)
+    fun calculateMACD(candles: List<Candle>, fast: Int = 12, slow: Int = 26, signalPeriod: Int = 9): MACDResult =
+        calculateMACDIncremental(candles, previous = null, recomputeFrom = 0, fast = fast, slow = slow, signalPeriod = signalPeriod)
+
+    fun calculateMACDIncremental(
+        candles: List<Candle>,
+        previous: MACDResult?,
+        recomputeFrom: Int,
+        fast: Int = 12,
+        slow: Int = 26,
+        signalPeriod: Int = 9,
+    ): MACDResult {
+        val emaFast = calculateEMAIncremental(candles, fast, previous?.fastEma, recomputeFrom)
+        val emaSlow = calculateEMAIncremental(candles, slow, previous?.slowEma, recomputeFrom)
         val macdLine = DoubleArray(candles.size) { emaFast[it] - emaSlow[it] }
 
-        // Signal line = EMA of MACD
         val signalLine = DoubleArray(candles.size)
         val k = 2.0 / (signalPeriod + 1)
-        signalLine[0] = macdLine[0]
-        for (i in 1 until macdLine.size) {
-            signalLine[i] = macdLine[i] * k + signalLine[i - 1] * (1 - k)
+        val startIndex = if (previous != null && recomputeFrom > 0) max(0, recomputeFrom - 1) else 0
+        if (previous != null && startIndex > 0 && previous.signal.size >= startIndex) {
+            System.arraycopy(previous.signal, 0, signalLine, 0, startIndex)
+        }
+        if (candles.isNotEmpty()) {
+            if (startIndex == 0) signalLine[0] = macdLine[0]
+            for (i in max(1, startIndex) until macdLine.size) {
+                signalLine[i] = macdLine[i] * k + signalLine[i - 1] * (1 - k)
+            }
         }
 
         val histogram = DoubleArray(candles.size) { macdLine[it] - signalLine[it] }
-        return MACDResult(macdLine, signalLine, histogram)
+        return MACDResult(macdLine, signalLine, histogram, emaFast, emaSlow)
     }
 
     // ========================================================================
     // ATR — Average True Range
     // ========================================================================
 
-    fun calculateATR(candles: List<Candle>, period: Int = 14): DoubleArray {
+    fun calculateATR(candles: List<Candle>, period: Int = 14): DoubleArray =
+        calculateATRIncremental(candles, period, previous = null, recomputeFrom = 0)
+
+    fun calculateATRIncremental(
+        candles: List<Candle>,
+        period: Int = 14,
+        previous: DoubleArray?,
+        recomputeFrom: Int,
+    ): DoubleArray {
         val atr = DoubleArray(candles.size)
         if (candles.size < 2) return atr
 
-        // True Range array
         val tr = DoubleArray(candles.size)
         tr[0] = candles[0].range
         for (i in 1 until candles.size) {
@@ -220,14 +302,18 @@ object TechnicalIndicators {
             tr[i] = maxOf(high - low, abs(high - prevClose), abs(low - prevClose))
         }
 
-        // First ATR = SMA of first `period` TR values
         if (candles.size >= period) {
-            var sum = 0.0
-            for (i in 0 until period) sum += tr[i]
-            atr[period - 1] = sum / period
-
-            // Subsequent = Wilder's smoothing
-            for (i in period until candles.size) {
+            val startIndex = if (previous != null && recomputeFrom > 0) max(0, recomputeFrom - 1) else 0
+            if (previous != null && startIndex > 0 && previous.size >= startIndex) {
+                System.arraycopy(previous, 0, atr, 0, startIndex)
+            }
+            if (startIndex <= period - 1) {
+                var sum = 0.0
+                for (i in 0 until period) sum += tr[i]
+                atr[period - 1] = sum / period
+            }
+            val firstComputed = max(period, startIndex)
+            for (i in firstComputed until candles.size) {
                 atr[i] = (atr[i - 1] * (period - 1) + tr[i]) / period
             }
         }
@@ -279,5 +365,14 @@ object TechnicalIndicators {
         val mean = returns.average()
         val variance = returns.sumOf { (it - mean) * (it - mean) } / returns.size
         return sqrt(variance) * candles.last().close
+    }
+
+    private fun findUtcDayStartIndex(candles: List<Candle>, index: Int): Int {
+        val targetDay = candles[index].timestamp / 86_400_000L
+        var cursor = index
+        while (cursor > 0 && candles[cursor - 1].timestamp / 86_400_000L == targetDay) {
+            cursor--
+        }
+        return cursor
     }
 }

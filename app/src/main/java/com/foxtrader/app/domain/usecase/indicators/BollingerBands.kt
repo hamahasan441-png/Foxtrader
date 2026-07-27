@@ -30,6 +30,14 @@ class BollingerBands @Inject constructor() {
         candles: List<Candle>,
         period: Int = 20,
         multiplier: Double = 2.0,
+    ): BollingerResult = calculateIncremental(candles, previous = null, recomputeFrom = 0, period = period, multiplier = multiplier)
+
+    fun calculateIncremental(
+        candles: List<Candle>,
+        previous: BollingerResult?,
+        recomputeFrom: Int,
+        period: Int = 20,
+        multiplier: Double = 2.0,
     ): BollingerResult {
         val n = candles.size
         val middle = DoubleArray(n)
@@ -39,12 +47,31 @@ class BollingerBands @Inject constructor() {
         val bandwidth = DoubleArray(n)
         if (n == 0) return BollingerResult(middle, upper, lower, percentB, bandwidth)
 
-        for (i in 0 until n) {
+        val startIndex = if (previous != null && recomputeFrom > 0) {
+            maxOf(0, recomputeFrom - period + 1)
+        } else {
+            0
+        }
+        if (previous != null && previous.middle.size >= startIndex && startIndex > 0) {
+            System.arraycopy(previous.middle, 0, middle, 0, startIndex)
+            System.arraycopy(previous.upper, 0, upper, 0, startIndex)
+            System.arraycopy(previous.lower, 0, lower, 0, startIndex)
+            System.arraycopy(previous.percentB, 0, percentB, 0, startIndex)
+            System.arraycopy(previous.bandwidth, 0, bandwidth, 0, startIndex)
+        }
+
+        for (i in startIndex until n) {
             val start = maxOf(0, i - period + 1)
-            val window = candles.subList(start, i + 1).map { it.close }
-            val mean = window.average()
-            val variance = window.sumOf { (it - mean) * (it - mean) } / window.size
-            val sd = sqrt(variance)
+            var sum = 0.0
+            for (j in start..i) sum += candles[j].close
+            val count = i - start + 1
+            val mean = sum / count
+            var varianceSum = 0.0
+            for (j in start..i) {
+                val diff = candles[j].close - mean
+                varianceSum += diff * diff
+            }
+            val sd = sqrt(varianceSum / count)
 
             middle[i] = mean
             upper[i] = mean + sd * multiplier

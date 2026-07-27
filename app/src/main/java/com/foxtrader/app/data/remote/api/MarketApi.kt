@@ -16,5 +16,6 @@ interface MarketApi {
         @Path("symbol") symbol: String,
         @Path("timeframe") timeframe: String,
         @Query("limit") limit: Int = 500,
+        @Query("before") before: Long? = null,
     ): CandlesResponse
 }

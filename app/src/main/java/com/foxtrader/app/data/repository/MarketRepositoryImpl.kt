@@ -142,6 +142,28 @@ class MarketRepositoryImpl @Inject constructor(
         }
     }
 
+    private suspend fun fetchDefaultCandlesBefore(
+        symbol: String,
+        timeframe: Timeframe,
+        beforeTimestamp: Long,
+        limit: Int,
+    ): List<Candle> {
+        return if (binance.isBinanceSymbol(symbol)) {
+            binance.fetchCandlesBefore(symbol, timeframe, beforeTimestamp, limit)
+        } else {
+            val response = api.getCandles(
+                symbol = symbol,
+                timeframe = timeframe.label,
+                limit = limit,
+                before = beforeTimestamp,
+            )
+            response.candles.map { it.toDomain() }
+                .filter { it.timestamp < beforeTimestamp }
+                .sortedBy { it.timestamp }
+                .takeLast(limit)
+        }
+    }
+
     /** Live ticks come from a real feed, so they are LIVE by construction. */
     override suspend fun upsertCandle(symbol: String, timeframe: Timeframe, candle: Candle) =
         withContext(io) { dao.upsert(candle.toEntity(symbol, timeframe, CandleSource.LIVE)) }
@@ -160,6 +182,45 @@ class MarketRepositoryImpl @Inject constructor(
             val seed = SampleData.generate(symbol, timeframe, SEED_BARS)
             dao.upsertAll(seed.map { it.toEntity(symbol, timeframe, CandleSource.SYNTHETIC) })
             SourcedCandles(seed, CandleSource.SYNTHETIC)
+        }
+    }
+
+    override suspend fun loadOlderCandles(
+        symbol: String,
+        timeframe: Timeframe,
+        beforeTimestamp: Long,
+        limit: Int,
+    ): Result<SourcedCandles> = withContext(io) {
+        runCatching {
+            val selectedProvider = appPreferences.dataProvider.value
+            val alphaKey = appPreferences.getApiKey(DataProvider.ALPHA_VANTAGE).orEmpty()
+
+            val source = when {
+                selectedProvider == DataProvider.SAMPLE || !selectedProvider.implemented -> CandleSource.SYNTHETIC
+                else -> CandleSource.LIVE
+            }
+
+            val candles = when {
+                source == CandleSource.SYNTHETIC ->
+                    SampleData.generateEndingBefore(symbol, timeframe, limit, beforeTimestamp)
+                selectedProvider == DataProvider.ALPHA_VANTAGE -> {
+                    require(alphaKey.isNotBlank()) {
+                        "Alpha Vantage API key is required. Navigate to Settings → Data Provider and enter your API key."
+                    }
+                    alphaVantage.fetchCandlesBefore(symbol, timeframe, beforeTimestamp, limit, alphaKey)
+                }
+                selectedProvider == DataProvider.BYBIT && bybit.isBybitSymbol(symbol) ->
+                    bybit.fetchCandlesBefore(symbol, timeframe, beforeTimestamp, limit)
+                else -> fetchDefaultCandlesBefore(symbol, timeframe, beforeTimestamp, limit)
+            }
+
+            SourcedCandles(
+                candles = candles
+                    .filter { it.timestamp < beforeTimestamp }
+                    .distinctBy { it.timestamp }
+                    .sortedBy { it.timestamp },
+                source = source,
+            )
         }
     }
 

@@ -55,6 +55,10 @@ fun IndicatorPanel(
             Chip("VWAP", toggles.vwap) { onToggle { it.copy(vwap = !it.vwap) } }
             Chip("Ichimoku", toggles.ichimoku) { onToggle { it.copy(ichimoku = !it.ichimoku) } }
             Chip("Vol Profile", toggles.volumeProfile) { onToggle { it.copy(volumeProfile = !it.volumeProfile) } }
+            Chip("TPO", toggles.marketProfile) { onToggle { it.copy(marketProfile = !it.marketProfile) } }
+            Chip("S/R", toggles.supportResistance) { onToggle { it.copy(supportResistance = !it.supportResistance) } }
+            Chip("Fib", toggles.fibonacci) { onToggle { it.copy(fibonacci = !it.fibonacci) } }
+            Chip("Confluence", toggles.confluence) { onToggle { it.copy(confluence = !it.confluence) } }
             Chip("Order Blocks", toggles.orderBlocks) { onToggle { it.copy(orderBlocks = !it.orderBlocks) } }
             Chip("FVG", toggles.fairValueGaps) { onToggle { it.copy(fairValueGaps = !it.fairValueGaps) } }
             Chip("Liquidity", toggles.liquidity) { onToggle { it.copy(liquidity = !it.liquidity) } }
