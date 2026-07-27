@@ -225,7 +225,7 @@ class ComputeIndicatorsUseCase @Inject constructor(
         val ichimoku = if (toggles.ichimoku && candles.size >= 52)
             ichimokuCloud.calculateIncremental(candles, previous.toIchimokuResult(), recomputeFrom) else null
         val boll = if (toggles.bollinger && candles.size >= 20)
-            bollingerBands.calculateIncremental(candles, previous.toBollingerResult(), recomputeFrom) else null
+            bollingerBands.calculateIncremental(candles, previous.toBollingerResult(candles), recomputeFrom) else null
         val st = if (toggles.superTrend && candles.size >= 15)
             superTrend.calculateIncremental(candles, previous.toSuperTrendResult(), recomputeFrom) else null
         val psar = if (toggles.parabolicSar && candles.size >= 2)
@@ -251,7 +251,7 @@ class ComputeIndicatorsUseCase @Inject constructor(
         )
     }
 
-    private fun Result.toBollingerResult(): BollingerBands.BollingerResult? {
+    private fun Result.toBollingerResult(candles: List<Candle>): BollingerBands.BollingerResult? {
         val upper = bollingerUpper ?: return null
         val middle = bollingerMiddle ?: return null
         val lower = bollingerLower ?: return null
@@ -259,7 +259,8 @@ class ComputeIndicatorsUseCase @Inject constructor(
         val bandwidth = DoubleArray(upper.size)
         for (i in upper.indices) {
             val range = (upper[i] - lower[i]).coerceAtLeast(1e-9)
-            percentB[i] = (middle[i] - lower[i]) / range
+            val close = candles.getOrNull(i)?.close ?: middle[i]
+            percentB[i] = (close - lower[i]) / range
             bandwidth[i] = if (middle[i] != 0.0) (upper[i] - lower[i]) / middle[i] else 0.0
         }
         return BollingerBands.BollingerResult(middle, upper, lower, percentB, bandwidth)

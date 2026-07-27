@@ -169,17 +169,27 @@ fun MultiChartSection(
         dragOffset = Offset.Zero
     }
     val finishDrag: (String) -> Unit = { id ->
-        val sourceRect = panelBounds[id] ?: Rect.Zero
-        val movedCenter = sourceRect.center + dragOffset
+        val sourceRect = panelBounds[id] ?: Rect(0f, 0f, 0f, 0f)
+        val sourceCenter = Offset(
+            x = (sourceRect.left + sourceRect.right) / 2f,
+            y = (sourceRect.top + sourceRect.bottom) / 2f,
+        )
+        val movedCenter = sourceCenter + dragOffset
         val targetId = state.panels
             .map { it.id }
             .firstOrNull { otherId ->
-                otherId != id && panelBounds[otherId]?.contains(movedCenter) == true
+                if (otherId == id) return@firstOrNull false
+                val rect = panelBounds[otherId] ?: return@firstOrNull false
+                movedCenter.x in rect.left..rect.right && movedCenter.y in rect.top..rect.bottom
             }
             ?: state.panels
                 .filter { it.id != id }
                 .minByOrNull { other ->
-                    val center = panelBounds[other.id]?.center ?: Offset.Zero
+                    val rect = panelBounds[other.id] ?: Rect(0f, 0f, 0f, 0f)
+                    val center = Offset(
+                        x = (rect.left + rect.right) / 2f,
+                        y = (rect.top + rect.bottom) / 2f,
+                    )
                     val dx = center.x - movedCenter.x
                     val dy = center.y - movedCenter.y
                     dx * dx + dy * dy
