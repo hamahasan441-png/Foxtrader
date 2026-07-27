@@ -46,7 +46,8 @@ class MtfContextProvider @Inject constructor(
         val result = LinkedHashMap<Timeframe, List<Candle>>(htfs.size)
         for (tf in htfs) {
             // Per-TF errors are suppressed: one failing TF must not cancel the rest.
-            val candles = runCatching { repository.getCandles(symbol, tf) }.getOrElse { emptyList() }
+            val candles = runCatching { repository.getSourcedCandles(symbol, tf).candles }
+                .getOrElse { emptyList() }
             if (candles.size >= MIN_BARS) {
                 result[tf] = candles
             }
@@ -68,7 +69,8 @@ class MtfContextProvider @Inject constructor(
         val peers = correlatedPeers(symbol).take(MAX_CORRELATED_PEERS)
         val result = LinkedHashMap<String, List<Candle>>(peers.size)
         for (peer in peers) {
-            val candles = runCatching { repository.getCandles(peer, timeframe) }.getOrElse { emptyList() }
+            val candles = runCatching { repository.getSourcedCandles(peer, timeframe).candles }
+                .getOrElse { emptyList() }
             if (candles.size >= MIN_BARS) {
                 result[peer] = candles
             }

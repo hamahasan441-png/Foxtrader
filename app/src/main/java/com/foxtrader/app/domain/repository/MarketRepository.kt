@@ -38,18 +38,17 @@ interface MarketRepository {
     suspend fun upsertCandle(symbol: String, timeframe: Timeframe, candle: Candle)
 
     /**
-     * Get cached candles for a symbol (default timeframe H1).
-     * Convenience for scanner/screener which doesn't need reactive observation.
-     */
-    suspend fun getCandles(
-        symbol: String,
-        timeframe: Timeframe = Timeframe.H1,
-    ): List<Candle>
-
-    /**
-     * One-shot fetch of cached candles with provenance, for the scanner and
-     * any other non-reactive consumer that must not present synthetic data as
-     * real.
+     * One-shot fetch of cached candles **with provenance**.
+     *
+     * There is deliberately no unsourced `getCandles` overload. One existed and
+     * was removed: three separate features (the scan alert worker, the scanner,
+     * and the heatmap built on it) each silently bypassed the Sprint 6
+     * provenance contract simply by calling the older API, which still
+     * compiled. Each produced confident trade narratives over generated bars.
+     *
+     * Callers that genuinely only need prices can use `.candles`; the point is
+     * that discarding provenance must be an explicit, visible act rather than
+     * the path of least resistance.
      */
     suspend fun getSourcedCandles(
         symbol: String,

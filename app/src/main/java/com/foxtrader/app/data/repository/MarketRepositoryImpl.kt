@@ -146,9 +146,6 @@ class MarketRepositoryImpl @Inject constructor(
     override suspend fun upsertCandle(symbol: String, timeframe: Timeframe, candle: Candle) =
         withContext(io) { dao.upsert(candle.toEntity(symbol, timeframe, CandleSource.LIVE)) }
 
-    override suspend fun getCandles(symbol: String, timeframe: Timeframe): List<Candle> =
-        getSourcedCandles(symbol, timeframe).candles
-
     override suspend fun getSourcedCandles(
         symbol: String,
         timeframe: Timeframe,

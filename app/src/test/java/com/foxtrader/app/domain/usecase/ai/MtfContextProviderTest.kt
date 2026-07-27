@@ -57,8 +57,6 @@ class MtfContextProviderTest {
 
         override suspend fun upsertCandle(symbol: String, timeframe: Timeframe, candle: Candle) = Unit
 
-        override suspend fun getCandles(symbol: String, timeframe: Timeframe): List<Candle> = data[symbol].orEmpty()
-
         override suspend fun getSourcedCandles(
             symbol: String,
             timeframe: Timeframe,

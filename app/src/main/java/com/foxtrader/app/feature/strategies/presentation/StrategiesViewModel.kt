@@ -81,7 +81,7 @@ class StrategiesViewModel @Inject constructor(
                 val watchlist = scannerUseCase.getWatchlist().filter { it.enabled }.take(15)
 
                 for (ws in watchlist) {
-                    val candles = repository.getCandles(ws.symbol)
+                    val candles = repository.getSourcedCandles(ws.symbol).candles
                     if (candles.size < 50) continue
                     signals += detectSignals(ws.symbol, candles)
                 }
@@ -110,8 +110,14 @@ class StrategiesViewModel @Inject constructor(
         try {
             val watchlist = scannerUseCase.getWatchlist().filter { it.enabled }.take(5)
             val symbol = watchlist.firstOrNull()?.symbol ?: return
-            val candles = repository.getCandles(symbol, Timeframe.H1)
+            val sourced = repository.getSourcedCandles(symbol, Timeframe.H1)
+            val candles = sourced.candles
             if (candles.size < 100) return
+
+            // Auto-journalling below writes into the user's real trade journal.
+            // Seeding it with trades derived from generated bars would corrupt
+            // every downstream performance statistic, so stop here instead.
+            if (!sourced.source.isTrustworthy) return
 
             val strategy: StrategyFunction = { c, i ->
                 if (i < 50) null else {
@@ -140,7 +146,13 @@ class StrategiesViewModel @Inject constructor(
                 }
             }
 
-            val result = aiBacktestEngine(candles, strategy, symbol, Timeframe.H1)
+            val result = aiBacktestEngine(
+                candles = candles,
+                strategy = strategy,
+                symbol = symbol,
+                timeframe = Timeframe.H1,
+                dataSource = sourced.source,
+            )
 
             // Auto-journal: persist backtest trades into the journal.
             if (result.trades.isNotEmpty()) {
