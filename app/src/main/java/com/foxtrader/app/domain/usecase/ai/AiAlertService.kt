@@ -4,6 +4,7 @@ import com.foxtrader.app.domain.model.AlertPriority
 import com.foxtrader.app.domain.model.DecisionResult
 import com.foxtrader.app.domain.model.FoxAlert
 import com.foxtrader.app.domain.model.SignalGrade
+import com.foxtrader.app.domain.model.Timeframe
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -22,7 +23,9 @@ import javax.inject.Singleton
  * (ChartViewModel) passes the alert to [AlertDispatcher] for actual delivery.
  */
 @Singleton
-class AiAlertService @Inject constructor() {
+class AiAlertService @Inject constructor(
+    private val tradeExplanationEngine: TradeExplanationEngine = TradeExplanationEngine(),
+) {
 
     // ConcurrentHashMap for safe access from multiple coroutines.
     private val recentAlerts = ConcurrentHashMap<String, Long>() // key -> last dispatch timestamp
@@ -56,13 +59,12 @@ class AiAlertService @Inject constructor() {
             else -> AlertPriority.LOW
         }
 
-        val confluences = decision.confluencePresent.joinToString(", ") { it.name }
+        val explanation = tradeExplanationEngine.explain(decision, symbol, timeframe = Timeframe.M15)
 
         return FoxAlert(
             id = UUID.randomUUID().toString(),
-            title = "AI Signal: $direction $symbol (${decision.grade})",
-            body = "${decision.confidence.toInt()}% confidence | " +
-                "${decision.confluencePresent.size}/9 confluences: $confluences",
+            title = explanation.title,
+            body = explanation.summary + " " + explanation.invalidation,
             priority = priority,
             symbol = symbol,
             timestamp = now,

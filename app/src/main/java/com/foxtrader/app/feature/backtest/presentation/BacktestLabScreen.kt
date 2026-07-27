@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.foxtrader.app.domain.model.BacktestResult
+import com.foxtrader.app.domain.model.BacktestTrade
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.EquityPoint
 import com.foxtrader.app.domain.model.Timeframe
@@ -357,8 +358,7 @@ private fun RecentTradesCard(result: BacktestResult) {
                     }
                     Column(horizontalAlignment = Alignment.End) {
                         Text(money(trade.netPnL), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = pnlColor(trade.netPnL))
-                        val ai = trade.aiApproved?.let { if (it) "AI ✓" else "AI ✕" } ?: "AI —"
-                        Text(ai, fontSize = 11.sp, color = FoxNeutral60)
+                        Text(aiTradeLabel(trade), fontSize = 11.sp, color = FoxNeutral60)
                     }
                 }
             }
@@ -472,6 +472,14 @@ private fun RiskSlider(value: Double, onChange: (Double) -> Unit) {
             ),
         )
     }
+}
+
+private fun aiTradeLabel(trade: BacktestTrade): String {
+    val status = trade.aiApproved?.let { if (it) "AI ✓" else "AI ✕" } ?: return "AI —"
+    val grade = trade.aiGrade?.let { " $it" }.orEmpty()
+    val confidence = trade.aiConfidence?.let { " ${it.toInt()}%" }.orEmpty()
+    val confluences = trade.aiConfluenceCount?.let { " $it/9" }.orEmpty()
+    return status + grade + confidence + confluences
 }
 
 private fun pnlColor(value: Double): Color = when {

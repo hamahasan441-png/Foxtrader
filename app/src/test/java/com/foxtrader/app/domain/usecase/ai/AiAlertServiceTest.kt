@@ -6,6 +6,7 @@ import com.foxtrader.app.domain.model.RequiredConfluence
 import com.foxtrader.app.domain.model.SignalGrade
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -41,9 +42,12 @@ class AiAlertServiceTest {
     )
 
     @Test
-    fun `fires alert for approved strong signal`() {
+    fun `fires rich explanation alert for approved strong signal`() {
         val alert = service.evaluate(decision(approved = true), "BTCUSDT")
         assertNotNull(alert)
+        assertTrue(alert?.title?.contains("BTCUSDT") == true)
+        assertTrue(alert?.body?.contains("confluences") == true)
+        assertTrue(alert?.body?.contains("Invalidation") == true)
     }
 
     @Test
