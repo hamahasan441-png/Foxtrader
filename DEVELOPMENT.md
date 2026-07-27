@@ -2442,9 +2442,9 @@ and is now consistent.
 
 | Suite | Cases | Covers |
 |-------|-------|--------|
-| `ChartViewportTest` | 30 | Transform round-trips, pan/zoom/centroid anchoring, clamping, fling physics (incl. frame-rate independence and bound termination), auto-scale, nice grids, price formatting, crosshair snapping, layout gutters |
-| `PerformanceProfilerTest` | 22 | Activation gating, rolling-window eviction, running-sum accuracy across wraps, percentiles, budget/tier mapping at 60 vs 120 Hz, dropped-frame vs spike accounting, input validation, snapshot/reset |
-| `AdaptiveQualityControllerTest` | 16 | Fast downgrade, slow upgrade, streak resets, ceiling/floor, anti-oscillation, monotonic settings ladder |
+| `ChartViewportTest` | 35 | Transform round-trips, pan/zoom/centroid anchoring, clamping, fling physics (incl. frame-rate independence and bound termination), auto-scale, nice grids, price formatting, crosshair snapping, layout gutters |
+| `PerformanceProfilerTest` | 21 | Activation gating, rolling-window eviction, running-sum accuracy across wraps, percentiles, budget/tier mapping at 60 vs 120 Hz, dropped-frame vs spike accounting, input validation, snapshot/reset |
+| `AdaptiveQualityControllerTest` | 17 | Fast downgrade, slow upgrade, streak resets, ceiling/floor, anti-oscillation, monotonic settings ladder |
 | `ChartPerformanceMonitorTest` | 13 | Frame bracketing, unmatched/double `endFrame`, quality response to slow frames, snapshot throttling, session restart |
 
 `NOTE` The chart camera and the entire performance layer are now pure-JVM testable — no emulator,
