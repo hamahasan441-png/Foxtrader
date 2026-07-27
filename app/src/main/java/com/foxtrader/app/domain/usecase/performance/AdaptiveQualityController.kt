@@ -21,41 +21,73 @@ import javax.inject.Singleton
 class AdaptiveQualityController @Inject constructor(
     private val profiler: PerformanceProfiler,
 ) {
+    private val lock = Any()
+
     private var currentLevel: QualityLevel = QualityLevel.ULTRA
-    private var framesAtCurrentLevel = 0
-    private val upgradeThreshold = 60  // 1 second of sustained good performance
-    private val downgradeThreshold = 5 // 5 bad frames → downgrade immediately
 
-    /** Evaluate performance and return current quality settings. */
-    fun evaluate(): QualitySettings {
-        framesAtCurrentLevel++
+    /** Consecutive DEGRADED frames — reset by any non-degraded frame. */
+    private var consecutiveBadFrames = 0
 
-        val tier = profiler.getPerformanceTier()
+    /** Consecutive EXCELLENT frames — reset by any non-excellent frame. */
+    private var consecutiveGoodFrames = 0
 
-        when {
-            // Downgrade quickly
-            tier == PerformanceTier.CRITICAL && currentLevel != QualityLevel.MINIMAL -> {
-                currentLevel = QualityLevel.entries[
-                    (currentLevel.ordinal + 1).coerceAtMost(QualityLevel.entries.lastIndex)
-                ]
-                framesAtCurrentLevel = 0
+    /**
+     * Evaluate performance and return current quality settings.
+     *
+     * Asymmetric hysteresis (DEVELOPMENT.md §4.14):
+     * - **Downgrade fast** — CRITICAL steps down immediately; DEGRADED steps
+     *   down after [DOWNGRADE_THRESHOLD] *consecutive* bad frames.
+     * - **Upgrade slow** — requires [UPGRADE_THRESHOLD] *consecutive* excellent
+     *   frames, so a brief lull can never start an oscillation.
+     *
+     * `PERF` Called once per frame: O(1), allocation-free, no enum array copies.
+     */
+    fun evaluate(): QualitySettings = synchronized(lock) {
+        when (profiler.getPerformanceTier()) {
+            PerformanceTier.CRITICAL -> {
+                consecutiveGoodFrames = 0
+                consecutiveBadFrames = 0
+                stepDown()
             }
-            tier == PerformanceTier.DEGRADED && framesAtCurrentLevel >= downgradeThreshold -> {
-                if (currentLevel != QualityLevel.MINIMAL) {
-                    currentLevel = QualityLevel.entries[currentLevel.ordinal + 1]
-                    framesAtCurrentLevel = 0
+            PerformanceTier.DEGRADED -> {
+                consecutiveGoodFrames = 0
+                consecutiveBadFrames++
+                if (consecutiveBadFrames >= DOWNGRADE_THRESHOLD) {
+                    consecutiveBadFrames = 0
+                    stepDown()
                 }
             }
-            // Upgrade slowly (hysteresis)
-            tier == PerformanceTier.EXCELLENT && framesAtCurrentLevel >= upgradeThreshold -> {
-                if (currentLevel != QualityLevel.ULTRA) {
-                    currentLevel = QualityLevel.entries[currentLevel.ordinal - 1]
-                    framesAtCurrentLevel = 0
+            PerformanceTier.EXCELLENT -> {
+                consecutiveBadFrames = 0
+                consecutiveGoodFrames++
+                if (consecutiveGoodFrames >= UPGRADE_THRESHOLD) {
+                    consecutiveGoodFrames = 0
+                    stepUp()
                 }
+            }
+            // GOOD / ACCEPTABLE: inside budget but with no headroom to spare —
+            // hold the current level and let both counters decay.
+            PerformanceTier.GOOD, PerformanceTier.ACCEPTABLE -> {
+                consecutiveBadFrames = 0
+                consecutiveGoodFrames = 0
             }
         }
 
-        return getSettings(currentLevel)
+        getSettings(currentLevel)
+    }
+
+    /** Drop one quality level (no-op at MINIMAL). */
+    private fun stepDown() {
+        if (currentLevel.ordinal < QualityLevel.entries.lastIndex) {
+            currentLevel = QualityLevel.entries[currentLevel.ordinal + 1]
+        }
+    }
+
+    /** Restore one quality level (no-op at ULTRA). */
+    private fun stepUp() {
+        if (currentLevel.ordinal > 0) {
+            currentLevel = QualityLevel.entries[currentLevel.ordinal - 1]
+        }
     }
 
     /** Get quality settings for a specific level. */
@@ -87,8 +119,24 @@ class AdaptiveQualityController @Inject constructor(
         )
     }
 
-    fun getCurrentLevel(): QualityLevel = currentLevel
-    fun forceLevel(level: QualityLevel) { currentLevel = level; framesAtCurrentLevel = 0 }
+    fun getCurrentLevel(): QualityLevel = synchronized(lock) { currentLevel }
+
+    fun forceLevel(level: QualityLevel) = synchronized(lock) {
+        currentLevel = level
+        consecutiveBadFrames = 0
+        consecutiveGoodFrames = 0
+    }
+
+    /** Return to full quality — called when a chart session starts. */
+    fun reset() = forceLevel(QualityLevel.ULTRA)
+
+    companion object {
+        /** Consecutive excellent frames required before restoring quality (~1s @60fps). */
+        const val UPGRADE_THRESHOLD = 60
+
+        /** Consecutive degraded frames tolerated before stepping down. */
+        const val DOWNGRADE_THRESHOLD = 5
+    }
 }
 
 /** Quality level tiers. */
@@ -109,4 +157,20 @@ data class QualitySettings(
     val structureAnnotations: Boolean,
     val antiAlias: Boolean,
     val maxVisibleIndicatorPoints: Int,
-)
+) {
+    companion object {
+        /**
+         * Everything on. Used as the renderer default so a chart rendered
+         * without an attached controller (previews, tests) is never degraded.
+         */
+        val FULL = QualitySettings(
+            gridLines = true,
+            volumeProfile = true,
+            indicators = true,
+            sessions = true,
+            structureAnnotations = true,
+            antiAlias = true,
+            maxVisibleIndicatorPoints = Int.MAX_VALUE,
+        )
+    }
+}

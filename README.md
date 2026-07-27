@@ -20,10 +20,15 @@ A native Android trading-analysis app built with **Kotlin 2.0, Jetpack Compose, 
 
 ### Chart Engine
 - Hardware-accelerated candlestick chart (Compose Canvas on GPU RenderThread)
-- Single-finger drag to pan, two-finger pinch to zoom
+- Single-finger drag to pan, two-finger pinch to zoom anchored to the gesture centroid
+- Momentum fling with frame-rate-independent friction (identical glide at 60Hz and 120Hz)
+- Double-tap to snap back to the latest bars; live-edge following for new data
+- Professional crosshair: bar-snapped, drag to inspect, with OHLC + %-change readout
+- Adaptive quality control — layers degrade before the frame budget is blown
+- Debug performance HUD (FPS, p95 frame time, budget usage, dropped-frame rate)
 - Viewport culling (only visible bars drawn — handles 100,000+ candles at 120fps)
 - Auto-scaling price axis with institutional grid lines (1-2-5 progression)
-- Live last-price dashed reference line
+- Live last-price dashed reference line and price-scale tag
 - Deterministic market-context overlay with value zone, volatility, HTF alignment and next objective
 - 9 timeframes: 1m, 5m, 15m, 30m, 1H, 4H, 1D, 1W, 1M
 
@@ -329,6 +334,10 @@ export FOXTRADER_BASE_URL=https://staging.foxtrader.io/
 - [x] LIT inducement/sweep/displacement detector
 - [x] LIT cross-symbol SMT expansion
 - [x] Backtesting Lab UI screen with AI-gate comparison
+- [x] Chart momentum fling + double-tap reset + live-edge following
+- [x] Bar-snapped crosshair with OHLC readout panel
+- [x] Adaptive quality control wired into the render pass (120fps budget enforcement)
+- [x] Debug render-performance HUD
 - [ ] FastAPI backend (PostgreSQL + Redis)
 - [ ] Social / copy-trading features
 - [ ] Release on Google Play Store

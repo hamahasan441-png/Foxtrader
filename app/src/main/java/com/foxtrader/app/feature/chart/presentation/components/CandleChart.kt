@@ -4,13 +4,19 @@ import android.graphics.Paint
 import android.graphics.Typeface
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -21,6 +27,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.foxtrader.app.domain.model.Candle
@@ -28,17 +35,19 @@ import com.foxtrader.app.domain.model.StructureBreak
 import com.foxtrader.app.domain.model.StructureBreakType
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.usecase.performance.QualitySettings
 import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxBearish
 import com.foxtrader.app.ui.theme.FoxBullish
+import com.foxtrader.app.ui.theme.FoxNeutral10
 import com.foxtrader.app.ui.theme.FoxNeutral20
 import com.foxtrader.app.ui.theme.FoxNeutral5
 import com.foxtrader.app.ui.theme.FoxNeutral60
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.roundToInt
 
 private val IchimokuTenkanColor = Color(0xFFFFC107)
 private val IchimokuKijunColor = Color(0xFF42A5F5)
@@ -47,6 +56,11 @@ private val IchimokuBullishCloudColor = Color(0x2232CD32)
 private val IchimokuBearishCloudColor = Color(0x22FF5252)
 private const val IchimokuPrimaryStroke = 1.2f
 private const val IchimokuChikouStroke = 0.8f
+
+// Pre-resolved ARGB ints for native Paint colouring (parsing a colour string
+// inside the draw pass would allocate and cost a frame).
+private val BullishTextArgb = android.graphics.Color.parseColor("#4CAF50")
+private val BearishTextArgb = android.graphics.Color.parseColor("#EF5350")
 
 /**
  * Professional-grade candlestick chart engine.
@@ -66,7 +80,14 @@ private const val IchimokuChikouStroke = 0.8f
  * - Viewport culling bounds draw cost to visible bars only
  * - Zero per-frame allocations in draw loop
  * - Single unified gesture handler: single-finger pan + pinch zoom (no drift)
- * - Long-press activates crosshair
+ * - Momentum fling with frame-rate-independent friction (§4.9)
+ * - Adaptive quality: layers are skipped before the frame budget is blown (§4.14)
+ *
+ * Gestures:
+ * - Drag: pan; lift-off with velocity starts a fling
+ * - Pinch: zoom anchored to the gesture centroid
+ * - Long-press + drag: crosshair with OHLC readout, tracks the finger
+ * - Double-tap: reset the camera to the most recent bars
  */
 @Composable
 fun CandleChart(
@@ -74,6 +95,7 @@ fun CandleChart(
     modifier: Modifier = Modifier,
     structureBreaks: List<StructureBreak> = emptyList(),
     timeframe: Timeframe = Timeframe.M15,
+    performanceMonitor: ChartPerformanceMonitor? = null,
     emaShort: DoubleArray? = null,
     emaLong: DoubleArray? = null,
     bollingerUpper: DoubleArray? = null,
@@ -107,6 +129,9 @@ fun CandleChart(
 
     // Redraw trigger — bumped after every gesture frame.
     var invalidateTick by remember { mutableIntStateOf(0) }
+
+    // Bumped when a fling starts, which is what launches the animation loop.
+    var flingTick by remember { mutableIntStateOf(0) }
 
     // Native Paint objects (reused across frames — zero allocation in draw loop)
     val priceLabelPaint = remember {
@@ -144,15 +169,28 @@ fun CandleChart(
             textAlign = Paint.Align.CENTER
         }
     }
-
-    // Initialise viewport when data arrives or grows.
-    remember(candles.size) {
-        val count = min(120, candles.size).toFloat()
-        if (viewport.visibleBars <= 0f || viewport.startIndex == 0f) {
-            viewport.visibleBars = count.coerceAtLeast(10f)
-            viewport.startIndex = max(0f, candles.size - count)
+    // OHLC readout shown next to the crosshair (left-aligned monospace).
+    val ohlcLabelPaint = remember {
+        Paint().apply {
+            color = android.graphics.Color.parseColor("#C4C9D4")
+            textSize = with(density) { 9.dp.toPx() }
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
+            isAntiAlias = true
+            textAlign = Paint.Align.LEFT
         }
-        viewport.clamp(candles.size)
+    }
+
+    // Whether the camera was pinned to the newest bar before this data update.
+    // Used to keep the chart "following" live bars without fighting the user.
+    val followLiveEdge = remember { booleanArrayOf(true) }
+
+    /**
+     * Re-run auto-scaling for the current viewport window.
+     *
+     * `PERF` Hoisted into a single local lambda so the (long) argument list is
+     * declared once instead of being duplicated at every camera mutation site.
+     */
+    val rescaleCurrent: () -> Unit = {
         autoScaleToVisibleContent(
             viewport = viewport,
             candles = candles,
@@ -175,12 +213,109 @@ fun CandleChart(
             sessions = sessions,
             volumeProfile = volumeProfile,
         )
+    }
+
+    // `WARNING` The gesture handlers below are keyed on `candles.size`, so they
+    // capture their lambdas until the bar count changes. Indicator arrays can be
+    // swapped without the count changing (e.g. toggling Bollinger), which would
+    // leave a gesture holding a stale auto-scale closure and scaling the chart
+    // to overlays that are no longer drawn. rememberUpdatedState keeps a single
+    // stable reference that always points at the current frame's data.
+    // Held as an explicit State (not a `by` delegate) so it is unambiguous that
+    // each call site reads the *latest* lambda rather than invoking a captured one.
+    val rescaleState = rememberUpdatedState(rescaleCurrent)
+    val rescale: () -> Unit = { rescaleState.value() }
+
+    // Initialise the viewport when data arrives or grows.
+    remember(candles.size) {
+        if (viewport.visibleBars <= 0f || viewport.startIndex == 0f) {
+            viewport.resetToLatest(candles.size)
+        } else if (followLiveEdge[0]) {
+            // `RULE` (DEVELOPMENT.md §4.8) When new bars arrive while the user
+            // is parked at the live edge, follow them. If the user has scrolled
+            // back into history, their position is left untouched.
+            viewport.startIndex = max(0f, candles.size - viewport.visibleBars)
+        }
+        viewport.clamp(candles.size)
+        rescale()
         candles.size
+    }
+
+    // ------------------------------------------------------------------------
+    // FLING ANIMATION LOOP (DEVELOPMENT.md §4.9)
+    // ------------------------------------------------------------------------
+    // `PERF` The loop is *started by a fling*, not left running permanently:
+    // `flingTick` is bumped only on a qualifying lift-off, and the effect exits
+    // as soon as the fling settles. An always-on `withFrameNanos` loop would
+    // wake the chart on every vsync even while the user is doing nothing,
+    // burning battery for no reason.
+    LaunchedEffect(flingTick, candles.size) {
+        if (flingTick == 0 || !viewport.isFling) return@LaunchedEffect
+        var lastNanos = withFrameNanos { it }
+        while (viewport.isFling) {
+            withFrameNanos { now ->
+                val dt = (now - lastNanos) / 1_000_000_000f
+                lastNanos = now
+                // advanceFling returns false on the settling frame; either way
+                // the camera moved, so clamp/rescale/redraw exactly once.
+                viewport.advanceFling(dt, candles.size)
+                viewport.clamp(candles.size)
+                rescale()
+                followLiveEdge[0] = viewport.isAtRightEdge(candles.size)
+                invalidateTick++
+            }
+        }
+    }
+
+    // Stop profiling when the chart leaves composition.
+    DisposableEffect(performanceMonitor) {
+        onDispose { performanceMonitor?.stop() }
     }
 
     Canvas(
         modifier = modifier
             .background(FoxNeutral5)
+            // --- FLING VELOCITY TRACKING ---
+            // Runs before the transform handler in the same pass: it observes
+            // pointer positions to compute lift-off velocity without consuming
+            // any event, so pan/zoom behaviour is completely unaffected.
+            .pointerInput(candles.size) {
+                val tracker = VelocityTracker()
+                awaitEachGesture {
+                    // `WARNING` Suspend for the touch FIRST. Cancelling the
+                    // fling before awaitFirstDown would kill every fling the
+                    // instant it started, because this loop re-enters as soon
+                    // as the previous gesture ends.
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    viewport.stopFling()
+                    tracker.resetTracking()
+                    tracker.addPosition(down.uptimeMillis, down.position)
+
+                    while (true) {
+                        val changes = awaitPointerEvent().changes
+                        val pressed = changes.count { it.pressed }
+                        if (pressed == 0) break
+                        // Only single-pointer drags fling; a pinch must settle
+                        // exactly where the fingers left it.
+                        if (pressed == 1) {
+                            changes.firstOrNull { it.pressed }?.let {
+                                tracker.addPosition(it.uptimeMillis, it.position)
+                            }
+                        } else {
+                            tracker.resetTracking()
+                        }
+                    }
+
+                    // Crosshair mode consumes the drag; never fling out of it.
+                    if (!viewport.crosshairActive) {
+                        val velocityX = tracker.calculateVelocity().x
+                        val chartAreaWidth = viewport.chartWidth(size.width.toFloat())
+                        if (viewport.startFling(velocityX, chartAreaWidth)) {
+                            flingTick++
+                        }
+                    }
+                }
+            }
             // --- PAN (single finger) + ZOOM (pinch) in ONE handler ---
             // A single detectTransformGestures prevents the chart "drift" bug:
             // previously a transform handler AND a drag handler both applied pan
@@ -188,60 +323,48 @@ fun CandleChart(
             // detectTransformGestures natively reports pan for a single pointer.
             .pointerInput(candles.size) {
                 detectTransformGestures { centroid, pan, zoom, _ ->
-                    // A pan/zoom interaction dismisses the crosshair.
-                    if (viewport.crosshairActive) viewport.crosshairActive = false
-
                     val cw = viewport.chartWidth(size.width.toFloat())
-                    val barsPerPx = viewport.visibleBars / cw.coerceAtLeast(1f)
 
-                    // Horizontal pan (works for 1 or 2 fingers).
-                    if (pan.x != 0f) {
-                        viewport.startIndex -= pan.x * barsPerPx
+                    // While the crosshair is up, a drag moves the crosshair
+                    // instead of the camera — this is how desktop terminals
+                    // behave and it makes precise bar inspection possible.
+                    if (viewport.crosshairActive) {
+                        viewport.crosshairX = (viewport.crosshairX + pan.x)
+                            .coerceIn(0f, cw)
+                        viewport.crosshairY = (viewport.crosshairY + pan.y)
+                            .coerceIn(0f, viewport.chartHeight(size.height.toFloat()))
+                        viewport.crosshairTotalWidth = size.width.toFloat()
+                        invalidateTick++
+                        return@detectTransformGestures
                     }
 
-                    // Pinch zoom anchored to the gesture centroid so the bar
-                    // under the user's fingers stays fixed during the zoom.
-                    if (zoom != 1f && zoom > 0f) {
-                        val centroidBarIndex = viewport.startIndex + (centroid.x.coerceIn(0f, cw) / cw) * viewport.visibleBars
-                        val centroidFraction = (centroidBarIndex - viewport.startIndex) / viewport.visibleBars.coerceAtLeast(1f)
-                        viewport.visibleBars = (viewport.visibleBars / zoom).coerceIn(5f, candles.size.toFloat().coerceAtLeast(10f))
-                        viewport.startIndex = centroidBarIndex - centroidFraction * viewport.visibleBars
-                    }
+                    viewport.panByPixels(pan.x, cw)
+                    viewport.zoomBy(zoom, centroid.x, cw, candles.size)
 
                     viewport.clamp(candles.size)
-                    autoScaleToVisibleContent(
-                        viewport = viewport,
-                        candles = candles,
-                        emaShort = emaShort,
-                        emaLong = emaLong,
-                        bollingerUpper = bollingerUpper,
-                        bollingerMiddle = bollingerMiddle,
-                        bollingerLower = bollingerLower,
-                        superTrendValues = superTrendValues,
-                        parabolicSar = parabolicSar,
-                        vwap = vwap,
-                        ichimokuTenkan = ichimokuTenkan,
-                        ichimokuKijun = ichimokuKijun,
-                        ichimokuSenkouA = ichimokuSenkouA,
-                        ichimokuSenkouB = ichimokuSenkouB,
-                        ichimokuChikou = ichimokuChikou,
-                        orderBlocks = orderBlocks,
-                        fairValueGaps = fairValueGaps,
-                        liquidityPools = liquidityPools,
-                        sessions = sessions,
-                        volumeProfile = volumeProfile,
-                    )
+                    rescale()
+                    followLiveEdge[0] = viewport.isAtRightEdge(candles.size)
                     invalidateTick++
                 }
             }
-            // --- LONG-PRESS FOR CROSSHAIR ---
+            // --- TAP GESTURES: crosshair + double-tap reset ---
             .pointerInput(candles.size) {
                 detectTapGestures(
                     onLongPress = { offset ->
+                        viewport.stopFling()
                         viewport.crosshairActive = true
                         viewport.crosshairX = offset.x.coerceIn(0f, viewport.chartWidth(size.width.toFloat()))
                         viewport.crosshairY = offset.y.coerceIn(0f, viewport.chartHeight(size.height.toFloat()))
                         viewport.crosshairTotalWidth = size.width.toFloat()
+                        invalidateTick++
+                    },
+                    onDoubleTap = {
+                        // "Go to now" — snap back to the most recent bars.
+                        viewport.crosshairActive = false
+                        viewport.resetToLatest(candles.size)
+                        viewport.clamp(candles.size)
+                        rescale()
+                        followLiveEdge[0] = true
                         invalidateTick++
                     },
                     onTap = {
@@ -255,6 +378,13 @@ fun CandleChart(
 
         if (candles.isEmpty()) return@Canvas
 
+        // Adaptive quality (DEVELOPMENT.md §4.14): the settings were computed at
+        // the end of the previous frame, so what this frame draws is decided
+        // before a single pixel is emitted. Without a monitor attached (previews,
+        // screenshot tests) the chart always renders at full detail.
+        performanceMonitor?.beginFrame()
+        val quality = performanceMonitor?.quality ?: QualitySettings.FULL
+
         val totalW = size.width
         val totalH = size.height
         val cw = viewport.chartWidth(totalW)
@@ -263,12 +393,14 @@ fun CandleChart(
         // ====================================================================
         // LAYER 0: GRID LINES
         // ====================================================================
-        drawGridLayer(viewport, cw, ch, totalW)
+        if (quality.gridLines) {
+            drawGridLayer(viewport, cw, ch, totalW)
+        }
 
         // ====================================================================
         // LAYER 0.5: SESSION BACKGROUNDS (behind candles)
         // ====================================================================
-        if (sessions.isNotEmpty()) {
+        if (sessions.isNotEmpty() && quality.sessions) {
             clipRect(right = cw, bottom = ch) {
                 drawSessionBackgrounds(sessions, viewport, cw, ch)
             }
@@ -301,7 +433,7 @@ fun CandleChart(
         // ====================================================================
         // LAYER 1.7: VOLUME PROFILE (horizontal histogram, right-aligned)
         // ====================================================================
-        if (volumeProfile != null) {
+        if (volumeProfile != null && quality.volumeProfile) {
             clipRect(right = cw, bottom = ch) {
                 drawVolumeProfile(volumeProfile, viewport, cw, ch)
             }
@@ -310,7 +442,7 @@ fun CandleChart(
         // ====================================================================
         // LAYER 2: INDICATOR OVERLAYS (EMA / Bollinger / SuperTrend / PSAR / VWAP)
         // ====================================================================
-        clipRect(right = cw, bottom = ch) {
+        if (quality.indicators) clipRect(right = cw, bottom = ch) {
             if (emaShort != null || emaLong != null) {
                 drawIndicatorLayer(candles, viewport, cw, ch, emaShort, emaLong)
             }
@@ -334,7 +466,7 @@ fun CandleChart(
         // ====================================================================
         // LAYER 3: MARKET STRUCTURE ANNOTATIONS
         // ====================================================================
-        if (structureBreaks.isNotEmpty()) {
+        if (structureBreaks.isNotEmpty() && quality.structureAnnotations) {
             clipRect(right = cw, bottom = ch) {
                 drawStructureLayer(structureBreaks, candles, viewport, cw, ch, structureLabelPaint)
             }
@@ -360,18 +492,39 @@ fun CandleChart(
         // LAYER 5: CROSSHAIR
         // ====================================================================
         if (viewport.crosshairActive) {
-            drawCrosshairLayer(viewport, candles, cw, ch, totalW, totalH, crosshairLabelPaint, timeframe)
+            drawCrosshairLayer(
+                viewport = viewport,
+                candles = candles,
+                cw = cw,
+                ch = ch,
+                labelPaint = crosshairLabelPaint,
+                ohlcPaint = ohlcLabelPaint,
+                timeframe = timeframe,
+            )
         }
 
         // ====================================================================
-        // LAYER 6: PRICE SCALE (Y-axis)
+        // LAYER 6: PRICE SCALE (Y-axis) + live last-price tag
         // ====================================================================
-        drawPriceScale(viewport, cw, ch, totalW, totalH, priceLabelPaint)
+        drawPriceScale(
+            viewport = viewport,
+            candles = candles,
+            cw = cw,
+            ch = ch,
+            totalW = totalW,
+            totalH = totalH,
+            paint = priceLabelPaint,
+            tagPaint = crosshairLabelPaint,
+        )
 
         // ====================================================================
         // LAYER 7: TIME AXIS (X-axis)
         // ====================================================================
         drawTimeAxis(viewport, candles, cw, ch, totalW, totalH, timeLabelPaint, timeframe)
+
+        // Close the frame: records the duration, recomputes adaptive quality for
+        // the next frame, and publishes a throttled snapshot to the debug HUD.
+        performanceMonitor?.endFrame()
     }
 }
 
@@ -801,87 +954,146 @@ private fun DrawScope.drawLivePriceLine(
     }
 }
 
-/** Professional crosshair with price/time readout at scale edges. */
+/**
+ * Professional crosshair with price/time readouts and a snapped OHLC panel.
+ *
+ * The vertical line snaps to the centre of the bar under the finger (§4.7) so
+ * the readout always describes exactly one candle — a floating line between two
+ * bars would make the OHLC values ambiguous.
+ */
 private fun DrawScope.drawCrosshairLayer(
+    viewport: ChartViewport,
+    candles: List<Candle>,
+    cw: Float,
+    ch: Float,
+    labelPaint: Paint,
+    ohlcPaint: Paint,
+    timeframe: Timeframe,
+) {
+    val barIdx = viewport.snappedCrosshairIndex(candles.size, cw)
+    if (barIdx < 0) return
+
+    // Snap the vertical line to the bar centre; the horizontal line tracks the
+    // finger freely so the user can read any price level.
+    val snappedX = viewport.xForIndex(barIdx + 0.5f, cw).coerceIn(0f, cw)
+    val cy = viewport.crosshairY.coerceIn(0f, ch)
+
+    val crossColor = FoxNeutral60.copy(alpha = 0.7f)
+    val dash = PathEffect.dashPathEffect(floatArrayOf(5f, 4f))
+
+    drawLine(
+        color = crossColor,
+        start = Offset(snappedX, 0f),
+        end = Offset(snappedX, ch),
+        strokeWidth = 0.8f,
+        pathEffect = dash,
+    )
+    drawLine(
+        color = crossColor,
+        start = Offset(0f, cy),
+        end = Offset(cw, cy),
+        strokeWidth = 0.8f,
+        pathEffect = dash,
+    )
+
+    // --- Price label on the right scale ---
+    val price = viewport.priceForY(cy, ch)
+    val priceText = viewport.formatPrice(price)
+    val labelH = labelPaint.textSize + 8f
+    drawRect(
+        color = FoxAmber50,
+        topLeft = Offset(cw + 2f, cy - labelH / 2f),
+        size = Size(viewport.priceScaleWidth - 4f, labelH),
+    )
+    labelPaint.textAlign = Paint.Align.CENTER
+    drawContext.canvas.nativeCanvas.drawText(
+        priceText,
+        cw + viewport.priceScaleWidth / 2f,
+        cy + labelPaint.textSize / 3f,
+        labelPaint,
+    )
+
+    // --- Time label on the bottom axis ---
+    val bar = candles[barIdx]
+    val timeText = viewport.formatTime(bar.timestamp, timeframe)
+    val timeLabelW = labelPaint.measureText(timeText) + 12f
+    val timeLabelH = labelPaint.textSize + 6f
+    // Keep the label fully on screen at the chart edges.
+    val timeLabelX = snappedX.coerceIn(timeLabelW / 2f, (cw - timeLabelW / 2f).coerceAtLeast(timeLabelW / 2f))
+    drawRect(
+        color = FoxAmber50,
+        topLeft = Offset(timeLabelX - timeLabelW / 2f, ch + 2f),
+        size = Size(timeLabelW, timeLabelH),
+    )
+    drawContext.canvas.nativeCanvas.drawText(
+        timeText,
+        timeLabelX,
+        ch + 2f + timeLabelH * 0.7f,
+        labelPaint,
+    )
+
+    // --- OHLC readout panel ---
+    drawOhlcReadout(viewport, bar, snappedX, cw, ohlcPaint)
+}
+
+/**
+ * Compact O/H/L/C + change panel for the bar under the crosshair.
+ *
+ * Anchored to the top of the chart and flipped to the opposite side when the
+ * crosshair would otherwise cover it.
+ */
+private fun DrawScope.drawOhlcReadout(
+    viewport: ChartViewport,
+    bar: Candle,
+    crosshairX: Float,
+    cw: Float,
+    paint: Paint,
+) {
+    val changeAbs = bar.close - bar.open
+    val changePct = if (bar.open != 0.0) (changeAbs / bar.open) * 100.0 else 0.0
+    val text = "O ${viewport.formatPrice(bar.open)}  " +
+        "H ${viewport.formatPrice(bar.high)}  " +
+        "L ${viewport.formatPrice(bar.low)}  " +
+        "C ${viewport.formatPrice(bar.close)}  " +
+        String.format(Locale.US, "%+.2f%%", changePct)
+
+    val padding = 6f
+    val textW = paint.measureText(text)
+    val boxW = textW + padding * 2f
+    val boxH = paint.textSize + padding * 2f
+
+    // Flip to the left of the crosshair when there is no room on the right.
+    val boxX = if (crosshairX + 8f + boxW <= cw) crosshairX + 8f
+    else (crosshairX - 8f - boxW).coerceAtLeast(0f)
+
+    drawRect(
+        color = FoxNeutral10.copy(alpha = 0.92f),
+        topLeft = Offset(boxX, 4f),
+        size = Size(boxW.coerceAtMost(cw), boxH),
+    )
+    paint.color = if (changeAbs >= 0) BullishTextArgb else BearishTextArgb
+    paint.textAlign = Paint.Align.LEFT
+    drawContext.canvas.nativeCanvas.drawText(
+        text,
+        boxX + padding,
+        4f + padding + paint.textSize * 0.8f,
+        paint,
+    )
+}
+
+/**
+ * Price scale — Y-axis labels on the right edge, plus the always-visible
+ * live last-price tag.
+ */
+private fun DrawScope.drawPriceScale(
     viewport: ChartViewport,
     candles: List<Candle>,
     cw: Float,
     ch: Float,
     totalW: Float,
     totalH: Float,
-    labelPaint: Paint,
-    timeframe: Timeframe,
-) {
-    val cx = viewport.crosshairX.coerceIn(0f, cw)
-    val cy = viewport.crosshairY.coerceIn(0f, ch)
-
-    val crossColor = FoxNeutral60.copy(alpha = 0.7f)
-
-    // Vertical line
-    drawLine(
-        color = crossColor,
-        start = Offset(cx, 0f),
-        end = Offset(cx, ch),
-        strokeWidth = 0.8f,
-        pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 4f)),
-    )
-    // Horizontal line
-    drawLine(
-        color = crossColor,
-        start = Offset(0f, cy),
-        end = Offset(cw, cy),
-        strokeWidth = 0.8f,
-        pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 4f)),
-    )
-
-    // Price label on right edge (filled background)
-    val price = viewport.priceForY(cy, ch)
-    val priceText = viewport.formatPrice(price)
-    val labelW = labelPaint.measureText(priceText) + 12f
-    val labelH = labelPaint.textSize + 8f
-
-    // Background rect for price label
-    drawRect(
-        color = FoxAmber50,
-        topLeft = Offset(cw + 2f, cy - labelH / 2f),
-        size = Size(viewport.priceScaleWidth - 4f, labelH),
-    )
-    drawContext.canvas.nativeCanvas.drawText(
-        priceText,
-        cw + viewport.priceScaleWidth / 2f,
-        cy + labelPaint.textSize / 3f,
-        labelPaint.apply { textAlign = Paint.Align.CENTER },
-    )
-    labelPaint.textAlign = Paint.Align.CENTER // Reset
-
-    // Time label on bottom edge
-    val barIdx = viewport.indexForX(cx, cw).roundToInt().coerceIn(0, candles.size - 1)
-    val timestamp = candles[barIdx].timestamp
-    val timeText = viewport.formatTime(timestamp, timeframe)
-    val timeLabelW = labelPaint.measureText(timeText) + 12f
-    val timeLabelH = labelPaint.textSize + 6f
-
-    drawRect(
-        color = FoxAmber50,
-        topLeft = Offset(cx - timeLabelW / 2f, ch + 2f),
-        size = Size(timeLabelW, timeLabelH),
-    )
-    drawContext.canvas.nativeCanvas.drawText(
-        timeText,
-        cx,
-        ch + 2f + timeLabelH * 0.7f,
-        labelPaint,
-    )
-}
-
-/** Price scale — Y-axis labels on the right edge. */
-private fun DrawScope.drawPriceScale(
-    viewport: ChartViewport,
-    cw: Float,
-    ch: Float,
-    totalW: Float,
-    totalH: Float,
     paint: Paint,
+    tagPaint: Paint,
 ) {
     // Background for price scale area
     drawRect(
@@ -916,8 +1128,28 @@ private fun DrawScope.drawPriceScale(
         }
     }
 
-    // Last price label (highlighted)
-    // This provides always-visible current price on the scale
+    // --- Live last-price tag ---
+    // A filled, always-visible marker at the current close. This is what makes
+    // the scale readable at a glance: the trader never has to hunt for "where
+    // is price right now" among the round grid levels.
+    val last = candles.lastOrNull() ?: return
+    val lastY = viewport.yForPrice(last.close, ch)
+    if (lastY !in 0f..ch) return
+
+    val tagColor = if (last.isBullish) FoxBullish else FoxBearish
+    val tagH = tagPaint.textSize + 7f
+    drawRect(
+        color = tagColor,
+        topLeft = Offset(cw + 1f, (lastY - tagH / 2f).coerceIn(0f, ch - tagH)),
+        size = Size(viewport.priceScaleWidth - 2f, tagH),
+    )
+    tagPaint.textAlign = Paint.Align.CENTER
+    drawContext.canvas.nativeCanvas.drawText(
+        viewport.formatPrice(last.close),
+        cw + viewport.priceScaleWidth / 2f,
+        (lastY - tagH / 2f).coerceIn(0f, ch - tagH) + tagH * 0.72f,
+        tagPaint,
+    )
 }
 
 /** Time axis — X-axis labels at the bottom edge. */
