@@ -3866,3 +3866,76 @@ Without cleanup, every new feature would have landed on a bigger pile of local
 state and one-off flags. The point of this pass is to stop that slope *before*
 Sprint 9's benchmarking and test hardening begin.
 
+
+---
+
+# Appendix R: Sprint 9 start — benchmark and instrumentation foundation
+
+Sprint 9 begins by turning the performance/testing requirements from
+`ENHANCEMENT_MASTERPLAN.md` into actual modules and test entry points.
+
+## What landed
+
+### 1. `:benchmark` module scaffold
+
+A dedicated `:benchmark` module now exists using the Android test plugin and is
+wired to target `:app`.
+
+Initial benchmark journeys:
+
+- **cold startup**
+- **warm startup**
+- **chart scroll frame timing**
+- **chart pinch-zoom frame timing**
+- **baseline profile generation journey**
+
+`NOTE` This is the foundation step for Sprint 9.1 and 9.2. The point of this
+change is to make performance measurable in a repeatable Android test harness,
+not to claim the final numbers yet.
+
+### 2. App-side benchmark build type
+
+`app` now declares a dedicated `benchmark` build type, initialised from
+`release` and signed with the debug key. That gives the benchmark runner a
+non-debuggable target close to real release behavior while still remaining easy
+to install in CI / local automation.
+
+### 3. Instrumentation smoke suite foundation
+
+`app/src/androidTest` previously contained only migration tests. It now also has
+basic UI smoke coverage for the real app shell:
+
+- bottom navigation presence
+- navigation between core destinations
+- chart screen primary controls
+
+This is intentionally small and stable: it proves the app launches and the main
+surfaces are reachable without trying to front-load every screen assertion in
+one pass.
+
+### 4. Profile installer runtime dependency
+
+The app now includes `androidx.profileinstaller`, which is the runtime piece
+needed for baseline profiles to matter once generated.
+
+## Why this order
+
+The masterplan's Sprint 9 asks for both benchmarking and instrumentation. Those
+work best as a pair:
+
+- instrumentation establishes that core journeys still work,
+- benchmark journeys measure how fast those same flows run.
+
+Shipping one without the other gives only half the proof.
+
+## Known boundary
+
+This is a **start-of-sprint** foundation, not the complete Sprint 9 finish line.
+Still remaining for the sprint:
+
+- actual baseline profile capture/commit workflow
+- stronger instrumentation coverage per screen
+- screenshot/visual regression layer
+- Compose stability metrics and enforcement
+- memory/leak audit
+

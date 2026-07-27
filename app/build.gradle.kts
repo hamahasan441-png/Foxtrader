@@ -54,6 +54,12 @@ android {
                 "proguard-rules.pro"
             )
         }
+        create("benchmark") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+            isDebuggable = false
+        }
     }
 
     compileOptions {
@@ -105,6 +111,7 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons)
     debugImplementation(libs.androidx.compose.ui.tooling)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 
     // Navigation
     implementation(libs.androidx.navigation.compose)
@@ -145,6 +152,9 @@ dependencies {
 
     // Fragment (FragmentActivity host for BiometricPrompt)
     implementation(libs.androidx.fragment.ktx)
+
+    // Startup / baseline profile installation
+    implementation(libs.androidx.profileinstaller)
 
     // Testing
     testImplementation(libs.junit)
