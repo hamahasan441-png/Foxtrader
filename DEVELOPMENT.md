@@ -2953,3 +2953,70 @@ similar API. A deleted function cannot be called.
 | `NewsEngine` | 133 | News feed (`NewsAgent` votes on news the app never fetches) |
 | `ConfluenceEngine`, `MarketProfile`, `SupportResistanceDetector`, `FibonacciEngine` | 371 | Chart layers (Sprint 8) |
 | `SeasonalityEngine` | 81 | Analytics surface |
+
+---
+
+# Appendix I: Sprint 8.5 — Splitting the chart monolith
+
+`CandleChart.kt` was **1,200 lines** containing the composable plus **18
+`DrawScope` extensions** — the exact shape a complexity gate exists to catch,
+and the reason four Class B engines (`MarketProfile`,
+`SupportResistanceDetector`, `ConfluenceEngine`, `FibonacciEngine`) were still
+unreachable: every one of them needs a new chart layer.
+
+## Sequencing
+
+`NOTE` The masterplan's own risk register says this refactor "will conflict with
+any concurrent chart work — do it first or last, never in the middle." It was
+done **first**, before the Sprint 8 layer features, so those land in small files
+rather than fighting a moving 1,200-line target.
+
+## Result: 1,200 → 531 lines
+
+The composable retains gesture handling, `Paint` lifecycle and layer
+orchestration. Draw implementations moved to `components/layers/`:
+
+| File | Layers | Contents |
+|---|---|---|
+| `ChartGridLayer` | 0 | Institutional grid |
+| `ChartCandleLayer` | 1 | Viewport-culled candles |
+| `ChartIndicatorLayers` | 2 | EMA, Bollinger, SuperTrend, PSAR, VWAP, Ichimoku |
+| `ChartStructureLayer` | 3–4 | BOS/CHOCH annotations, live price line |
+| `ChartCrosshairLayer` | 5 | Crosshair, OHLC readout |
+| `ChartAxisLayers` | 6–7 | Price scale, time axis |
+| `ChartAutoScale` | — | Visible-content price fitting |
+
+Functions became `internal` rather than `private` so the composable can call
+them across files; they remain module-private, and stay pure `DrawScope`
+extensions holding no Compose state — which is what keeps them inside the
+120 fps budget.
+
+`NOTE` Behaviour is unchanged **by construction**: every function was moved
+verbatim by line range rather than retyped. The only edit was the visibility
+keyword. Constants moved to their single consumer — the Ichimoku palette to the
+indicator layer, the pre-resolved ARGB ints to the crosshair layer.
+
+## What went wrong, and the lesson
+
+The first two pushes failed to compile. Both times the cause was the same: the
+extracted code had resolved symbols through `CandleChart.kt`'s 48-line import
+block, and each new file needed its own.
+
+`WARNING` Round one added imports inferred from reading the code; round two
+added five more found by scanning for unresolved capitalised identifiers.
+Neither converged, because **CI logs are unreachable from the agent sandbox** —
+GitHub serves them from blob storage that the environment blocks, so the actual
+`Unresolved reference` list was never visible. Inference was being used as a
+substitute for the compiler, and it kept missing cases (enum members, operator
+imports, and symbols only reachable through fully-qualified names).
+
+The fix was to stop inferring. Every layer file now carries the **exact import
+set the original file compiled against**, minus the composable/gesture-only
+entries a pure `DrawScope` file can never reference. That is correct by
+construction rather than by inspection, and it went green immediately.
+
+`NOTE` Unused imports are *warnings*, not errors. Trimming them is safe
+follow-up once the split is verified; correctness first. This is also a concrete
+argument for Sprint 10's lint gate — with `lint { abortOnError }` the unused
+entries would be surfaced automatically rather than needing a manual pass.
+
