@@ -5,8 +5,8 @@
 > to write, and acceptance criteria. Commit per block with a Conventional Commit.
 > When the user says **"continue"**, pick up at the first unchecked block.
 >
-> **Last updated:** 2026-07-28 · **Branch:** `arena/019fa759-foxtrader`
-> **Base:** `e04c97e` (main) · **Governing docs:** `DEVELOPMENT.md` (bible),
+> **Last updated:** 2026-07-28 · **Branch:** `arena/019fa876-foxtrader`
+> **Base:** `baf9f91` (main) · **Governing docs:** `DEVELOPMENT.md` (bible),
 > `ENHANCEMENT_MASTERPLAN.md`, `.kiro/steering/foxtrader-directive.md`.
 
 ---
@@ -152,7 +152,13 @@ inspection; logic verified via JS ports).
 
 ## 6. CONTINUATION BLOCKS (do in order; check off as completed)
 
-### ☐ Block 1 — `RealtimeConnection` (the WebSocket Engine driver)
+### ☑ Block 1 — `RealtimeConnection` (the WebSocket Engine driver)  ✅ 2026-07-28
+Implemented in `data/market/transport/RealtimeConnection.kt` (+ `FakeWebSocketTransport`
+test double and `RealtimeConnectionTest`, 7 scenarios) on `arena/019fa876-foxtrader`.
+Added an additive `ReconnectOrchestrator.reset()` (fresh ladder/primary/DISCONNECTED)
+so a deliberate `connect()` restart gets a full retry budget. Heartbeat watchdog owns
+the monitor exclusively (single-threaded), requires `timeout <= interval`, closes the
+socket with app code 4000 on a missed pong. See DEVELOPMENT.md Appendix AG.
 The coroutine driver that turns the transport seam + orchestrator + heartbeat
 into a resilient connection.
 - **Create** `data/market/transport/RealtimeConnection.kt`:

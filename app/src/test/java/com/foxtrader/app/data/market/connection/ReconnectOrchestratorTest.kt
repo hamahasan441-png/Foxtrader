@@ -115,5 +115,28 @@ class ReconnectOrchestratorTest {
         assertEquals(ConnectionState.DISCONNECTED, orch.state)
     }
 
+    @Test
+    fun `reset restores a fresh ladder, the primary endpoint, and a clean state`() {
+        val orch = ReconnectOrchestrator(listOf("A", "B")) { policy(maxAttempts = 1) }
+        // Drive it to a terminal give-up: exhausted ladder on A and B.
+        orch.beginConnect(); orch.onDisconnected()          // Retry A
+        orch.beginConnect(); orch.onDisconnected()          // Failover B
+        orch.beginConnect(); orch.onDisconnected()          // Retry B
+        orch.beginConnect()
+        assertTrue(orch.onDisconnected() is ReconnectOrchestrator.Decision.GiveUp)
+        assertEquals(ConnectionState.ERROR, orch.state)
+
+        // A fresh cycle starts over at the primary with a full ladder.
+        orch.reset()
+        assertEquals(ConnectionState.DISCONNECTED, orch.state)
+        assertEquals("A", orch.currentEndpoint)
+        assertEquals(0, orch.endpointIndex)
+
+        orch.beginConnect()
+        val retry = orch.onDisconnected()
+        assertTrue(retry is ReconnectOrchestrator.Decision.Retry)
+        assertEquals(100L, (retry as ReconnectOrchestrator.Decision.Retry).delayMs)
+    }
+
     private fun policyDefault() = policy(maxAttempts = 2)
 }
