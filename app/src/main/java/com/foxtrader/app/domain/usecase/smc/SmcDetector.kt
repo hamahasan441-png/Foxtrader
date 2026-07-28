@@ -329,13 +329,13 @@ class SmcDetector @Inject constructor() {
 
         // Merge adjacent buckets (bucket k and k+1) where a price in one bucket
         // is within tolerance of a price in the adjacent bucket
-        val sortedKeys = buckets.keys.sorted()
         val merged = mutableListOf<MutableList<Pair<Int, Double>>>()
         var currentGroup: MutableList<Pair<Int, Double>>? = null
         var prevKey: Long? = null
 
-        for (key in sortedKeys) {
-            val bucket = buckets[key]!!
+        // Iterate entries in ascending key order; using entries avoids a
+        // non-null-asserted map lookup (buckets[key]!!) inside the loop.
+        for ((key, bucket) in buckets.entries.sortedBy { it.key }) {
             if (currentGroup == null) {
                 currentGroup = bucket.toMutableList()
             } else if (prevKey != null && key == prevKey + 1) {
