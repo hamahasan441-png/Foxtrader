@@ -174,10 +174,13 @@ class MasterDecisionEngine @Inject constructor() {
 
         val grade = gradeSignal(present.size, result.aggregateConfidence)
 
+        val confidence = result.aggregateConfidence
+        check(confidence in 0.0..100.0) { "Confidence must be in [0, 100], got $confidence" }
+
         return DecisionResult(
             approved = approved,
             direction = if (approved) direction else null,
-            confidence = result.aggregateConfidence,
+            confidence = confidence,
             grade = if (approved) grade else SignalGrade.NO_SIGNAL,
             confluencePresent = present,
             confluenceMissing = missing,
@@ -185,7 +188,7 @@ class MasterDecisionEngine @Inject constructor() {
             vetoedBy = null,
             explanation = if (approved) {
                 "DECISION: $direction APPROVED ($grade) — ${present.size}/9 confluences, " +
-                    "${result.aggregateConfidence.toInt()}% confidence."
+                    "${confidence.toInt()}% confidence."
             } else {
                 "DECISION: REJECTED — ${blockReasons.joinToString("; ")}"
             },

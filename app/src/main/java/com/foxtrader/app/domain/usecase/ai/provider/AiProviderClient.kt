@@ -5,7 +5,15 @@ import com.foxtrader.app.domain.model.AiProviderConfig
 import com.foxtrader.app.domain.model.AiProviderResponse
 
 /**
- * Abstraction over external LLM providers.
+ * Future extension point for optional AI narration.
+ *
+ * The FoxTrader decision engine is entirely deterministic and rules-based;
+ * no LLM is required for trade analysis, confluence scoring, or risk gating.
+ * This interface exists solely for an optional narration layer that may, in a
+ * future release, provide natural-language trade explanations by delegating to
+ * an external chat-completion API. The only production implementation today is
+ * [com.foxtrader.app.domain.usecase.ai.provider.NoOpAiProviderClient], which
+ * returns an empty response and incurs no cost or network traffic.
  *
  * Implementations are responsible for:
  * - Building the HTTP request for a specific provider's chat-completion API.

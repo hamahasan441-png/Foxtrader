@@ -125,6 +125,7 @@ class AgentOrchestrator(
         val maxScore = max(bullish, bearish)
         val aggregateConfidence =
             if (totalWeight > 0) ((maxScore / totalWeight) * 100.0).coerceIn(0.0, 100.0) else 0.0
+        check(aggregateConfidence in 0.0..100.0) { "Aggregate confidence out of bounds: $aggregateConfidence" }
 
         var agentConsensus = 0
         var alignedInsights = 0

@@ -56,7 +56,13 @@ data class PositionSizeResult(
     val method: PositionSizingMethod,
     val warnings: List<String>,
     val contractSize: Double = 100_000.0,
-)
+) {
+    init {
+        require(volume >= 0.0) { "Volume must not be negative" }
+        require(contractSize > 0.0) { "Contract size must be positive" }
+        require(riskPercent >= 0.0) { "Risk percent must not be negative" }
+    }
+}
 
 /**
  * Result of a pre-trade risk check.
