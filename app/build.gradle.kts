@@ -180,17 +180,17 @@ val chartCoverageSourceDirs = files(
 )
 
 val chartCoverageClassDirs = files(
-    fileTree(layout.buildDirectory.dir("tmp/kotlin-classes/debug")) {
+    fileTree("$buildDir/tmp/kotlin-classes/debug") {
         include(*chartCoverageIncludes.toTypedArray())
         exclude(*chartCoverageExcludes.toTypedArray())
     },
-    fileTree(layout.buildDirectory.dir("intermediates/javac/debug/compileDebugJavaWithJavac/classes")) {
+    fileTree("$buildDir/intermediates/javac/debug/compileDebugJavaWithJavac/classes") {
         include(*chartCoverageIncludes.toTypedArray())
         exclude(*chartCoverageExcludes.toTypedArray())
     },
 )
 
-val chartCoverageExecutionData = fileTree(layout.buildDirectory) {
+val chartCoverageExecutionData = fileTree(buildDir) {
     include(
         "jacoco/testDebugUnitTest.exec",
         "outputs/unit_test_code_coverage/debugUnitTest/testDebugUnitTest.exec",
@@ -255,17 +255,17 @@ val domainCoverageSourceDirs = files(
 )
 
 val domainCoverageClassDirs = files(
-    fileTree(layout.buildDirectory.dir("tmp/kotlin-classes/debug")) {
+    fileTree("$buildDir/tmp/kotlin-classes/debug") {
         include(*domainCoverageIncludes.toTypedArray())
         exclude(*chartCoverageExcludes.toTypedArray())
     },
-    fileTree(layout.buildDirectory.dir("intermediates/javac/debug/compileDebugJavaWithJavac/classes")) {
+    fileTree("$buildDir/intermediates/javac/debug/compileDebugJavaWithJavac/classes") {
         include(*domainCoverageIncludes.toTypedArray())
         exclude(*chartCoverageExcludes.toTypedArray())
     },
 )
 
-val domainCoverageExecutionData = fileTree(layout.buildDirectory) {
+val domainCoverageExecutionData = fileTree(buildDir) {
     include(
         "jacoco/testDebugUnitTest.exec",
         "outputs/unit_test_code_coverage/debugUnitTest/testDebugUnitTest.exec",
