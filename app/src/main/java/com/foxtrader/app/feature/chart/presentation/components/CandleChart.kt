@@ -23,9 +23,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.StructureBreak
@@ -132,6 +134,7 @@ fun CandleChart(
     onCrosshairTimestampChange: (Long?) -> Unit = {},
 ) {
     val density = LocalDensity.current
+    val context = LocalContext.current
 
     // Viewport survives recomposition. Layout margins set in density-independent pixels.
     val viewport = remember {
@@ -643,7 +646,7 @@ fun CandleChart(
             timeLabelPaint.textAlign = Paint.Align.LEFT
             timeLabelPaint.color = LoadingHistoryArgb
             drawContext.canvas.nativeCanvas.drawText(
-                "Loading history…",
+                context.getString(R.string.chart_loading_history),
                 8f,
                 16f,
                 timeLabelPaint,

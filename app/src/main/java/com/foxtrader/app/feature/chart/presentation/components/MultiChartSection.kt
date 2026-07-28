@@ -36,12 +36,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.zIndex
+import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.chart.ChartLayout
 import com.foxtrader.app.feature.chart.presentation.MultiChartPanelUiState
@@ -77,22 +79,22 @@ fun MultiChartToolbar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "Multi-chart",
+            text = stringResource(R.string.chart_multi_chart_title),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurface,
             fontWeight = FontWeight.SemiBold,
         )
-        LayoutChip("1×1", layout == ChartLayout.SINGLE) { onLayoutChange(ChartLayout.SINGLE) }
-        LayoutChip("1×2", layout == ChartLayout.HORIZONTAL_SPLIT) { onLayoutChange(ChartLayout.HORIZONTAL_SPLIT) }
-        LayoutChip("1×3", layout == ChartLayout.THREE_TOP) { onLayoutChange(ChartLayout.THREE_TOP) }
-        LayoutChip("2×2", layout == ChartLayout.GRID_2X2) { onLayoutChange(ChartLayout.GRID_2X2) }
+        LayoutChip(stringResource(R.string.chart_layout_single), layout == ChartLayout.SINGLE) { onLayoutChange(ChartLayout.SINGLE) }
+        LayoutChip(stringResource(R.string.chart_layout_split), layout == ChartLayout.HORIZONTAL_SPLIT) { onLayoutChange(ChartLayout.HORIZONTAL_SPLIT) }
+        LayoutChip(stringResource(R.string.chart_layout_three), layout == ChartLayout.THREE_TOP) { onLayoutChange(ChartLayout.THREE_TOP) }
+        LayoutChip(stringResource(R.string.chart_layout_grid), layout == ChartLayout.GRID_2X2) { onLayoutChange(ChartLayout.GRID_2X2) }
         Spacer(Modifier.width(6.dp))
-        LayoutChip(if (linkedToPrimary) "LINKED" else "UNLINKED", linkedToPrimary) { onToggleLinking() }
-        LayoutChip(if (symbolLinkEnabled) "SYM-LINK" else "SYM-FREE", symbolLinkEnabled) { onToggleSymbolLink() }
-        LayoutChip(if (timeframeLinkEnabled) "TF-LINK" else "TF-FREE", timeframeLinkEnabled) { onToggleTimeframeLink() }
-        LayoutChip(if (crosshairSyncEnabled) "X-SYNC" else "X-OFF", crosshairSyncEnabled) { onToggleCrosshairSync() }
+        LayoutChip(if (linkedToPrimary) stringResource(R.string.chart_linked) else stringResource(R.string.chart_unlinked), linkedToPrimary) { onToggleLinking() }
+        LayoutChip(if (symbolLinkEnabled) stringResource(R.string.chart_symbol_link_enabled) else stringResource(R.string.chart_symbol_link_disabled), symbolLinkEnabled) { onToggleSymbolLink() }
+        LayoutChip(if (timeframeLinkEnabled) stringResource(R.string.chart_timeframe_link_enabled) else stringResource(R.string.chart_timeframe_link_disabled), timeframeLinkEnabled) { onToggleTimeframeLink() }
+        LayoutChip(if (crosshairSyncEnabled) stringResource(R.string.chart_crosshair_sync_enabled) else stringResource(R.string.chart_crosshair_sync_disabled), crosshairSyncEnabled) { onToggleCrosshairSync() }
         if (canAddPanel) {
-            LayoutChip("ADD", selected = false) { onAddPanel() }
+            LayoutChip(stringResource(R.string.chart_add_panel), selected = false) { onAddPanel() }
         }
     }
 }
@@ -116,6 +118,7 @@ fun MultiChartSection(
 ) {
     if (state.layout == ChartLayout.SINGLE) return
 
+    val multiChartMonitorDescription = stringResource(R.string.chart_multi_chart_monitor_cd)
     var symbolEditorPanelId by remember { mutableStateOf<String?>(null) }
     var timeframeEditorPanelId by remember { mutableStateOf<String?>(null) }
     var draggedPanelId by remember { mutableStateOf<String?>(null) }
@@ -125,7 +128,7 @@ fun MultiChartSection(
 
     if (symbolEditorPanel != null) {
         PanelSelectionDialog(
-            title = "Select symbol",
+            title = stringResource(R.string.chart_select_symbol),
             selected = symbolEditorPanel.symbol,
             options = availableSymbols.ifEmpty { listOf(primarySymbol) },
             optionLabel = { it },
@@ -139,7 +142,7 @@ fun MultiChartSection(
 
     if (timeframeEditorPanel != null) {
         PanelSelectionDialog(
-            title = "Select timeframe",
+            title = stringResource(R.string.chart_select_timeframe),
             selected = timeframeEditorPanel.timeframe,
             options = Timeframe.entries,
             optionLabel = { it.label },
@@ -183,7 +186,7 @@ fun MultiChartSection(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 8.dp)
-            .semantics { contentDescription = "Supplemental multi-chart monitor" },
+            .semantics { contentDescription = multiChartMonitorDescription },
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         when (state.layout) {
@@ -351,7 +354,7 @@ private fun MultiChartPanelCard(
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
-                    text = if (panel.isActive) "ACTIVE PANEL" else "PANEL",
+                    text = if (panel.isActive) stringResource(R.string.chart_panel_active) else stringResource(R.string.chart_panel_inactive),
                     style = MaterialTheme.typography.labelSmall,
                     color = if (panel.isActive) FoxAmber50 else FoxNeutral60,
                     fontWeight = FontWeight.Bold,
@@ -364,7 +367,7 @@ private fun MultiChartPanelCard(
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (panel.isSyntheticData) SourceBadge("SIM")
+                if (panel.isSyntheticData) SourceBadge(stringResource(R.string.chart_source_badge_sim))
                 panel.lastPrice?.let {
                     Text(
                         text = formatMiniPrice(it),
@@ -413,21 +416,21 @@ private fun MultiChartPanelCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 PanelChip(
-                    label = "SYM ${panel.symbol}",
+                    label = stringResource(R.string.chart_panel_symbol_chip, panel.symbol),
                     selected = panel.symbol == primarySymbol,
                     enabled = true,
                     onClick = { onOpenSymbolEditor(panel.id) },
                 )
                 if (!matchesPrimary) {
                     PanelChip(
-                        label = "PRIMARY",
+                        label = stringResource(R.string.chart_panel_primary),
                         selected = false,
                         enabled = true,
                         onClick = { onResetToPrimary(panel.id) },
                     )
                 }
                 PanelChip(
-                    label = "REMOVE",
+                    label = stringResource(R.string.chart_panel_remove),
                     selected = false,
                     enabled = true,
                     onClick = { onRemovePanel(panel.id) },
@@ -442,7 +445,7 @@ private fun MultiChartPanelCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 PanelChip(
-                    label = "REMOVE",
+                    label = stringResource(R.string.chart_panel_remove),
                     selected = false,
                     enabled = true,
                     onClick = { onRemovePanel(panel.id) },
@@ -480,7 +483,7 @@ private fun MultiChartPanelCard(
                     modifier = Modifier.padding(8.dp),
                 )
                 else -> Text(
-                    text = "No data",
+                    text = stringResource(R.string.chart_no_data),
                     color = FoxNeutral60,
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -497,8 +500,10 @@ private fun DragHandleChip(
     onDragEnd: () -> Unit,
     onDragCancel: () -> Unit,
 ) {
+    val dragDescription = stringResource(R.string.chart_drag_panel_cd)
+
     Text(
-        text = if (active) "DRAGGING" else "DRAG",
+        text = if (active) stringResource(R.string.chart_dragging) else stringResource(R.string.chart_drag),
         style = MaterialTheme.typography.labelSmall,
         color = if (active) FoxAmber50 else MaterialTheme.colorScheme.onSurfaceVariant,
         fontWeight = FontWeight.Bold,
@@ -517,7 +522,7 @@ private fun DragHandleChip(
                 )
             }
             .padding(horizontal = 10.dp, vertical = 6.dp)
-            .semantics { contentDescription = "Drag panel to reorder" },
+            .semantics { contentDescription = dragDescription },
     )
 }
 

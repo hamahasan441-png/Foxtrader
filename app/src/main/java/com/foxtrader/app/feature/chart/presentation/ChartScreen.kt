@@ -44,12 +44,14 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.foxtrader.app.BuildConfig
+import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.Timeframe
@@ -267,7 +269,7 @@ fun ChartScreen(
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         else -> Text(
-                            text = "No data",
+                            text = stringResource(R.string.chart_no_data),
                             color = FoxNeutral60,
                             style = MaterialTheme.typography.bodyMedium,
                         )
@@ -352,6 +354,21 @@ private fun ChartTopBar(
     onDrawingToggle: () -> Unit,
     onReplayStart: () -> Unit,
 ) {
+    val currentSymbolDescription = stringResource(R.string.chart_current_symbol_cd, state.symbol)
+    val live = connectionState == ConnectionState.CONNECTED
+    val liveError = connectionState == ConnectionState.ERROR
+    val liveLabel = when {
+        live -> stringResource(R.string.chart_live_connected)
+        liveError -> stringResource(R.string.chart_live_error)
+        state.liveEnabled -> stringResource(R.string.chart_live_connecting)
+        else -> stringResource(R.string.chart_live_off)
+    }
+    val liveStateDescription = when {
+        live -> stringResource(R.string.chart_live_connected_state)
+        liveError -> stringResource(R.string.chart_live_error_state)
+        else -> stringResource(R.string.chart_live_disconnected_state)
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -360,8 +377,12 @@ private fun ChartTopBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text("Fox", color = FoxAmber50, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-        // Tappable symbol badge → opens the symbol picker.
+        Text(
+            text = stringResource(R.string.chart_brand_short),
+            color = FoxAmber50,
+            fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.titleMedium,
+        )
         Text(
             text = state.symbol,
             color = MaterialTheme.colorScheme.onSurface,
@@ -371,24 +392,14 @@ private fun ChartTopBar(
                 .clip(RoundedCornerShape(4.dp))
                 .background(MaterialTheme.colorScheme.primaryContainer)
                 .clickable(
-                    onClickLabel = "Open symbol picker",
+                    onClickLabel = stringResource(R.string.chart_top_symbol_picker_label),
                     role = Role.Button,
                     onClick = onSymbolClick,
                 )
                 .padding(horizontal = 10.dp, vertical = 5.dp)
-                .semantics { contentDescription = "Current symbol: ${state.symbol}. Tap to change." },
+                .semantics { contentDescription = currentSymbolDescription },
         )
         BiasBadge(state.bias)
-
-        // LIVE toggle — green when connected, tap to connect/disconnect.
-        val live = connectionState == ConnectionState.CONNECTED
-        val liveError = connectionState == ConnectionState.ERROR
-        val liveLabel = when {
-            live -> "LIVE"
-            liveError -> "ERROR"
-            state.liveEnabled -> "CONNECTING"
-            else -> "OFF"
-        }
         Text(
             text = liveLabel,
             style = MaterialTheme.typography.labelSmall,
@@ -404,54 +415,46 @@ private fun ChartTopBar(
                     }
                 )
                 .clickable(
-                    onClickLabel = if (state.liveEnabled) "Disconnect live feed" else "Connect live feed",
+                    onClickLabel = if (state.liveEnabled) stringResource(R.string.chart_disconnect_live_feed) else stringResource(R.string.chart_connect_live_feed),
                     onClick = onLiveToggle,
                 )
                 .padding(horizontal = 6.dp, vertical = 3.dp)
                 .semantics {
                     role = Role.Switch
-                    stateDescription = when {
-                        live -> "Live feed connected"
-                        liveError -> "Live feed error"
-                        else -> "Live feed disconnected"
-                    }
+                    stateDescription = liveStateDescription
                 },
         )
 
         Spacer(Modifier.weight(1f))
 
-        // Indicators toggle
         IconButton(onClick = onIndicatorsToggle) {
-            Icon(Icons.Default.ShowChart, contentDescription = "Toggle indicators panel", tint = FoxNeutral60)
+            Icon(Icons.Default.ShowChart, contentDescription = stringResource(R.string.chart_toggle_indicators_panel), tint = FoxNeutral60)
         }
-        // Drawing tools toggle
         IconButton(onClick = onDrawingToggle) {
-            Icon(Icons.Default.Edit, contentDescription = "Toggle drawing tools", tint = FoxNeutral60)
+            Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.chart_toggle_drawing_tools), tint = FoxNeutral60)
         }
-        // Replay button
         IconButton(onClick = onReplayStart) {
-            Icon(Icons.Default.Refresh, contentDescription = "Start replay mode", tint = FoxNeutral60)
+            Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.chart_start_replay_mode), tint = FoxNeutral60)
         }
-        // Position-size calculator
         IconButton(onClick = onCalculatorClick) {
             Icon(
                 Icons.Default.Calculate,
-                contentDescription = "Open position size calculator",
+                contentDescription = stringResource(R.string.chart_open_position_size_calculator),
                 tint = FoxNeutral60,
             )
         }
-        // Alerts inbox, with unread badge.
         AlertsBellButton(unreadCount = unreadAlerts, onClick = onAlertsClick)
 
-        // Price
         state.lastPrice?.let { price ->
+            val formattedPrice = formatPrice(price)
+            val priceDescription = stringResource(R.string.chart_current_price_cd, formattedPrice)
             Text(
-                text = formatPrice(price),
+                text = formattedPrice,
                 color = MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.semantics {
-                    contentDescription = "Current price: ${formatPrice(price)}"
+                    contentDescription = priceDescription
                 },
             )
         }
@@ -463,13 +466,17 @@ private fun TimeframeRow(
     selected: Timeframe,
     onSelect: (Timeframe) -> Unit,
 ) {
+    val timeframeSelectorDescription = stringResource(R.string.chart_timeframe_selector_cd)
+    val selectedStateDescription = stringResource(R.string.chart_tab_selected)
+    val notSelectedStateDescription = stringResource(R.string.chart_tab_not_selected)
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
             .horizontalScroll(rememberScrollState())
             .padding(horizontal = 12.dp, vertical = 6.dp)
-            .semantics { contentDescription = "Timeframe selector" },
+            .semantics { contentDescription = timeframeSelectorDescription },
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Timeframe.entries.forEach { tf ->
@@ -487,13 +494,13 @@ private fun TimeframeRow(
                         else MaterialTheme.colorScheme.surfaceVariant
                     )
                     .clickable(
-                        onClickLabel = "Select ${tf.label} timeframe",
+                        onClickLabel = stringResource(R.string.chart_select_timeframe_cd, tf.label),
                         onClick = { onSelect(tf) },
                     )
                     .padding(horizontal = 12.dp, vertical = 8.dp)
                     .semantics {
                         role = Role.Tab
-                        stateDescription = if (isSelected) "Selected" else "Not selected"
+                        stateDescription = if (isSelected) selectedStateDescription else notSelectedStateDescription
                     },
             )
         }
@@ -515,9 +522,9 @@ private fun AlertsBellButton(unreadCount: Int, onClick: () -> Unit) {
             Icon(
                 imageVector = Icons.Default.Notifications,
                 contentDescription = if (unreadCount > 0) {
-                    "Alerts inbox, $unreadCount unread"
+                    stringResource(R.string.chart_alerts_inbox_with_unread, unreadCount)
                 } else {
-                    "Alerts inbox"
+                    stringResource(R.string.chart_alerts_inbox)
                 },
                 tint = if (unreadCount > 0) FoxAmber50 else FoxNeutral60,
             )
@@ -542,6 +549,8 @@ private fun AlertsBellButton(unreadCount: Int, onClick: () -> Unit) {
 @Composable
 private fun SyntheticDataBanner(visible: Boolean) {
     if (!visible) return
+    val simulatedWarningDescription = stringResource(R.string.chart_simulated_warning_cd)
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -550,8 +559,7 @@ private fun SyntheticDataBanner(visible: Boolean) {
             .background(FoxWarning.copy(alpha = 0.16f))
             .padding(horizontal = 10.dp, vertical = 6.dp)
             .semantics {
-                contentDescription =
-                    "Warning: simulated data. This chart is not showing real market prices."
+                contentDescription = simulatedWarningDescription
             },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -564,14 +572,13 @@ private fun SyntheticDataBanner(visible: Boolean) {
         )
         Column {
             Text(
-                text = "SIMULATED DATA",
+                text = stringResource(R.string.chart_simulated_data_title),
                 color = FoxWarning,
                 fontWeight = FontWeight.Bold,
                 fontSize = 11.sp,
             )
             Text(
-                text = "Provider unreachable — these are generated bars, not real prices. " +
-                    "AI signals are disabled.",
+                text = stringResource(R.string.chart_simulated_data_message),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 10.sp,
             )
@@ -582,10 +589,12 @@ private fun SyntheticDataBanner(visible: Boolean) {
 @Composable
 private fun BiasBadge(bias: Bias) {
     val (color, label) = when (bias) {
-        Bias.BULLISH -> FoxBullishText to "BULLISH"
-        Bias.BEARISH -> FoxBearishText to "BEARISH"
-        Bias.NEUTRAL -> FoxNeutral60 to "NEUTRAL"
+        Bias.BULLISH -> FoxBullishText to stringResource(R.string.chart_bias_bullish)
+        Bias.BEARISH -> FoxBearishText to stringResource(R.string.chart_bias_bearish)
+        Bias.NEUTRAL -> FoxNeutral60 to stringResource(R.string.chart_bias_neutral)
     }
+    val biasDescription = stringResource(R.string.chart_bias_cd, label)
+
     Text(
         text = label,
         color = color,
@@ -594,7 +603,7 @@ private fun BiasBadge(bias: Bias) {
             .clip(RoundedCornerShape(4.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .padding(horizontal = 8.dp, vertical = 4.dp)
-            .semantics { contentDescription = "Market bias: $label" },
+            .semantics { contentDescription = biasDescription },
     )
 }
 

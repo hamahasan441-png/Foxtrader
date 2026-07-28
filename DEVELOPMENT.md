@@ -4353,3 +4353,68 @@ Compose compiler treat the new immutable chart surface more honestly.
 `ChartUiStateTest` now asserts that array-backed overlay wrappers compare by
 content, preserving correct `StateFlow` emission semantics after the state
 surface moved away from raw arrays.
+
+---
+
+# Appendix AA: Sprint 10 start — chart string externalization and accessibility cleanup
+
+This pass starts Sprint 10 on a practical front that is both user-visible and
+low-risk for the green build requirement: **chart-surface string
+externalization**.
+
+## What changed
+
+The chart feature had accumulated a large number of hardcoded UI strings across:
+
+- `ChartScreen.kt`
+- `MultiChartSection.kt`
+- `IndicatorPanel.kt`
+- `SymbolPickerDialog.kt`
+- `AiDecisionPanel.kt`
+- `CandleChart.kt` (history-loading label)
+
+Those strings now move into `app/src/main/res/values/strings.xml`, including:
+
+- chart toolbar and accessibility labels,
+- live-feed state labels,
+- simulated-data warning copy,
+- multi-chart workspace controls,
+- indicator chip labels,
+- watchlist dialog copy,
+- AI badge abbreviations and confluence labels.
+
+## Why this matters
+
+Sprint 10.3 is not just a localization exercise. It is also an accessibility and
+maintenance exercise:
+
+- content descriptions are now easier to audit in one place,
+- UI copy used by tests and product surfaces is centralized,
+- future localization work no longer has to grep through composables for basic
+  chart-shell strings,
+- chart workspace controls added during Sprints 8-9 stop growing the hardcoded
+  string footprint.
+
+## Accessibility cleanup
+
+While moving strings, the chart shell also tightened several semantics labels so
+that important interactive controls are no longer relying on inline literals:
+
+- symbol picker entry point,
+- live-feed toggle state descriptions,
+- timeframe selector descriptions,
+- simulated-data warning description,
+- multi-chart monitor / drag handle descriptions.
+
+## Scope note
+
+This does **not** complete Sprint 10.3 for the whole app yet. It deliberately
+starts with the chart because that surface has received the most change during
+Sprints 8 and 9 and was therefore the highest-yield target for reducing
+hardcoded-string regression risk.
+
+The remaining Sprint 10 work is still:
+
+- detekt / ktlint / lint gate foundation,
+- jacoco coverage gate,
+- broader app-wide string externalization.
