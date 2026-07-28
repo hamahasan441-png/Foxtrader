@@ -50,11 +50,15 @@ class CandleCache(val timeframe: MarketTimeframe) {
         val existing = bars[start]
         return when {
             existing == null -> {
-                val result =
-                    if (bars.isNotEmpty() && start < bars.lastKey()) InsertResult.FILLED else InsertResult.APPENDED
+                // A genuine gap-fill only when the bar lands strictly between two
+                // existing bars; extending either frontier (or the very first bar)
+                // is an append. (A bar before the current min has no stored bar
+                // beneath it, so it is a frontier extension, not a fill.)
+                val isGapFill =
+                    bars.size >= 2 && start > bars.firstKey() && start < bars.lastKey()
                 bars[start] = normalized
                 version++
-                result
+                if (isGapFill) InsertResult.FILLED else InsertResult.APPENDED
             }
 
             existing == normalized -> InsertResult.UNCHANGED

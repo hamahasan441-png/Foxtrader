@@ -108,7 +108,20 @@ enum class MarketTimeframe(
         fun fromLabel(label: String): MarketTimeframe? = entries.firstOrNull { it.label == label }
 
         /** Builds a [MarketTimeframe] from a chart [Timeframe]; never fails. */
-        fun fromChart(timeframe: Timeframe): MarketTimeframe =
-            entries.first { it.label == timeframe.label }
+        fun fromChart(timeframe: Timeframe): MarketTimeframe = when (timeframe) {
+            // Mapped explicitly (not by label) because the chart enum uses
+            // uppercase hour/day/week labels ("1H","1D","1W") while the engine
+            // uses lowercase; a label compare would miss them and also collide
+            // M1("1m") with MN("1M") under a case-insensitive compare.
+            Timeframe.M1 -> M1
+            Timeframe.M5 -> M5
+            Timeframe.M15 -> M15
+            Timeframe.M30 -> M30
+            Timeframe.H1 -> H1
+            Timeframe.H4 -> H4
+            Timeframe.D1 -> D1
+            Timeframe.W1 -> W1
+            Timeframe.MN -> MN
+        }
     }
 }

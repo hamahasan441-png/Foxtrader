@@ -19,11 +19,11 @@ class CandleCacheTest {
         Candle(bucketStart, open = 1.0, high = 2.0, low = 0.5, close = close, volume = 10.0)
 
     @Test
-    fun `appends keep the series sorted and bump the version`() {
+    fun `out-of-order inserts stay sorted, bump the version, and flag a gap-fill`() {
         val cache = CandleCache(MarketTimeframe.M1)
-        assertEquals(InsertResult.APPENDED, cache.upsert(bar(2 * m)))
-        assertEquals(InsertResult.APPENDED, cache.upsert(bar(0 * m)))
-        assertEquals(InsertResult.APPENDED, cache.upsert(bar(1 * m)))
+        assertEquals(InsertResult.APPENDED, cache.upsert(bar(2 * m))) // first bar
+        assertEquals(InsertResult.APPENDED, cache.upsert(bar(0 * m))) // extends the low frontier
+        assertEquals(InsertResult.FILLED, cache.upsert(bar(1 * m)))   // plugs the hole between 0 and 2m
         assertEquals(listOf(0L, m, 2 * m), cache.candles().map { it.timestamp })
         assertEquals(3L, cache.version)
     }

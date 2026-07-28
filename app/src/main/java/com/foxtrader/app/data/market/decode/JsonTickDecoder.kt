@@ -3,11 +3,9 @@ package com.foxtrader.app.data.market.decode
 import com.foxtrader.app.data.market.model.Tick
 import com.foxtrader.app.data.market.model.TickSide
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.longOrNull
 
 /**
  * Which JSON keys carry the tick fields. Defaults match Binance's `aggTrade`
@@ -43,11 +41,12 @@ data class TickFieldMapping(
 /**
  * A [TickDecoder] for JSON trade frames, driven by a [TickFieldMapping].
  *
- * Numbers are read via their string `content`, so both `"100.5"` (Binance sends
- * prices as strings) and `100.5` parse identically. Any frame that is not a
- * JSON object, fails the event-type filter, or is missing a required field
- * (price, timestamp, resolvable symbol) yields `null` rather than throwing — a
- * malformed frame must never crash the feed.
+ * Numbers are read from the primitive's raw `content` and parsed with the stdlib
+ * `toXOrNull()` helpers, so both `"100.5"` (Binance sends prices as strings) and
+ * `100.5` parse identically, and an unexpected element shape never throws. Any
+ * frame that is not a JSON object, fails the event-type filter, or is missing a
+ * required field (price, timestamp, resolvable symbol) yields `null` rather than
+ * throwing — a malformed frame must never crash the feed.
  */
 class JsonTickDecoder(
     private val mapping: TickFieldMapping = TickFieldMapping(),
@@ -56,8 +55,7 @@ class JsonTickDecoder(
 
     override fun decode(frame: String): Tick? {
         // Only the parse + object-cast can throw (malformed JSON, or a frame that
-        // is not a JSON object). Everything else uses null-safe accessors, so the
-        // try is scoped tightly and early `return`s live in a normal block body.
+        // is not a JSON object). Everything else uses the null-safe readers below.
         val obj = try {
             json.parseToJsonElement(frame).jsonObject
         } catch (expected: Exception) {
@@ -67,19 +65,19 @@ class JsonTickDecoder(
         val typeKey = mapping.eventTypeKey
         val typeValue = mapping.eventTypeValue
         if (typeKey != null && typeValue != null) {
-            if (obj[typeKey]?.jsonPrimitive?.content != typeValue) return null
+            if (obj[typeKey].textOrNull() != typeValue) return null
         }
 
-        val price = obj[mapping.price]?.jsonPrimitive?.doubleOrNull ?: return null
-        val timestamp = obj[mapping.timestamp]?.jsonPrimitive?.longOrNull ?: return null
-        val quantity = obj[mapping.quantity]?.jsonPrimitive?.doubleOrNull ?: 0.0
-        val symbol = obj[mapping.symbol]?.jsonPrimitive?.content
+        val price = obj[mapping.price].doubleSafe() ?: return null
+        val timestamp = obj[mapping.timestamp].longSafe() ?: return null
+        val quantity = obj[mapping.quantity].doubleSafe() ?: 0.0
+        val symbol = obj[mapping.symbol].textOrNull()
             ?: mapping.fallbackSymbol
             ?: return null
         if (symbol.isEmpty()) return null
 
         val sideKey = mapping.side
-        val isMaker = if (sideKey != null) obj[sideKey]?.jsonPrimitive?.booleanOrNull else null
+        val isMaker = if (sideKey != null) obj[sideKey].boolSafe() else null
 
         return Tick(
             symbol = symbol,
@@ -95,6 +93,18 @@ class JsonTickDecoder(
         mapping.makerMeansSell -> if (isMaker) TickSide.SELL else TickSide.BUY
         else -> if (isMaker) TickSide.BUY else TickSide.SELL
     }
+
+    // Read the raw text of any primitive (string OR number) and parse it. Using
+    // the stdlib `content` + `toXOrNull()` (rather than kotlinx's typed accessors)
+    // makes string-typed and number-typed fields behave identically and guarantees
+    // a null instead of a throw on an unexpected shape or a missing key.
+    private fun JsonElement?.textOrNull(): String? = (this as? JsonPrimitive)?.content
+    private fun JsonElement?.doubleSafe(): Double? =
+        (this as? JsonPrimitive)?.content?.toDoubleOrNull()
+    private fun JsonElement?.longSafe(): Long? =
+        (this as? JsonPrimitive)?.content?.toLongOrNull()
+    private fun JsonElement?.boolSafe(): Boolean? =
+        (this as? JsonPrimitive)?.content?.toBooleanOrNull()
 
     companion object {
         private val LenientJson = Json { ignoreUnknownKeys = true }
