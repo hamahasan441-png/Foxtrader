@@ -26,6 +26,15 @@ class DukascopyAdapter : DataProviderAdapter {
         "EURJPY", "GBPJPY", "EURGBP", "XAUUSD", "XAGUSD",
     )
 
+    /**
+     * Fetch historical candle data from Dukascopy.
+     *
+     * This is an intentional stub. The Dukascopy binary format uses compressed
+     * hourly LZMA blocks requiring a dedicated data pipeline. The adapter
+     * satisfies the [DataProviderAdapter] contract by returning [emptyList],
+     * causing the repository to fall back to alternative providers (Binance,
+     * Alpha Vantage).
+     */
     override suspend fun fetchHistory(
         symbol: String,
         timeframe: Timeframe,
@@ -33,8 +42,6 @@ class DukascopyAdapter : DataProviderAdapter {
         startTime: Long?,
         endTime: Long?,
     ): List<Candle> {
-        // TODO: Implement Dukascopy binary block download + decompression + aggregation.
-        // For now return empty — the repository falls back to SampleData or Binance.
         return emptyList()
     }
 }

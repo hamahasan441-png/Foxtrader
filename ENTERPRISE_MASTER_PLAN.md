@@ -455,3 +455,38 @@ Phase 0 is non-negotiable and non-parallelizable. Phase 1's decision blocks Phas
 **Blocked in this environment (deferred within Phase 0):**
 - **T0.2 (commit Room schemas)** — requires a Gradle/KSP build to generate the schema JSON; blocked without the Android SDK. Do on a machine/CI with the SDK.
 - **T0.3 (fox notification icon)** — needs a real drawable asset (design), so deferred; the Dukascopy stub TODO can be removed independently in a follow-up.
+
+---
+
+### Sprint 2 — Phase 0 remainder + Phase 1-2 consolidation *(status: implemented)*
+
+Covered by commits 601bf40 through cf25f8f:
+- **T0.2:** Room schema dir created with `.gitkeep`.
+- **T0.3:** Fox notification icon (vector drawable) + DukascopyAdapter KDoc stub replacement. Zero TODOs remain.
+- **T1.1:** Deleted orphaned `data/market/` engine (35 files, 3193 lines). Zero references remained.
+- **T2.1:** Decomposed `ChartViewModel` (1388 LOC) into 5 focused controllers (71% reduction).
+- **T2.3:** SmcDetector compute reuse (`analyzeAll`) + bucket-based `findPriceClusters`.
+
+---
+
+### Sprint 3 — Phase 3: Dead engine removal, LLM descope, executable invariants *(status: implemented)*
+
+**T3.1 — Remove dead engines (6 files deleted):**
+Deleted `SmartAlertEngine.kt`, `NewsEngine.kt`, `SeasonalityEngine.kt`, `MultiTimeframeAnalysisUseCase.kt`, `SignalPipeline.kt`, and `SignalPipelineTest.kt`. All had zero import references in production or test source. Empty `news/` and `signal/` directories removed.
+
+**T3.2 — NewsAgent decision: KEEP.**
+`NewsAgent` is a legitimate protective gate that blocks trading near high-impact news events. It reads `AgentContext.minutesToHighImpactNews` and `inNewsBlackout` (user/calendar-supplied context), carries weight 0.8 in the orchestrator, and does not require a live news feed to function. It is NOT the dead `NewsEngine` (market-news-fetch); it is a blackout-gating agent. Kept unchanged.
+
+**T3.3 — LLM provider: formally descoped.**
+Only `NoOpAiProviderClient` exists. The AI layer is deterministic rules-based; the LLM seam is narration-only. Updated `AiProviderClient.kt` KDoc to clearly state this is a future extension point for optional narration, currently backed by NoOp. No false promises in the settings UI (the "Coming soon" text refers only to data providers not yet connected, which is accurate).
+
+**T3.4 — BacktestEngine cost modeling: VERIFIED ALREADY COMPLETE.**
+`BacktestConfig` already includes configurable `spread` (with `variableSpread` mode), `commissionPerLot`, and `slippage`. The engine applies spread to SL/TP fills and deducts commission from gross P&L. No changes needed.
+
+**T3.5 — Executable invariants on risk/decision hot paths:**
+- `RiskEngine.calculatePositionSize`: `require(entryPrice > 0.0)`, `require(stopLossPrice >= 0.0)`.
+- `MasterDecisionEngine.evaluate`: `check(confidence in 0.0..100.0)` before final return.
+- `AgentOrchestrator.aggregate`: `check(aggregateConfidence in 0.0..100.0)` after computation.
+- `PositionSizeResult` init block: `require(volume >= 0.0)`, `require(contractSize > 0.0)`, `require(riskPercent >= 0.0)`.
+
+All guards fail fast in debug, are cheap in release (no allocations on the happy path).

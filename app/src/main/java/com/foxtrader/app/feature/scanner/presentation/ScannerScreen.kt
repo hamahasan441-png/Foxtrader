@@ -33,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -48,6 +49,7 @@ import com.foxtrader.app.domain.model.ScreenerResult
 import com.foxtrader.app.domain.model.StrategyType
 import com.foxtrader.app.domain.model.WatchlistCategory
 import com.foxtrader.app.domain.usecase.heatmap.MarketHeatmap
+import com.foxtrader.app.R
 import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxBearishText
 import com.foxtrader.app.ui.theme.FoxBullishText
@@ -204,7 +206,7 @@ private fun ViewModeToggle(
 @Composable
 private fun SyntheticScanNotice() {
     Text(
-        text = "SIMULATED DATA — these moves are generated, not real market prices.",
+        text = stringResource(R.string.scanner_simulated_notice),
         color = FoxWarning,
         fontSize = 10.sp,
         fontWeight = FontWeight.Bold,
@@ -391,7 +393,7 @@ private fun StrategyFilter(
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
         Text(
-            text = "Strategy",
+            text = stringResource(R.string.scanner_strategy_label),
             fontSize = 12.sp,
             color = FoxNeutral60,
             fontWeight = FontWeight.SemiBold,

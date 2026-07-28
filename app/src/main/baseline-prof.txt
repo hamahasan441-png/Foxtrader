@@ -1,0 +1,6 @@
+HSPLcom/foxtrader/app/FoxTraderApp;->onCreate()V
+HSPLcom/foxtrader/app/MainActivity;->onCreate(Landroid/os/Bundle;)V
+HSPLcom/foxtrader/app/ui/navigation/FoxNavigationKt;->**(**)**
+HSPLcom/foxtrader/app/feature/chart/presentation/ChartViewModel;->**(**)**
+HSPLcom/foxtrader/app/feature/chart/presentation/components/ChartViewport;->**(**)**
+HSPLcom/foxtrader/app/domain/usecase/risk/RiskEngine;->**(**)**

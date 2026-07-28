@@ -43,11 +43,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.BacktestResult
 import com.foxtrader.app.domain.model.BacktestTrade
 import com.foxtrader.app.domain.model.Direction
@@ -133,7 +135,7 @@ fun BacktestLabScreen(
 
                 else -> LabCard {
                     Text(
-                        text = "Select a symbol, timeframe and strategy, then run a backtest.",
+                        text = stringResource(R.string.backtest_empty_prompt),
                         color = FoxNeutral60,
                         style = MaterialTheme.typography.bodyMedium,
                     )
@@ -198,7 +200,7 @@ private fun ConfigurationCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text("AI Master Decision scoring", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
                 Text(
-                    text = "Annotate every entry with confluence, confidence and veto logic.",
+                    text = stringResource(R.string.backtest_ai_scoring_description),
                     style = MaterialTheme.typography.bodySmall,
                     color = FoxNeutral60,
                 )

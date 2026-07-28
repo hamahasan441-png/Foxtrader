@@ -64,6 +64,9 @@ class RiskEngine @Inject constructor(
         stopLossPrice: Double,
         candles: List<Candle>? = null,
     ): PositionSizeResult {
+        require(entryPrice > 0.0) { "Entry price must be positive" }
+        require(stopLossPrice >= 0.0) { "Stop loss price must not be negative" }
+
         val warnings = mutableListOf<String>()
         val stopDistance = abs(entryPrice - stopLossPrice)
         if (stopDistance == 0.0) warnings += "Stop distance is zero — using minimum"

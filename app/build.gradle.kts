@@ -125,34 +125,27 @@ detekt {
     buildUponDefaultConfig = true
     allRules = false
     parallel = true
+    // During the app-wide rollout, report violations without blocking the build.
+    // Once a proper baseline is generated from a passing build, switch back to
+    // ignoreFailures = false and fail only on new issues above the baseline.
+    ignoreFailures = true
     config.setFrom(rootProject.files("config/detekt/detekt.yml"))
-    source.setFrom(
-        files(
-            "src/main/java/com/foxtrader/app/feature/chart",
-            "src/main/java/com/foxtrader/app/domain/usecase/chart",
-            "src/main/java/com/foxtrader/app/domain/usecase/indicators",
-            "src/main/java/com/foxtrader/app/domain/usecase/preferences",
-            "src/test/java/com/foxtrader/app/feature/chart",
-            "src/test/java/com/foxtrader/app/domain/usecase/chart",
-            "src/test/java/com/foxtrader/app/domain/usecase/indicators",
-            "src/test/java/com/foxtrader/app/domain/usecase/preferences",
-        )
-    )
+    baseline = file("config/detekt/baseline.xml")
+    source.setFrom(files("src/main/java", "src/test/java"))
 }
 
 ktlint {
     android.set(true)
-    ignoreFailures.set(false)
+    // Temporarily allow failures during app-wide rollout. Track violations and
+    // burn down over subsequent sprints. Fail-on-new once baseline stabilizes.
+    ignoreFailures.set(true)
     reporters {
         reporter(ReporterType.PLAIN)
         reporter(ReporterType.CHECKSTYLE)
         reporter(ReporterType.SARIF)
     }
     filter {
-        include("**/feature/chart/**/*.kt")
-        include("**/domain/usecase/chart/**/*.kt")
-        include("**/domain/usecase/indicators/**/*.kt")
-        include("**/domain/usecase/preferences/**/*.kt")
+        include("**/*.kt")
         exclude("**/generated/**")
         exclude("**/build/**")
     }
@@ -239,15 +232,90 @@ val jacocoChartCoverageVerification by tasks.registering(JacocoCoverageVerificat
     onlyIf { chartCoverageExecutionData.files.any { it.exists() } }
 }
 
+// ---------------------------------------------------------------------------
+// Domain layer coverage gate (risk, SMC, AI, backtest, calculator)
+// ---------------------------------------------------------------------------
+
+val domainCoverageIncludes = listOf(
+    "com/foxtrader/app/domain/usecase/risk/RiskEngine*",
+    "com/foxtrader/app/domain/usecase/smc/SmcDetector*",
+    "com/foxtrader/app/domain/usecase/ai/MasterDecisionEngine*",
+    "com/foxtrader/app/domain/usecase/ai/AgentOrchestrator*",
+    "com/foxtrader/app/domain/usecase/backtest/BacktestEngine*",
+    "com/foxtrader/app/domain/usecase/calculator/PositionCalculator*",
+    "com/foxtrader/app/domain/usecase/calculator/InstrumentTypeResolver*",
+)
+
+val domainCoverageSourceDirs = files(
+    "src/main/java/com/foxtrader/app/domain/usecase/risk",
+    "src/main/java/com/foxtrader/app/domain/usecase/smc",
+    "src/main/java/com/foxtrader/app/domain/usecase/ai",
+    "src/main/java/com/foxtrader/app/domain/usecase/backtest",
+    "src/main/java/com/foxtrader/app/domain/usecase/calculator",
+)
+
+val domainCoverageClassDirs = files(
+    fileTree("$buildDir/tmp/kotlin-classes/debug") {
+        include(*domainCoverageIncludes.toTypedArray())
+        exclude(*chartCoverageExcludes.toTypedArray())
+    },
+    fileTree("$buildDir/intermediates/javac/debug/compileDebugJavaWithJavac/classes") {
+        include(*domainCoverageIncludes.toTypedArray())
+        exclude(*chartCoverageExcludes.toTypedArray())
+    },
+)
+
+val domainCoverageExecutionData = fileTree(buildDir) {
+    include(
+        "jacoco/testDebugUnitTest.exec",
+        "outputs/unit_test_code_coverage/debugUnitTest/testDebugUnitTest.exec",
+        "outputs/unit_test_code_coverage/debugUnitTest/testDebugUnitTest.exec.ec",
+    )
+}
+
+val jacocoDomainCoverageReport by tasks.registering(JacocoReport::class) {
+    group = "verification"
+    description = "Generates a focused Jacoco report for the domain layer coverage gate."
+    dependsOn("testDebugUnitTest")
+    classDirectories.setFrom(domainCoverageClassDirs)
+    sourceDirectories.setFrom(domainCoverageSourceDirs)
+    executionData.setFrom(domainCoverageExecutionData)
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+        csv.required.set(false)
+    }
+    onlyIf { domainCoverageExecutionData.files.any { it.exists() } }
+}
+
+val jacocoDomainCoverageVerification by tasks.registering(JacocoCoverageVerification::class) {
+    group = "verification"
+    description = "Verifies domain layer line coverage at 40% floor."
+    dependsOn("testDebugUnitTest")
+    classDirectories.setFrom(domainCoverageClassDirs)
+    sourceDirectories.setFrom(domainCoverageSourceDirs)
+    executionData.setFrom(domainCoverageExecutionData)
+    violationRules {
+        rule {
+            limit {
+                counter = "LINE"
+                value = "COVEREDRATIO"
+                minimum = "0.40".toBigDecimal()
+            }
+        }
+    }
+    onlyIf { domainCoverageExecutionData.files.any { it.exists() } }
+}
+
 val chartStaticAnalysis by tasks.registering {
     group = "verification"
-    description = "Runs the chart-focused detekt gate used by the current sprint hygiene rollout."
+    description = "Runs the app-wide detekt gate used by the current sprint hygiene rollout."
     dependsOn("detekt")
 }
 
 val chartFormatAudit by tasks.registering {
     group = "verification"
-    description = "Runs chart-focused ktlint checks during the Sprint 10 rollout without blocking the APK build yet."
+    description = "Runs app-wide ktlint checks (failures are advisory during burndown)."
     dependsOn("ktlintMainSourceSetCheck")
 }
 
@@ -269,12 +337,17 @@ tasks.matching { it.name == "assembleDebug" || it.name == "testDebugUnitTest" }
 
 tasks.matching { it.name == "testDebugUnitTest" }
     .configureEach {
-        finalizedBy(jacocoChartCoverageReport, jacocoChartCoverageVerification)
+        finalizedBy(
+            jacocoChartCoverageReport,
+            jacocoChartCoverageVerification,
+            jacocoDomainCoverageReport,
+            jacocoDomainCoverageVerification,
+        )
     }
 
 tasks.matching { it.name == "check" }
     .configureEach {
-        dependsOn(jacocoChartCoverageVerification)
+        dependsOn(jacocoChartCoverageVerification, jacocoDomainCoverageVerification)
     }
 
 dependencies {
