@@ -190,12 +190,12 @@ val chartCoverageSourceDirs = files(
 
 val chartCoverageClassDirs = files(
     fileTree("$buildDir/tmp/kotlin-classes/debug") {
-        include(chartCoverageIncludes)
-        exclude(chartCoverageExcludes)
+        include(*chartCoverageIncludes.toTypedArray())
+        exclude(*chartCoverageExcludes.toTypedArray())
     },
     fileTree("$buildDir/intermediates/javac/debug/compileDebugJavaWithJavac/classes") {
-        include(chartCoverageIncludes)
-        exclude(chartCoverageExcludes)
+        include(*chartCoverageIncludes.toTypedArray())
+        exclude(*chartCoverageExcludes.toTypedArray())
     },
 )
 
@@ -210,7 +210,6 @@ val chartCoverageExecutionData = fileTree(buildDir) {
 tasks.withType<Test>().configureEach {
     extensions.configure(JacocoTaskExtension::class) {
         isIncludeNoLocationClasses = true
-        excludes = listOf("jdk.internal.*")
     }
 }
 
