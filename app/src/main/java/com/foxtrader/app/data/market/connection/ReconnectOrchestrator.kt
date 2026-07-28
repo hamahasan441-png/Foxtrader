@@ -87,6 +87,19 @@ class ReconnectOrchestrator(
         fsm.transition(ConnectionState.DISCONNECTED)
     }
 
+    /**
+     * Resets to a fresh connection cycle: the primary endpoint is reselected, a
+     * brand-new backoff ladder is created, and the state machine returns to
+     * [ConnectionState.DISCONNECTED]. A driver calls this at the start of each
+     * deliberate connect so a restart after a terminal failure gets a full retry
+     * budget instead of inheriting an exhausted ladder.
+     */
+    fun reset() {
+        policy = newPolicy()
+        router.reset()
+        fsm.transition(ConnectionState.DISCONNECTED)
+    }
+
     /** The driver's next action after [onDisconnected]. */
     sealed interface Decision {
         /** Reconnect to [endpoint] after [delayMs]. */

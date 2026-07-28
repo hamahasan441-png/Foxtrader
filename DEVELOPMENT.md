@@ -4789,3 +4789,75 @@ logic) plus careful inspection against the project's Kotlin 2.0.20 / coroutines
 1.9.0 / serialization 1.7.3 toolchain. The authoritative compile + the ~16 unit
 test files run on GitHub CI once the `workflows`-permission push blocker
 (see the continuation doc §4) is cleared.
+
+# Appendix AG: Real-Time Market Data Engine — Block 1, the `RealtimeConnection` driver
+
+This records **Sprint 1 continuation Block 1** (see
+[`MARKET_DATA_ENGINE_CONTINUATION.md`](MARKET_DATA_ENGINE_CONTINUATION.md) §6):
+the coroutine driver that turns the transport seam, the reconnect orchestrator and
+the heartbeat monitor into one resilient, self-healing WebSocket connection. It is
+the first block checked off on the continuation plan.
+
+## What landed
+
+- **`data/market/transport/RealtimeConnection.kt`** (production) — the only place
+  in the stack that knows a connection is a *loop*. It sequences the existing,
+  already-tested components rather than reimplementing them:
+  - Drives `ReconnectOrchestrator` (`beginConnect → onConnected → onDisconnected`)
+    and mirrors its state machine into a public `state: StateFlow<ConnectionState>`.
+  - Collects one `WebSocketTransport.connect(url)` event stream per attempt:
+    `Opened → CONNECTED`, `Text → decoder.decode() → emit Tick`, `Closed(1000) →
+    clean stop`, `Closed(other)/Failed → onDisconnected()` then executes the
+    `Decision` (`Retry` waits the backoff via injectable `delayFn`; `Failover`
+    redials the next endpoint immediately; `GiveUp` is the terminal `ERROR`).
+  - Runs a ping/pong watchdog alongside the inbound stream that **owns the
+    `HeartbeatMonitor` exclusively** (no other coroutine touches it) and tears the
+    socket down with application close code `4000` when an outstanding ping goes
+    unanswered, so the normal reconnect path runs. Decoded ticks fan out through a
+    bounded `MutableSharedFlow` (`DROP_OLDEST`, default 1024) so the ingest path
+    never suspends and memory stays bounded (invariant A6).
+  - Idempotent `connect()`/`disconnect()`; a fresh `connect()` resets the
+    orchestrator so a restart after a terminal failure gets a full retry budget.
+  - Injectable `delayFn` and `clock` keep it fully deterministic under test.
+- **`ReconnectOrchestrator.reset()`** (additive) — reselects the primary endpoint,
+  builds a fresh backoff ladder, and returns the FSM to `DISCONNECTED`. Purely
+  additive; existing orchestrator tests unchanged, one new test added.
+- **Tests** — `data/market/transport/FakeWebSocketTransport.kt` (a scriptable
+  `WebSocketTransport`: feeds events, records sent frames, surfaces a
+  driver-initiated close back through the stream) and `RealtimeConnectionTest`
+  (7 scenarios, `runTest` + virtual time): connect→CONNECTED + decoded ticks;
+  drop→RECONNECTING→reconnect after backoff; ladder-exhaustion→failover;
+  total-failure→terminal ERROR; heartbeat-timeout→forced reconnect; clean
+  server close→stop without reconnect; connect/disconnect idempotency.
+
+## Invariants honored (continuation doc §3)
+
+- **Provider abstraction:** the driver depends only on `WebSocketTransport`,
+  `TickDecoder` and `ReconnectOrchestrator` — never a concrete feed. OkHttp stays
+  below the seam (Block 2).
+- **Single-threaded decision logic:** the orchestrator and the monitor are not
+  thread-safe; the orchestrator is touched only by the loop coroutine and the
+  monitor only by the watchdog, with keepalives forwarded over a buffered channel.
+- **Bounded memory:** the tick `SharedFlow` drops oldest under back-pressure; no
+  unbounded buffers.
+- **Shared `Timeframe` enum untouched** — not involved in this block.
+
+## Verification (no JDK/Android SDK in sandbox)
+
+Per the continuation doc §2 workflow: the heartbeat-timing and reconnect-decision
+logic were re-verified with a Node.js port (ping emitted at t=3000, stall detected
+and socket closed with code 4000 at t=4000; `CONNECTING→CONNECTED→RECONNECTING`
+with the first 1000 ms backoff rung), and the coroutine sequencing was traced by
+inspection against the project's Kotlin 2.0.20 / coroutines 1.9.0 toolchain
+(`callbackFlow`-free; canonical `coroutineScope`/`launch`/`Channel`/`SharedFlow`).
+Brace balance and final-newline/indent conventions were checked on every new file.
+The authoritative compile and the unit-test run happen on GitHub CI.
+
+## Design note — heartbeat `timeout <= interval`
+
+`HeartbeatMonitor.isTimedOut()` measures from the *last ping sent*. Because the
+watchdog re-pings every `heartbeatIntervalMs`, a `timeout` larger than the
+`interval` would let each fresh ping reset the window before a stall could ever be
+detected. `RealtimeConnection` therefore `require`s
+`heartbeatTimeoutMs <= heartbeatIntervalMs` and documents it, rather than shipping
+a silent never-times-out footgun.
