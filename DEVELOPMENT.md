@@ -4476,8 +4476,11 @@ into both:
 - `assembleDebug`
 - `testDebugUnitTest`
 
-That means the existing PR build becomes the enforcement point for the new chart
-analysis gate automatically.
+For this pass, that mandatory gate is **detekt-backed** so the existing PR build
+starts enforcing chart static analysis immediately.
+
+A separate `chartFormatAudit` task now carries the chart-scoped `ktlint` rollout
+as non-blocking groundwork while historical formatting drift is burned down.
 
 ## Android lint groundwork
 
@@ -4499,6 +4502,7 @@ By focusing first on the chart stack — the area with the biggest recent volume
 of performance and state-management work — the repo gets:
 
 - real automated hygiene checks on the highest-change surface,
-- CI-enforced protection against fresh chart-main style regressions,
+- CI-enforced protection against fresh chart-analysis regressions,
+- a chart-format audit path ready to be ratcheted into a hard gate,
 - a config foundation that can be expanded outward across the app in later
   Sprint 10 follow-ups.
