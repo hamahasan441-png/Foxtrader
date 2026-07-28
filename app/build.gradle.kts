@@ -277,23 +277,6 @@ tasks.matching { it.name == "check" }
         dependsOn(jacocoChartCoverageVerification)
     }
 
-// TEMP(debug): emit each failing unit test as a GitHub Actions ::error annotation
-// so failures are visible via the checks API without downloading the full log.
-// REMOVE once the build is green.
-tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
-    addTestListener(object : org.gradle.api.tasks.testing.TestListener {
-        override fun beforeSuite(d: org.gradle.api.tasks.testing.TestDescriptor) = Unit
-        override fun afterSuite(d: org.gradle.api.tasks.testing.TestDescriptor, r: org.gradle.api.tasks.testing.TestResult) = Unit
-        override fun beforeTest(d: org.gradle.api.tasks.testing.TestDescriptor) = Unit
-        override fun afterTest(d: org.gradle.api.tasks.testing.TestDescriptor, r: org.gradle.api.tasks.testing.TestResult) {
-            if (r.resultType == org.gradle.api.tasks.testing.TestResult.ResultType.FAILURE) {
-                val msg = (r.exception?.message ?: "failed").replace('\n', ' ').take(300)
-                println("::error::TEST_FAIL ${d.className}#${d.name} -> $msg")
-            }
-        }
-    })
-}
-
 dependencies {
     // Core
     implementation(libs.androidx.core.ktx)
