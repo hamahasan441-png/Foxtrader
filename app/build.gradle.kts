@@ -4,8 +4,6 @@
 // Target: Android 10+ (API 29), compile/target 34
 // ============================================================================
 
-import org.gradle.api.tasks.testing.Test
-import org.gradle.testing.jacoco.plugins.JacocoTaskExtension
 import org.gradle.testing.jacoco.tasks.JacocoCoverageVerification
 import org.gradle.testing.jacoco.tasks.JacocoReport
 import org.jlleitschuh.gradle.ktlint.reporter.ReporterType
@@ -205,12 +203,6 @@ val chartCoverageExecutionData = fileTree(buildDir) {
         "outputs/unit_test_code_coverage/debugUnitTest/testDebugUnitTest.exec",
         "outputs/unit_test_code_coverage/debugUnitTest/testDebugUnitTest.exec.ec",
     )
-}
-
-tasks.withType<Test>().configureEach {
-    extensions.configure(JacocoTaskExtension::class) {
-        isIncludeNoLocationClasses = true
-    }
 }
 
 val jacocoChartCoverageReport by tasks.registering(JacocoReport::class) {
