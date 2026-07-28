@@ -2,6 +2,7 @@ package com.foxtrader.app.domain.usecase.smc
 
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.FvgType
+import com.foxtrader.app.domain.model.LiquidityType
 import com.foxtrader.app.domain.model.OrderBlockType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -191,5 +192,90 @@ class SmcDetectorTest {
         val profile = detector.computeVolumeProfile(emptyList())
         assertTrue(profile.levels.isEmpty())
         assertEquals(0.0, profile.totalVolume, 0.001)
+    }
+
+    // ========================================================================
+    // ANALYZE ALL TESTS
+    // ========================================================================
+
+    @Test
+    fun `analyzeAll produces same results as individual method calls`() {
+        val candles = buildBullishOBSequence()
+        val allResult = detector.analyzeAll(candles)
+
+        val individualOBs = detector.detectOrderBlocks(candles)
+        val individualFVGs = detector.detectFairValueGaps(candles)
+        val individualLiquidity = detector.detectLiquidity(candles)
+        val individualBreakers = detector.detectBreakers(candles)
+        val individualIFVGs = detector.detectIFVG(candles)
+        val individualBPRs = detector.detectBPR(candles)
+
+        assertEquals("Order blocks should match", individualOBs, allResult.orderBlocks)
+        assertEquals("Fair value gaps should match", individualFVGs, allResult.fairValueGaps)
+        assertEquals("Liquidity pools should match", individualLiquidity, allResult.liquidityPools)
+        assertEquals("Breaker blocks should match", individualBreakers, allResult.breakerBlocks)
+        assertEquals("Inversion FVGs should match", individualIFVGs, allResult.inversionFVGs)
+        assertEquals("Balanced price ranges should match", individualBPRs, allResult.balancedPriceRanges)
+    }
+
+    @Test
+    fun `analyzeAll with FVG sequence produces same results as individual calls`() {
+        // Build a longer sequence that has both OBs and FVGs
+        val candles = buildBullishOBSequence() + buildBullishFVGSequence()
+        val allResult = detector.analyzeAll(candles)
+
+        val individualOBs = detector.detectOrderBlocks(candles)
+        val individualFVGs = detector.detectFairValueGaps(candles)
+        val individualBreakers = detector.detectBreakers(candles)
+        val individualIFVGs = detector.detectIFVG(candles)
+        val individualBPRs = detector.detectBPR(candles)
+
+        assertEquals("Order blocks should match", individualOBs, allResult.orderBlocks)
+        assertEquals("Fair value gaps should match", individualFVGs, allResult.fairValueGaps)
+        assertEquals("Breaker blocks should match", individualBreakers, allResult.breakerBlocks)
+        assertEquals("Inversion FVGs should match", individualIFVGs, allResult.inversionFVGs)
+        assertEquals("Balanced price ranges should match", individualBPRs, allResult.balancedPriceRanges)
+    }
+
+    // ========================================================================
+    // FIND PRICE CLUSTERS BUCKETING TESTS
+    // ========================================================================
+
+    @Test
+    fun `findPriceClusters with bucketing produces correct clusters`() {
+        // Create candles with equal highs at 105.0 (within tolerance)
+        val candles = mutableListOf<Candle>()
+        for (i in 0 until 30) {
+            val high = when (i) {
+                5 -> 104.9
+                10 -> 105.0
+                15 -> 105.1
+                else -> 103.0
+            }
+            candles.add(candle(100.0, high, 99.0, 101.0, timestamp = i * 60000L))
+        }
+        // tolerance = 0.5 * avgRange(~4.0) = 2.0 -> prices 104.9, 105.0, 105.1 should cluster
+        val pools = detector.detectLiquidity(candles, tolerance = 0.5, minTouches = 2)
+        val buySide = pools.filter { it.type == LiquidityType.BUY_SIDE }
+        assertTrue("Should detect cluster of near-equal highs", buySide.isNotEmpty())
+    }
+
+    @Test
+    fun `findPriceClusters does not merge distant prices`() {
+        // Create candles with highs that are far apart (should not cluster)
+        val candles = mutableListOf<Candle>()
+        for (i in 0 until 30) {
+            val high = when (i) {
+                5 -> 110.0
+                10 -> 120.0
+                15 -> 130.0
+                else -> 103.0
+            }
+            candles.add(candle(100.0, high, 99.0, 101.0, timestamp = i * 60000L))
+        }
+        // With tolerance = 0.3, avgRange ~= some small value. Highs 110, 120, 130 are far apart.
+        val pools = detector.detectLiquidity(candles, tolerance = 0.3, minTouches = 2)
+        val buySide = pools.filter { it.type == LiquidityType.BUY_SIDE }
+        assertTrue("Distant prices should not cluster", buySide.isEmpty())
     }
 }

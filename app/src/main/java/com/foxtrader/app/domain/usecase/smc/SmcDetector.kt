@@ -22,6 +22,7 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 
 /**
  * Smart Money Concepts Detector — institutional price action analysis.
@@ -40,6 +41,53 @@ import kotlin.math.roundToInt
  * Thread-safe: all functions are pure transforms (no mutable state).
  */
 class SmcDetector @Inject constructor() {
+
+    // ========================================================================
+    // SMC ANALYSIS RESULT
+    // ========================================================================
+
+    /**
+     * Aggregated result of all SMC detections. Produced by [analyzeAll] to
+     * avoid redundant recomputation of order blocks and fair value gaps that
+     * are shared across dependent detections (breakers, IFVGs, BPRs).
+     */
+    data class SmcAnalysisResult(
+        val orderBlocks: List<OrderBlock>,
+        val fairValueGaps: List<FairValueGap>,
+        val liquidityPools: List<LiquidityPool>,
+        val breakerBlocks: List<BreakerBlock>,
+        val inversionFVGs: List<InversionFVG>,
+        val balancedPriceRanges: List<BalancedPriceRange>,
+    )
+
+    // ========================================================================
+    // ANALYZE ALL (compute-reuse entry point)
+    // ========================================================================
+
+    /**
+     * Compute all SMC detections in a single pass, reusing intermediate results.
+     *
+     * [detectBreakers] depends on order blocks, while [detectIFVG] and [detectBPR]
+     * depend on fair value gaps. This method computes OBs and FVGs once and
+     * passes them to dependent detections, eliminating redundant work.
+     */
+    fun analyzeAll(candles: List<Candle>): SmcAnalysisResult {
+        val orderBlocks = detectOrderBlocks(candles)
+        val fairValueGaps = detectFairValueGaps(candles)
+        val liquidityPools = detectLiquidity(candles)
+        val breakerBlocks = detectBreakers(candles, precomputedOBs = orderBlocks)
+        val inversionFVGs = detectIFVG(candles, precomputedFVGs = fairValueGaps)
+        val balancedPriceRanges = detectBPR(candles, precomputedFVGs = fairValueGaps)
+
+        return SmcAnalysisResult(
+            orderBlocks = orderBlocks,
+            fairValueGaps = fairValueGaps,
+            liquidityPools = liquidityPools,
+            breakerBlocks = breakerBlocks,
+            inversionFVGs = inversionFVGs,
+            balancedPriceRanges = balancedPriceRanges,
+        )
+    }
 
     // ========================================================================
     // ORDER BLOCKS
@@ -253,25 +301,60 @@ class SmcDetector @Inject constructor() {
         return pools
     }
 
+    /**
+     * Find clusters of prices within [tolerance] of each other using bucket-based
+     * grouping. Each price is assigned to a bucket of size [tolerance], and adjacent
+     * buckets are merged to handle prices that straddle bucket boundaries.
+     *
+     * Complexity: O(n) for grouping + O(k) for merging, where k = number of buckets.
+     */
     private fun findPriceClusters(
         indexedPrices: List<Pair<Int, Double>>,
         tolerance: Double,
         minTouches: Int,
     ): List<Pair<Double, List<Int>>> {
-        val clusters = mutableListOf<Pair<Double, MutableList<Int>>>()
+        if (indexedPrices.isEmpty() || tolerance <= 0.0) return emptyList()
 
+        // Group prices by bucket index
+        val buckets = HashMap<Long, MutableList<Pair<Int, Double>>>()
         for ((index, price) in indexedPrices) {
-            val existing = clusters.firstOrNull { abs(it.first - price) <= tolerance }
-            if (existing != null) {
-                existing.second.add(index)
-            } else {
-                clusters.add(price to mutableListOf(index))
-            }
+            val bucketIndex = (price / tolerance).roundToLong()
+            buckets.getOrPut(bucketIndex) { mutableListOf() }.add(index to price)
         }
 
-        return clusters
-            .filter { it.second.size >= minTouches }
-            .map { (price, indices) -> price to indices.toList() }
+        // Merge adjacent buckets (bucket k and k+1) where a price in one bucket
+        // is within tolerance of a price in the adjacent bucket
+        val sortedKeys = buckets.keys.sorted()
+        val merged = mutableListOf<MutableList<Pair<Int, Double>>>()
+        var currentGroup: MutableList<Pair<Int, Double>>? = null
+        var prevKey: Long? = null
+
+        for (key in sortedKeys) {
+            val bucket = buckets[key]!!
+            if (currentGroup == null) {
+                currentGroup = bucket.toMutableList()
+            } else if (prevKey != null && key == prevKey + 1) {
+                // Adjacent bucket - merge into current group
+                currentGroup.addAll(bucket)
+            } else {
+                // Non-adjacent - finalize current group, start new one
+                merged.add(currentGroup)
+                currentGroup = bucket.toMutableList()
+            }
+            prevKey = key
+        }
+        if (currentGroup != null) {
+            merged.add(currentGroup)
+        }
+
+        // Convert merged groups into clusters (average price, list of indices)
+        return merged
+            .filter { it.size >= minTouches }
+            .map { group ->
+                val avgPrice = group.sumOf { it.second } / group.size
+                val indices = group.map { it.first }
+                avgPrice to indices
+            }
     }
 
     // ========================================================================
@@ -358,10 +441,15 @@ class SmcDetector @Inject constructor() {
      * A bearish OB that price closes above → bullish breaker (support).
      *
      * Non-repainting: detection only uses candles up to the current bar.
+     *
+     * @param precomputedOBs If provided, skips the internal detectOrderBlocks call.
      */
-    fun detectBreakers(candles: List<Candle>): List<BreakerBlock> {
+    fun detectBreakers(
+        candles: List<Candle>,
+        precomputedOBs: List<OrderBlock>? = null,
+    ): List<BreakerBlock> {
         if (candles.size < 5) return emptyList()
-        val orderBlocks = detectOrderBlocks(candles)
+        val orderBlocks = precomputedOBs ?: detectOrderBlocks(candles)
         val breakers = mutableListOf<BreakerBlock>()
 
         for (ob in orderBlocks) {
@@ -407,14 +495,19 @@ class SmcDetector @Inject constructor() {
      * Detect Inversion Fair Value Gaps (IFVG) — FVGs that have been fully
      * filled and now act as support/resistance from the opposite direction.
      *
-     * A bullish FVG filled ≥ 100% → becomes a bearish IFVG (resistance zone).
-     * A bearish FVG filled ≥ 100% → becomes a bullish IFVG (support zone).
+     * A bullish FVG filled >= 100% → becomes a bearish IFVG (resistance zone).
+     * A bearish FVG filled >= 100% → becomes a bullish IFVG (support zone).
      *
      * Non-repainting: each IFVG is confirmed only after full fill is observed.
+     *
+     * @param precomputedFVGs If provided, skips the internal detectFairValueGaps call.
      */
-    fun detectIFVG(candles: List<Candle>): List<InversionFVG> {
+    fun detectIFVG(
+        candles: List<Candle>,
+        precomputedFVGs: List<FairValueGap>? = null,
+    ): List<InversionFVG> {
         if (candles.size < 3) return emptyList()
-        val fvgs = detectFairValueGaps(candles)
+        val fvgs = precomputedFVGs ?: detectFairValueGaps(candles)
         val ifvgs = mutableListOf<InversionFVG>()
 
         for (fvg in fvgs) {
@@ -463,10 +556,15 @@ class SmcDetector @Inject constructor() {
      * acts as a powerful reaction level.
      *
      * Non-repainting: only confirmed FVGs (both already formed) are considered.
+     *
+     * @param precomputedFVGs If provided, skips the internal detectFairValueGaps call.
      */
-    fun detectBPR(candles: List<Candle>): List<BalancedPriceRange> {
+    fun detectBPR(
+        candles: List<Candle>,
+        precomputedFVGs: List<FairValueGap>? = null,
+    ): List<BalancedPriceRange> {
         if (candles.size < 3) return emptyList()
-        val fvgs = detectFairValueGaps(candles)
+        val fvgs = precomputedFVGs ?: detectFairValueGaps(candles)
         val bullish = fvgs.filter { it.type == FvgType.BULLISH }
         val bearish = fvgs.filter { it.type == FvgType.BEARISH }
         val bprs = mutableListOf<BalancedPriceRange>()

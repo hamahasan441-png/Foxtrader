@@ -162,12 +162,25 @@ class ComputeIndicatorsUseCase @Inject constructor(
         val psar = if (toggles.parabolicSar && candles.size >= 2)
             parabolicSar.calculate(candles).sar else null
 
-        val orderBlocks = if (toggles.orderBlocks)
-            smcDetector.detectOrderBlocks(candles) else emptyList()
-        val fairValueGaps = if (toggles.fairValueGaps)
-            smcDetector.detectFairValueGaps(candles) else emptyList()
-        val liquidityPools = if (toggles.liquidity)
-            smcDetector.detectLiquidity(candles) else emptyList()
+        val orderBlocks: List<com.foxtrader.app.domain.model.OrderBlock>
+        val fairValueGaps: List<com.foxtrader.app.domain.model.FairValueGap>
+        val liquidityPools: List<com.foxtrader.app.domain.model.LiquidityPool>
+
+        if (toggles.orderBlocks && toggles.fairValueGaps) {
+            // Use analyzeAll to compute OBs and FVGs once, sharing them across
+            // dependent detections (breakers, IFVGs, BPRs).
+            val smcResult = smcDetector.analyzeAll(candles)
+            orderBlocks = smcResult.orderBlocks
+            fairValueGaps = smcResult.fairValueGaps
+            liquidityPools = if (toggles.liquidity) smcResult.liquidityPools else emptyList()
+        } else {
+            orderBlocks = if (toggles.orderBlocks)
+                smcDetector.detectOrderBlocks(candles) else emptyList()
+            fairValueGaps = if (toggles.fairValueGaps)
+                smcDetector.detectFairValueGaps(candles) else emptyList()
+            liquidityPools = if (toggles.liquidity)
+                smcDetector.detectLiquidity(candles) else emptyList()
+        }
         val volumeProfile = if (toggles.volumeProfile && candles.size >= 20)
             smcDetector.computeVolumeProfile(candles) else null
         val marketProfileResult = if (toggles.marketProfile && candles.size >= 30)
