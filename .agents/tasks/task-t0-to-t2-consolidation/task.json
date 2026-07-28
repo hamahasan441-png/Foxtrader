@@ -1,0 +1,14 @@
+{
+  "task_id": "task-t0-to-t2-consolidation",
+  "task_description": "Complete T0.2 (Room schemas directory), T0.3 (close TODOs), T1.1 (delete orphaned market engine), T2.1 (decompose ChartViewModel), and T2.3 (SmcDetector compute reuse). T2.2 is already partially implemented in the existing codebase (incremental analysis exists in ChartViewModel).",
+  "status": "completed",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003", "FEAT-004"],
+  "blocked_reason": null,
+  "verification": {
+    "build": "skipped",
+    "tests": "skipped",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "Cannot run build/tests (no Android SDK in INTEGRATIONS_ONLY sandbox). Verified: all imports reference existing classes, no TODO comments remain, no broken brace balance, no default params on @Inject constructors, 35 orphaned files deleted with zero dangling references, ChartViewModel reduced from 1388 to 399 LOC with all public API preserved, SmcDetector analyzeAll + bucket clustering with equivalence tests, review findings addressed (encapsulation, AI job cancellation, documentation)."
+  }
+}

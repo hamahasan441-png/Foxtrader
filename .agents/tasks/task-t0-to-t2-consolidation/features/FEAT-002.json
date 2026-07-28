@@ -1,0 +1,25 @@
+{
+  "id": "FEAT-002",
+  "type": "refactor",
+  "description": "T1.1: Delete the orphaned data/market/ engine (19 production files + 16 test files, zero references outside their package). The old path (data/remote/websocket/MarketWebSocket) is the working live-data path.",
+  "status": "completed",
+  "steps": [
+    "Delete the entire directory app/src/main/java/com/foxtrader/app/data/market/ (19 Kotlin files across cache/, candle/, connection/, decode/, model/, provider/, tick/, transport/)",
+    "Delete the entire directory app/src/test/java/com/foxtrader/app/data/market/ (16 test files across cache/, candle/, connection/, decode/, model/, provider/, tick/)",
+    "Verify no other file in the project imports from com.foxtrader.app.data.market (already confirmed - zero references)",
+    "Verify no DI module references any class from the market package (already confirmed - none exist)"
+  ],
+  "acceptance_criteria": [
+    "Directory app/src/main/java/com/foxtrader/app/data/market/ does not exist",
+    "Directory app/src/test/java/com/foxtrader/app/data/market/ does not exist",
+    "No imports referencing com.foxtrader.app.data.market exist anywhere in the project",
+    "All remaining source files compile correctly (no broken imports)"
+  ],
+  "verification": [
+    "ls app/src/main/java/com/foxtrader/app/data/market/ should fail (directory gone)",
+    "ls app/src/test/java/com/foxtrader/app/data/market/ should fail (directory gone)",
+    "grep -rn 'com.foxtrader.app.data.market' app/src/ should return nothing"
+  ],
+  "blocked_reason": null,
+  "findings": "Deleted 35 files (19 production + 16 test), 3193 lines removed. Confirmed zero references to com.foxtrader.app.data.market anywhere in the project. Clean deletion with no broken imports."
+}

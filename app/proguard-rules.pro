@@ -24,3 +24,37 @@
 # Coroutines
 -keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
 -keepnames class kotlinx.coroutines.CoroutineExceptionHandler {}
+
+# ---------------------------------------------------------------------------
+# Defensive rules for the release (R8) build. Most libraries ship consumer
+# rules, but these guard the reflection-driven paths that commonly break under
+# full-mode R8 for this stack.
+# ---------------------------------------------------------------------------
+
+# Kotlinx Serialization: keep the synthetic companion serializer accessors and
+# every @Serializable type's generated serializer, on both the type and its
+# companion, so runtime serializer lookup never fails after shrinking.
+-if @kotlinx.serialization.Serializable class **
+-keepclassmembers class <1> {
+    static <1>$Companion Companion;
+}
+-if @kotlinx.serialization.Serializable class ** {
+    static **$* *;
+}
+-keepclassmembers class <2>$<3> {
+    kotlinx.serialization.KSerializer serializer(...);
+}
+
+# Enums are frequently used inside serialized models and via valueOf/values().
+-keepclassmembers enum * {
+    public static **[] values();
+    public static ** valueOf(java.lang.String);
+}
+
+# Retrofit service interfaces (methods carry HTTP annotations; keep signatures).
+-keep,allowobfuscation interface retrofit2.** { *; }
+-keepattributes RuntimeVisibleAnnotations, RuntimeVisibleParameterAnnotations
+
+# Room generated implementations.
+-keep class * extends androidx.room.RoomDatabase { <init>(); }
+-dontwarn androidx.room.paging.**

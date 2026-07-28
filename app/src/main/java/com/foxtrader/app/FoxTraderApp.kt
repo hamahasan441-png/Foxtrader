@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import com.foxtrader.app.data.alerts.ScanAlertScheduler
+import com.foxtrader.app.data.crash.CrashReporter
 import com.foxtrader.app.domain.usecase.ai.AiDecisionConfigSynchronizer
 import com.foxtrader.app.domain.usecase.preferences.RiskAlertConfigSynchronizer
 import dagger.hilt.android.HiltAndroidApp
@@ -32,6 +33,9 @@ class FoxTraderApp : Application(), Configuration.Provider {
     @Inject
     lateinit var riskAlertConfigSynchronizer: RiskAlertConfigSynchronizer
 
+    @Inject
+    lateinit var crashReporter: CrashReporter
+
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
             .setWorkerFactory(workerFactory)
@@ -39,6 +43,9 @@ class FoxTraderApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        // Install the crash handler first so early-startup failures are captured
+        // (only when the user has opted in; the handler re-checks the flag).
+        crashReporter.install()
         aiDecisionConfigSynchronizer.start()
         riskAlertConfigSynchronizer.start()
         scanAlertScheduler.start()

@@ -28,8 +28,14 @@ android {
         applicationId = "com.foxtrader.app"
         minSdk = 29          // Android 10+
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        // Version is driven by CI (env or -P property) for reproducible release
+        // numbering, with safe local-dev fallbacks so a plain build still works.
+        versionCode = (System.getenv("FOXTRADER_VERSION_CODE")
+            ?: (project.findProperty("FOXTRADER_VERSION_CODE") as? String))
+            ?.toIntOrNull() ?: 1
+        versionName = System.getenv("FOXTRADER_VERSION_NAME")
+            ?: (project.findProperty("FOXTRADER_VERSION_NAME") as? String)
+            ?: "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -47,6 +53,25 @@ android {
         buildConfigField("String", "FOXTRADER_BASE_URL", "\"$backendUrl\"")
     }
 
+    // Release signing is driven entirely by environment/secrets so no key
+    // material ever lives in the repo. When the keystore env vars are absent
+    // (local dev, or CI without secrets) the release build falls back to the
+    // debug signing config so the build still succeeds and produces a testable —
+    // if not store-uploadable — artifact.
+    val releaseKeystorePath: String? = System.getenv("FOXTRADER_KEYSTORE_PATH")
+    val releaseSigningReady: Boolean = releaseKeystorePath?.let { file(it).exists() } ?: false
+
+    signingConfigs {
+        create("release") {
+            if (releaseSigningReady) {
+                storeFile = file(releaseKeystorePath!!)
+                storePassword = System.getenv("FOXTRADER_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("FOXTRADER_KEY_ALIAS")
+                keyPassword = System.getenv("FOXTRADER_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         debug {
             isMinifyEnabled = false
@@ -60,6 +85,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = if (releaseSigningReady) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
         create("benchmark") {
             initWith(getByName("release"))

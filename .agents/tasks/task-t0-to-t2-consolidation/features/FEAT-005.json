@@ -1,0 +1,33 @@
+{
+  "id": "FEAT-005",
+  "type": "refactor",
+  "description": "Phase 3: Remove dead engines, descope LLM provider, add executable invariants on risk/decision hot paths",
+  "status": "completed",
+  "steps": [
+    "T3.1: Delete SmartAlertEngine.kt, NewsEngine.kt, SeasonalityEngine.kt, MultiTimeframeAnalysisUseCase.kt, SignalPipeline.kt, and SignalPipelineTest.kt",
+    "T3.2: Keep NewsAgent unchanged; update ENTERPRISE_MASTER_PLAN.md sprint log",
+    "T3.3: Update AiProviderClient.kt KDoc to state it is a future extension point for optional narration, currently backed by NoOp",
+    "T3.4: Log in sprint log that BacktestEngine cost modeling was verified as already complete",
+    "T3.5: Add require/check guards to RiskEngine.calculatePositionSize, MasterDecisionEngine.evaluate, AgentOrchestrator.aggregate, and PositionSizeResult init block"
+  ],
+  "acceptance_criteria": [
+    "Dead engine files are deleted (6 files)",
+    "No other source file imports from the deleted packages",
+    "AiProviderClient KDoc states it is a future extension point for optional narration",
+    "RiskEngine.calculatePositionSize has require guards for entryPrice and stopLossPrice",
+    "MasterDecisionEngine.evaluate has a check on confidence in [0,1]",
+    "AgentOrchestrator.aggregate has a check on aggregateConfidence in [0,1]",
+    "PositionSizeResult has an init block with require guards",
+    "Sprint log updated with T3 decisions",
+    "No TODO comments in modified files",
+    "Zero conflict markers"
+  ],
+  "verification": [
+    "Deleted files no longer exist",
+    "grep for imports of deleted packages returns nothing",
+    "grep -rn 'TODO|FIXME' on modified files returns nothing",
+    "No <<<< conflict markers anywhere"
+  ],
+  "blocked_reason": null,
+  "findings": "All 6 dead engine files deleted (841 LOC removed). Empty news/ and signal/ directories removed. Executable invariants added to 4 locations: RiskEngine, MasterDecisionEngine, AgentOrchestrator, PositionSizeResult. AiProviderClient KDoc updated. Sprint log updated in ENTERPRISE_MASTER_PLAN.md. No TODOs remain in main source. Brace balance verified on all modified files. The SettingsScreen 'Coming soon' text was already accurate (refers to data providers, not AI), so no change needed there. Confidence scale in codebase is 0-100 (not 0-1), guards adapted accordingly. Committed as fff3e95."
+}

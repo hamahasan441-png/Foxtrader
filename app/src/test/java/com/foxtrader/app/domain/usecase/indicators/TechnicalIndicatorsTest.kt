@@ -168,6 +168,20 @@ class TechnicalIndicatorsTest {
         assertEquals(50.0, rsi[0], tolerance)
     }
 
+    @Test
+    fun `RSI first value is computed at index period, not left at the 50 default`() {
+        // Regression: rsi[period] used to be skipped (loop started at period + 1),
+        // leaving it at the 50.0 warmup default. In a strong uptrend the seed RSI
+        // must be high, not neutral.
+        val rsi = TechnicalIndicators.calculateRSI(trendingUp, 14)
+        assertTrue(
+            "RSI at the seed bar (index 14) should be computed and bullish, was ${rsi[14]}",
+            rsi[14] > 60.0,
+        )
+        // Warmup bars before the seed remain at the neutral default.
+        assertEquals(50.0, rsi[13], tolerance)
+    }
+
     // ========================================================================
     // MACD TESTS
     // ========================================================================

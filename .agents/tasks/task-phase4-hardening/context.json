@@ -1,0 +1,12 @@
+{
+  "project_type": "Native Android trading app - Kotlin, Jetpack Compose, Hilt DI, Room DB, MVVM + Clean Architecture",
+  "language": "Kotlin",
+  "build_system": "Gradle KTS with version catalog, KSP for Room/Hilt, compileSdk 34, minSdk 29. Cannot run builds (no Android SDK in sandbox).",
+  "test_framework": "JUnit 4 with plain assertions (no Mockito), pure domain tests",
+  "build_command": "Cannot run - no Android SDK available in this sandbox",
+  "test_command": "Cannot run - no Android SDK available in this sandbox",
+  "verification_instructions": "Since we cannot run the build, verify: 1) imports are correct and reference existing classes, 2) brace balance is correct, 3) Kotlin/XML syntax is valid, 4) no TODO/FIXME comments remain in modified files, 5) no conflict markers",
+  "setup_instructions": "Cannot set up build environment - no Android SDK available",
+  "environment_constraints": "INTEGRATIONS_ONLY network - no external dependencies, no Android SDK, no Gradle build possible. All verification must be AST/syntax-level only.",
+  "contribution_requirements": "Conventional Commits, no TODO comments, no placeholder code"
+}
