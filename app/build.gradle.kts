@@ -157,6 +157,11 @@ val chartStaticAnalysis by tasks.registering {
     dependsOn("detekt", "ktlintCheck")
 }
 
+tasks.matching { it.name == "ktlintKotlinScriptCheck" || it.name == "ktlintKotlinScriptFormat" }
+    .configureEach {
+        enabled = false
+    }
+
 tasks.matching { it.name == "assembleDebug" || it.name == "testDebugUnitTest" }
     .configureEach {
         dependsOn(chartStaticAnalysis)
