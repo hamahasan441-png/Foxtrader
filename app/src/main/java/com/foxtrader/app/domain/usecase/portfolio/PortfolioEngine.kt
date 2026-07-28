@@ -2,6 +2,7 @@ package com.foxtrader.app.domain.usecase.portfolio
 
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.sdk.broker.Position
+import com.foxtrader.app.domain.usecase.calculator.InstrumentTypeResolver
 import com.foxtrader.app.domain.usecase.correlation.CorrelationMatrix
 import javax.inject.Inject
 import kotlin.math.abs
@@ -12,8 +13,16 @@ import kotlin.math.abs
  * This is pure domain logic and deliberately broker-agnostic. Broker adapters
  * provide [Position] snapshots; this engine translates them into exposure
  * percentages that the Risk Engine can gate before a new order is created.
+ *
+ * Contract size is resolved **per instrument** from the symbol, not applied as a
+ * single blanket forex lot across the whole book. A mixed portfolio (say 2 BTC
+ * and 1 FX lot) has wildly different notional per unit; using one contract size
+ * for both would over- or under-state exposure by orders of magnitude and feed
+ * the risk gate a fictional number.
  */
-class PortfolioEngine @Inject constructor() {
+class PortfolioEngine @Inject constructor(
+    private val instrumentTypeResolver: InstrumentTypeResolver = InstrumentTypeResolver(),
+) {
 
     fun analyze(
         positions: List<Position>,
@@ -21,13 +30,11 @@ class PortfolioEngine @Inject constructor() {
         correlationMatrix: CorrelationMatrix.MatrixResult? = null,
         proposedPosition: ProposedPosition? = null,
         correlationThreshold: Double = DEFAULT_CORRELATION_THRESHOLD,
-        contractSize: Int = DEFAULT_CONTRACT_SIZE,
     ): PortfolioRiskSnapshot {
         require(accountEquity > 0.0) { "Account equity must be positive." }
-        require(contractSize > 0) { "Contract size must be positive." }
 
         val exposures = positions.map { position ->
-            val notional = notional(position.volume, position.currentPrice, contractSize)
+            val notional = notional(position.symbol, position.volume, position.currentPrice)
             PositionExposure(
                 symbol = position.symbol,
                 direction = position.direction,
@@ -38,12 +45,13 @@ class PortfolioEngine @Inject constructor() {
             )
         }
         val proposedExposure = proposedPosition?.let { proposed ->
+            val proposedNotional = notional(proposed.symbol, proposed.volume, proposed.entryPrice)
             PositionExposure(
                 symbol = proposed.symbol,
                 direction = proposed.direction,
                 volume = proposed.volume,
-                notional = notional(proposed.volume, proposed.entryPrice, contractSize),
-                exposurePercent = percent(notional(proposed.volume, proposed.entryPrice, contractSize), accountEquity),
+                notional = proposedNotional,
+                exposurePercent = percent(proposedNotional, accountEquity),
                 unrealizedPnl = 0.0,
                 proposed = true,
             )
@@ -143,13 +151,12 @@ class PortfolioEngine @Inject constructor() {
         return warnings
     }
 
-    private fun notional(volume: Double, price: Double, contractSize: Int): Double =
-        abs(volume) * price * contractSize
+    private fun notional(symbol: String, volume: Double, price: Double): Double =
+        abs(volume) * price * instrumentTypeResolver.resolve(symbol).contractSize
 
     private fun percent(value: Double, equity: Double): Double = (value / equity) * 100.0
 
     private companion object {
-        const val DEFAULT_CONTRACT_SIZE = 100_000
         const val DEFAULT_CORRELATION_THRESHOLD = 0.7
         const val HIGH_TOTAL_EXPOSURE_PERCENT = 500.0
         const val HIGH_SINGLE_SYMBOL_EXPOSURE_PERCENT = 150.0

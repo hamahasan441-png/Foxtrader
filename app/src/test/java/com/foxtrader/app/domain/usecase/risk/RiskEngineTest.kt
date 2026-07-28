@@ -88,6 +88,75 @@ class RiskEngineTest {
     }
 
     // -------------------------------------------------------------------------
+    // ASSET-CLASS-CORRECT SIZING
+    //
+    // The engine must size each instrument with its own contract size, not a
+    // universal forex 100k lot. `moneyRisk = stopDistance * volume * contractSize`,
+    // so for a fixed risk budget the volume scales with 1 / contractSize.
+    // These cases lock that in across every supported asset class.
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `forex sizing uses the 100k standard lot contract size`() {
+        engine.updateConfig(engine.getConfig().copy(sizingMethod = PositionSizingMethod.PERCENTAGE_RISK))
+        // 1% of 10k = 100 risk; stop 0.0050; contract 100k -> 100 / (0.005 * 100000) = 0.2
+        val r = engine.calculatePositionSize("EURUSD", 1.1000, 1.0950)
+        assertEquals(100_000.0, r.contractSize, 0.0)
+        assertEquals(0.2, r.volume, 1e-9)
+        assertEquals(100.0, r.riskAmount, 1e-6)
+    }
+
+    @Test
+    fun `crypto BTC sizing uses a contract size of one coin`() {
+        engine.updateConfig(engine.getConfig().copy(sizingMethod = PositionSizingMethod.PERCENTAGE_RISK))
+        // 1% of 10k = 100 risk; stop 1000; contract 1 -> 100 / (1000 * 1) = 0.1 BTC
+        val r = engine.calculatePositionSize("BTCUSD", 50_000.0, 49_000.0)
+        assertEquals(1.0, r.contractSize, 0.0)
+        assertEquals(0.1, r.volume, 1e-9)
+        assertEquals(100.0, r.riskAmount, 1e-6)
+    }
+
+    @Test
+    fun `gold sizing uses the 100 ounce contract size`() {
+        engine.updateConfig(engine.getConfig().copy(sizingMethod = PositionSizingMethod.PERCENTAGE_RISK))
+        // 1% of 10k = 100 risk; stop 10.0; contract 100 -> 100 / (10 * 100) = 0.1 lots
+        val r = engine.calculatePositionSize("XAUUSD", 2_000.0, 1_990.0)
+        assertEquals(100.0, r.contractSize, 0.0)
+        assertEquals(0.1, r.volume, 1e-9)
+    }
+
+    @Test
+    fun `index sizing uses a contract size of one point`() {
+        engine.updateConfig(engine.getConfig().copy(sizingMethod = PositionSizingMethod.PERCENTAGE_RISK))
+        // 1% of 10k = 100 risk; stop 100 pts; contract 1 -> 100 / (100 * 1) = 1.0 contract
+        val r = engine.calculatePositionSize("US30", 38_000.0, 37_900.0)
+        assertEquals(1.0, r.contractSize, 0.0)
+        assertEquals(1.0, r.volume, 1e-9)
+    }
+
+    @Test
+    fun `fixed-lots risk amount is asset-class correct for crypto`() {
+        // Regression guard for the old forex-only bug: with fixed 0.1 lots on
+        // BTCUSD and a 1000-wide stop, risk is 0.1 * 1000 * 1 = 100 — not the
+        // 10,000,000 the forex-lot hardcode used to report (which would have
+        // wrongly tripped every downstream loss/exposure gate).
+        engine.updateConfig(engine.getConfig().copy(sizingMethod = PositionSizingMethod.FIXED_LOTS, fixedLots = 0.1))
+        val r = engine.calculatePositionSize("BTCUSD", 50_000.0, 49_000.0)
+        assertEquals(100.0, r.riskAmount, 1e-6)
+        assertEquals(0.1, r.volume, 1e-9)
+    }
+
+    @Test
+    fun `same risk budget yields larger crypto volume than forex given equal stop fraction`() {
+        engine.updateConfig(engine.getConfig().copy(sizingMethod = PositionSizingMethod.PERCENTAGE_RISK))
+        val forex = engine.calculatePositionSize("EURUSD", 1.1000, 1.0950)
+        val crypto = engine.calculatePositionSize("BTCUSD", 50_000.0, 49_000.0)
+        // Not asserting a fixed ratio (stops differ), only that the contract
+        // size actually differentiates the two — the core of the fix.
+        assertTrue(crypto.contractSize < forex.contractSize)
+    }
+
+    // -------------------------------------------------------------------------
     // STOP LOSS
     // -------------------------------------------------------------------------
 

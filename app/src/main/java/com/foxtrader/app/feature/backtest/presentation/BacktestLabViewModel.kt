@@ -13,6 +13,7 @@ import com.foxtrader.app.domain.usecase.backtest.AiScoredBacktestEngine
 import com.foxtrader.app.domain.usecase.backtest.BacktestAnalyticsEngine
 import com.foxtrader.app.domain.usecase.backtest.BacktestEngine
 import com.foxtrader.app.domain.usecase.backtest.StrategyFunction
+import com.foxtrader.app.domain.usecase.calculator.InstrumentTypeResolver
 import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
@@ -36,6 +37,7 @@ class BacktestLabViewModel @Inject constructor(
     private val backtestEngine: BacktestEngine,
     private val aiScoredBacktestEngine: AiScoredBacktestEngine,
     private val analyticsEngine: BacktestAnalyticsEngine,
+    private val instrumentTypeResolver: InstrumentTypeResolver,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
 
@@ -82,6 +84,9 @@ class BacktestLabViewModel @Inject constructor(
                 val config = BacktestConfig(
                     initialBalance = state.initialBalance,
                     riskPercent = state.riskPercent,
+                    // Resolve the contract size for the instrument being tested so
+                    // crypto/gold/index P&L is not computed as a forex lot.
+                    contractSize = instrumentTypeResolver.resolve(state.symbol).contractSize.toInt(),
                 )
                 val strategy = buildStrategy(state.strategy)
 

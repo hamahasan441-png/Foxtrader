@@ -39,6 +39,14 @@ data class RiskConfig(
 
 /**
  * Result of a position-size calculation.
+ *
+ * [contractSize] is the number of underlying units represented by one unit of
+ * [volume] for this instrument (e.g. 100 000 for an FX standard lot, 1 for a
+ * crypto coin, 100 for gold). It is the conversion factor between a price move
+ * and money: `moneyRisk = stopDistance * volume * contractSize`. Carrying it on
+ * the result lets any downstream consumer (order services, UI) reason about the
+ * trade with the *same* contract assumptions the sizing used, instead of
+ * re-hardcoding a forex lot.
  */
 data class PositionSizeResult(
     val volume: Double,
@@ -47,6 +55,7 @@ data class PositionSizeResult(
     val stopDistance: Double,
     val method: PositionSizingMethod,
     val warnings: List<String>,
+    val contractSize: Double = 100_000.0,
 )
 
 /**

@@ -94,15 +94,22 @@ class PortfolioEngineTest {
             period = 100,
         )
 
+        // Crypto is sized at 1 coin per unit (contract size 1), so exposure is
+        // volume * price. A heavily-leveraged book: 8 BTC @ 50k = 400% of a 100k
+        // account, 120 ETH @ 2.5k = 300% -> 700% total, 400% single-symbol, and
+        // a fully-correlated (0.9) 700% cluster. Each trips its warning.
         val snapshot = engine.analyze(
             positions = listOf(
-                position("BTCUSDT", Direction.BULLISH, volume = 0.1, price = 50_000.0, pnl = 0.0),
-                position("ETHUSDT", Direction.BULLISH, volume = 0.2, price = 2_500.0, pnl = 0.0),
+                position("BTCUSDT", Direction.BULLISH, volume = 8.0, price = 50_000.0, pnl = 0.0),
+                position("ETHUSDT", Direction.BULLISH, volume = 120.0, price = 2_500.0, pnl = 0.0),
             ),
             accountEquity = 100_000.0,
             correlationMatrix = matrix,
         )
 
+        // 8 * 50_000 / 100_000 = 400%, 120 * 2_500 / 100_000 = 300%.
+        assertEquals(700.0, snapshot.totalExposurePercent, 0.001)
+        assertEquals(400.0, snapshot.largestSymbolExposurePercent, 0.001)
         assertTrue(snapshot.warnings.any { it.contains("total exposure", ignoreCase = true) })
         assertTrue(snapshot.warnings.any { it.contains("Concentrated", ignoreCase = true) })
         assertTrue(snapshot.warnings.any { it.contains("correlated", ignoreCase = true) })

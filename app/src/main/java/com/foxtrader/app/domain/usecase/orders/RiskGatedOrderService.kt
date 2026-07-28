@@ -106,17 +106,16 @@ class RiskGatedOrderService @Inject constructor(
         stopLoss: Double,
     ): PositionSizeResult {
         val override = volumeOverride?.takeIf { it > 0.0 } ?: return this
-        val risk = abs(entryPrice - stopLoss) * override * CONTRACT_SIZE
+        // Reuse the contract size the sizing already resolved for this
+        // instrument, so an overridden crypto/index/metal volume is priced with
+        // the same asset-class-correct conversion — not a forex lot.
+        val risk = abs(entryPrice - stopLoss) * override * contractSize
         return copy(
             volume = override,
             riskAmount = risk,
             riskPercent = if (riskAmount > 0.0 && risk > 0.0) riskPercent * (risk / riskAmount) else riskPercent,
             warnings = warnings + "Manual volume override applied",
         )
-    }
-
-    private companion object {
-        const val CONTRACT_SIZE = 100_000
     }
 }
 

@@ -9,6 +9,7 @@ import com.foxtrader.app.domain.model.RiskConfig
 import com.foxtrader.app.domain.model.RiskStatus
 import com.foxtrader.app.domain.model.StopMethod
 import com.foxtrader.app.domain.model.TradeOutcome
+import com.foxtrader.app.domain.usecase.calculator.InstrumentTypeResolver
 import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
@@ -34,7 +35,14 @@ import kotlin.math.sqrt
  * [tradeHistory] uses [CopyOnWriteArrayList] for safe concurrent iteration.
  */
 @Singleton
-class RiskEngine @Inject constructor() {
+class RiskEngine @Inject constructor(
+    /**
+     * Resolves a symbol to its instrument contract size so sizing is correct
+     * across asset classes. Defaulted so unit tests can construct the engine
+     * without a DI graph; Hilt injects the singleton in production.
+     */
+    private val instrumentTypeResolver: InstrumentTypeResolver = InstrumentTypeResolver(),
+) {
 
     private val lock = Any()
     private var config: RiskConfig = RiskConfig()
@@ -60,50 +68,58 @@ class RiskEngine @Inject constructor() {
         val stopDistance = abs(entryPrice - stopLossPrice)
         if (stopDistance == 0.0) warnings += "Stop distance is zero — using minimum"
 
+        // Contract size is the units-per-1.0-volume for this instrument. It is
+        // the conversion between a price move and money, and it varies by asset
+        // class: an FX standard lot is 100k units, a crypto coin is 1, gold is
+        // 100 oz. Hardcoding the FX lot here (as this engine previously did)
+        // mis-sizes every non-forex trade by orders of magnitude, corrupting the
+        // very risk gates that are meant to keep the account solvent.
+        val contractSize = instrumentTypeResolver.resolve(symbol).contractSize
+
         var volume: Double
         var riskAmount: Double
 
         when (config.sizingMethod) {
             PositionSizingMethod.FIXED_LOTS -> {
                 volume = config.fixedLots
-                riskAmount = stopDistance * volume * 100_000
+                riskAmount = stopDistance * volume * contractSize
             }
             PositionSizingMethod.FIXED_RISK -> {
                 riskAmount = config.fixedRiskAmount
-                volume = if (stopDistance > 0) riskAmount / (stopDistance * 100_000) else 0.0
+                volume = if (stopDistance > 0) riskAmount / (stopDistance * contractSize) else 0.0
             }
             PositionSizingMethod.PERCENTAGE_RISK -> {
                 riskAmount = currentBalance * (config.riskPercentPerTrade / 100.0)
-                volume = if (stopDistance > 0) riskAmount / (stopDistance * 100_000) else 0.0
+                volume = if (stopDistance > 0) riskAmount / (stopDistance * contractSize) else 0.0
             }
             PositionSizingMethod.KELLY -> {
                 val kellyPercent = calculateKellyPercent()
                 riskAmount = currentBalance * kellyPercent * config.kellyFraction
-                volume = if (stopDistance > 0) riskAmount / (stopDistance * 100_000) else 0.0
+                volume = if (stopDistance > 0) riskAmount / (stopDistance * contractSize) else 0.0
                 if (kellyPercent <= 0) warnings += "Kelly suggests no position (negative edge)"
             }
             PositionSizingMethod.ATR_BASED -> {
                 if (candles == null || candles.size < 15) {
                     warnings += "Insufficient data for ATR — falling back to percentage risk"
                     riskAmount = currentBalance * (config.riskPercentPerTrade / 100.0)
-                    volume = if (stopDistance > 0) riskAmount / (stopDistance * 100_000) else 0.0
+                    volume = if (stopDistance > 0) riskAmount / (stopDistance * contractSize) else 0.0
                 } else {
                     val atr = TechnicalIndicators.calculateATR(candles, 14)
                     val atrStopDist = atr.last() * config.atrStopMultiplier
                     riskAmount = currentBalance * (config.riskPercentPerTrade / 100.0)
-                    volume = if (atrStopDist > 0) riskAmount / (atrStopDist * 100_000) else 0.0
+                    volume = if (atrStopDist > 0) riskAmount / (atrStopDist * contractSize) else 0.0
                 }
             }
             PositionSizingMethod.VOLATILITY -> {
                 if (candles == null || candles.size < 20) {
                     warnings += "Insufficient data for volatility sizing"
                     riskAmount = currentBalance * (config.riskPercentPerTrade / 100.0)
-                    volume = if (stopDistance > 0) riskAmount / (stopDistance * 100_000) else 0.0
+                    volume = if (stopDistance > 0) riskAmount / (stopDistance * contractSize) else 0.0
                 } else {
                     val vol = TechnicalIndicators.calculateVolatility(candles)
                     val volStopDist = vol * config.volatilityStopMultiplier
                     riskAmount = currentBalance * (config.riskPercentPerTrade / 100.0)
-                    volume = if (volStopDist > 0) riskAmount / (volStopDist * 100_000) else 0.0
+                    volume = if (volStopDist > 0) riskAmount / (volStopDist * contractSize) else 0.0
                 }
             }
         }
@@ -118,6 +134,7 @@ class RiskEngine @Inject constructor() {
             stopDistance = stopDistance,
             method = config.sizingMethod,
             warnings = warnings,
+            contractSize = contractSize,
         )
     }
 
