@@ -16,6 +16,7 @@ import com.foxtrader.app.domain.usecase.ai.MtfContextProvider
 import com.foxtrader.app.domain.usecase.mtf.ConfluenceEngine
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -43,6 +44,9 @@ internal class ChartAiCoordinator(
      * data has not changed (e.g. rapid indicator-toggle recomputations).
      */
     var lastAiCandlesHash: Long = 0L
+
+    /** Handle to the currently running AI coroutine, cancelled on each new invocation. */
+    private var inFlightJob: Job? = null
 
     /**
      * Result callback invoked on the main thread after AI completes.
@@ -83,7 +87,8 @@ internal class ChartAiCoordinator(
         if (hash == lastAiCandlesHash) return
         lastAiCandlesHash = hash
 
-        scope.launch {
+        inFlightJob?.cancel()
+        inFlightJob = scope.launch {
             val mtfCandles = mtfContextProvider.getHtfContext(
                 symbol = symbol,
                 executionTimeframe = timeframe,
@@ -145,7 +150,14 @@ internal class ChartAiCoordinator(
     }
 
     fun resetCooldowns() {
+        cancelInFlight()
         aiAlertService.resetCooldowns()
+    }
+
+    /** Cancel any in-flight AI coroutine to avoid wasted CPU on context change. */
+    fun cancelInFlight() {
+        inFlightJob?.cancel()
+        inFlightJob = null
     }
 
     companion object {

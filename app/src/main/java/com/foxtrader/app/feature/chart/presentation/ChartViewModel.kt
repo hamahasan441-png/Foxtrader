@@ -82,7 +82,7 @@ class ChartViewModel @Inject constructor(
     )
     val uiState: StateFlow<ChartUiState> = _uiState.asStateFlow()
 
-    val multiChartState: StateFlow<MultiChartUiState> get() = multiChartController._multiChartState
+    val multiChartState: StateFlow<MultiChartUiState> get() = multiChartController.multiChartState
 
     val replayState: StateFlow<ReplayState> = replayEngine.state
     val connectionState: StateFlow<ConnectionState> = webSocket.connectionState

@@ -18,6 +18,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
@@ -36,7 +38,8 @@ internal class ChartMultiChartController(
     private val onUiSyncedCrosshairChange: (Long?) -> Unit,
 ) {
 
-    val _multiChartState = MutableStateFlow(MultiChartUiState())
+    private val _multiChartState = MutableStateFlow(MultiChartUiState())
+    val multiChartState: StateFlow<MultiChartUiState> = _multiChartState.asStateFlow()
 
     private val multiChartPanelJobs = linkedMapOf<String, Job>()
     private val multiChartPanels = linkedMapOf<String, MultiChartPanelUiState>()

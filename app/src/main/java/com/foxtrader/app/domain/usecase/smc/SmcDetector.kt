@@ -306,6 +306,11 @@ class SmcDetector @Inject constructor() {
      * grouping. Each price is assigned to a bucket of size [tolerance], and adjacent
      * buckets are merged to handle prices that straddle bucket boundaries.
      *
+     * Bucket-boundary constraint: prices in non-adjacent buckets (more than 1 apart)
+     * cannot cluster even if they are numerically within [tolerance] of each other.
+     * This is a deliberate trade-off for O(n) performance over the former O(n*k) scan,
+     * and does not affect production data (confirmed by equivalence tests).
+     *
      * Complexity: O(n) for grouping + O(k) for merging, where k = number of buckets.
      */
     private fun findPriceClusters(
