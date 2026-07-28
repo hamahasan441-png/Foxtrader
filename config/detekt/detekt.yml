@@ -1,0 +1,62 @@
+build:
+  maxIssues: 0
+
+config:
+  validation: true
+
+comments:
+  active: false
+
+complexity:
+  active: true
+  LongMethod:
+    active: false
+  LongParameterList:
+    active: false
+  LargeClass:
+    active: false
+  TooManyFunctions:
+    active: false
+  CyclomaticComplexMethod:
+    active: false
+  ComplexCondition:
+    active: false
+
+exceptions:
+  active: true
+  SwallowedException:
+    active: false
+  TooGenericExceptionCaught:
+    active: false
+  TooGenericExceptionThrown:
+    active: false
+
+naming:
+  active: true
+  FunctionNaming:
+    active: true
+    ignoreAnnotated:
+      - 'Composable'
+  TopLevelPropertyNaming:
+    active: false
+
+performance:
+  active: true
+
+potential-bugs:
+  active: true
+
+style:
+  active: true
+  MagicNumber:
+    active: false
+  MaxLineLength:
+    active: false
+  WildcardImport:
+    active: false
+  ReturnCount:
+    active: false
+  ThrowsCount:
+    active: false
+  NestedClassesVisibility:
+    active: false

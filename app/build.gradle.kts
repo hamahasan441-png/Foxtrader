@@ -4,6 +4,8 @@
 // Target: Android 10+ (API 29), compile/target 34
 // ============================================================================
 
+import org.jlleitschuh.gradle.ktlint.reporter.ReporterType
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -11,6 +13,8 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
+    alias(libs.plugins.detekt)
+    alias(libs.plugins.ktlint)
 }
 
 android {
@@ -93,6 +97,15 @@ android {
             assets.srcDirs("$projectDir/schemas")
         }
     }
+
+    lint {
+        abortOnError = true
+        checkReleaseBuilds = true
+        sarifReport = true
+        htmlReport = true
+        xmlReport = true
+        warningsAsErrors = false
+    }
 }
 
 composeCompiler {
@@ -100,6 +113,54 @@ composeCompiler {
     metricsDestination = layout.buildDirectory.dir("reports/compose")
     stabilityConfigurationFile = rootProject.layout.projectDirectory.file("compose-stability.conf")
 }
+
+detekt {
+    buildUponDefaultConfig = true
+    allRules = false
+    parallel = true
+    config.setFrom(rootProject.files("config/detekt/detekt.yml"))
+    source.setFrom(
+        files(
+            "src/main/java/com/foxtrader/app/feature/chart",
+            "src/main/java/com/foxtrader/app/domain/usecase/chart",
+            "src/main/java/com/foxtrader/app/domain/usecase/indicators",
+            "src/main/java/com/foxtrader/app/domain/usecase/preferences",
+            "src/test/java/com/foxtrader/app/feature/chart",
+            "src/test/java/com/foxtrader/app/domain/usecase/chart",
+            "src/test/java/com/foxtrader/app/domain/usecase/indicators",
+            "src/test/java/com/foxtrader/app/domain/usecase/preferences",
+        )
+    )
+}
+
+ktlint {
+    android.set(true)
+    ignoreFailures.set(false)
+    reporters {
+        reporter(ReporterType.PLAIN)
+        reporter(ReporterType.CHECKSTYLE)
+        reporter(ReporterType.SARIF)
+    }
+    filter {
+        include("**/feature/chart/**/*.kt")
+        include("**/domain/usecase/chart/**/*.kt")
+        include("**/domain/usecase/indicators/**/*.kt")
+        include("**/domain/usecase/preferences/**/*.kt")
+        exclude("**/generated/**")
+        exclude("**/build/**")
+    }
+}
+
+val chartStaticAnalysis by tasks.registering {
+    group = "verification"
+    description = "Runs chart-focused detekt and ktlint checks used by the current sprint hygiene rollout."
+    dependsOn("detekt", "ktlintCheck")
+}
+
+tasks.matching { it.name == "assembleDebug" || it.name == "testDebugUnitTest" }
+    .configureEach {
+        dependsOn(chartStaticAnalysis)
+    }
 
 dependencies {
     // Core

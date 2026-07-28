@@ -4418,3 +4418,84 @@ The remaining Sprint 10 work is still:
 - detekt / ktlint / lint gate foundation,
 - jacoco coverage gate,
 - broader app-wide string externalization.
+
+---
+
+# Appendix AB: Sprint 10 continuation — chart-focused static analysis foundation
+
+This pass starts the other half of Sprint 10 by introducing a **real static
+analysis foundation** for the chart stack while keeping scope narrow enough to
+land safely under the existing green-build requirement.
+
+## What landed
+
+### Detekt foundation
+
+The app module now applies `detekt` and points it at the code that changed most
+heavily in Sprints 8-9:
+
+- `feature/chart/**`
+- `domain/usecase/chart/**`
+- `domain/usecase/indicators/**`
+- `domain/usecase/preferences/**`
+- matching unit-test packages
+
+A repo config file now lives at:
+
+- `config/detekt/detekt.yml`
+
+The config intentionally starts with a **pragmatic baseline-by-configuration**:
+complexity thresholds that would immediately fail on known-large chart files are
+turned off for now, while bug- and naming-oriented checks remain available.
+
+That is consistent with the masterplan intent: establish the gate first, then
+ratchet stricter rules as the large files are split and cleaned further.
+
+### Ktlint foundation
+
+The app module now also applies `ktlint`, again scoped to the chart-centric
+packages above.
+
+A root `.editorconfig` now defines the initial repository formatting contract.
+Because the chart stack already contains some intentionally dense Compose and
+render-path code, a few low-signal wrapping/import-order rules are disabled for
+this first rollout so the gate focuses on useful hygiene rather than mass churn.
+
+## CI integration without workflow edits
+
+The current CI job still runs `assembleDebug` and `testDebugUnitTest` rather
+than a dedicated `check` workflow job.
+
+To make the new checks matter **without** touching GitHub workflow files, the
+app build now registers a `chartStaticAnalysis` verification task and wires it
+into both:
+
+- `assembleDebug`
+- `testDebugUnitTest`
+
+That means the existing PR build becomes the enforcement point for the new chart
+analysis gate automatically.
+
+## Android lint groundwork
+
+`app/build.gradle.kts` now also enables a stricter Android lint posture:
+
+- `abortOnError = true`
+- SARIF / HTML / XML report generation enabled
+
+`NOTE` Lint is groundwork here, not the fully ratcheted final gate yet. The
+highest-confidence enforcement added in this pass is detekt + ktlint on the
+chart stack, while broader app-wide lint hardening can continue incrementally.
+
+## Why this is the right slice
+
+Trying to flip repo-wide static analysis to maximum strictness in one pass would
+be risky, especially without local Java in the sandbox.
+
+By focusing first on the chart stack — the area with the biggest recent volume
+of performance and state-management work — the repo gets:
+
+- real automated hygiene checks on the highest-change surface,
+- CI-enforced protection against fresh chart-style regressions,
+- a config foundation that can be expanded outward across the app in later
+  Sprint 10 follow-ups.

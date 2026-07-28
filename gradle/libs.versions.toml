@@ -69,6 +69,8 @@ benchmarkMacro = "1.3.3"
 uiautomator = "2.3.0"
 profileInstaller = "1.4.1"
 leakcanary = "2.14"
+detekt = "1.23.7"
+ktlintGradle = "12.2.0"
 
 [libraries]
 # Core
@@ -152,3 +154,5 @@ kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "ko
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
+detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }
+ktlint = { id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlintGradle" }
