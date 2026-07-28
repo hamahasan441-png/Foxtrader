@@ -273,9 +273,15 @@ class SmcDetectorTest {
             }
             candles.add(candle(100.0, high, 99.0, 101.0, timestamp = i * 60000L))
         }
-        // With tolerance = 0.3, avgRange ~= some small value. Highs 110, 120, 130 are far apart.
+        // With tolerance = 0.3, avgRange is small. Highs 110, 120, 130 are far apart
+        // and each sits alone (below minTouches), so none of them forms a cluster.
+        // The flat 103.0 baseline legitimately clusters — that is expected — so the
+        // assertion targets the distant highs specifically: none must merge into a pool.
         val pools = detector.detectLiquidity(candles, tolerance = 0.3, minTouches = 2)
         val buySide = pools.filter { it.type == LiquidityType.BUY_SIDE }
-        assertTrue("Distant prices should not cluster", buySide.isEmpty())
+        assertTrue(
+            "Distant highs (110/120/130) must not form a cluster",
+            buySide.none { it.price > 106.0 },
+        )
     }
 }
