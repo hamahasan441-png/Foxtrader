@@ -4,6 +4,10 @@
 // Target: Android 10+ (API 29), compile/target 34
 // ============================================================================
 
+import org.gradle.api.tasks.testing.Test
+import org.gradle.testing.jacoco.plugins.JacocoTaskExtension
+import org.gradle.testing.jacoco.tasks.JacocoCoverageVerification
+import org.gradle.testing.jacoco.tasks.JacocoReport
 import org.jlleitschuh.gradle.ktlint.reporter.ReporterType
 
 plugins {
@@ -15,6 +19,7 @@ plugins {
     alias(libs.plugins.hilt)
     alias(libs.plugins.detekt)
     alias(libs.plugins.ktlint)
+    jacoco
 }
 
 android {
@@ -114,6 +119,10 @@ composeCompiler {
     stabilityConfigurationFile = rootProject.layout.projectDirectory.file("compose-stability.conf")
 }
 
+jacoco {
+    toolVersion = "0.8.12"
+}
+
 detekt {
     buildUponDefaultConfig = true
     allRules = false
@@ -151,6 +160,94 @@ ktlint {
     }
 }
 
+val chartCoverageIncludes = listOf(
+    "com/foxtrader/app/domain/usecase/chart/ComputeIndicatorsUseCase*",
+    "com/foxtrader/app/domain/usecase/chart/MultiChartManager*",
+    "com/foxtrader/app/domain/usecase/indicators/TechnicalIndicators*",
+    "com/foxtrader/app/domain/usecase/indicators/BollingerBands*",
+    "com/foxtrader/app/domain/usecase/indicators/IchimokuCloud*",
+    "com/foxtrader/app/domain/usecase/indicators/ParabolicSar*",
+    "com/foxtrader/app/domain/usecase/indicators/SuperTrend*",
+    "com/foxtrader/app/feature/chart/presentation/ChartUiState*",
+    "com/foxtrader/app/feature/chart/presentation/ChartStableCollections*",
+    "com/foxtrader/app/feature/chart/presentation/components/ChartViewport*",
+    "com/foxtrader/app/feature/chart/presentation/components/ChartPerformanceMonitor*",
+)
+
+val chartCoverageExcludes = listOf(
+    "**/R.class",
+    "**/R$*.class",
+    "**/BuildConfig.*",
+    "**/Manifest*.*",
+)
+
+val chartCoverageSourceDirs = files(
+    "src/main/java/com/foxtrader/app/domain/usecase/chart",
+    "src/main/java/com/foxtrader/app/domain/usecase/indicators",
+    "src/main/java/com/foxtrader/app/feature/chart/presentation",
+    "src/main/java/com/foxtrader/app/feature/chart/presentation/components",
+)
+
+val chartCoverageClassDirs = files(
+    fileTree("$buildDir/tmp/kotlin-classes/debug") {
+        include(chartCoverageIncludes)
+        exclude(chartCoverageExcludes)
+    },
+    fileTree("$buildDir/intermediates/javac/debug/compileDebugJavaWithJavac/classes") {
+        include(chartCoverageIncludes)
+        exclude(chartCoverageExcludes)
+    },
+)
+
+val chartCoverageExecutionData = fileTree(buildDir) {
+    include(
+        "jacoco/testDebugUnitTest.exec",
+        "outputs/unit_test_code_coverage/debugUnitTest/testDebugUnitTest.exec",
+        "outputs/unit_test_code_coverage/debugUnitTest/testDebugUnitTest.exec.ec",
+    )
+}
+
+tasks.withType<Test>().configureEach {
+    extensions.configure(JacocoTaskExtension::class) {
+        isIncludeNoLocationClasses = true
+        excludes = listOf("jdk.internal.*")
+    }
+}
+
+val jacocoChartCoverageReport by tasks.registering(JacocoReport::class) {
+    group = "verification"
+    description = "Generates a focused Jacoco report for the chart and indicator coverage gate."
+    dependsOn("testDebugUnitTest")
+    classDirectories.setFrom(chartCoverageClassDirs)
+    sourceDirectories.setFrom(chartCoverageSourceDirs)
+    executionData.setFrom(chartCoverageExecutionData)
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+        csv.required.set(false)
+    }
+    onlyIf { chartCoverageExecutionData.files.any { it.exists() } }
+}
+
+val jacocoChartCoverageVerification by tasks.registering(JacocoCoverageVerification::class) {
+    group = "verification"
+    description = "Verifies focused chart and indicator line coverage for Sprint 10."
+    dependsOn("testDebugUnitTest")
+    classDirectories.setFrom(chartCoverageClassDirs)
+    sourceDirectories.setFrom(chartCoverageSourceDirs)
+    executionData.setFrom(chartCoverageExecutionData)
+    violationRules {
+        rule {
+            limit {
+                counter = "LINE"
+                value = "COVEREDRATIO"
+                minimum = "0.25".toBigDecimal()
+            }
+        }
+    }
+    onlyIf { chartCoverageExecutionData.files.any { it.exists() } }
+}
+
 val chartStaticAnalysis by tasks.registering {
     group = "verification"
     description = "Runs the chart-focused detekt gate used by the current sprint hygiene rollout."
@@ -178,6 +275,14 @@ tasks.matching { it.name == "assembleDebug" || it.name == "testDebugUnitTest" }
     .configureEach {
         dependsOn(chartStaticAnalysis)
     }
+
+tasks.named("testDebugUnitTest") {
+    finalizedBy(jacocoChartCoverageReport, jacocoChartCoverageVerification)
+}
+
+tasks.named("check") {
+    dependsOn(jacocoChartCoverageVerification)
+}
 
 dependencies {
     // Core

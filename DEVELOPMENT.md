@@ -4506,3 +4506,68 @@ of performance and state-management work — the repo gets:
 - a chart-format audit path ready to be ratcheted into a hard gate,
 - a config foundation that can be expanded outward across the app in later
   Sprint 10 follow-ups.
+
+---
+
+# Appendix AC: Sprint 10 continuation — focused Jacoco coverage gate
+
+This pass starts Sprint 10.2 by adding a **real unit-test coverage gate** to the
+existing Android build without requiring any GitHub workflow edits.
+
+## What landed
+
+The app module now applies the built-in `jacoco` plugin and defines a focused
+coverage slice around the chart and indicator work that changed most heavily in
+Sprints 8-9.
+
+Two tasks were added:
+
+- `jacocoChartCoverageReport`
+- `jacocoChartCoverageVerification`
+
+The verification task currently targets a deliberately scoped set of classes,
+including:
+
+- `ComputeIndicatorsUseCase`
+- `MultiChartManager`
+- chart indicator engines (`TechnicalIndicators`, `BollingerBands`,
+  `IchimokuCloud`, `ParabolicSar`, `SuperTrend`)
+- `ChartUiState`
+- `ChartStableCollections`
+- `ChartViewport`
+- `ChartPerformanceMonitor`
+
+## Why the scope is focused
+
+The masterplan calls for a coverage gate, but rolling out a whole-app threshold
+in one pass would be high-risk, especially with no local JDK in the sandbox.
+
+This focused gate is the safer, higher-signal first step:
+
+- it covers the chart/performance code that changed most,
+- it uses existing unit-test depth already present in those packages,
+- it creates a real enforcement path that can be widened later.
+
+## CI enforcement
+
+`testDebugUnitTest` now finalizes into both the coverage report and the
+verification task, so the existing PR workflow enforces the coverage slice
+without any workflow-file changes.
+
+The initial threshold is intentionally a **starter floor** rather than an
+aggressive final target. The important thing in this pass is that coverage is no
+longer only informational — it now has a gate that can be ratcheted upward as
+Sprint 10 continues.
+
+## Reporting
+
+The report task emits XML and HTML reports under the app build directory so the
+coverage slice is inspectable, not just pass/fail.
+
+Combined with the earlier static-analysis work, the repo now has the beginning
+of all four Sprint 10 guardrails in place:
+
+- string externalization groundwork,
+- chart-focused detekt gate,
+- ktlint audit groundwork,
+- chart-focused Jacoco verification.
