@@ -375,9 +375,9 @@ class StrategiesViewModel @Inject constructor(
         val liquiditySweep = smcDetector.detectLiquidity(candles)
             .filter { it.swept && it.sweepIndex != null }
             .maxByOrNull { it.sweepIndex ?: -1 }
+        val sweepIndex = liquiditySweep?.sweepIndex
         val structureBreak = analyzeStructure(candles).breaks.lastOrNull { it.confirmed }
-        if (liquiditySweep?.sweepIndex != null && structureBreak != null) {
-            val sweepIndex = liquiditySweep.sweepIndex!!
+        if (liquiditySweep != null && sweepIndex != null && structureBreak != null) {
             val dir = if (liquiditySweep.type == LiquidityType.SELL_SIDE) Direction.BULLISH else Direction.BEARISH
             val sweepRecency = lastIndex - sweepIndex
             val breakRecency = lastIndex - structureBreak.breakIndex

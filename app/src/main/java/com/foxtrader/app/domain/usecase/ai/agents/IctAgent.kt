@@ -63,21 +63,22 @@ class IctAgent @Inject constructor(
         val recentSweep = smcDetector.detectLiquidity(candles)
             .filter { it.swept && it.sweepIndex != null }
             .maxByOrNull { it.sweepIndex ?: 0 }
+        val recentSweepIndex = recentSweep?.sweepIndex
         var sweepDirection: Direction? = null
-        if (recentSweep?.sweepIndex != null && recentSweep.sweepIndex!! >= lastIndex - SWEEP_RECENCY) {
+        if (recentSweep != null && recentSweepIndex != null && recentSweepIndex >= lastIndex - SWEEP_RECENCY) {
             // Sell-side liquidity swept (lows taken) -> bullish reversal, and vice versa.
             sweepDirection =
                 if (recentSweep.type == LiquidityType.SELL_SIDE) Direction.BULLISH else Direction.BEARISH
             insights += AgentInsight(
-                id = "${name}-SWEEP-${recentSweep.sweepIndex}",
+                id = "${name}-SWEEP-$recentSweepIndex",
                 agentName = name,
                 type = "LIQUIDITY_SWEEP",
                 direction = sweepDirection,
                 confidence = 70.0,
                 price = recentSweep.price,
-                timestamp = candles.getOrNull(recentSweep.sweepIndex!!)?.timestamp
+                timestamp = candles.getOrNull(recentSweepIndex)?.timestamp
                     ?: candles.last().timestamp,
-                barIndex = recentSweep.sweepIndex,
+                barIndex = recentSweepIndex,
                 detail = "${recentSweep.type} liquidity swept @ ${recentSweep.price} " +
                     "-> $sweepDirection reversal expected",
                 weight = 1.4,
