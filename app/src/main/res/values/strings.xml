@@ -105,4 +105,17 @@
     <string name="chart_ai_confluence_htf_bias">HT</string>
     <string name="chart_ai_confluence_trend">TR</string>
     <string name="chart_ai_confluence_volume">VL</string>
+
+    <string name="alerts_title">Alerts</string>
+    <string name="alerts_mark_all_read_cd">Mark all as read</string>
+    <string name="alerts_clear_all_cd">Clear all alerts</string>
+    <string name="alerts_delete_cd">Delete alert</string>
+    <string name="alerts_empty_title">No alerts yet</string>
+    <string name="alerts_empty_subtitle">Approved AI signals and background scan hits will appear here, even if you miss the notification.</string>
+    <string name="alerts_filter_empty_title">Nothing matches this filter</string>
+    <string name="alerts_filter_empty_subtitle">%1$d alert(s) hidden. Adjust the filters above to see them.</string>
+    <string name="alerts_filter_unread">Unread</string>
+    <string name="alerts_filter_all">All</string>
+    <string name="alerts_unread_overflow">99+</string>
+    <string name="alerts_unread_count_cd">%1$d unread alerts</string>
 </resources>

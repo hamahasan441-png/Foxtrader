@@ -4571,3 +4571,221 @@ of all four Sprint 10 guardrails in place:
 - chart-focused detekt gate,
 - ktlint audit groundwork,
 - chart-focused Jacoco verification.
+
+---
+
+# Appendix AD: Sprint 10 continuation — CI matrix hardening (Sprint 10.4)
+
+This pass takes on **Sprint 10.4** from the masterplan: hardening the CI matrix
+so the hygiene guardrails built in the previous Sprint 10 passes are actually
+exercised on every branch, and so release-time breakage is caught early.
+
+## What the masterplan asked for
+
+> **10.4 CI matrix hardening:** run on `arena/**` branches too (currently only
+> `main`/`feat/**`/`fix/**`, so agent branches build nothing), add a
+> release-build job so R8/proguard breakage is caught before tagging, and cache
+> the Gradle configuration properly.
+
+## What was actually there
+
+`.github/workflows/android.yml` (before this pass):
+
+- `on.push.branches` was `[ main, "feat/**", "fix/**" ]`. Agent work lands on
+  `arena/**` branches, so **none of it was ever built or tested until merged** —
+  the exact gap the masterplan calls out.
+- The single `build` job ran `:app:assembleDebug` and `:app:testDebugUnitTest`.
+  Because of the wiring added in Appendices AB/AC, that already pulls in the
+  chart detekt gate (`chartStaticAnalysis`) and the chart Jacoco report +
+  verification — but only on the three branch patterns above.
+- **No release build existed anywhere in CI.** The release build type has
+  `isMinifyEnabled = true` and `isShrinkResources = true`, so full R8 runs only
+  when someone manually cuts a release. Any shrinking/obfuscation breakage was
+  invisible until tagging time.
+- Gradle setup used `gradle/actions/setup-gradle@v4` (which caches the Gradle
+  User Home), but invocations passed no `--build-cache`, and there was no
+  read-only discipline to stop branch builds from polluting the shared cache.
+
+## What changed
+
+All changes are confined to `.github/workflows/android.yml`:
+
+1. **`arena/**` added to the push trigger.** Branches are now
+   `[ main, "feat/**", "fix/**", "arena/**" ]`. Agent branches now run the full
+   debug build, unit tests, chart detekt gate, and chart coverage gate — the
+   guardrails from Appendices AA–AC are finally enforced on the branches where
+   the work actually happens.
+
+2. **New `build-release` job (the R8 gate).** It runs `:app:assembleRelease`,
+   which exercises full R8 minification + resource shrinking, and uploads the
+   resulting **unsigned** APK as an artifact (`foxtrader-release-apk-unsigned`).
+   It is a separate job from `build`, so it runs in parallel and a release-only
+   failure never blocks the debug APK + unit-test signal. Signing is deliberately
+   out of scope here — that is Sprint 11 work; this job exists purely to catch
+   shrinking/obfuscation breakage before tagging. R8 risk is low because
+   `app/proguard-rules.pro` already keeps kotlinx.serialization (via the robust
+   `**$$serializer` / `@SerialName` matchers), the domain/data model packages,
+   Hilt, Retrofit, and coroutines.
+
+3. **Gradle caching hardened.**
+   - `--build-cache` added to every Gradle invocation so the build cache the
+     setup-gradle action provides is actually used.
+   - `cache-read-only: ${{ github.ref != 'refs/heads/main' }}` on both jobs:
+     branch builds (including `arena/**`) warm from the `main` cache but do not
+     write branch-specific entries back, keeping the shared cache key clean.
+
+## Why this is the right slice
+
+It is the lowest-risk, highest-leverage remaining Sprint 10 item:
+
+- It requires no JDK in the sandbox to author (it is CI configuration), and it is
+  verified by GitHub's runners on the next push.
+- It makes every previous Sprint 10 guardrail matter on agent branches instead of
+  only on `main`.
+- It closes the "release breakage discovered at tagging time" hole with a real,
+  parallel gate.
+
+## Verification
+
+- The workflow was parsed as YAML and structurally validated: two jobs
+  (`build`, `build-release`), `arena/**` present in `on.push.branches`, and the
+  `cache-read-only` expression resolved on the setup-gradle step.
+- No tabs / trailing whitespace introduced; indentation is consistent 2-space.
+
+## Remaining Sprint 10 work after this pass
+
+- Broaden the detekt / ktlint gates outward from the chart stack toward the
+  whole app, and ratchet ktlint from audit toward a hard gate as historical
+  formatting drift is burned down.
+- Widen the Jacoco coverage slice and raise the line-coverage floor toward the
+  masterplan's 80% `domain/` target.
+- Continue app-wide string externalization beyond the chart surface (10.3).
+
+---
+
+# Appendix AE: Sprint 10 continuation — Alerts inbox string externalization (Sprint 10.3)
+
+This pass continues **Sprint 10.3** (full string externalization) beyond the
+chart surface that Appendix AA started, applying the same proven, low-risk
+pattern to the next self-contained screen: the **Alerts inbox**.
+
+## Why the Alerts screen
+
+Appendix AA deliberately started with the chart because it had the most recent
+churn. The Alerts inbox (`feature/alerts/presentation/AlertsScreen.kt`) was the
+next clean target:
+
+- it is a single, self-contained composable file,
+- its user-facing copy is almost entirely static labels and content
+  descriptions (low format-arg risk),
+- it was activated in Sprint 7 (Appendix history) and shipped with hardcoded
+  literals throughout.
+
+## What changed
+
+All composable-scope user-facing strings moved into
+`app/src/main/res/values/strings.xml` under a new `alerts_*` group (following
+the existing `<feature>_*` convention, with `_cd` for content descriptions):
+
+- `alerts_title` — top-bar title.
+- `alerts_mark_all_read_cd`, `alerts_clear_all_cd`, `alerts_delete_cd` —
+  icon-button content descriptions (accessibility).
+- `alerts_empty_title` / `alerts_empty_subtitle` — the empty-inbox state (the
+  subtitle was previously two concatenated Kotlin literals; it is now one
+  resource).
+- `alerts_filter_empty_title` / `alerts_filter_empty_subtitle` — the
+  "nothing matches this filter" state; the subtitle takes a `%1$d` count.
+- `alerts_filter_unread` / `alerts_filter_all` — filter chip labels.
+- `alerts_unread_overflow` (`99+`) and `alerts_unread_count_cd` (`%1$d unread
+  alerts`) — the unread badge label and its content description.
+
+In `AlertsScreen.kt`:
+
+- Added `import androidx.compose.ui.res.stringResource` and
+  `import com.foxtrader.app.R`.
+- Replaced the 12 literals with `stringResource(R.string.alerts_*)` calls, all
+  in `@Composable` scope. For `UnreadBadge`, the formatted strings are resolved
+  into local `val`s first and then captured by the non-composable `semantics {}`
+  lambda — the correct pattern, since `stringResource` must run in composable
+  scope.
+
+## Deliberate scope boundaries (documented, not forgotten)
+
+Two categories of literal were intentionally left in place, consistent with how
+Appendix AA scoped its own pass:
+
+- **Priority labels** (`PriorityTag` shows `AlertPriority.name`; the filter
+  chips derive `"Critical+"`-style labels from the enum). These are
+  data-driven from the domain enum, not static UI copy; externalizing them is
+  an enum-display-name concern, not a string-resource one.
+- **`formatTimestamp` relative-time tokens** (`"just now"`, `"…m ago"`,
+  `"…h ago"`) and its `SimpleDateFormat("dd MMM HH:mm")` pattern. This is a
+  non-composable private helper with no Composable/`Resources` context;
+  externalizing it means threading a `Context`/`Resources` through, which is a
+  small refactor best done as a focused follow-up across all screens that format
+  relative time.
+
+## Verification (no JDK in sandbox)
+
+- Every `R.string.alerts_*` reference in the Kotlin resolves to a defined
+  resource (cross-checked programmatically: 12 used, 12 defined, 0 missing).
+- `strings.xml` parses as well-formed XML (112 entries, up from 100); the two
+  format strings carry exactly one `%1$d` placeholder each; no duplicate names.
+- The detekt and ktlint gates added in Appendix AB are scoped to the chart
+  packages, so this screen is not yet gated by them — keeping the change
+  low-risk for the green-build requirement.
+
+## Cumulative Sprint 10 status after this pass
+
+All four Sprint 10 guardrails from the masterplan are now in motion:
+
+- **10.1 static analysis:** chart detekt gate + ktlint audit (Appendix AB).
+- **10.2 coverage:** chart-focused Jacoco verification (Appendix AC).
+- **10.3 strings/a11y:** chart (Appendix AA) **+ Alerts inbox (this pass)**;
+  remaining screens still to externalize.
+- **10.4 CI matrix:** `arena/**` triggers, release R8 gate, Gradle cache
+  hardening (Appendix AD).
+
+---
+
+# Appendix AF: Real-Time Market Data Engine — increments 1–2 and continuation handoff
+
+This records the start of **Sprint 1 (Enterprise Real-Time Market Data Engine)**
+and points to the durable continuation plan so any future session can resume on
+"continue".
+
+## Full handoff
+
+See **[`MARKET_DATA_ENGINE_CONTINUATION.md`](MARKET_DATA_ENGINE_CONTINUATION.md)**
+at the repo root. It captures: the mission, sandbox constraints (no JDK — verify
+via JS ports + inspection + GitHub CI), architecture invariants (no-repaint; keep
+the shared `Timeframe` enum untouched; provenance; allocation-free hot path;
+provider abstraction), the push blocker, what is already built, and the ordered
+continuation **Blocks** (1: RealtimeConnection driver, 2: OkHttp transport,
+3: Binance/Dukascopy providers, 4: offline persistence + sync, 5: engine + DI,
+6: performance/UI, 7: optional Sprint 10 finish).
+
+## What landed in this session (queued on `arena/019fa759-foxtrader`)
+
+- **Sprint 10 (commits `9d9e028`, `e25c06c`):** CI matrix hardening (arena
+  branches + release R8 gate + Gradle cache) and Alerts-inbox string
+  externalization (Appendices AD/AE describe these).
+- **Engine increment 1 (`4c49d2d`):** `data/market/` foundation — model
+  (`MarketTimeframe` all 12 timeframes), tick engine (buffer/pool/aggregator),
+  candle engine (`CandleBuilder` no-repaint, `MultiTimeframeCandleEngine`,
+  `CandleFlow`), connection logic (reconnect/heartbeat/state/failover), provider
+  abstraction, and a versioned gap-detecting `CandleCache`. 15 production + 14
+  test files.
+- **Engine increment 2 (`ca710db`):** transport seam (`WebSocketTransport` +
+  `TransportEvent`), `ReconnectOrchestrator` (composed retry/failover/give-up
+  decision engine), and `JsonTickDecoder` (Binance aggTrade + configurable
+  mapping). 6 more files (4 production + 2 test).
+
+## Verification note
+
+No JVM exists in the sandbox, so these were validated by JS ports of the core
+algorithms (no-repaint candle building, bucket-count formulas, reconnect decision
+logic) plus careful inspection against the project's Kotlin 2.0.20 / coroutines
+1.9.0 / serialization 1.7.3 toolchain. The authoritative compile + the ~16 unit
+test files run on GitHub CI once the `workflows`-permission push blocker
+(see the continuation doc §4) is cleared.
