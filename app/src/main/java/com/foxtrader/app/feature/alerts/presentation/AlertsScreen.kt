@@ -39,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -46,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.AlertPriority
 import com.foxtrader.app.domain.model.FoxAlert
 import com.foxtrader.app.ui.theme.FoxAmber50
@@ -77,7 +79,7 @@ fun AlertsScreen(
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Alerts", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                        Text(stringResource(R.string.alerts_title), fontWeight = FontWeight.Bold, fontSize = 20.sp)
                         if (state.unreadCount > 0) {
                             Spacer(Modifier.size(8.dp))
                             UnreadBadge(state.unreadCount)
@@ -92,14 +94,14 @@ fun AlertsScreen(
                         ) {
                             Icon(
                                 Icons.Default.DoneAll,
-                                contentDescription = "Mark all as read",
+                                contentDescription = stringResource(R.string.alerts_mark_all_read_cd),
                                 tint = if (state.unreadCount > 0) FoxAmber50 else FoxNeutral60,
                             )
                         }
                         IconButton(onClick = viewModel::clearAll) {
                             Icon(
                                 Icons.Default.Delete,
-                                contentDescription = "Clear all alerts",
+                                contentDescription = stringResource(R.string.alerts_clear_all_cd),
                                 tint = FoxNeutral60,
                             )
                         }
@@ -134,15 +136,13 @@ fun AlertsScreen(
                     )
 
                     !state.hasAlerts -> EmptyInbox(
-                        title = "No alerts yet",
-                        subtitle = "Approved AI signals and background scan hits " +
-                            "will appear here, even if you miss the notification.",
+                        title = stringResource(R.string.alerts_empty_title),
+                        subtitle = stringResource(R.string.alerts_empty_subtitle),
                     )
 
                     !state.hasVisibleAlerts -> EmptyInbox(
-                        title = "Nothing matches this filter",
-                        subtitle = "${state.alerts.size} alert(s) hidden. " +
-                            "Adjust the filters above to see them.",
+                        title = stringResource(R.string.alerts_filter_empty_title),
+                        subtitle = stringResource(R.string.alerts_filter_empty_subtitle, state.alerts.size),
                     )
 
                     else -> LazyColumn(
@@ -166,15 +166,17 @@ fun AlertsScreen(
 
 @Composable
 private fun UnreadBadge(count: Int) {
+    val unreadDescription = stringResource(R.string.alerts_unread_count_cd, count)
+    val overflowLabel = stringResource(R.string.alerts_unread_overflow)
     Box(
         modifier = Modifier
             .clip(CircleShape)
             .background(FoxAmber50)
             .padding(horizontal = 7.dp, vertical = 2.dp)
-            .semantics { contentDescription = "$count unread alerts" },
+            .semantics { contentDescription = unreadDescription },
     ) {
         Text(
-            text = if (count > 99) "99+" else count.toString(),
+            text = if (count > 99) overflowLabel else count.toString(),
             color = Color.Black,
             fontSize = 10.sp,
             fontWeight = FontWeight.Bold,
@@ -197,12 +199,12 @@ private fun FilterRow(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         FilterChip(
-            label = "Unread",
+            label = stringResource(R.string.alerts_filter_unread),
             selected = unreadOnly,
             onClick = onToggleUnread,
         )
         FilterChip(
-            label = "All",
+            label = stringResource(R.string.alerts_filter_all),
             selected = selected == null,
             onClick = { onSelect(null) },
         )
@@ -322,7 +324,7 @@ private fun AlertCard(
             IconButton(onClick = onDelete) {
                 Icon(
                     Icons.Default.Delete,
-                    contentDescription = "Delete alert",
+                    contentDescription = stringResource(R.string.alerts_delete_cd),
                     tint = FoxNeutral60,
                     modifier = Modifier.size(16.dp),
                 )
