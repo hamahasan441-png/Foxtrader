@@ -54,8 +54,15 @@ class JsonTickDecoder(
     private val json: Json = LenientJson,
 ) : TickDecoder {
 
-    override fun decode(frame: String): Tick? = try {
-        val obj = json.parseToJsonElement(frame).jsonObject
+    override fun decode(frame: String): Tick? {
+        // Only the parse + object-cast can throw (malformed JSON, or a frame that
+        // is not a JSON object). Everything else uses null-safe accessors, so the
+        // try is scoped tightly and early `return`s live in a normal block body.
+        val obj = try {
+            json.parseToJsonElement(frame).jsonObject
+        } catch (expected: Exception) {
+            return null
+        }
 
         val typeKey = mapping.eventTypeKey
         val typeValue = mapping.eventTypeValue
@@ -74,15 +81,13 @@ class JsonTickDecoder(
         val sideKey = mapping.side
         val isMaker = if (sideKey != null) obj[sideKey]?.jsonPrimitive?.booleanOrNull else null
 
-        Tick(
+        return Tick(
             symbol = symbol,
             price = price,
             quantity = quantity,
             timestamp = timestamp,
             side = decodeSide(isMaker),
         )
-    } catch (expected: Exception) {
-        null
     }
 
     private fun decodeSide(isMaker: Boolean?): TickSide = when {
