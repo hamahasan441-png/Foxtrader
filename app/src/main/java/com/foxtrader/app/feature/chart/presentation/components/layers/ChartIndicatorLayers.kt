@@ -13,6 +13,8 @@ import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.StructureBreak
 import com.foxtrader.app.domain.model.StructureBreakType
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.feature.chart.presentation.ImmutableDoubleSeries
+import com.foxtrader.app.feature.chart.presentation.ImmutableIntSeries
 import com.foxtrader.app.feature.chart.presentation.components.ChartViewport
 import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxBearish
@@ -48,8 +50,8 @@ internal fun DrawScope.drawIndicatorLayer(
     viewport: ChartViewport,
     cw: Float,
     ch: Float,
-    emaShort: DoubleArray?,
-    emaLong: DoubleArray?,
+    emaShort: ImmutableDoubleSeries?,
+    emaLong: ImmutableDoubleSeries?,
 ) {
     val start = max(0, viewport.startIndex.toInt())
     val end = min(candles.size, (viewport.startIndex + viewport.visibleBars).toInt() + 1)
@@ -69,7 +71,7 @@ internal fun DrawScope.drawEmaLine(
     viewport: ChartViewport,
     cw: Float,
     ch: Float,
-    values: DoubleArray,
+    values: ImmutableDoubleSeries,
     start: Int,
     end: Int,
     color: Color,
@@ -98,7 +100,7 @@ internal fun DrawScope.drawLineSeries(
     viewport: ChartViewport,
     cw: Float,
     ch: Float,
-    values: DoubleArray,
+    values: ImmutableDoubleSeries,
     color: Color,
     strokeWidth: Float,
 ) {
@@ -120,9 +122,9 @@ internal fun DrawScope.drawBollinger(
     viewport: ChartViewport,
     cw: Float,
     ch: Float,
-    upper: DoubleArray,
-    middle: DoubleArray,
-    lower: DoubleArray,
+    upper: ImmutableDoubleSeries,
+    middle: ImmutableDoubleSeries,
+    lower: ImmutableDoubleSeries,
 ) {
     val bandColor = Color(0x663B8DF0)
     val midColor = Color(0xAA3B8DF0)
@@ -136,8 +138,8 @@ internal fun DrawScope.drawSuperTrend(
     viewport: ChartViewport,
     cw: Float,
     ch: Float,
-    values: DoubleArray,
-    dir: IntArray,
+    values: ImmutableDoubleSeries,
+    dir: ImmutableIntSeries,
 ) {
     val start = max(0, viewport.startIndex.toInt())
     val end = min(minOf(values.size, dir.size), (viewport.startIndex + viewport.visibleBars).toInt() + 1)
@@ -157,7 +159,7 @@ internal fun DrawScope.drawParabolicSar(
     viewport: ChartViewport,
     cw: Float,
     ch: Float,
-    sar: DoubleArray,
+    sar: ImmutableDoubleSeries,
 ) {
     val start = max(0, viewport.startIndex.toInt())
     val end = min(sar.size, (viewport.startIndex + viewport.visibleBars).toInt() + 1)
@@ -173,11 +175,11 @@ internal fun DrawScope.drawIchimoku(
     viewport: ChartViewport,
     cw: Float,
     ch: Float,
-    tenkan: DoubleArray,
-    kijun: DoubleArray,
-    senkouA: DoubleArray,
-    senkouB: DoubleArray,
-    chikou: DoubleArray,
+    tenkan: ImmutableDoubleSeries,
+    kijun: ImmutableDoubleSeries,
+    senkouA: ImmutableDoubleSeries,
+    senkouB: ImmutableDoubleSeries,
+    chikou: ImmutableDoubleSeries,
 ) {
     drawLineSeries(viewport, cw, ch, tenkan, IchimokuTenkanColor, IchimokuPrimaryStroke)
     drawLineSeries(viewport, cw, ch, kijun, IchimokuKijunColor, IchimokuPrimaryStroke)

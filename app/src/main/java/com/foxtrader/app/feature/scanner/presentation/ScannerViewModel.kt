@@ -12,6 +12,7 @@ import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.heatmap.MarketHeatmap
 import com.foxtrader.app.domain.usecase.scanner.ScannerUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -69,7 +70,7 @@ class ScannerViewModel @Inject constructor(
 
                 _uiState.update {
                     it.copy(
-                        results = output.results,
+                        results = output.results.toPersistentList(),
                         heatmap = heatmap,
                         dataSource = if (dataMap.isEmpty()) CandleSource.CACHED else worstSource,
                         isLoading = false,

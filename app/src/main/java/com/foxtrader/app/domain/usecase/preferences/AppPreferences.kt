@@ -20,6 +20,9 @@ import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.PositionSizingMethod
 import com.foxtrader.app.domain.model.RiskConfig
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.usecase.chart.ChartLayout
+import com.foxtrader.app.domain.usecase.chart.ChartPanelSeed
+import com.foxtrader.app.domain.usecase.chart.ChartViewportState
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -28,6 +31,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -82,6 +89,9 @@ class AppPreferences @Inject constructor(
     private val _apiKeys = MutableStateFlow<Map<DataProvider, String>>(emptyMap())
     val apiKeys: StateFlow<Map<DataProvider, String>> = _apiKeys.asStateFlow()
 
+    private val _multiChartPreferences = MutableStateFlow<PersistedMultiChartState?>(null)
+    val multiChartPreferences: StateFlow<PersistedMultiChartState?> = _multiChartPreferences.asStateFlow()
+
     init {
         // Load persisted values into StateFlows on init.
         scope.launch {
@@ -123,6 +133,9 @@ class AppPreferences @Inject constructor(
                 } else {
                     _apiKeys.value = storedApiKeys
                 }
+                _multiChartPreferences.value = prefs[KEY_MULTI_CHART_STATE]
+                    ?.let(::decodeMultiChartState)
+                    ?: PersistedMultiChartState()
             }
         }
     }
@@ -244,6 +257,15 @@ class AppPreferences @Inject constructor(
 
     fun getApiKey(provider: DataProvider): String? = _apiKeys.value[provider]
 
+    fun setMultiChartPreferences(state: PersistedMultiChartState) {
+        _multiChartPreferences.value = state
+        scope.launch {
+            context.dataStore.edit {
+                it[KEY_MULTI_CHART_STATE] = json.encodeToString(state)
+            }
+        }
+    }
+
     fun canGoLive(): Boolean {
         val p = _dataProvider.value
         if (!p.supportsLive) return false
@@ -307,6 +329,10 @@ class AppPreferences @Inject constructor(
     private fun apiKeyPreferenceName(provider: DataProvider): String =
         "provider_api_key_${provider.name.lowercase(Locale.ROOT)}"
 
+    private fun decodeMultiChartState(raw: String): PersistedMultiChartState =
+        runCatching { json.decodeFromString<PersistedMultiChartState>(raw) }
+            .getOrDefault(PersistedMultiChartState())
+
     private companion object {
         const val SECURE_PREFS_FILE_NAME = "fox_provider_keys"
         const val MIN_BACKGROUND_SCAN_INTERVAL_MINUTES = 15
@@ -321,6 +347,8 @@ class AppPreferences @Inject constructor(
         const val MIN_AI_ALERT_COOLDOWN_MINUTES = 1
         const val MAX_AI_ALERT_COOLDOWN_MINUTES = 60
         const val DEFAULT_AI_ALERT_COOLDOWN_MINUTES = 5
+
+        val json = Json { ignoreUnknownKeys = true }
 
         val KEY_DARK_MODE = booleanPreferencesKey("dark_mode")
         val KEY_APP_LOCK = booleanPreferencesKey("app_lock_enabled")
@@ -342,5 +370,33 @@ class AppPreferences @Inject constructor(
         val KEY_PROVIDER = stringPreferencesKey("data_provider")
         val KEY_DEFAULT_TIMEFRAME = stringPreferencesKey("default_timeframe")
         val KEY_ALPHA_VANTAGE_API_KEY = stringPreferencesKey("alpha_vantage_api_key")
+        val KEY_MULTI_CHART_STATE = stringPreferencesKey("multi_chart_state")
     }
+}
+
+@Serializable
+data class PersistedMultiChartPanel(
+    val symbol: String = "EURUSD",
+    val timeframe: Timeframe = Timeframe.M15,
+    val viewport: ChartViewportState? = null,
+)
+
+@Serializable
+enum class PersistedCrosshairSource { NONE, PRIMARY, PANEL }
+
+@Serializable
+data class PersistedMultiChartState(
+    val layout: ChartLayout = ChartLayout.SINGLE,
+    val linkedToPrimary: Boolean = true,
+    val symbolLinkEnabled: Boolean = true,
+    val timeframeLinkEnabled: Boolean = true,
+    val crosshairSyncEnabled: Boolean = true,
+    val activePanelIndex: Int = 0,
+    val primaryViewport: ChartViewportState? = null,
+    val syncedCrosshairTimestamp: Long? = null,
+    val syncedCrosshairSource: PersistedCrosshairSource = PersistedCrosshairSource.NONE,
+    val syncedCrosshairPanelIndex: Int? = null,
+    val panels: List<PersistedMultiChartPanel> = listOf(PersistedMultiChartPanel()),
+) {
+    fun panelSeeds(): List<ChartPanelSeed> = panels.map { ChartPanelSeed(it.symbol, it.timeframe) }
 }

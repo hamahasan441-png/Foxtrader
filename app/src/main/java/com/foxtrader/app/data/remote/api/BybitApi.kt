@@ -19,6 +19,7 @@ interface BybitApi {
         @Query("symbol") symbol: String,
         @Query("interval") interval: String,
         @Query("limit") limit: Int = 500,
+        @Query("end") end: Long? = null,
     ): BybitKlineResponse
 }
 

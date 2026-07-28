@@ -1,15 +1,19 @@
 package com.foxtrader.app.feature.settings.presentation
 
+import androidx.compose.runtime.Immutable
 import com.foxtrader.app.domain.model.AlertConfig
 import com.foxtrader.app.domain.model.AuthState
 import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.PositionSizingMethod
 import com.foxtrader.app.domain.model.RiskConfig
 import com.foxtrader.app.domain.model.Timeframe
+import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.persistentMapOf
 
 /**
  * AI Decision Engine configuration exposed in the Settings screen.
  */
+@Immutable
 data class AiConfig(
     /** Minimum confluences (of 9) to approve a signal. */
     val minConfluences: Int = 5,
@@ -26,13 +30,14 @@ data class AiConfig(
 /**
  * Immutable UI state for the Settings screen.
  */
+@Immutable
 data class SettingsUiState(
     val riskConfig: RiskConfig = RiskConfig(),
     val alertConfig: AlertConfig = AlertConfig(),
     val aiConfig: AiConfig = AiConfig(),
     val defaultTimeframe: Timeframe = Timeframe.M15,
     val dataProvider: DataProvider = DataProvider.SAMPLE,
-    val providerApiKeys: Map<DataProvider, String> = emptyMap(),
+    val providerApiKeys: ImmutableMap<DataProvider, String> = persistentMapOf(),
     val darkMode: Boolean = true,
     val authState: AuthState = AuthState.UNAUTHENTICATED,
     val isSyncing: Boolean = false,

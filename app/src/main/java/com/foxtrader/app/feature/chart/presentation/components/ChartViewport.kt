@@ -3,6 +3,7 @@ package com.foxtrader.app.feature.chart.presentation.components
 import androidx.compose.runtime.Stable
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.usecase.chart.ChartViewportState
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -239,6 +240,19 @@ class ChartViewport(
     fun isAtRightEdge(total: Int, toleranceBars: Float = 1f): Boolean =
         startIndex + visibleBars >= total - toleranceBars
 
+    /**
+     * Preserve the current visual anchor when older history is prepended.
+     *
+     * If N bars are inserted at the front of the dataset, every previously
+     * visible bar's index increases by N. Shifting [startIndex] by the same
+     * amount keeps the exact same bars under the user's eyes instead of
+     * snapping the camera left into the newly loaded history.
+     */
+    fun shiftForPrependedBars(prependedCount: Int) {
+        if (prependedCount <= 0) return
+        startIndex += prependedCount
+    }
+
     // ========================================================================
     // AUTO-SCALE
     // ========================================================================
@@ -334,8 +348,24 @@ class ChartViewport(
     }
 
     // ========================================================================
-    // COPY
+    // SNAPSHOT / RESTORE
     // ========================================================================
+
+    fun snapshotState(): ChartViewportState = ChartViewportState(
+        startIndex = startIndex,
+        visibleBars = visibleBars,
+        priceHigh = priceHigh,
+        priceLow = priceLow,
+    )
+
+    fun restoreState(state: ChartViewportState, total: Int) {
+        startIndex = state.startIndex
+        visibleBars = state.visibleBars
+        priceHigh = state.priceHigh
+        priceLow = state.priceLow
+        clamp(total)
+        stopFling()
+    }
 
     fun copyState(): ChartViewport =
         ChartViewport(startIndex, visibleBars, priceHigh, priceLow)

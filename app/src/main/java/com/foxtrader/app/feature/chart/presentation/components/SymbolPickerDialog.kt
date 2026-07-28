@@ -21,6 +21,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.foxtrader.app.R
 import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxNeutral10
 import com.foxtrader.app.ui.theme.FoxNeutral60
@@ -61,7 +63,7 @@ fun SymbolPickerDialog(
                 .padding(16.dp),
         ) {
             Text(
-                text = "Watchlist",
+                text = stringResource(R.string.chart_watchlist_title),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = FoxAmber50,
@@ -81,7 +83,7 @@ fun SymbolPickerDialog(
                     onValueChange = { newSymbol = it.uppercase() },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
-                    label = { Text("Add symbol", fontSize = 11.sp) },
+                    label = { Text(stringResource(R.string.chart_watchlist_add_symbol), fontSize = 11.sp) },
                 )
                 IconButton(
                     onClick = {
@@ -94,7 +96,7 @@ fun SymbolPickerDialog(
                 ) {
                     Icon(
                         Icons.Default.Add,
-                        contentDescription = "Add symbol to watchlist",
+                        contentDescription = stringResource(R.string.chart_watchlist_add_symbol_cd),
                         tint = if (newSymbol.isNotBlank()) FoxAmber50 else FoxNeutral60,
                     )
                 }
@@ -102,7 +104,7 @@ fun SymbolPickerDialog(
 
             if (symbols.isEmpty()) {
                 Text(
-                    text = "Your watchlist is empty. Add a symbol above.",
+                    text = stringResource(R.string.chart_watchlist_empty),
                     color = FoxNeutral60,
                     fontSize = 11.sp,
                     modifier = Modifier.padding(vertical = 12.dp),
@@ -142,7 +144,7 @@ fun SymbolPickerDialog(
                         IconButton(onClick = { onRemoveSymbol(symbol) }) {
                             Icon(
                                 Icons.Default.Close,
-                                contentDescription = "Remove $symbol from watchlist",
+                                contentDescription = stringResource(R.string.chart_watchlist_remove_symbol_cd, symbol),
                                 tint = FoxNeutral60,
                                 modifier = Modifier.size(14.dp),
                             )

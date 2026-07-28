@@ -44,6 +44,18 @@ class NewIndicatorsTest {
         assertTrue(bb.percentB[i] in -0.5..1.5)
     }
 
+    @Test fun `incremental bollinger matches full recomputation`() {
+        val engine = BollingerBands()
+        val full = engine.calculate(up, period = 20)
+        val partial = engine.calculate(up.take(40), period = 20)
+        val incremental = engine.calculateIncremental(up, partial, recomputeFrom = 38, period = 20)
+        for (i in full.middle.indices) {
+            assertEquals(full.middle[i], incremental.middle[i], tol)
+            assertEquals(full.upper[i], incremental.upper[i], tol)
+            assertEquals(full.lower[i], incremental.lower[i], tol)
+        }
+    }
+
     // --- Stochastic ---
     @Test fun `stochastic in uptrend is elevated`() {
         val stoch = StochasticOscillator().calculate(up)
@@ -57,10 +69,32 @@ class NewIndicatorsTest {
         assertEquals(Direction.BULLISH, SuperTrend().currentTrend(st))
     }
 
+    @Test fun `incremental supertrend matches full recomputation`() {
+        val engine = SuperTrend()
+        val full = engine.calculate(up)
+        val partial = engine.calculate(up.take(40))
+        val incremental = engine.calculateIncremental(up, partial, recomputeFrom = 38)
+        for (i in full.values.indices) {
+            assertEquals(full.values[i], incremental.values[i], tol)
+            assertEquals(full.direction[i], incremental.direction[i])
+        }
+    }
+
     // --- Parabolic SAR ---
     @Test fun `parabolic sar produces values for each bar`() {
         val sar = ParabolicSar().calculate(up)
         assertEquals(up.size, sar.sar.size)
+    }
+
+    @Test fun `incremental parabolic sar matches full recomputation`() {
+        val engine = ParabolicSar()
+        val full = engine.calculate(up)
+        val partial = engine.calculate(up.take(40))
+        val incremental = engine.calculateIncremental(up, partial, recomputeFrom = 38)
+        for (i in full.sar.indices) {
+            assertEquals(full.sar[i], incremental.sar[i], tol)
+            assertEquals(full.isUptrend[i], incremental.isUptrend[i])
+        }
     }
 
     // --- Ichimoku ---
@@ -68,6 +102,19 @@ class NewIndicatorsTest {
         val ich = IchimokuCloud()
         val result = ich.calculate(up)
         assertEquals(IchimokuCloud.CloudPosition.ABOVE, ich.cloudPosition(up, result))
+    }
+
+    @Test fun `incremental ichimoku matches full recomputation`() {
+        val engine = IchimokuCloud()
+        val full = engine.calculate(up)
+        val partial = engine.calculate(up.take(40))
+        val incremental = engine.calculateIncremental(up, partial, recomputeFrom = 38)
+        for (i in full.tenkan.indices) {
+            assertEquals(full.tenkan[i], incremental.tenkan[i], tol)
+            assertEquals(full.kijun[i], incremental.kijun[i], tol)
+            assertEquals(full.senkouA[i], incremental.senkouA[i], tol)
+            assertEquals(full.senkouB[i], incremental.senkouB[i], tol)
+        }
     }
 
     // --- Volume Indicators ---

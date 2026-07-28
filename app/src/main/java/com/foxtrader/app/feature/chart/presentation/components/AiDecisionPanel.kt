@@ -20,12 +20,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.DecisionResult
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.RequiredConfluence
@@ -66,9 +68,9 @@ fun AiDecisionPanel(
                     Spacer(Modifier.width(6.dp))
                     Text(
                         text = when (d.direction) {
-                            Direction.BULLISH -> "BULL"
-                            Direction.BEARISH -> "BEAR"
-                            null -> "—"
+                            Direction.BULLISH -> stringResource(R.string.chart_ai_direction_bull)
+                            Direction.BEARISH -> stringResource(R.string.chart_ai_direction_bear)
+                            null -> stringResource(R.string.chart_ai_direction_none)
                         },
                         style = MaterialTheme.typography.labelSmall,
                         color = when (d.direction) {
@@ -80,7 +82,7 @@ fun AiDecisionPanel(
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        text = "${d.confidence.toInt()}%",
+                        text = stringResource(R.string.chart_ai_confidence_percent, d.confidence.toInt()),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
@@ -92,7 +94,7 @@ fun AiDecisionPanel(
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                     RequiredConfluence.all().forEach { c ->
                         val present = c in d.confluencePresent
-                        ConfluenceDot(present = present, label = c.shortLabel())
+                        ConfluenceDot(present = present, label = stringResource(c.shortLabelRes()))
                     }
                 }
             }
@@ -103,12 +105,12 @@ fun AiDecisionPanel(
 @Composable
 private fun GradeBadge(grade: SignalGrade) {
     val (text, color) = when (grade) {
-        SignalGrade.INSTITUTIONAL -> "INST" to FoxAmber50
-        SignalGrade.VERY_STRONG -> "A+" to FoxBullish
-        SignalGrade.STRONG -> "A" to FoxBullish
-        SignalGrade.MODERATE -> "B" to FoxAmber50
-        SignalGrade.WEAK -> "C" to FoxNeutral60
-        SignalGrade.NO_SIGNAL -> "—" to FoxNeutral60
+        SignalGrade.INSTITUTIONAL -> stringResource(R.string.chart_ai_grade_institutional) to FoxAmber50
+        SignalGrade.VERY_STRONG -> stringResource(R.string.chart_ai_grade_very_strong) to FoxBullish
+        SignalGrade.STRONG -> stringResource(R.string.chart_ai_grade_strong) to FoxBullish
+        SignalGrade.MODERATE -> stringResource(R.string.chart_ai_grade_moderate) to FoxAmber50
+        SignalGrade.WEAK -> stringResource(R.string.chart_ai_grade_weak) to FoxNeutral60
+        SignalGrade.NO_SIGNAL -> stringResource(R.string.chart_ai_grade_none) to FoxNeutral60
     }
     Text(
         text = text,
@@ -129,14 +131,14 @@ private fun ConfluenceDot(present: Boolean, label: String) {
     )
 }
 
-private fun RequiredConfluence.shortLabel(): String = when (this) {
-    RequiredConfluence.LIQUIDITY_SWEEP -> "SW"
-    RequiredConfluence.BOS_OR_CHOCH -> "BR"
-    RequiredConfluence.FVG -> "FV"
-    RequiredConfluence.ORDER_BLOCK -> "OB"
-    RequiredConfluence.SMT -> "SM"
-    RequiredConfluence.SESSION -> "KZ"
-    RequiredConfluence.HTF_BIAS -> "HT"
-    RequiredConfluence.TREND -> "TR"
-    RequiredConfluence.VOLUME -> "VL"
+private fun RequiredConfluence.shortLabelRes(): Int = when (this) {
+    RequiredConfluence.LIQUIDITY_SWEEP -> R.string.chart_ai_confluence_liquidity_sweep
+    RequiredConfluence.BOS_OR_CHOCH -> R.string.chart_ai_confluence_break_structure
+    RequiredConfluence.FVG -> R.string.chart_ai_confluence_fvg
+    RequiredConfluence.ORDER_BLOCK -> R.string.chart_ai_confluence_order_block
+    RequiredConfluence.SMT -> R.string.chart_ai_confluence_smt
+    RequiredConfluence.SESSION -> R.string.chart_ai_confluence_session
+    RequiredConfluence.HTF_BIAS -> R.string.chart_ai_confluence_htf_bias
+    RequiredConfluence.TREND -> R.string.chart_ai_confluence_trend
+    RequiredConfluence.VOLUME -> R.string.chart_ai_confluence_volume
 }

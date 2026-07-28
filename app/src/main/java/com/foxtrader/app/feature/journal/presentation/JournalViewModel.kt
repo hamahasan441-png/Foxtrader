@@ -7,6 +7,7 @@ import com.foxtrader.app.domain.model.JournalEntry
 import com.foxtrader.app.domain.repository.JournalRepository
 import com.foxtrader.app.domain.usecase.journal.JournalEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -38,7 +39,7 @@ class JournalViewModel @Inject constructor(
             .onEach { entries ->
                 _uiState.update {
                     it.copy(
-                        entries = entries,
+                        entries = entries.toPersistentList(),
                         stats = journalEngine.computeStats(entries),
                     )
                 }

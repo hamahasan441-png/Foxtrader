@@ -1,16 +1,20 @@
 package com.foxtrader.app.feature.journal.presentation
 
+import androidx.compose.runtime.Immutable
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.EmotionTag
 import com.foxtrader.app.domain.model.JournalEntry
 import com.foxtrader.app.domain.model.JournalStats
 import com.foxtrader.app.domain.model.Timeframe
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 
 /**
  * Draft state for the "Log Trade" form.
  * Prices are held as strings so the text fields can be edited freely; they are
  * parsed on submit.
  */
+@Immutable
 data class LogTradeForm(
     val symbol: String = "",
     val direction: Direction = Direction.BULLISH,
@@ -37,8 +41,9 @@ data class LogTradeForm(
 /**
  * Immutable UI state for the Journal screen.
  */
+@Immutable
 data class JournalUiState(
-    val entries: List<JournalEntry> = emptyList(),
+    val entries: ImmutableList<JournalEntry> = persistentListOf(),
     val stats: JournalStats = JournalStats(),
     val showStats: Boolean = true,
     val isLoading: Boolean = false,

@@ -32,6 +32,9 @@ import kotlin.math.min
 
 private val FIB_LEVELS = listOf(0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0)
 private val FIB_LABELS = listOf("0%", "23.6%", "38.2%", "50%", "61.8%", "78.6%", "100%")
+private val PreviewDash = PathEffect.dashPathEffect(floatArrayOf(8f, 5f))
+private val PreviewColor = Color(0xCCD4A84E)
+private val PreviewAnchorColor = Color(0xFFD4A84E)
 
 /**
  * Draw all visible chart drawings.
@@ -73,14 +76,14 @@ fun DrawScope.drawPlacementPreview(
     val startY = viewport.yForPrice(firstPoint.price, ch)
 
     drawLine(
-        color = Color(0xCCD4A84E), // Amber preview
+        color = PreviewColor,
         start = Offset(startX, startY),
         end = Offset(cursorX, cursorY),
         strokeWidth = 1.5f,
-        pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 5f)),
+        pathEffect = PreviewDash,
     )
     // Anchor at first point
-    drawCircle(color = Color(0xFFD4A84E), radius = 5f, center = Offset(startX, startY))
+    drawCircle(color = PreviewAnchorColor, radius = 5f, center = Offset(startX, startY))
 }
 
 // ============================================================================

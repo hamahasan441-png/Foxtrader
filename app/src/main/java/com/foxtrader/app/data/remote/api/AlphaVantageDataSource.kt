@@ -23,10 +23,25 @@ class AlphaVantageDataSource @Inject constructor(
         timeframe: Timeframe,
         limit: Int = 500,
         apiKey: String,
-    ): List<Candle> {
-        require(limit >= 0) { "Limit cannot be negative." }
-        if (limit == 0) return emptyList()
+    ): List<Candle> =
+        fetchSeries(symbol, timeframe, apiKey).takeLast(limit.coerceAtLeast(0))
 
+    suspend fun fetchCandlesBefore(
+        symbol: String,
+        timeframe: Timeframe,
+        beforeTimestamp: Long,
+        limit: Int = 500,
+        apiKey: String,
+    ): List<Candle> =
+        fetchSeries(symbol, timeframe, apiKey)
+            .filter { it.timestamp < beforeTimestamp }
+            .takeLast(limit.coerceAtLeast(0))
+
+    private suspend fun fetchSeries(
+        symbol: String,
+        timeframe: Timeframe,
+        apiKey: String,
+    ): List<Candle> {
         val request = buildRequest(symbol, timeframe) ?: return emptyList()
         val raw = api.query(
             function = request.function,
@@ -54,9 +69,7 @@ class AlphaVantageDataSource @Inject constructor(
             val close = item["4. close"]?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null
             val volume = item["5. volume"]?.jsonPrimitive?.doubleOrNull ?: 0.0
             Candle(timestamp = timestamp, open = open, high = high, low = low, close = close, volume = volume)
-        }
-            .sortedBy { it.timestamp }
-            .takeLast(limit)
+        }.sortedBy { it.timestamp }
     }
 
     private fun buildRequest(symbol: String, timeframe: Timeframe): Request? {

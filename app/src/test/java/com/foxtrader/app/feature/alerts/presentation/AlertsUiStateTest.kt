@@ -2,6 +2,7 @@ package com.foxtrader.app.feature.alerts.presentation
 
 import com.foxtrader.app.domain.model.AlertPriority
 import com.foxtrader.app.domain.model.FoxAlert
+import kotlinx.collections.immutable.toPersistentList
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -35,7 +36,7 @@ class AlertsUiStateTest {
         alert("med", AlertPriority.MEDIUM),
         alert("high", AlertPriority.HIGH),
         alert("crit", AlertPriority.CRITICAL, acknowledged = true),
-    )
+    ).toPersistentList()
 
     @Test
     fun `no filter shows everything`() {
@@ -92,7 +93,7 @@ class AlertsUiStateTest {
 
     @Test
     fun `empty inbox reports no alerts`() {
-        val state = AlertsUiState(alerts = emptyList())
+        val state = AlertsUiState(alerts = emptyList<FoxAlert>().toPersistentList())
         assertFalse(state.hasAlerts)
         assertFalse(state.hasVisibleAlerts)
     }

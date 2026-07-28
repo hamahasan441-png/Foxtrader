@@ -35,6 +35,24 @@ class IchimokuCloud @Inject constructor() {
         kijunPeriod: Int = 26,
         senkouBPeriod: Int = 52,
         displacement: Int = 26,
+    ): IchimokuResult = calculateIncremental(
+        candles = candles,
+        previous = null,
+        recomputeFrom = 0,
+        tenkanPeriod = tenkanPeriod,
+        kijunPeriod = kijunPeriod,
+        senkouBPeriod = senkouBPeriod,
+        displacement = displacement,
+    )
+
+    fun calculateIncremental(
+        candles: List<Candle>,
+        previous: IchimokuResult?,
+        recomputeFrom: Int,
+        tenkanPeriod: Int = 9,
+        kijunPeriod: Int = 26,
+        senkouBPeriod: Int = 52,
+        displacement: Int = 26,
     ): IchimokuResult {
         val n = candles.size
         val tenkan = DoubleArray(n)
@@ -44,12 +62,24 @@ class IchimokuCloud @Inject constructor() {
         val chikou = DoubleArray(n)
         if (n == 0) return IchimokuResult(tenkan, kijun, senkouA, senkouB, chikou, displacement)
 
-        for (i in 0 until n) {
+        val startIndex = if (previous != null && recomputeFrom > 0) {
+            max(0, recomputeFrom - senkouBPeriod + 1)
+        } else {
+            0
+        }
+        if (previous != null && startIndex > 0) {
+            System.arraycopy(previous.tenkan, 0, tenkan, 0, startIndex)
+            System.arraycopy(previous.kijun, 0, kijun, 0, startIndex)
+            System.arraycopy(previous.senkouA, 0, senkouA, 0, startIndex)
+            System.arraycopy(previous.senkouB, 0, senkouB, 0, startIndex)
+            System.arraycopy(previous.chikou, 0, chikou, 0, startIndex)
+        }
+
+        for (i in startIndex until n) {
             tenkan[i] = midpoint(candles, i, tenkanPeriod)
             kijun[i] = midpoint(candles, i, kijunPeriod)
             senkouA[i] = (tenkan[i] + kijun[i]) / 2.0
             senkouB[i] = midpoint(candles, i, senkouBPeriod)
-            // Chikou: current close plotted 'displacement' bars back
             chikou[i] = candles[i].close
         }
         return IchimokuResult(tenkan, kijun, senkouA, senkouB, chikou, displacement)

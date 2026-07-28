@@ -35,6 +35,30 @@ class BybitDataSource @Inject constructor(
             .takeLast(limit)
     }
 
+    suspend fun fetchCandlesBefore(
+        symbol: String,
+        timeframe: Timeframe,
+        beforeTimestamp: Long,
+        limit: Int = 500,
+    ): List<Candle> {
+        val response = bybitApi.getKlines(
+            category = "spot",
+            symbol = normalizeSymbol(symbol),
+            interval = timeframeToInterval(timeframe),
+            limit = limit.coerceIn(1, 1000),
+            end = (beforeTimestamp - 1L).coerceAtLeast(0L),
+        )
+        if (response.retCode != 0) {
+            throw IllegalStateException("Bybit: ${response.retMsg.ifBlank { "retCode ${response.retCode}" }}")
+        }
+
+        return response.result?.candles.orEmpty()
+            .mapNotNull { it.toCandle() }
+            .filter { it.timestamp < beforeTimestamp }
+            .sortedBy { it.timestamp }
+            .takeLast(limit.coerceIn(1, 1000))
+    }
+
     /**
      * Returns true if the symbol is likely supported by Bybit spot public data.
      */

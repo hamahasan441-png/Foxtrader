@@ -22,3 +22,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "FoxTrader"
 include(":app")
+include(":benchmark")

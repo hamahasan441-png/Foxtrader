@@ -1,5 +1,7 @@
 package com.foxtrader.app.domain.model
 
+import kotlinx.serialization.Serializable
+
 /**
  * A single OHLCV price candle. The atomic unit of market data.
  * Immutable value object — belongs to the domain layer (framework-free).
@@ -20,6 +22,7 @@ data class Candle(
 }
 
 /** Supported chart timeframes. */
+@Serializable
 enum class Timeframe(val label: String, val minutes: Int) {
     M1("1m", 1),
     M5("5m", 5),

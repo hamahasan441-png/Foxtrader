@@ -3020,3 +3020,1554 @@ follow-up once the split is verified; correctness first. This is also a concrete
 argument for Sprint 10's lint gate — with `lint { abortOnError }` the unused
 entries would be surfaced automatically rather than needing a manual pass.
 
+
+---
+
+# Appendix J: Sprint 8.3 — Chart depth from existing engines
+
+This pass continues the `ENHANCEMENT_MASTERPLAN.md` Sprint 8 theme: **wire the
+chart engines that already existed instead of adding new domain inventory**.
+`MarketProfile`, `SupportResistanceDetector`, `FibonacciEngine`, and
+`ConfluenceEngine` all shipped as real code with no production surface.
+
+## What changed
+
+### 1. Four dormant analysis engines now render on the chart
+
+The indicator panel gained four new, **off-by-default** toggles:
+
+- `TPO` → `MarketProfile`
+- `S/R` → `SupportResistanceDetector`
+- `Fib` → `FibonacciEngine`
+- `Confluence` → `ConfluenceEngine`
+
+That matters operationally: each layer is optional, so the chart does not turn
+into an unreadable heatmap the instant the sprint lands. The panel remains the
+single source of truth for chart overlays.
+
+### 2. `ComputeIndicatorsUseCase` now owns the new price-only overlays
+
+Three of the four engines are pure current-series analysis, so they were wired
+through the existing chart overlay use case instead of bolted onto the
+ViewModel:
+
+- `MarketProfile` computes a left-aligned **TPO histogram** with a highlighted
+  POC and value area.
+- `SupportResistanceDetector` computes clustered horizontal **support /
+  resistance zones**.
+- `FibonacciEngine` now powers an **auto-fib retracement grid** derived from the
+  dominant recent swing in the trailing lookback window.
+
+`NOTE` The auto-fib selection deliberately rejects tiny swings (`< 6` bars apart).
+Without that guard, a noisy micro-pullback could seize control of the layer and
+spray meaningless retracement levels over the chart.
+
+### 3. Confluence uses the HTF fetch path that already existed for AI
+
+`ConfluenceEngine` is not a same-series overlay: it needs higher-timeframe
+candles. Rather than create a second HTF fetch path, the ribbon is computed in
+`ChartViewModel.runAiDecision()` from the **same `MtfContextProvider` result the
+AI pipeline already fetches**.
+
+That keeps the repository access single-sourced and avoids a separate class of
+"chart HTF" vs "AI HTF" drift.
+
+A small but important detail: toggling the confluence ribbon on now resets the
+AI hash gate once, so the HTF analysis recomputes immediately even when the
+primary candle series itself has not changed.
+
+### 4. State equality was extended intentionally
+
+`ChartUiState` previously knew nothing about these overlays. The new fields were
+added to both `equals()` and `hashCode()`.
+
+`WARNING` This is not bookkeeping. `MutableStateFlow` conflation depends on
+value equality; if a newly wired overlay is omitted there, toggling it can
+silently fail to emit a new UI state even though the ViewModel did the work.
+
+## Rendering choices worth recording
+
+### Market Profile placement
+
+The TPO profile is drawn on the **left** side of the plot while the existing
+volume profile remains **right-aligned**.
+
+`NOTE` Putting both on the same side would cause the heavier histogram to eat the
+lighter one. Left/right separation makes the distinction legible at a glance:
+**time at price** on the left, **volume at price** on the right.
+
+### Support / resistance as zones, not single lines
+
+`SupportResistanceDetector` returns bounded zones (`upperBound` / `lowerBound`),
+not atomic prices. The chart preserves that by rendering translucent bands plus
+a dashed midline.
+
+`NOTE` Collapsing a zone to a single pixel line would throw away the entire
+purpose of the detector: clustered reaction areas are ranges, not exact ticks.
+
+### Auto-fib is retracement-first, not extension-first
+
+Only retracement levels are auto-rendered. Extensions are mathematically valid
+but visually aggressive; auto-including them would expand the chart's semantic
+scope from "where is the pullback likely to react" to "where are all possible
+targets above and below price" and overwhelm the default view.
+
+This keeps the layer readable and leaves extensions available for manual drawing
+or later expansion.
+
+## Testing
+
+| Suite | Cases | Covers |
+|-------|-------|--------|
+| `ComputeIndicatorsUseCaseTest` (+7) | 7 | TPO gating, S/R gating and non-empty detection on oscillating data, auto-fib gating and bullish swing derivation, expanded all-toggles-off contract |
+| `ChartUiStateTest` (+2) | 2 | `confluence` and `supportResistanceZones` now participate in state equality, preventing silent Flow non-emissions |
+
+## Remaining Sprint 8 backlog
+
+Still not wired from the masterplan:
+
+- `MultiChartManager` → multi-chart layout host
+- Infinite history paging / prepend camera invariants
+- Incremental per-tick analysis path
+
+Those are larger interaction and data-flow changes; this appendix closes the
+**dead-engine chart-layer** portion first.
+
+---
+
+# Appendix K: Sprint 8 — History paging and multi-chart activation
+
+This pass continued the chart-depth work from `ENHANCEMENT_MASTERPLAN.md` in two
+places at once:
+
+1. **Infinite-history groundwork** — the chart can now request and prepend older
+   pages instead of being hard-capped to the initial refresh window.
+2. **`MultiChartManager` activation** — the previously dead layout manager now
+   drives a real comparison surface in the chart screen.
+
+## Part 1 — Paging older history without breaking the camera
+
+### Room stays hot-cache; older pages stay in memory
+
+Sprint 6 deliberately capped the persisted candle cache at 5,000 bars per
+series. Writing every prepended page into Room would have reopened the same
+storage-growth problem under a new name.
+
+So `loadOlderCandles(beforeTimestamp)` returns a **page** with provenance, and
+`ChartViewModel` keeps that page in **memory** (`prependedHistory`) while the
+existing Room Flow continues to own the live/hot range.
+
+`NOTE` This is the compromise that satisfies both sprint goals at once:
+
+- the DB remains bounded,
+- the chart can scroll beyond the initial 500 bars,
+- and provenance is still preserved across the merged series.
+
+### The prepend invariant is explicit now
+
+`ChartViewport.shiftForPrependedBars(prependedCount)` was added for the masterplan's
+"anti-drift across prepend" requirement.
+
+If 500 older bars are inserted at index 0, every candle the trader was looking
+at just moved right by 500 indices. Without shifting `startIndex` by the same
+amount, the camera would jump left into the newly loaded page — the exact bug
+Sprint 8 warned about.
+
+The chart now detects a true prepend (`new first timestamp < previous first
+timestamp`) and applies the shift before the next frame draws.
+
+### Prefetch is left-edge-driven
+
+`CandleChart` requests another page when the viewport approaches the left edge
+(current threshold: 24 bars). While that request is in flight, the chart renders
+an inline **Loading history…** marker in the plot area.
+
+`NOTE` The request is keyed to the current oldest timestamp, so inertial scrolling
+at the left edge does not spam the repository with duplicate page loads.
+
+### Provider support for older pages
+
+The repository now supports older-page fetches for:
+
+- **Binance** — via `endTime`
+- **Bybit** — via `end`
+- **Alpha Vantage** — by refetching and filtering older rows client-side
+- **Sample / unimplemented providers** — via deterministic synthetic backfill
+
+The FastAPI backend path was extended with an optional `before` query parameter
+on the client side as well.
+
+`WARNING` If an older backend deployment ignores `before`, paging on that path
+will degrade honestly into "no older unique rows returned" rather than silently
+jumping the camera or inventing mixed provenance.
+
+## Part 2 — `MultiChartManager` (0 call sites → live comparison monitor)
+
+`MultiChartManager` existed as a singleton domain engine with **zero production
+surface**. This pass wires it into the chart screen through a lightweight
+supplemental monitor rather than replacing the main chart entirely.
+
+### Why supplemental, not full-screen replacement
+
+The primary chart remains the app's richest interactive surface: drawings,
+replay, overlays, AI panel, symbol picker, and now prepend paging all live
+there already.
+
+Replacing it wholesale with 2–4 equal panels in one jump would have coupled
+three risky changes at once: layout, interaction ownership, and camera state.
+
+So the manager now powers a **secondary comparison strip/grid** beneath the main
+chart. That activates the engine today without destabilising the primary trading
+surface.
+
+### Layouts now surfaced in UI
+
+The chart screen gained a `MultiChartToolbar` with:
+
+- `1×1`
+- `1×2`
+- `1×3`
+- `2×2`
+- `LINKED / UNLINKED`
+
+Those map directly onto `MultiChartManager` layouts and panel counts.
+
+### Linked panels use a top-down timeframe ladder
+
+When linked, the manager keeps panel 0 on the current chart's exact
+symbol/timeframe, then fills additional panels with higher-timeframe context:
+for example `M15 → H1 → H4 → D1`.
+
+`NOTE` This is more useful than cloning four identical M15 panels. A multi-chart
+surface exists to compare structure across horizons, not to prove that the same
+series looks the same four times.
+
+When unlinked, the current assignments are simply frozen. That makes linking a
+real mode switch rather than a cosmetic badge.
+
+### Compact panel rendering deliberately stays simple
+
+The supplemental panels render lightweight `CandleChart` instances with symbol,
+timeframe, price, bias, and synthetic badging.
+
+They intentionally do **not** duplicate the full overlay stack of the primary
+chart. Four full-fat charts, each with confluence and every overlay turned on,
+would be the fastest way to erase the performance work from Sprints 8–9 before
+those proof gates even land.
+
+## Testing
+
+| Suite | Cases | Covers |
+|-------|-------|--------|
+| `ChartViewportTest` (+2) | 2 | Prepend anchor preservation and no-op behaviour for non-positive prepend counts |
+| `MultiChartManagerTest` | 7 | Initial state, auto-layout selection, 4-panel cap, removal floor, panel updates, active-panel exclusivity, crosshair sync fan-out |
+
+## What remains for the full Sprint 8 target
+
+Still not complete from the masterplan:
+
+- crosshair synchronisation **rendering** across visible panels (the manager now
+  exists in production, but `CandleChart` still owns its crosshair internally)
+- per-panel manual symbol/timeframe editing in unlinked mode
+- incremental trailing-window analysis instead of full-series recomputation
+
+This appendix closes the biggest structural gap first: the chart can now obtain
+older history without camera drift, and `MultiChartManager` is no longer dead
+inventory.
+
+---
+
+# Appendix L: Sprint 8 — Unlinked multi-chart controls
+
+The first multi-chart pass activated `MultiChartManager`, but in practice it was
+still **half-wired**: the layout existed, linked mode worked, and panels loaded
+real data — yet once the user flipped to `UNLINKED`, the panels had no editing
+surface of their own.
+
+That meant unlinked mode was visually distinct but functionally inert.
+
+## What changed
+
+### 1. Panels now have their own identity in UI state
+
+`MultiChartPanelUiState` gained `isActive`, carried through from
+`MultiChartManager.ChartPanel.isActive`.
+
+`NOTE` This matters because multi-chart layouts stop making sense the moment all
+panels look equally authoritative. An explicit active panel gives the user one
+clear interaction target for future chart-sync and editing behaviour.
+
+### 2. Unlinked panels can now be edited in place
+
+Each supplemental panel now exposes lightweight controls when multi-chart mode is
+`UNLINKED`:
+
+- tap the **timeframe chip** to cycle through `Timeframe.entries`
+- tap the **symbol chip** to cycle through the active watchlist symbols
+- tap **PRIMARY** to snap that panel back to the main chart's current
+  symbol/timeframe
+- tap anywhere on a panel card to mark it as the **active panel**
+
+The main chart remains the richest interactive surface; these controls are
+purposefully compact rather than a second full symbol-picker dialog stack.
+
+### 3. Linked mode still wins on re-entry
+
+When the user switches back from `UNLINKED` to `LINKED`, panel-specific edits are
+not treated as a parallel permanent truth. The manager re-synchronises from the
+main chart again.
+
+`NOTE` This is deliberate. Allowing linked mode to preserve old custom panel
+choices would make the word "linked" meaningless — the UI would claim one
+behaviour while silently doing another.
+
+### 4. Refreshing stays panel-scoped conceptually, even if implementation is simple
+
+Panel symbol/timeframe edits currently call back into `refreshMultiChartPanels()`
+so observers are rebuilt with the new assignments.
+
+`WARNING` This is a consciously simple implementation, not the endpoint. It is
+correct, but not optimal: editing one panel re-establishes all panel observers.
+That is acceptable at 2–4 panels today and much safer than trying to incrementally
+mutate observer graphs without tests.
+
+A future performance pass can narrow this to per-panel observer replacement once
+instrumentation exists for the multi-chart surface.
+
+## Testing
+
+| Suite | Cases | Covers |
+|-------|-------|--------|
+| `MultiChartManagerTest` (+2) | 2 | New panels start inactive; disabling crosshair sync suppresses fan-out entirely |
+
+## Why symbol cycling instead of a modal editor
+
+The chart screen already owns a full watchlist-backed symbol picker for the main
+panel. Duplicating that dialog for every supplemental panel would add modal
+state, focus handling, and screen-density problems before the multi-chart surface
+has even proved its value.
+
+Cycling through watchlist symbols keeps the interaction cheap and deterministic:
+if a symbol is important enough to compare frequently, it should already be in
+the user's watchlist.
+
+---
+
+# Appendix M: Sprint 8 — Crosshair sync and incremental hot-path analysis
+
+This pass closes the next layer of Sprint 8 work after the first multi-chart and
+paging activation:
+
+1. **true timestamp-synchronised crosshair mirroring** between the main chart and
+   supplemental panels,
+2. **panel-local pickers** for unlinked multi-chart editing,
+3. a first **incremental trailing-window computation path** for live updates.
+
+## Crosshair sync: timestamp, not pixel position
+
+The multi-chart manager already modelled sync as `panelId -> timestamp`, which
+turned out to be the correct abstraction once it was wired into the renderer.
+
+`NOTE` Syncing raw X/Y pixels across panels would be wrong for almost every real
+comparison view:
+
+- panels can have different symbols,
+- panels can have different timeframes,
+- and even when timestamps align, price levels do not.
+
+So the synced overlay now mirrors only the parts of a crosshair that are honest
+across heterogeneous charts:
+
+- the **vertical timestamp guide**,
+- the **time label**,
+- the **OHLC readout** for the resolved bar.
+
+The horizontal price line is intentionally *not* mirrored, because a shared Y
+position would falsely suggest a shared price coordinate.
+
+### Source / target behaviour
+
+- When the **main chart** is the source, it keeps its own full internal
+  crosshair and pushes the timestamp outward to every supplemental panel.
+- When a **supplemental panel** is the source, the main chart renders the synced
+  timestamp guide via `ChartUiState.syncedCrosshairTimestamp`, while the source
+  panel keeps its internal crosshair and the other panels draw mirrored guides.
+
+`NOTE` The source panel itself does **not** also receive an external synced
+crosshair. Rendering both would double-draw the same guide and make the active
+source panel look broken.
+
+### UI surface
+
+The multi-chart toolbar now exposes a dedicated **`X-SYNC / X-OFF`** toggle.
+This is separate from `LINKED / UNLINKED`:
+
+- `LINKED` controls whether panels follow the primary symbol/timeframe ladder.
+- `X-SYNC` controls whether timestamp guides mirror at all.
+
+Those are independent concerns and were kept independent in the state model.
+
+## Unlinked panels: direct pickers instead of cycling
+
+The previous pass used symbol/timeframe cycling to keep complexity low. That was
+useful as a bridge, but not a final UX.
+
+Each unlinked panel now opens a compact selection dialog for:
+
+- **symbol** — from the active watchlist,
+- **timeframe** — from `Timeframe.entries`.
+
+This keeps multi-chart editing local to the panel being changed and avoids the
+"tap repeatedly until the value wraps around" problem of cycling controls.
+
+`NOTE` The picker is intentionally constrained to watchlist symbols rather than
+accepting arbitrary free-text instruments. Multi-chart comparisons are a power
+feature layered on top of the user's curated instrument set, not a second symbol
+management system.
+
+## Incremental analysis: first real hot-path split
+
+Before this pass, any live tick or new bar re-ran structure analysis and all
+chart overlays against the **entire merged series**.
+
+That is correct, but it does not scale.
+
+The new path introduces `ProcessedSnapshot` + `ChartComputation` in
+`ChartViewModel` and uses them to detect the safe hot path:
+
+- same symbol/timeframe,
+- same indicator toggles,
+- same oldest timestamp,
+- change is either:
+  - an update to the current last bar, or
+  - an append of exactly one new bar.
+
+When that is true, the chart now recomputes only a trailing
+`INCREMENTAL_ANALYSIS_WINDOW` slice and merges it back into the previous arrays
+and index-based overlays.
+
+### Why there is still a full-pass fallback
+
+Not every overlay is a good candidate for cheap incremental stitching.
+
+The incremental path **falls back to a full pass** when these are enabled:
+
+- `volumeProfile`
+- `marketProfile`
+- `supportResistance`
+- `fibonacci`
+
+`WARNING` This is intentional conservatism, not incomplete wiring. Those layers
+are either distribution-wide or recent-swing-sensitive in ways that are easy to
+make *fast but wrong*. The first requirement is to keep the hot path honest.
+
+### What *is* stitched incrementally
+
+For eligible updates, the ViewModel now merges:
+
+- EMA / Bollinger / SuperTrend / PSAR / VWAP / Ichimoku arrays,
+- structure breaks,
+- order blocks,
+- fair value gaps,
+- liquidity pools,
+- sessions.
+
+All index-based structures are offset back into full-series coordinates before
+being published to UI state.
+
+`NOTE` This is the key architectural shift: the chart no longer treats every
+live tick as "invalidate the world" by default.
+
+## Testing
+
+| Suite | Cases | Covers |
+|-------|-------|--------|
+| `ChartUiStateTest` (+1) | 1 | `syncedCrosshairTimestamp` participates in equality, so synced-guide changes cannot be swallowed by Flow conflation |
+| `MultiChartManagerTest` (+2) | 2 | Crosshair sync can be disabled entirely; newly added panels stay inactive until explicitly selected |
+
+## Remaining gap
+
+The incremental path currently lives in `ChartViewModel`, not yet in the lower
+indicator engines themselves. That is a deliberate staging step:
+
+- first prove that trailing-window recomputation + merge is correct,
+- then, later, move EMA/RSI/ATR-style indicators to truly resumable state.
+
+That keeps the sprint additive and reversible while still cutting the highest-
+frequency full-series work today.
+
+---
+
+# Appendix N: Sprint 8 — Persistent multi-chart layouts and panel management
+
+The previous multi-chart activation made the surface useful inside one running
+session. This pass makes it **durable and configurable**.
+
+## Persistence
+
+Multi-chart state now persists through `AppPreferences` via DataStore as a
+serialised `PersistedMultiChartState`:
+
+- layout
+- linked / unlinked mode
+- crosshair-sync enabled state
+- active panel index
+- panel symbol/timeframe list
+
+`NOTE` The persisted model stores **panel order + active index**, not panel IDs.
+Runtime IDs are ephemeral UI plumbing; restoring them verbatim would add false
+identity coupling across process restarts for no user-facing value.
+
+### Why restore only after preferences are actually loaded
+
+`WARNING` A `StateFlow` with a non-null default would have caused the ViewModel to
+"restore" the default multi-chart layout immediately, mark restoration complete,
+and then ignore the real DataStore-backed state when it arrived moments later.
+
+The preference flow is therefore nullable until the DataStore read completes,
+and the ViewModel restores exactly once from the first **real** persisted value.
+
+## Per-panel add/remove
+
+The multi-chart toolbar now exposes **ADD** while capacity remains below 4.
+Panels can also be removed directly from the panel card.
+
+Two design details matter:
+
+- Removing the **active** panel automatically promotes a remaining panel to
+  active state, so the UI never falls into "no active panel" limbo.
+- `MultiChartManager.removePanel()` still refuses to drop below one panel,
+  preserving the invariant that the manager always has a usable chart target.
+
+## Layout persistence vs auto-layout
+
+`MultiChartManager` still auto-selects sensible layouts when panels are added or
+removed. The persisted layout records the **actual layout after those
+operations**, not the user's last manually tapped chip in isolation.
+
+`NOTE` That means persistence reflects what the user truly ended up with, not an
+abstract preference disconnected from panel count.
+
+## Direct pickers stay panel-local, main chart stays main chart
+
+Unlinked panel symbol/timeframe edits now use direct selection dialogs, but they
+remain local to the panel being edited.
+
+This keeps the main chart's own top-bar symbol picker and timeframe selector as
+primary-chart controls rather than overloading them with ambiguous target
+selection rules.
+
+That constraint is intentional: the app now supports multiple chart targets, so
+"what does this picker currently edit?" must stay obvious.
+
+## Testing
+
+| Suite | Cases | Covers |
+|-------|-------|--------|
+| `MultiChartManagerTest` (+2) | 2 | Active-panel promotion on remove; restore-state rebuilding of layout, panel order and active selection |
+| `TechnicalIndicatorsTest` (+2) | 2 | Incremental EMA and VWAP helpers produce the same values as full recomputation |
+
+
+---
+
+# Appendix O: Sprint 8 — Viewport persistence and custom slot ordering
+
+This pass finishes two gaps left open by the earlier multi-chart activation:
+
+1. **viewport persistence** for the primary chart and each supplemental panel,
+2. **custom persistent slot ordering** rather than only implicit order-by-creation.
+
+## Viewport persistence
+
+A new serialisable `ChartViewportState` captures the chart camera:
+
+- `startIndex`
+- `visibleBars`
+- `priceHigh`
+- `priceLow`
+
+The important architectural choice is that this state is **not** driven through
+`ChartUiState` or `MultiChartUiState` on every gesture frame.
+
+`WARNING` Doing so would have turned every pan, pinch and fling frame into a
+full ViewModel → StateFlow → Compose recomposition loop just to persist camera
+position. The chart already owns its hot-path camera locally; pushing that whole
+stream through app state would have been self-inflicted jank.
+
+Instead:
+
+- `CandleChart` emits viewport snapshots through callbacks,
+- `ChartViewModel` stores the latest primary + per-panel viewport states in
+  plain fields,
+- persistence to DataStore is **debounced**.
+
+That preserves the latest camera for restore without promoting every gesture
+sample into global UI state.
+
+### Why the camera is cleared on symbol/timeframe context changes
+
+A viewport is meaningful only relative to a specific series. Reusing the exact
+same `startIndex` and price bounds after a symbol or timeframe switch would
+often restore a nonsensical camera.
+
+So when a panel's symbol/timeframe changes, its persisted viewport is cleared
+and the chart resets honestly to the newest bars.
+
+## Custom slot ordering
+
+`MultiChartManager` now supports explicit reordering through `movePanel(id,
+ targetIndex)`, and the UI surfaces it via **← / →** controls on each panel.
+
+`NOTE` This is intentionally slot-based rather than identity-based. The user's
+mental model is "put BTC on the left, gold on the right", not "preserve the
+UUID of panel #3 forever".
+
+Because persistence stores the **ordered list** of panel symbol/timeframe/viewports,
+slot order survives process death alongside everything else.
+
+### Why arrows first, not full drag-and-drop
+
+True drag-reorder in a dense multi-chart grid is feasible, but it multiplies
+gesture conflict risk with the chart itself — especially when every panel is
+already a pan/zoom surface.
+
+Arrow-based slot movement delivers the actual user value (custom order,
+persistent order, deterministic order) without creating a second gesture system
+that can fight the chart camera.
+
+The groundwork for custom ordering is now complete; drag can be layered later if
+it still feels worth the complexity.
+
+## Indicator-engine incremental deepening
+
+EMA and VWAP moved first. This pass pushes the same idea deeper:
+
+- `BollingerBands.calculateIncremental(...)`
+- `SuperTrend.calculateIncremental(...)`
+- `IchimokuCloud.calculateIncremental(...)`
+
+`ComputeIndicatorsUseCase.computeIncrementalVisuals(...)` now centralises the
+indicator-engine resume path so `ChartViewModel` does not need to know the math
+for each overlay individually.
+
+That is the important refactor: the ViewModel now asks for an incremental visual
+recompute as a **domain capability**, not as a pile of ad hoc array surgery.
+
+## Testing
+
+| Suite | Cases | Covers |
+|-------|-------|--------|
+| `ChartViewportTest` (+1) | 1 | Snapshot/restore round-trip of camera state |
+| `MultiChartManagerTest` (+2) | 2 | Explicit move-panel ordering and same-index no-op |
+| `NewIndicatorsTest` (+3) | 3 | Incremental Bollinger, SuperTrend and Ichimoku match full recomputation |
+
+
+---
+
+# Appendix P: Sprint 8 — Link-group presets, deeper incremental paths, and panel throttling
+
+This pass finishes the three remaining chart-depth follow-ups from the previous
+iteration:
+
+1. **panel-level link-group presets**,
+2. **broader incremental indicator coverage**,
+3. **multi-chart performance throttling for 2–4 panel mode**.
+
+## 1. Link-group presets
+
+`LINKED / UNLINKED` was too coarse once multi-chart became genuinely useful.
+There are at least three valid trader workflows:
+
+- same symbol, different timeframes
+- different symbols, same timeframe
+- both linked
+
+So multi-chart state now carries two independent group toggles:
+
+- `SYM-LINK / SYM-FREE`
+- `TF-LINK / TF-FREE`
+
+`NOTE` This is intentionally orthogonal to the master linked toggle. `LINKED`
+means "the primary chart is allowed to drive other panels"; the new presets say
+*which dimensions* of that drive are allowed.
+
+Examples:
+
+- `LINKED + SYM-LINK + TF-LINK` → classic top-down ladder on one symbol
+- `LINKED + SYM-FREE + TF-LINK` → cross-symbol same-horizon monitoring
+- `LINKED + SYM-LINK + TF-FREE` → one symbol with manually curated timeframes
+
+The flags are persisted in `PersistedMultiChartState`, so the grouping the user
+sets survives process death.
+
+## 2. Deeper incremental indicator coverage
+
+The first incremental pass moved EMA and VWAP into resumable helpers. This pass
+extends that approach to more of the chart hot path:
+
+- `BollingerBands.calculateIncremental(...)`
+- `SuperTrend.calculateIncremental(...)`
+- `IchimokuCloud.calculateIncremental(...)`
+- `ParabolicSar.calculateIncremental(...)`
+- `TechnicalIndicators.calculateATRIncremental(...)`
+- `TechnicalIndicators.calculateMACDIncremental(...)`
+- `TechnicalIndicators.calculateADXIncremental(...)`
+
+`ComputeIndicatorsUseCase.computeIncrementalVisuals(...)` is now the single
+place that asks those engines to resume from a recompute anchor.
+
+`NOTE` MACD and ADX are not yet chart overlays on the main surface, but giving
+them incremental helpers now keeps the domain layer internally consistent and
+reduces future "main chart is resumable, sub-panels are not" drift.
+
+### Why some overlays still fall back
+
+`volumeProfile` and `marketProfile` still force the full-pass path. They are
+whole-distribution views and the risk of a fast-but-inaccurate incremental merge
+is higher than the benefit right now.
+
+This sprint continues the project rule of **correct first, then faster**.
+
+## 3. Multi-chart throttling and compact rendering
+
+Four simultaneous charts are expensive even when each one is "small".
+
+Three mitigations now land together:
+
+### Compact panel candle windows
+
+Supplemental panels now publish only the newest `PANEL_RENDER_BARS` candles into
+UI state, while bias is computed from a slightly larger `PANEL_BIAS_BARS`
+window.
+
+That means the panel still tells the truth about trend context without forcing a
+small comparison card to render the full hot cache.
+
+### Smaller panel refresh requests
+
+Panel refreshes now request `PANEL_REFRESH_BARS` rather than the primary chart's
+larger default. Comparison cards need *situational context*, not the deepest
+scrollback that the main chart and its prepend paging maintain.
+
+### Duplicate panel-state emissions are suppressed
+
+Each panel now carries a lightweight published fingerprint. If the effective
+compact payload has not changed, the ViewModel skips re-publishing that panel
+state.
+
+`NOTE` This matters because panel cards are downstream of Room Flows and can see
+frequent emissions even when the visible comparison payload has not materially
+changed.
+
+## Crosshair persistence, completed
+
+The prior pass persisted viewport state. This pass also persists the **crosshair
+session source** itself:
+
+- `NONE`
+- `PRIMARY`
+- `PANEL`
+
+plus the panel index when a supplemental chart is the source.
+
+That allows a restored multi-chart session to reconstruct not just "a timestamp
+was synced" but **which side originated it**, preserving the intended mirrored
+state rather than guessing.
+
+## Testing
+
+| Suite | Cases | Covers |
+|-------|-------|--------|
+| `TechnicalIndicatorsTest` (+2) | 2 | Incremental MACD and ATR parity with full recomputation |
+| `NewIndicatorsTest` (+1) | 1 | Incremental Parabolic SAR parity with full recomputation |
+
+Further ViewModel-level integration tests would be ideal once a Java-enabled CI
+loop is available locally; at present the sandbox cannot execute Gradle.
+
+
+---
+
+# Appendix Q: Sprint 8 — Cleanup and testability pass
+
+After the previous feature waves, `ChartViewModel` had become the repo's most
+fragile coordination point: primary chart state, prepend paging, crosshair
+sync, multi-chart persistence, panel refresh policy and incremental render-path
+selection were all living in one file.
+
+This pass did not change the product surface alone; it also made the current
+surface **safer to keep evolving**.
+
+## Refactors that reduce coordination risk
+
+### `resetPrimaryChartContext`
+
+The symbol-change and timeframe-change paths had drifted into near-duplicates.
+Those are exactly the kinds of branches that later regress independently — one
+forgets to clear a viewport, the other forgets to clear synced crosshairs.
+
+That reset logic now lives in one helper:
+
+- clears hot observed candles
+- clears prepend history
+- resets primary viewport persistence
+- clears synced crosshairs
+- resets loading / AI / confluence state consistently
+
+`NOTE` This is the boring kind of refactor that prevents the expensive kind of
+bug.
+
+### `targetPanelContext`
+
+Multi-chart linking now has three dimensions:
+
+- master linked/unlinked mode
+- symbol-link flag
+- timeframe-link flag
+
+Rather than sprinkling that branching across the panel update loop, the ViewModel
+now resolves a panel's intended linked context through a dedicated helper.
+That makes future link-mode changes one-branch work instead of another nest of
+per-panel conditionals.
+
+### Shared drag handlers in `MultiChartSection`
+
+Panel drag-and-drop originally duplicated the same long drop-target resolution
+logic in each layout branch.
+
+That has been collapsed into shared drag callbacks scoped once per render of the
+section. The visible result is unchanged; the maintenance result is substantial:
+there is now one drag-end algorithm instead of three subtly diverging copies.
+
+## Testability additions
+
+A new pure-JVM test suite now covers the persisted multi-chart state contract:
+
+- slot order round-trip
+- link-group flags
+- viewport persistence
+- synced crosshair source / timestamp / source-panel restoration data
+
+This is important because these bugs are expensive to notice manually: the app
+can "work" in one process, yet restore the wrong chart topology after a restart.
+That is exactly the sort of regression a value-object test should catch before a
+human ever sees it.
+
+## Why this cleanup matters now
+
+Sprint 8 has crossed the point where the chart is no longer one screen with one
+camera. It is now:
+
+- a paged primary chart,
+- a persisted multi-chart surface,
+- a synced-crosshair cluster,
+- and a mixed full-pass / incremental compute pipeline.
+
+Without cleanup, every new feature would have landed on a bigger pile of local
+state and one-off flags. The point of this pass is to stop that slope *before*
+Sprint 9's benchmarking and test hardening begin.
+
+
+---
+
+# Appendix R: Sprint 9 start — benchmark and instrumentation foundation
+
+Sprint 9 begins by turning the performance/testing requirements from
+`ENHANCEMENT_MASTERPLAN.md` into actual modules and test entry points.
+
+## What landed
+
+### 1. `:benchmark` module scaffold
+
+A dedicated `:benchmark` module now exists using the Android test plugin and is
+wired to target `:app`.
+
+Initial benchmark journeys:
+
+- **cold startup**
+- **warm startup**
+- **chart scroll frame timing**
+- **chart pinch-zoom frame timing**
+- **baseline profile generation journey**
+
+`NOTE` This is the foundation step for Sprint 9.1 and 9.2. The point of this
+change is to make performance measurable in a repeatable Android test harness,
+not to claim the final numbers yet.
+
+### 2. App-side benchmark build type
+
+`app` now declares a dedicated `benchmark` build type, initialised from
+`release` and signed with the debug key. That gives the benchmark runner a
+non-debuggable target close to real release behavior while still remaining easy
+to install in CI / local automation.
+
+### 3. Instrumentation smoke suite foundation
+
+`app/src/androidTest` previously contained only migration tests. It now also has
+basic UI smoke coverage for the real app shell:
+
+- bottom navigation presence
+- navigation between core destinations
+- chart screen primary controls
+
+This is intentionally small and stable: it proves the app launches and the main
+surfaces are reachable without trying to front-load every screen assertion in
+one pass.
+
+### 4. Profile installer runtime dependency
+
+The app now includes `androidx.profileinstaller`, which is the runtime piece
+needed for baseline profiles to matter once generated.
+
+## Why this order
+
+The masterplan's Sprint 9 asks for both benchmarking and instrumentation. Those
+work best as a pair:
+
+- instrumentation establishes that core journeys still work,
+- benchmark journeys measure how fast those same flows run.
+
+Shipping one without the other gives only half the proof.
+
+## Known boundary
+
+This is a **start-of-sprint** foundation, not the complete Sprint 9 finish line.
+Still remaining for the sprint:
+
+- actual baseline profile capture/commit workflow
+- stronger instrumentation coverage per screen
+- screenshot/visual regression layer
+- Compose stability metrics and enforcement
+- memory/leak audit
+
+
+---
+
+# Appendix S: Sprint 9 continuation — navigation smoke and benchmark journeys
+
+This pass extends the Sprint 9 foundation from Appendix R with the next layer
+of real journeys.
+
+## Additional instrumentation smoke coverage
+
+The first instrumentation pass proved the app launches and a few primary
+surfaces are reachable. This continuation widens that into secondary navigation
+coverage:
+
+- **Strategies** screen opens and exposes its rescan action
+- **Backtesting Lab** opens and exposes the main run action
+- **Alerts inbox** opens from the chart top bar entry point
+
+`NOTE` These are still smoke tests, intentionally. Sprint 9's first job is to
+prove the navigation graph and primary user journeys survive refactors. Detailed
+screen-behavior assertions can now layer on top of a working instrumentation
+harness instead of being invented in a vacuum.
+
+## Additional benchmark journey
+
+A new macrobenchmark path now measures **bottom-navigation transitions** across
+real destinations:
+
+- Chart → Scanner
+- Scanner → Strategies
+- Strategies → Lab
+- Lab → Chart
+
+This complements the startup and chart-interaction journeys by covering app
+shell performance rather than only the render hot path.
+
+## Why this matters
+
+A benchmark suite that only measures startup and one chart gesture would still
+miss a common class of regressions: navigation recomposition cost, destination
+initialisation overhead, and top-level state restoration jank.
+
+Adding a navigation benchmark turns Sprint 9 from "chart perf only" into
+**whole-app interactive perf proof**.
+
+
+---
+
+# Appendix T: Sprint 9 continuation — stability groundwork and broader journey coverage
+
+This pass continues Sprint 9 in three practical ways:
+
+1. broadens instrumentation smoke coverage,
+2. refines the baseline-profile and navigation benchmark journeys,
+3. starts real Compose-stability groundwork through immutable UI collections.
+
+## Wider smoke coverage
+
+A new `JournalPortfolioSmokeTest` now proves:
+
+- the Journal destination opens,
+- its empty state renders,
+- the Portfolio route is reachable from the Journal top-bar action.
+
+This complements the earlier Chart / Scanner / Strategies / Lab / Alerts smoke
+paths and makes the app-shell navigation proof meaningfully broader.
+
+## Baseline-profile journey refinement
+
+The baseline-profile collection journey now exercises more of the app's hot
+navigation shell:
+
+- Settings
+- Journal
+- Portfolio
+- Chart
+- Alerts
+
+`NOTE` A baseline profile should reflect the flows users actually take after
+launch, not just app start plus one tap. Expanding the journey makes the profile
+more representative of FoxTrader's real shell behavior.
+
+The navigation benchmark was widened similarly so whole-app transitions are part
+of the measured path, not only chart-only motion.
+
+## Compose stability groundwork
+
+Sprint 9 calls for immutable UI-facing collections. Rather than flipping every
+screen state object at once, this pass starts with the surfaces already touched
+most heavily by the new chart workspace and the navigation smoke suite:
+
+- `MultiChartUiState.panels`
+- `AlertsUiState.alerts`
+- `ScannerUiState.results`
+- `JournalUiState.entries`
+- `ChartUiState.availableSymbols`
+
+These now use persistent immutable collections in UI state.
+
+`NOTE` This is an intentionally staged adoption. The chart hot path still has
+other mutable-list fields (e.g. structure and SMC overlays) that should be moved
+later, but starting with the highest-churn state objects reduces recomposition
+ambiguity without turning the sprint into a giant type-migration.
+
+## Why this matters before deeper compiler enforcement
+
+Immutable UI collections are the low-risk precursor to stability metrics,
+strong-skipping checks, and compiler-enforced hot-path hygiene. Doing this first
+means later enforcement can reveal *real* unstable edges rather than simply
+failing on obvious mutable collections everywhere.
+
+
+---
+
+# Appendix U: Sprint 9 continuation — broader surface smoke tests and shell benchmarks
+
+This pass pushes the Sprint 9 foundation wider across the app shell.
+
+## Additional instrumentation smoke coverage
+
+A new `FeatureSurfaceSmokeTest` now checks two more classes of UI contract:
+
+- the **Scanner** exposes its strategy and LIST/HEATMAP mode controls,
+- **Settings** exposes its core configuration sections.
+
+`NOTE` These are still intentionally smoke-level assertions. The goal is to make
+navigation regressions and missing-surface failures obvious in CI without tying
+the suite to unstable layout details.
+
+## Additional benchmark journey
+
+A new `PortfolioAlertsBenchmark` measures another realistic shell flow:
+
+- Chart → Journal
+- Journal → Portfolio
+- back to Chart
+- Chart → Alerts inbox
+
+That matters because Sprint 9 is about proving whole-app interaction quality,
+not only startup and chart-only gestures. Navigation to secondary analytical
+surfaces can still regress frame timing even if the chart itself stays fast.
+
+## Current Sprint 9 footing
+
+At this point the branch now has:
+
+- macrobenchmark scaffolding,
+- startup + chart + navigation + portfolio/alerts journeys,
+- baseline-profile collection scaffolding,
+- multi-screen instrumentation smoke tests,
+- early immutable collection adoption for UI state.
+
+The remaining bigger Sprint 9 items are now mostly about **deepening** the
+coverage rather than inventing the foundation.
+
+
+---
+
+# Appendix V: Sprint 9 continuation — deeper surface assertions and stability groundwork
+
+This pass continues Sprint 9 in two directions at once:
+
+1. broader instrumentation and benchmark journey coverage,
+2. more explicit Compose-stability groundwork in app state and build config.
+
+## More surface assertions
+
+A new `AnalyticsSurfaceSmokeTest` now proves two more analytical surfaces render
+their primary controls:
+
+- **Alerts inbox** shows its empty state when there are no alerts.
+- **Backtesting Lab** shows configuration controls and its main run action.
+
+These are still smoke tests, but they now cover the app's secondary analytical
+flows rather than only navigation shell presence.
+
+## More benchmark coverage
+
+`ScannerSettingsBenchmark` adds another shell journey across a high-toggle area:
+
+- open Scanner
+- switch HEATMAP / LIST
+- open Settings
+- trigger Save Settings
+
+This broadens Sprint 9's measurement from startup and navigation into
+configuration-heavy flows as well.
+
+## Compose stability groundwork, expanded
+
+The build now writes Compose compiler **reports** and **metrics** and points the
+compiler at a shared `compose-stability.conf` file.
+
+`NOTE` This is not yet full CI enforcement, but it establishes the plumbing so
+stability can be inspected and tightened incrementally rather than introduced as
+one risky all-or-nothing gate.
+
+### Additional immutable UI state adoption
+
+This pass extends immutable UI-facing collections into more screen states:
+
+- `StrategiesUiState.signals`
+- `BacktestLabUiState.availableSymbols`
+- `PortfolioUiState.correlationClusters`
+
+Together with the earlier conversions, this means several of the app's most
+visited screen states now advertise immutable collections directly to Compose.
+
+That reduces accidental recomposition ambiguity and is the right precursor to
+stronger stability checks later in Sprint 9.
+
+
+---
+
+# Appendix W: Sprint 9 continuation — interaction smoke, workspace benchmark, and memory groundwork
+
+This pass continues Sprint 9 in three focused ways:
+
+1. adds interaction-level smoke tests on top of the earlier surface-presence tests,
+2. benchmarks the new multi-chart workspace controls directly,
+3. lays the first runtime groundwork for Sprint 9.5's memory / leak audit.
+
+## Interaction smoke tests
+
+A new `FeatureInteractionSmokeTest` now checks two simple but meaningful user
+interactions rather than only route reachability:
+
+- **Scanner** can switch between `LIST` and `HEATMAP` mode.
+- **Settings** can trigger the save action and surface the saved state.
+
+`NOTE` These are still intentionally conservative. The point is to prove that the
+primary interaction widgets stay wired after refactors, not to encode fragile
+pixel- or timing-sensitive behavior in instrumentation.
+
+## Multi-chart workspace benchmark
+
+`ChartWorkspaceBenchmark` adds a benchmark journey for the Sprint 8 workspace
+itself:
+
+- add a panel,
+- switch to split layout,
+- toggle linked/unlinked state,
+- toggle symbol/timeframe link groups,
+- toggle crosshair sync.
+
+That matters because the workspace is now part of the chart's hot shell and can
+regress independently of raw pan/zoom rendering. Measuring only chart scroll
+would miss that entire class of interaction cost.
+
+## Memory groundwork
+
+`LeakCanary` is now wired as a **debug-only** dependency.
+
+`NOTE` This does not by itself complete Sprint 9.5, but it turns future leak
+inspection from "we should remember to add a tool later" into a real debug-time
+feedback path already present in the build.
+
+This is the correct order: instrumentation and benchmark foundations first,
+then leak/audit tooling, then deeper allocation cleanup once the measurement
+surface exists.
+
+
+---
+
+# Appendix X: Sprint 9 continuation — chart workspace smoke and hot-path allocation cleanup
+
+This pass keeps Sprint 9 moving in two small but useful directions:
+
+1. one more smoke assertion over the new chart workspace itself,
+2. a first pass at reducing avoidable draw-path allocations in the chart layers.
+
+## Chart workspace smoke coverage
+
+`ChartWorkspaceSmokeTest` now proves the multi-chart toolbar can switch the
+primary chart into split-workspace mode and render the expected workspace
+controls (`DRAG`, `SYM-LINK`, `TF-LINK`).
+
+That matters because the workspace is now one of the app's most stateful UI
+surfaces and deserves at least one instrumentation-level existence check of its
+own, not only benchmark journeys.
+
+## Hot-path allocation cleanup
+
+Two chart-layer cleanups landed:
+
+- `ChartStructureLayer` no longer allocates a new `Path` per structure-break
+  marker; the diamond is drawn with lines instead.
+- dash `PathEffect`s used by structure/live-price/crosshair layers are now
+  hoisted as file-level constants instead of recreated during every draw call.
+
+`NOTE` These are modest changes, but they are exactly the kind of boring,
+repeatable cleanup Sprint 9.5 exists to accumulate: fewer transient objects in
+high-frequency draw code means less GC pressure and less risk of frame-time
+spikes during heavy interaction.
+
+
+---
+
+# Appendix Y: Sprint 9 continuation — profile journey refinement and renderer allocation cleanup
+
+This pass continues Sprint 9 in two targeted areas:
+
+1. expanding the baseline-profile journey so it better reflects the chart shell's
+   real hot paths,
+2. reducing a few more avoidable allocations in chart rendering helpers.
+
+## Baseline-profile journey refinement
+
+The baseline-profile collector now visits not only the app's top-level screen
+shell but also the **chart workspace controls** themselves:
+
+- switch to split layout,
+- add a panel,
+- toggle linked state,
+- toggle crosshair sync,
+- then open the Alerts inbox.
+
+`NOTE` This matters because the chart workspace is now part of the app's core
+interactive shell. If the profile only covers startup and plain tab switches, it
+misses code paths the app now executes in one of its most performance-sensitive
+surfaces.
+
+## More renderer allocation cleanup
+
+Further hot-path chart cleanup landed in three files:
+
+- `DrawingRenderer` now hoists preview colors and dash effects.
+- `SmcRenderer` now hoists repeated dash effects used for FVG, liquidity and
+  value-area boundaries.
+- `ChartAdvancedAnalysisLayers` now hoists repeated dashes and parsed ARGB label
+  colors for support/resistance and auto-fib overlays.
+
+These are small individually, but together they keep the chart moving toward the
+Sprint 9 memory/perf requirement: fewer transient objects created during draw
+operations means less GC pressure during continuous interaction.
+
+## Extra smoke coverage
+
+A `SettingsFlowSmokeTest` now verifies the Settings flow can reach the Data
+Provider section and complete the save action, which broadens confidence around
+one of the app's highest-change configuration surfaces.
+
+
+---
+
+# Appendix Z: Sprint 9 wrap-up — stable chart state and history-merge allocation cleanup
+
+This pass closes another meaningful Sprint 9 gap in the chart hot path:
+
+1. **more immutable / Compose-stable chart state**, and
+2. **less avoidable allocation when older history is present**.
+
+## Stable chart state without copying the whole series every tick
+
+The main chart state previously had two Compose-stability weak points:
+
+- the primary `candles` payload was exposed as a raw `List<Candle>`,
+- overlay arrays (`DoubleArray` / `IntArray`) were stored directly in
+  `ChartUiState`, which forced a custom `equals` implementation and still left
+  the hot state awkward for Compose stability analysis.
+
+This pass introduces small immutable-by-contract wrappers in
+`feature/chart/presentation/ChartStableCollections.kt`:
+
+- `CandleSeries`
+- `ImmutableDoubleSeries`
+- `ImmutableIntSeries`
+
+That lets `ChartUiState` become an `@Immutable` data class again while avoiding
+an expensive full copy of thousands of candles into a persistent collection on
+every market update.
+
+`NOTE` This is an important Sprint 9 trade-off improvement: the UI now gets a
+much stronger stability contract **without** paying the obvious allocation cost
+that a naive `toPersistentList()` on every tick would create.
+
+## History paging merge cleanup
+
+When older pages were present, the chart used to rebuild the visible series via
+`prependedHistory + currentObservedCandles`, then `distinctBy`, then `sortedBy`.
+That is correct but unnecessarily allocation-heavy in a path that can run often.
+
+This pass changes the merge model:
+
+- prepended history keeps a snapshot updated only when paging changes,
+- live/Room updates rebuild the visible series with a lightweight concatenated
+  view instead of sorting/deduplicating every time,
+- duplicate detection during `loadOlderHistory()` now uses a timestamp set
+  rather than nested scans.
+
+Because prepended pages are only accepted when they are strictly older than the
+current earliest bar, the chart can preserve ordering without a full re-sort on
+normal updates.
+
+## Draw-path cleanup continuation
+
+`ChartAutoScale.kt` also drops a few `filter { ... }.forEach { ... }` chains in
+favor of direct loops over order blocks, gaps, liquidity pools and sessions.
+
+Individually these are small, but they run in a path the viewport touches often
+while panning / zooming, so they are exactly the kind of "boring but real"
+allocation cleanup Sprint 9.5 is supposed to accumulate.
+
+## Stability config refinement
+
+`compose-stability.conf` now explicitly marks the FoxTrader domain model and the
+chart-analysis result packages used by the hot chart state, which helps the
+Compose compiler treat the new immutable chart surface more honestly.
+
+## Test coverage
+
+`ChartUiStateTest` now asserts that array-backed overlay wrappers compare by
+content, preserving correct `StateFlow` emission semantics after the state
+surface moved away from raw arrays.
+
+---
+
+# Appendix AA: Sprint 10 start — chart string externalization and accessibility cleanup
+
+This pass starts Sprint 10 on a practical front that is both user-visible and
+low-risk for the green build requirement: **chart-surface string
+externalization**.
+
+## What changed
+
+The chart feature had accumulated a large number of hardcoded UI strings across:
+
+- `ChartScreen.kt`
+- `MultiChartSection.kt`
+- `IndicatorPanel.kt`
+- `SymbolPickerDialog.kt`
+- `AiDecisionPanel.kt`
+- `CandleChart.kt` (history-loading label)
+
+Those strings now move into `app/src/main/res/values/strings.xml`, including:
+
+- chart toolbar and accessibility labels,
+- live-feed state labels,
+- simulated-data warning copy,
+- multi-chart workspace controls,
+- indicator chip labels,
+- watchlist dialog copy,
+- AI badge abbreviations and confluence labels.
+
+## Why this matters
+
+Sprint 10.3 is not just a localization exercise. It is also an accessibility and
+maintenance exercise:
+
+- content descriptions are now easier to audit in one place,
+- UI copy used by tests and product surfaces is centralized,
+- future localization work no longer has to grep through composables for basic
+  chart-shell strings,
+- chart workspace controls added during Sprints 8-9 stop growing the hardcoded
+  string footprint.
+
+## Accessibility cleanup
+
+While moving strings, the chart shell also tightened several semantics labels so
+that important interactive controls are no longer relying on inline literals:
+
+- symbol picker entry point,
+- live-feed toggle state descriptions,
+- timeframe selector descriptions,
+- simulated-data warning description,
+- multi-chart monitor / drag handle descriptions.
+
+## Scope note
+
+This does **not** complete Sprint 10.3 for the whole app yet. It deliberately
+starts with the chart because that surface has received the most change during
+Sprints 8 and 9 and was therefore the highest-yield target for reducing
+hardcoded-string regression risk.
+
+The remaining Sprint 10 work is still:
+
+- detekt / ktlint / lint gate foundation,
+- jacoco coverage gate,
+- broader app-wide string externalization.
+
+---
+
+# Appendix AB: Sprint 10 continuation — chart-focused static analysis foundation
+
+This pass starts the other half of Sprint 10 by introducing a **real static
+analysis foundation** for the chart stack while keeping scope narrow enough to
+land safely under the existing green-build requirement.
+
+## What landed
+
+### Detekt foundation
+
+The app module now applies `detekt` and points it at the code that changed most
+heavily in Sprints 8-9:
+
+- `feature/chart/**`
+- `domain/usecase/chart/**`
+- `domain/usecase/indicators/**`
+- `domain/usecase/preferences/**`
+- matching unit-test packages
+
+A repo config file now lives at:
+
+- `config/detekt/detekt.yml`
+
+The config intentionally starts with a **pragmatic baseline-by-configuration**:
+complexity thresholds that would immediately fail on known-large chart files are
+turned off for now, while bug- and naming-oriented checks remain available.
+An initial small `maxIssues` allowance is also used as a temporary burn-down
+budget so the repo can begin enforcing the task before every historical chart
+finding is fixed in one giant pass.
+
+That is consistent with the masterplan intent: establish the gate first, then
+ratchet stricter rules as the large files are split and cleaned further.
+
+### Ktlint foundation
+
+The app module now also applies `ktlint`, scoped to the chart-centric **main**
+source packages above for the initial rollout.
+
+A root `.editorconfig` now defines the initial repository formatting contract.
+Because the chart stack already contains some intentionally dense Compose and
+render-path code, a few low-signal wrapping/import-order rules are disabled for
+this first rollout so the gate focuses on useful hygiene rather than mass churn.
+
+## CI integration without workflow edits
+
+The current CI job still runs `assembleDebug` and `testDebugUnitTest` rather
+than a dedicated `check` workflow job.
+
+To make the new checks matter **without** touching GitHub workflow files, the
+app build now registers a `chartStaticAnalysis` verification task and wires it
+into both:
+
+- `assembleDebug`
+- `testDebugUnitTest`
+
+For this pass, that mandatory gate is **detekt-backed** so the existing PR build
+starts enforcing chart static analysis immediately.
+
+A separate `chartFormatAudit` task now carries the chart-scoped `ktlint` rollout
+as non-blocking groundwork while historical formatting drift is burned down.
+
+## Android lint groundwork
+
+`app/build.gradle.kts` now also enables a stricter Android lint posture:
+
+- `abortOnError = true`
+- SARIF / HTML / XML report generation enabled
+
+`NOTE` Lint is groundwork here, not the fully ratcheted final gate yet. The
+highest-confidence enforcement added in this pass is detekt + ktlint on the
+chart stack, while broader app-wide lint hardening can continue incrementally.
+
+## Why this is the right slice
+
+Trying to flip repo-wide static analysis to maximum strictness in one pass would
+be risky, especially without local Java in the sandbox.
+
+By focusing first on the chart stack — the area with the biggest recent volume
+of performance and state-management work — the repo gets:
+
+- real automated hygiene checks on the highest-change surface,
+- CI-enforced protection against fresh chart-analysis regressions,
+- a chart-format audit path ready to be ratcheted into a hard gate,
+- a config foundation that can be expanded outward across the app in later
+  Sprint 10 follow-ups.
+
+---
+
+# Appendix AC: Sprint 10 continuation — focused Jacoco coverage gate
+
+This pass starts Sprint 10.2 by adding a **real unit-test coverage gate** to the
+existing Android build without requiring any GitHub workflow edits.
+
+## What landed
+
+The app module now applies the built-in `jacoco` plugin and defines a focused
+coverage slice around the chart and indicator work that changed most heavily in
+Sprints 8-9.
+
+Two tasks were added:
+
+- `jacocoChartCoverageReport`
+- `jacocoChartCoverageVerification`
+
+The verification task currently targets a deliberately scoped set of classes,
+including:
+
+- `ComputeIndicatorsUseCase`
+- `MultiChartManager`
+- chart indicator engines (`TechnicalIndicators`, `BollingerBands`,
+  `IchimokuCloud`, `ParabolicSar`, `SuperTrend`)
+- `ChartUiState`
+- `ChartStableCollections`
+- `ChartViewport`
+- `ChartPerformanceMonitor`
+
+## Why the scope is focused
+
+The masterplan calls for a coverage gate, but rolling out a whole-app threshold
+in one pass would be high-risk, especially with no local JDK in the sandbox.
+
+This focused gate is the safer, higher-signal first step:
+
+- it covers the chart/performance code that changed most,
+- it uses existing unit-test depth already present in those packages,
+- it creates a real enforcement path that can be widened later.
+
+## CI enforcement
+
+`testDebugUnitTest` now finalizes into both the coverage report and the
+verification task, so the existing PR workflow enforces the coverage slice
+without any workflow-file changes.
+
+The initial threshold is intentionally a **starter floor** rather than an
+aggressive final target. The important thing in this pass is that coverage is no
+longer only informational — it now has a gate that can be ratcheted upward as
+Sprint 10 continues.
+
+## Reporting
+
+The report task emits XML and HTML reports under the app build directory so the
+coverage slice is inspectable, not just pass/fail.
+
+Combined with the earlier static-analysis work, the repo now has the beginning
+of all four Sprint 10 guardrails in place:
+
+- string externalization groundwork,
+- chart-focused detekt gate,
+- ktlint audit groundwork,
+- chart-focused Jacoco verification.

@@ -102,6 +102,7 @@ private val FVG_BULLISH_COLOR = Color(0x2000C873)
 private val FVG_BEARISH_COLOR = Color(0x20E8364F)
 private val FVG_BULLISH_BORDER = Color(0x5000C873)
 private val FVG_BEARISH_BORDER = Color(0x50E8364F)
+private val FvgDash = PathEffect.dashPathEffect(floatArrayOf(4f, 3f))
 
 /**
  * Draw Fair Value Gaps as semi-transparent zones.
@@ -148,14 +149,14 @@ fun DrawScope.drawFairValueGaps(
             start = Offset(x1.coerceAtLeast(0f), yHigh),
             end = Offset(x2, yHigh),
             strokeWidth = 0.8f,
-            pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 3f)),
+            pathEffect = FvgDash,
         )
         drawLine(
             color = borderColor,
             start = Offset(x1.coerceAtLeast(0f), yLow),
             end = Offset(x2, yLow),
             strokeWidth = 0.8f,
-            pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 3f)),
+            pathEffect = FvgDash,
         )
     }
 }
@@ -167,6 +168,7 @@ fun DrawScope.drawFairValueGaps(
 private val LIQ_BUY_COLOR = Color(0xCC3B8DF0)   // Blue (buy-side = stops above)
 private val LIQ_SELL_COLOR = Color(0xCCE6A030)   // Orange (sell-side = stops below)
 private val LIQ_SWEPT_ALPHA = 0.3f
+private val LiquidityDash = PathEffect.dashPathEffect(floatArrayOf(6f, 4f))
 
 /**
  * Draw liquidity pools as dashed horizontal lines with dots at touches.
@@ -202,7 +204,7 @@ fun DrawScope.drawLiquidityPools(
             start = Offset(x1, y),
             end = Offset(x2, y),
             strokeWidth = 1.2f,
-            pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 4f)),
+            pathEffect = LiquidityDash,
         )
 
         // Small circles at touch points (simulated: at start and end)
@@ -261,6 +263,7 @@ fun DrawScope.drawSessionBackgrounds(
 private val VP_BUY_COLOR = Color(0x6600C873)
 private val VP_SELL_COLOR = Color(0x66E8364F)
 private val VP_POC_COLOR = Color(0xCCD4A84E)
+private val ValueAreaDash = PathEffect.dashPathEffect(floatArrayOf(4f, 3f))
 
 /**
  * Draw volume profile as a horizontal histogram on the right side of the chart.
@@ -327,13 +330,13 @@ fun DrawScope.drawVolumeProfile(
     if (vahY in 0f..ch) {
         drawLine(
             color = vaColor, start = Offset(cw * 0.7f, vahY), end = Offset(cw, vahY),
-            strokeWidth = 0.8f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 3f)),
+            strokeWidth = 0.8f, pathEffect = ValueAreaDash,
         )
     }
     if (valY in 0f..ch) {
         drawLine(
             color = vaColor, start = Offset(cw * 0.7f, valY), end = Offset(cw, valY),
-            strokeWidth = 0.8f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 3f)),
+            strokeWidth = 0.8f, pathEffect = ValueAreaDash,
         )
     }
 }

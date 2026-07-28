@@ -13,11 +13,49 @@ import kotlin.random.Random
 object SampleData {
 
     fun generate(symbol: String, timeframe: Timeframe, count: Int): List<Candle> {
-        val rng = Random(symbol.hashCode().toLong())
+        val stepMs = timeframe.minutes * 60_000L
+        val baseTime = System.currentTimeMillis() - count * stepMs
+        return generateAnchored(
+            symbol = symbol,
+            timeframe = timeframe,
+            count = count,
+            startTimestamp = baseTime,
+            seed = symbol.hashCode().toLong(),
+        )
+    }
+
+    /**
+     * Generate a synthetic page that ends strictly before [beforeTimestamp].
+     * Used only for explicit SAMPLE mode / already-synthetic histories.
+     */
+    fun generateEndingBefore(
+        symbol: String,
+        timeframe: Timeframe,
+        count: Int,
+        beforeTimestamp: Long,
+    ): List<Candle> {
+        val stepMs = timeframe.minutes * 60_000L
+        val startTimestamp = beforeTimestamp - count * stepMs
+        return generateAnchored(
+            symbol = symbol,
+            timeframe = timeframe,
+            count = count,
+            startTimestamp = startTimestamp,
+            seed = 31L * symbol.hashCode() + beforeTimestamp / stepMs,
+        ).filter { it.timestamp < beforeTimestamp }
+    }
+
+    private fun generateAnchored(
+        symbol: String,
+        timeframe: Timeframe,
+        count: Int,
+        startTimestamp: Long,
+        seed: Long,
+    ): List<Candle> {
+        val rng = Random(seed)
         val candles = ArrayList<Candle>(count)
         var price = seedPrice(symbol)
         val stepMs = timeframe.minutes * 60_000L
-        val baseTime = System.currentTimeMillis() - count * stepMs
 
         for (i in 0 until count) {
             val volatility = price * 0.0008
@@ -28,7 +66,7 @@ object SampleData {
             val high = maxOf(open, close) + wick
             val low = minOf(open, close) - wick
             val volume = rng.nextDouble() * 800 + 200
-            candles += Candle(baseTime + i * stepMs, open, high, low, close, abs(volume))
+            candles += Candle(startTimestamp + i * stepMs, open, high, low, close, abs(volume))
             price = close
         }
         return candles

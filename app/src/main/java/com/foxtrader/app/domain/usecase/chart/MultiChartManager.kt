@@ -1,6 +1,7 @@
 package com.foxtrader.app.domain.usecase.chart
 
 import com.foxtrader.app.domain.model.Timeframe
+import kotlinx.serialization.Serializable
 import javax.inject.Inject
 import javax.inject.Singleton
 import java.util.UUID
@@ -42,6 +43,7 @@ class MultiChartManager @Inject constructor() {
             id = UUID.randomUUID().toString(),
             symbol = symbol,
             timeframe = timeframe,
+            isActive = false,
         )
         panels.add(panel)
         autoLayout()
@@ -50,9 +52,16 @@ class MultiChartManager @Inject constructor() {
 
     fun removePanel(id: String): Boolean {
         if (panels.size <= 1) return false // Must keep at least one
-        val removed = panels.removeAll { it.id == id }
+        val removedIndex = panels.indexOfFirst { it.id == id }
+        if (removedIndex < 0) return false
+        val removedWasActive = panels[removedIndex].isActive
+        panels.removeAt(removedIndex)
+        if (removedWasActive && panels.none { it.isActive }) {
+            val nextActive = removedIndex.coerceAtMost(panels.lastIndex)
+            panels[nextActive] = panels[nextActive].copy(isActive = true)
+        }
         autoLayout()
-        return removed
+        return true
     }
 
     fun updatePanel(id: String, symbol: String? = null, timeframe: Timeframe? = null) {
@@ -64,6 +73,16 @@ class MultiChartManager @Inject constructor() {
                 timeframe = timeframe ?: panel.timeframe,
             )
         }
+    }
+
+    fun movePanel(id: String, targetIndex: Int): Boolean {
+        val fromIndex = panels.indexOfFirst { it.id == id }
+        if (fromIndex < 0) return false
+        val clampedTarget = targetIndex.coerceIn(0, panels.lastIndex)
+        if (fromIndex == clampedTarget) return false
+        val panel = panels.removeAt(fromIndex)
+        panels.add(clampedTarget, panel)
+        return true
     }
 
     fun getPanels(): List<ChartPanel> = panels.toList()
@@ -85,6 +104,33 @@ class MultiChartManager @Inject constructor() {
     }
 
     fun getLayout(): ChartLayout = layout
+
+    fun setCrosshairSync(enabled: Boolean) {
+        syncCrosshair = enabled
+    }
+
+    fun restoreState(
+        layout: ChartLayout,
+        crosshairSync: Boolean,
+        panels: List<ChartPanelSeed>,
+        activePanelIndex: Int = 0,
+    ) {
+        val seeds = panels.ifEmpty { listOf(ChartPanelSeed("EURUSD", Timeframe.M15)) }.take(4)
+        this.layout = layout
+        this.syncCrosshair = crosshairSync
+        this.panels.clear()
+        seeds.forEachIndexed { index, seed ->
+            this.panels += ChartPanel(
+                id = UUID.randomUUID().toString(),
+                symbol = seed.symbol,
+                timeframe = seed.timeframe,
+                isActive = index == activePanelIndex.coerceIn(0, seeds.lastIndex),
+            )
+        }
+        if (this.panels.none { it.isActive }) {
+            this.panels[0] = this.panels[0].copy(isActive = true)
+        }
+    }
 
     fun cycleLayout() {
         val layouts = ChartLayout.entries
@@ -131,9 +177,15 @@ data class ChartPanel(
     val isActive: Boolean = true,
 )
 
+data class ChartPanelSeed(
+    val symbol: String,
+    val timeframe: Timeframe,
+)
+
 /**
  * Multi-chart layout presets.
  */
+@Serializable
 enum class ChartLayout(val columns: Int, val rows: Int) {
     SINGLE(1, 1),
     HORIZONTAL_SPLIT(2, 1),

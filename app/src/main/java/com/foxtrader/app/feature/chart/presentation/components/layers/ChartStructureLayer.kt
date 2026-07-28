@@ -21,9 +21,6 @@ import com.foxtrader.app.ui.theme.FoxNeutral10
 import com.foxtrader.app.ui.theme.FoxNeutral20
 import com.foxtrader.app.ui.theme.FoxNeutral5
 import com.foxtrader.app.ui.theme.FoxNeutral60
-import java.util.Locale
-import kotlin.math.abs
-import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 
@@ -33,6 +30,13 @@ import kotlin.math.min
 // than `private` so the composable can call them across files; they remain
 // module-private. Pure DrawScope extensions - no Compose state - which is
 // what keeps them cheap enough for the 120fps budget.
+
+private val StructureDash = PathEffect.dashPathEffect(floatArrayOf(4f, 3f))
+private val LivePriceDash = PathEffect.dashPathEffect(floatArrayOf(8f, 6f))
+private val StructureBullishLabelArgb = android.graphics.Color.parseColor("#4CAF50")
+private val StructureBearishLabelArgb = android.graphics.Color.parseColor("#EF5350")
+private const val DiamondHalfHeight = 5f
+private const val DiamondHalfWidth = 4f
 
 /** BOS/CHOCH market structure break annotations. */
 internal fun DrawScope.drawStructureLayer(
@@ -64,18 +68,14 @@ internal fun DrawScope.drawStructureLayer(
             start = Offset(x - 40f, y),
             end = Offset(x + 40f, y),
             strokeWidth = 1f,
-            pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 3f)),
+            pathEffect = StructureDash,
         )
 
-        // Small diamond marker
-        val diamond = androidx.compose.ui.graphics.Path().apply {
-            moveTo(x, y - 5f)
-            lineTo(x + 4f, y)
-            lineTo(x, y + 5f)
-            lineTo(x - 4f, y)
-            close()
-        }
-        drawPath(diamond, color = color)
+        // Small diamond marker without per-frame Path allocation.
+        drawLine(color, Offset(x, y - DiamondHalfHeight), Offset(x + DiamondHalfWidth, y), strokeWidth = 1.5f)
+        drawLine(color, Offset(x + DiamondHalfWidth, y), Offset(x, y + DiamondHalfHeight), strokeWidth = 1.5f)
+        drawLine(color, Offset(x, y + DiamondHalfHeight), Offset(x - DiamondHalfWidth, y), strokeWidth = 1.5f)
+        drawLine(color, Offset(x - DiamondHalfWidth, y), Offset(x, y - DiamondHalfHeight), strokeWidth = 1.5f)
 
         // Label
         val label = when (brk.type) {
@@ -85,8 +85,8 @@ internal fun DrawScope.drawStructureLayer(
             StructureBreakType.IDM -> "IDM"
         }
         labelPaint.color = when (brk.direction) {
-            Direction.BULLISH -> android.graphics.Color.parseColor("#4CAF50")
-            Direction.BEARISH -> android.graphics.Color.parseColor("#EF5350")
+            Direction.BULLISH -> StructureBullishLabelArgb
+            Direction.BEARISH -> StructureBearishLabelArgb
         }
         drawContext.canvas.nativeCanvas.drawText(
             label,
@@ -113,7 +113,7 @@ internal fun DrawScope.drawLivePriceLine(
             start = Offset(0f, lastY),
             end = Offset(cw, lastY),
             strokeWidth = 1f,
-            pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f)),
+            pathEffect = LivePriceDash,
         )
     }
 }

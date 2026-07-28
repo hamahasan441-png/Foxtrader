@@ -15,10 +15,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.foxtrader.app.R
 import com.foxtrader.app.feature.chart.presentation.IndicatorToggles
 import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxNeutral60
@@ -48,18 +50,22 @@ fun IndicatorPanel(
                 .padding(horizontal = 12.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Chip("EMA", toggles.ema) { onToggle { it.copy(ema = !it.ema) } }
-            Chip("BOLL", toggles.bollinger) { onToggle { it.copy(bollinger = !it.bollinger) } }
-            Chip("SuperTrend", toggles.superTrend) { onToggle { it.copy(superTrend = !it.superTrend) } }
-            Chip("PSAR", toggles.parabolicSar) { onToggle { it.copy(parabolicSar = !it.parabolicSar) } }
-            Chip("VWAP", toggles.vwap) { onToggle { it.copy(vwap = !it.vwap) } }
-            Chip("Ichimoku", toggles.ichimoku) { onToggle { it.copy(ichimoku = !it.ichimoku) } }
-            Chip("Vol Profile", toggles.volumeProfile) { onToggle { it.copy(volumeProfile = !it.volumeProfile) } }
-            Chip("Order Blocks", toggles.orderBlocks) { onToggle { it.copy(orderBlocks = !it.orderBlocks) } }
-            Chip("FVG", toggles.fairValueGaps) { onToggle { it.copy(fairValueGaps = !it.fairValueGaps) } }
-            Chip("Liquidity", toggles.liquidity) { onToggle { it.copy(liquidity = !it.liquidity) } }
-            Chip("Sessions", toggles.sessions) { onToggle { it.copy(sessions = !it.sessions) } }
-            Chip("Structure", toggles.structure) { onToggle { it.copy(structure = !it.structure) } }
+            Chip(stringResource(R.string.chart_indicator_ema), toggles.ema) { onToggle { it.copy(ema = !it.ema) } }
+            Chip(stringResource(R.string.chart_indicator_bollinger), toggles.bollinger) { onToggle { it.copy(bollinger = !it.bollinger) } }
+            Chip(stringResource(R.string.chart_indicator_supertrend), toggles.superTrend) { onToggle { it.copy(superTrend = !it.superTrend) } }
+            Chip(stringResource(R.string.chart_indicator_psar), toggles.parabolicSar) { onToggle { it.copy(parabolicSar = !it.parabolicSar) } }
+            Chip(stringResource(R.string.chart_indicator_vwap), toggles.vwap) { onToggle { it.copy(vwap = !it.vwap) } }
+            Chip(stringResource(R.string.chart_indicator_ichimoku), toggles.ichimoku) { onToggle { it.copy(ichimoku = !it.ichimoku) } }
+            Chip(stringResource(R.string.chart_indicator_volume_profile), toggles.volumeProfile) { onToggle { it.copy(volumeProfile = !it.volumeProfile) } }
+            Chip(stringResource(R.string.chart_indicator_market_profile), toggles.marketProfile) { onToggle { it.copy(marketProfile = !it.marketProfile) } }
+            Chip(stringResource(R.string.chart_indicator_support_resistance), toggles.supportResistance) { onToggle { it.copy(supportResistance = !it.supportResistance) } }
+            Chip(stringResource(R.string.chart_indicator_fibonacci), toggles.fibonacci) { onToggle { it.copy(fibonacci = !it.fibonacci) } }
+            Chip(stringResource(R.string.chart_indicator_confluence), toggles.confluence) { onToggle { it.copy(confluence = !it.confluence) } }
+            Chip(stringResource(R.string.chart_indicator_order_blocks), toggles.orderBlocks) { onToggle { it.copy(orderBlocks = !it.orderBlocks) } }
+            Chip(stringResource(R.string.chart_indicator_fvg), toggles.fairValueGaps) { onToggle { it.copy(fairValueGaps = !it.fairValueGaps) } }
+            Chip(stringResource(R.string.chart_indicator_liquidity), toggles.liquidity) { onToggle { it.copy(liquidity = !it.liquidity) } }
+            Chip(stringResource(R.string.chart_indicator_sessions), toggles.sessions) { onToggle { it.copy(sessions = !it.sessions) } }
+            Chip(stringResource(R.string.chart_indicator_structure), toggles.structure) { onToggle { it.copy(structure = !it.structure) } }
         }
     }
 }

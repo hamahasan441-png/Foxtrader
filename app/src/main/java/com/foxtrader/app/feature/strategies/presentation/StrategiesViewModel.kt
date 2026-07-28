@@ -26,6 +26,7 @@ import com.foxtrader.app.domain.usecase.patterns.HarmonicPatternDetector
 import com.foxtrader.app.domain.usecase.scanner.ScannerUseCase
 import com.foxtrader.app.domain.usecase.smc.SmcDetector
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -89,7 +90,7 @@ class StrategiesViewModel @Inject constructor(
                 signals.sortByDescending { it.confidence }
                 _uiState.update {
                     it.copy(
-                        signals = signals,
+                        signals = signals.toPersistentList(),
                         isScanning = false,
                         lastScanTime = System.currentTimeMillis(),
                     )

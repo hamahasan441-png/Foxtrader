@@ -38,6 +38,7 @@ import kotlin.math.min
 // inside the draw pass would allocate and cost a frame).
 private val BullishTextArgb = android.graphics.Color.parseColor("#4CAF50")
 private val BearishTextArgb = android.graphics.Color.parseColor("#EF5350")
+private val CrosshairDash = PathEffect.dashPathEffect(floatArrayOf(5f, 4f))
 
 /**
  * Professional crosshair with price/time readouts and a snapped OHLC panel.
@@ -64,21 +65,20 @@ internal fun DrawScope.drawCrosshairLayer(
     val cy = viewport.crosshairY.coerceIn(0f, ch)
 
     val crossColor = FoxNeutral60.copy(alpha = 0.7f)
-    val dash = PathEffect.dashPathEffect(floatArrayOf(5f, 4f))
 
     drawLine(
         color = crossColor,
         start = Offset(snappedX, 0f),
         end = Offset(snappedX, ch),
         strokeWidth = 0.8f,
-        pathEffect = dash,
+        pathEffect = CrosshairDash,
     )
     drawLine(
         color = crossColor,
         start = Offset(0f, cy),
         end = Offset(cw, cy),
         strokeWidth = 0.8f,
-        pathEffect = dash,
+        pathEffect = CrosshairDash,
     )
 
     // --- Price label on the right scale ---
@@ -164,4 +164,57 @@ internal fun DrawScope.drawOhlcReadout(
         4f + padding + paint.textSize * 0.8f,
         paint,
     )
+}
+
+/**
+ * Synced crosshair rendered from a timestamp emitted by another panel.
+ *
+ * Only the vertical guide, time label and OHLC readout are mirrored. A synced
+ * horizontal line would imply a shared price level across different symbols or
+ * timeframes, which is false more often than it is useful.
+ */
+internal fun DrawScope.drawSyncedCrosshairLayer(
+    syncedTimestamp: Long,
+    candles: List<Candle>,
+    viewport: ChartViewport,
+    cw: Float,
+    ch: Float,
+    labelPaint: Paint,
+    ohlcPaint: Paint,
+    timeframe: Timeframe,
+) {
+    val barIdx = candles.indexOfFirst { it.timestamp >= syncedTimestamp }
+        .let { if (it >= 0) it else candles.lastIndex }
+    if (barIdx !in candles.indices) return
+
+    val snappedX = viewport.xForIndex(barIdx + 0.5f, cw).coerceIn(0f, cw)
+    val crossColor = FoxNeutral60.copy(alpha = 0.55f)
+
+    drawLine(
+        color = crossColor,
+        start = Offset(snappedX, 0f),
+        end = Offset(snappedX, ch),
+        strokeWidth = 0.8f,
+        pathEffect = CrosshairDash,
+    )
+
+    val bar = candles[barIdx]
+    val timeText = viewport.formatTime(bar.timestamp, timeframe)
+    val timeLabelW = labelPaint.measureText(timeText) + 12f
+    val timeLabelH = labelPaint.textSize + 6f
+    val timeLabelX = snappedX.coerceIn(timeLabelW / 2f, (cw - timeLabelW / 2f).coerceAtLeast(timeLabelW / 2f))
+    drawRect(
+        color = FoxAmber50.copy(alpha = 0.92f),
+        topLeft = Offset(timeLabelX - timeLabelW / 2f, ch + 2f),
+        size = Size(timeLabelW, timeLabelH),
+    )
+    labelPaint.textAlign = Paint.Align.CENTER
+    drawContext.canvas.nativeCanvas.drawText(
+        timeText,
+        timeLabelX,
+        ch + 2f + timeLabelH * 0.7f,
+        labelPaint,
+    )
+
+    drawOhlcReadout(viewport, bar, snappedX, cw, ohlcPaint)
 }

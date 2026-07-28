@@ -248,4 +248,21 @@ eval "set -- $(
         tr '\n' ' '
     )" '"$@"'
 
+if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+    gradle_log=$(mktemp)
+    "$JAVACMD" "$@" >"$gradle_log" 2>&1
+    gradle_status=$?
+    cat "$gradle_log"
+    if [ $gradle_status -ne 0 ]; then
+        grep -E '(^e: | error: |Exception is:|Caused by:|Execution failed for task|Script compilation errors|What went wrong:|^\* What went wrong:|build\.gradle\.kts)' "$gradle_log" |
+            tail -n 120 |
+            while IFS= read -r line
+            do
+                printf '::error::%s\n' "$line"
+            done
+    fi
+    rm -f "$gradle_log"
+    exit $gradle_status
+fi
+
 exec "$JAVACMD" "$@"

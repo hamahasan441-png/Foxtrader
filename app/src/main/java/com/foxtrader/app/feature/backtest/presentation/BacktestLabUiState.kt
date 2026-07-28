@@ -1,8 +1,11 @@
 package com.foxtrader.app.feature.backtest.presentation
 
+import androidx.compose.runtime.Immutable
 import com.foxtrader.app.domain.model.BacktestResult
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.backtest.BacktestAnalyticsReport
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 
 /** Strategy templates available in the Backtesting Lab. */
 enum class BacktestStrategyTemplate(
@@ -24,6 +27,7 @@ enum class BacktestStrategyTemplate(
 }
 
 /** Immutable UI state for the Backtesting Lab screen. */
+@Immutable
 data class BacktestLabUiState(
     val symbol: String = "EURUSD",
     val timeframe: Timeframe = Timeframe.H1,
@@ -31,7 +35,7 @@ data class BacktestLabUiState(
     val initialBalance: Double = 100_000.0,
     val riskPercent: Double = 1.0,
     val aiScoringEnabled: Boolean = true,
-    val availableSymbols: List<String> = DEFAULT_SYMBOLS,
+    val availableSymbols: ImmutableList<String> = DEFAULT_SYMBOLS,
     val isRunning: Boolean = false,
     val error: String? = null,
     val result: BacktestResult? = null,
@@ -41,7 +45,7 @@ data class BacktestLabUiState(
     val hasResult: Boolean get() = result != null
 
     companion object {
-        val DEFAULT_SYMBOLS = listOf(
+        val DEFAULT_SYMBOLS = persistentListOf(
             "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "XAUUSD",
             "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "NAS100", "US500",
         )

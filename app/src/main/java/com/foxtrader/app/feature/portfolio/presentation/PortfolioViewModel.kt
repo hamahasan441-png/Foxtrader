@@ -15,6 +15,7 @@ import com.foxtrader.app.domain.usecase.portfolio.JournalPositionMapper
 import com.foxtrader.app.domain.usecase.portfolio.PortfolioEngine
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -125,7 +126,7 @@ class PortfolioViewModel @Inject constructor(
 
         _uiState.value = PortfolioUiState(
             snapshot = snapshot,
-            correlationClusters = clusters,
+            correlationClusters = clusters.toPersistentList(),
             accountEquity = equity,
             dataSource = if (seriesBySymbol.isEmpty()) CandleSource.CACHED else worstSource,
             isLoading = false,
