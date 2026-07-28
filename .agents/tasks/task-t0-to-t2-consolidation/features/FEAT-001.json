@@ -1,0 +1,27 @@
+{
+  "id": "FEAT-001",
+  "type": "chore",
+  "description": "T0.2: Create app/schemas/ with .gitkeep for Room schema export, and T0.3: Close the two live TODOs (AlertDispatcher fox icon, DukascopyAdapter stub KDoc)",
+  "status": "completed",
+  "steps": [
+    "Create directory app/schemas/ with a .gitkeep file so Room schema JSON has a tracked home",
+    "In app/src/main/java/com/foxtrader/app/data/alerts/AlertDispatcher.kt line 77: Replace the TODO comment line `.setSmallIcon(android.R.drawable.ic_dialog_info) // TODO: replace with fox icon` with a proper fox notification icon. Create a vector drawable at app/src/main/res/drawable/ic_notification_fox.xml (a simple fox silhouette using Material vector path format, 24dp). Reference it with R.drawable.ic_notification_fox instead of android.R.drawable.ic_dialog_info",
+    "In app/src/main/java/com/foxtrader/app/domain/sdk/provider/DukascopyAdapter.kt: Remove the TODO comment at line 36 and replace with a proper KDoc explaining this is an intentional stub - the Dukascopy binary format (compressed hourly LZMA blocks) requires a dedicated pipeline that will be built when the data layer expansion is prioritized. The adapter satisfies the DataProviderAdapter contract by returning emptyList(), causing the repository to fall back to alternative providers."
+  ],
+  "acceptance_criteria": [
+    "app/schemas/.gitkeep exists",
+    "No TODO comments remain in AlertDispatcher.kt or DukascopyAdapter.kt",
+    "AlertDispatcher references a custom fox notification vector drawable instead of android.R.drawable.ic_dialog_info",
+    "The fox vector drawable is a valid Android XML vector drawable (24dp, proper pathData)",
+    "DukascopyAdapter.fetchHistory has a KDoc comment explaining the stub rationale"
+  ],
+  "verification": [
+    "grep -rn 'TODO' app/src/main/java/com/foxtrader/app/data/alerts/AlertDispatcher.kt should return nothing",
+    "grep -rn 'TODO' app/src/main/java/com/foxtrader/app/domain/sdk/provider/DukascopyAdapter.kt should return nothing",
+    "Verify app/schemas/.gitkeep exists",
+    "Verify app/src/main/res/drawable/ic_notification_fox.xml exists and is valid vector XML",
+    "Verify AlertDispatcher.kt references R.drawable.ic_notification_fox"
+  ],
+  "blocked_reason": null,
+  "findings": "All acceptance criteria verified: .gitkeep exists, no TODOs remain in either file, AlertDispatcher uses R.drawable.ic_notification_fox with proper import, DukascopyAdapter.fetchHistory has KDoc explaining the stub rationale. Committed as 601bf40."
+}

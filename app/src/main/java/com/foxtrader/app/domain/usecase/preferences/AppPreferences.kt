@@ -92,6 +92,10 @@ class AppPreferences @Inject constructor(
     private val _multiChartPreferences = MutableStateFlow<PersistedMultiChartState?>(null)
     val multiChartPreferences: StateFlow<PersistedMultiChartState?> = _multiChartPreferences.asStateFlow()
 
+    /** Opt-in crash reporting. Defaults OFF — the user must explicitly enable it. */
+    private val _crashReportingEnabled = MutableStateFlow(false)
+    val crashReportingEnabled: StateFlow<Boolean> = _crashReportingEnabled.asStateFlow()
+
     init {
         // Load persisted values into StateFlows on init.
         scope.launch {
@@ -136,8 +140,14 @@ class AppPreferences @Inject constructor(
                 _multiChartPreferences.value = prefs[KEY_MULTI_CHART_STATE]
                     ?.let(::decodeMultiChartState)
                     ?: PersistedMultiChartState()
+                _crashReportingEnabled.value = prefs[KEY_CRASH_REPORTING_ENABLED] ?: false
             }
         }
+    }
+
+    fun setCrashReportingEnabled(enabled: Boolean) {
+        _crashReportingEnabled.value = enabled
+        scope.launch { context.dataStore.edit { it[KEY_CRASH_REPORTING_ENABLED] = enabled } }
     }
 
     fun setDataProvider(provider: DataProvider) {
@@ -371,6 +381,7 @@ class AppPreferences @Inject constructor(
         val KEY_DEFAULT_TIMEFRAME = stringPreferencesKey("default_timeframe")
         val KEY_ALPHA_VANTAGE_API_KEY = stringPreferencesKey("alpha_vantage_api_key")
         val KEY_MULTI_CHART_STATE = stringPreferencesKey("multi_chart_state")
+        val KEY_CRASH_REPORTING_ENABLED = booleanPreferencesKey("crash_reporting_enabled")
     }
 }
 

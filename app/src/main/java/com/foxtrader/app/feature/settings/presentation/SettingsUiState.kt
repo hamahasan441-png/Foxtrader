@@ -45,6 +45,8 @@ data class SettingsUiState(
     // --- Security ---
     val appLockEnabled: Boolean = false,
     val biometricAvailable: Boolean = false,
+    // --- Privacy ---
+    val crashReportingEnabled: Boolean = false,
     val saved: Boolean = false,
 ) {
     val isLoggedIn: Boolean get() = authState == AuthState.AUTHENTICATED

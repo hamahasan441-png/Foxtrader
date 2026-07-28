@@ -148,6 +148,9 @@
     <string name="settings_sign_in_description">Sign in to back up and sync your journal, drawings, and settings across devices.</string>
     <string name="settings_biometric_description">Lock the app with your fingerprint, face, or device PIN on launch.</string>
     <string name="settings_biometric_unavailable">Biometric unlock unavailable \u2014 no biometrics or screen lock set up on this device.</string>
+    <string name="settings_crash_reporting_label">Share crash diagnostics</string>
+    <string name="settings_crash_reporting_description">Off by default. When on, crash diagnostics (error type and code location only \u2014 never your data) are saved locally on this device so you can share them with support. Nothing is uploaded automatically.</string>
+    <string name="settings_educational_disclaimer">FoxTrader is an educational analysis tool, not financial advice. It does not place trades. Markets carry risk; you are solely responsible for your decisions.</string>
     <string name="settings_background_scan_note">WorkManager runs the watchlist AI gate in the background with Android battery constraints. Risk and psychology vetoes always remain authoritative.</string>
     <string name="settings_coming_soon">Coming soon: %1$s. These are not connected yet, so they are not selectable.</string>
     <string name="settings_live_routing_active">Live chart routing is active for %1$s crypto symbols.</string>

@@ -1,0 +1,33 @@
+{
+  "id": "FEAT-004",
+  "type": "refactor",
+  "description": "T2.3: SmcDetector compute reuse - detectBreakers, detectIFVG, and detectBPR each redundantly call detectOrderBlocks/detectFairValueGaps. Also findPriceClusters is O(n^2). Share OB/FVG results across dependent detections and bucket the clustering.",
+  "status": "completed",
+  "steps": [
+    "In SmcDetector.kt, add a new method `fun analyzeAll(candles: List<Candle>): SmcAnalysisResult` that computes OBs and FVGs once and passes them to detectBreakers, detectIFVG, and detectBPR as pre-computed inputs",
+    "Create a data class SmcAnalysisResult in the same file holding orderBlocks, fairValueGaps, liquidityPools, breakerBlocks, inversionFVGs, balancedPriceRanges, and volumeProfile",
+    "Refactor detectBreakers to accept an optional pre-computed List<OrderBlock> parameter (defaulting to null, in which case it calls detectOrderBlocks internally for backward compat)",
+    "Refactor detectIFVG to accept an optional pre-computed List<FairValueGap> parameter",
+    "Refactor detectBPR to accept an optional pre-computed List<FairValueGap> parameter",
+    "Refactor findPriceClusters to use bucket-based grouping: divide the price range into buckets of size tolerance, assign each price to its bucket index (price / tolerance).roundToInt(), group by bucket, then merge adjacent buckets. This reduces from O(n^2) to O(n log n) or O(n).",
+    "Update ComputeIndicatorsUseCase to call smcDetector.analyzeAll() when multiple SMC toggles are active (orderBlocks + fairValueGaps), falling back to individual calls when only one is needed",
+    "Update SmcDetectorTest.kt to add a test verifying analyzeAll produces the same results as calling individual methods, and a test verifying findPriceClusters with bucketing produces equivalent results"
+  ],
+  "acceptance_criteria": [
+    "SmcDetector.analyzeAll() exists and computes OBs/FVGs only once",
+    "detectBreakers, detectIFVG, detectBPR accept optional pre-computed inputs",
+    "findPriceClusters uses bucket-based grouping instead of linear scan",
+    "ComputeIndicatorsUseCase uses analyzeAll when multiple SMC features are enabled",
+    "SmcDetectorTest verifies analyzeAll equivalence and findPriceClusters bucketing",
+    "All existing tests still pass (no behavioral change)",
+    "No TODO comments in modified files"
+  ],
+  "verification": [
+    "grep -n 'fun analyzeAll' SmcDetector.kt returns the new method",
+    "grep -n 'bucketIndex\\|bucket' SmcDetector.kt confirms bucket-based clustering",
+    "grep -rn 'TODO' SmcDetector.kt returns nothing",
+    "SmcDetectorTest.kt contains tests for analyzeAll and bucket clustering"
+  ],
+  "blocked_reason": null,
+  "findings": "Implemented successfully. The bucket-based findPriceClusters uses roundToLong for bucket indices (added import). Adjacent bucket merging handles boundary cases. ComputeIndicatorsUseCase uses analyzeAll only when BOTH orderBlocks and fairValueGaps toggles are active to maximize reuse. Test file uses LiquidityType import for cleaner references."
+}

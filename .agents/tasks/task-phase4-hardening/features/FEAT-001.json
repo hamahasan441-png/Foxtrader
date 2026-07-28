@@ -1,0 +1,23 @@
+{
+  "id": "FEAT-001",
+  "type": "build",
+  "description": "T4.1: Expand detekt/ktlint/jacoco to app-wide scope with baseline/ignoreFailures, add domain coverage gate at 40%",
+  "status": "completed",
+  "steps": [
+    "Expand detekt source to all main+test source with baseline",
+    "Expand ktlint filter to all .kt with ignoreFailures=true",
+    "Create empty detekt baseline at config/detekt/baseline.xml",
+    "Add domain coverage includes, class dirs, source dirs, execution data, report and verification tasks",
+    "Wire jacocoDomainCoverageVerification into testDebugUnitTest finalizedBy"
+  ],
+  "acceptance_criteria": [
+    "detekt source covers src/main/java and src/test/java",
+    "detekt has baseline pointing to config/detekt/baseline.xml",
+    "ktlint filter covers **/*.kt with ignoreFailures.set(true)",
+    "config/detekt/baseline.xml exists as valid XML",
+    "Domain coverage verification task exists at 40% line coverage",
+    "testDebugUnitTest finalizedBy includes domain verification"
+  ],
+  "blocked_reason": null,
+  "findings": "Expanded detekt to full src/main/java and src/test/java with baseline file. Ktlint set to ignoreFailures=true with comment explaining the burndown plan. Domain coverage gate added at 40% targeting RiskEngine, SmcDetector, MasterDecisionEngine, AgentOrchestrator, BacktestEngine, PositionCalculator, InstrumentTypeResolver. Both jacocoDomainCoverageReport and jacocoDomainCoverageVerification wired into testDebugUnitTest and check tasks. Brace balance verified (57/57)."
+}

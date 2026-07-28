@@ -169,6 +169,29 @@ fun SettingsScreen(
                 }
             }
 
+            // === PRIVACY ===
+            SectionHeader("Privacy")
+
+            SettingsCard {
+                SwitchSetting(
+                    label = stringResource(R.string.settings_crash_reporting_label),
+                    checked = state.crashReportingEnabled,
+                    onCheckedChange = viewModel::setCrashReportingEnabled,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = stringResource(R.string.settings_crash_reporting_description),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = FoxNeutral60,
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = stringResource(R.string.settings_educational_disclaimer),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = FoxNeutral60,
+                )
+            }
+
             // === RISK MANAGEMENT ===
             SectionHeader("Risk Management")
 

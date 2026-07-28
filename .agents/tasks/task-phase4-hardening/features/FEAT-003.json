@@ -1,0 +1,21 @@
+{
+  "id": "FEAT-003",
+  "type": "fix",
+  "description": "T4.3: Fix manifest uses-feature and externalize hardcoded strings from feature screens",
+  "status": "completed",
+  "steps": [
+    "Change manifest uses-feature from GLES 3.0 required=true to GLES 2.0 required=false with comment",
+    "Add string resources for all static hardcoded text in feature screens",
+    "Replace hardcoded text with stringResource(R.string.xxx) in composables",
+    "Add necessary imports for stringResource and R"
+  ],
+  "acceptance_criteria": [
+    "Manifest uses-feature is glEsVersion 0x00020000 required=false",
+    "Static hardcoded strings moved to strings.xml",
+    "Feature composables use stringResource() for static text",
+    "No broken imports",
+    "No TODO/FIXME in modified files"
+  ],
+  "blocked_reason": null,
+  "findings": "Manifest fixed: GLES 3.0 required=true changed to GLES 2.0 required=false with comment explaining Compose Canvas does not use raw OpenGL ES. 34 new string resources added to strings.xml covering auth, backtest, chart, portfolio, scanner, and settings screens. 6 feature files updated with stringResource() calls. Dynamic strings (format/interpolation) left as-is since they cannot be simple string resources. All XML validated as well-formed."
+}
