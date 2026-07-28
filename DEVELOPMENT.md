@@ -4447,6 +4447,9 @@ A repo config file now lives at:
 The config intentionally starts with a **pragmatic baseline-by-configuration**:
 complexity thresholds that would immediately fail on known-large chart files are
 turned off for now, while bug- and naming-oriented checks remain available.
+An initial small `maxIssues` allowance is also used as a temporary burn-down
+budget so the repo can begin enforcing the task before every historical chart
+finding is fixed in one giant pass.
 
 That is consistent with the masterplan intent: establish the gate first, then
 ratchet stricter rules as the large files are split and cleaned further.

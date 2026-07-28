@@ -1,5 +1,7 @@
 build:
-  maxIssues: 0
+  # Sprint 10 foundation: start with a small allowance so the chart-static-analysis
+  # task can act like a lightweight baseline while we burn down historical issues.
+  maxIssues: 25
 
 config:
   validation: true
