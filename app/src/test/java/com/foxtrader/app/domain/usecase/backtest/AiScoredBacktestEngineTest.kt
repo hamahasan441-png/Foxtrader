@@ -3,6 +3,7 @@ package com.foxtrader.app.domain.usecase.backtest
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.model.Direction
+import com.foxtrader.app.domain.usecase.calculator.InstrumentTypeResolver
 import com.foxtrader.app.domain.model.StrategySignal
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
@@ -37,7 +38,7 @@ class AiScoredBacktestEngineTest {
         backtestEngine = BacktestEngine()
         val analyzeStructure = AnalyzeMarketStructureUseCase()
         val smcDetector = SmcDetector()
-        val riskEngine = RiskEngine()
+        val riskEngine = RiskEngine(InstrumentTypeResolver())
 
         val orchestrator = AgentOrchestrator().apply {
             registerAgent(MarketStructureAgent(analyzeStructure))

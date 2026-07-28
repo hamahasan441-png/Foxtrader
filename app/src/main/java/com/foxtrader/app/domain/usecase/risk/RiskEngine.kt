@@ -41,7 +41,7 @@ class RiskEngine @Inject constructor(
      * across asset classes. Defaulted so unit tests can construct the engine
      * without a DI graph; Hilt injects the singleton in production.
      */
-    private val instrumentTypeResolver: InstrumentTypeResolver = InstrumentTypeResolver(),
+    private val instrumentTypeResolver: InstrumentTypeResolver,
 ) {
 
     private val lock = Any()

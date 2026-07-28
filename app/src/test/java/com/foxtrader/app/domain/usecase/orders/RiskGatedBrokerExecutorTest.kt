@@ -3,6 +3,7 @@ package com.foxtrader.app.domain.usecase.orders
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.sdk.broker.BrokerAdapter
 import com.foxtrader.app.domain.sdk.broker.OrderRequest
+import com.foxtrader.app.domain.usecase.calculator.InstrumentTypeResolver
 import com.foxtrader.app.domain.sdk.broker.OrderResult
 import com.foxtrader.app.domain.sdk.broker.Position
 import com.foxtrader.app.domain.usecase.risk.RiskEngine
@@ -22,7 +23,7 @@ class RiskGatedBrokerExecutorTest {
 
     @Before
     fun setup() {
-        riskEngine = RiskEngine().apply { reset() }
+        riskEngine = RiskEngine(InstrumentTypeResolver()).apply { reset() }
         executor = RiskGatedBrokerExecutor(riskEngine)
         broker = FakeBrokerAdapter(supportedAssets = listOf("EURUSD"))
     }

@@ -3,6 +3,7 @@ package com.foxtrader.app.domain.usecase.risk
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.PositionSizingMethod
+import com.foxtrader.app.domain.usecase.calculator.InstrumentTypeResolver
 import com.foxtrader.app.domain.model.RiskConfig
 import com.foxtrader.app.domain.model.StopMethod
 import org.junit.Assert.assertEquals
@@ -29,7 +30,7 @@ class RiskEngineTest {
 
     @Before
     fun setup() {
-        engine = RiskEngine()
+        engine = RiskEngine(InstrumentTypeResolver())
         engine.updateConfig(
             RiskConfig(
                 accountBalance = 10_000.0,

@@ -25,7 +25,7 @@ import kotlin.math.max
  */
 @Singleton
 class JournalEngine @Inject constructor(
-    private val instrumentTypeResolver: InstrumentTypeResolver = InstrumentTypeResolver(),
+    private val instrumentTypeResolver: InstrumentTypeResolver,
 ) {
 
     private val entries = mutableListOf<JournalEntry>()

@@ -26,7 +26,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class JournalPositionMapper @Inject constructor(
-    private val instrumentTypeResolver: InstrumentTypeResolver = InstrumentTypeResolver(),
+    private val instrumentTypeResolver: InstrumentTypeResolver,
 ) {
 
     /**

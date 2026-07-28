@@ -2,6 +2,7 @@ package com.foxtrader.app.domain.usecase.portfolio
 
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.sdk.broker.Position
+import com.foxtrader.app.domain.usecase.calculator.InstrumentTypeResolver
 import com.foxtrader.app.domain.usecase.correlation.CorrelationMatrix
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -9,7 +10,7 @@ import org.junit.Test
 
 class PortfolioEngineTest {
 
-    private val engine = PortfolioEngine()
+    private val engine = PortfolioEngine(InstrumentTypeResolver())
 
     @Test
     fun `analyze computes long short net exposure and unrealized pnl`() {

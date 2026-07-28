@@ -21,7 +21,7 @@ import kotlin.math.abs
  * the risk gate a fictional number.
  */
 class PortfolioEngine @Inject constructor(
-    private val instrumentTypeResolver: InstrumentTypeResolver = InstrumentTypeResolver(),
+    private val instrumentTypeResolver: InstrumentTypeResolver,
 ) {
 
     fun analyze(

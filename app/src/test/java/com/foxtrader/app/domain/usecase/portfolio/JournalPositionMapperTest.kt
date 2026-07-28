@@ -3,6 +3,7 @@ package com.foxtrader.app.domain.usecase.portfolio
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.JournalEntry
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.usecase.calculator.InstrumentTypeResolver
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -15,7 +16,7 @@ import org.junit.Test
  */
 class JournalPositionMapperTest {
 
-    private val mapper = JournalPositionMapper()
+    private val mapper = JournalPositionMapper(InstrumentTypeResolver())
 
     private fun entry(
         id: String,
