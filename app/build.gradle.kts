@@ -275,13 +275,15 @@ tasks.matching { it.name == "assembleDebug" || it.name == "testDebugUnitTest" }
         dependsOn(chartStaticAnalysis)
     }
 
-tasks.named("testDebugUnitTest") {
-    finalizedBy(jacocoChartCoverageReport, jacocoChartCoverageVerification)
-}
+tasks.matching { it.name == "testDebugUnitTest" }
+    .configureEach {
+        finalizedBy(jacocoChartCoverageReport, jacocoChartCoverageVerification)
+    }
 
-tasks.named("check") {
-    dependsOn(jacocoChartCoverageVerification)
-}
+tasks.matching { it.name == "check" }
+    .configureEach {
+        dependsOn(jacocoChartCoverageVerification)
+    }
 
 dependencies {
     // Core
