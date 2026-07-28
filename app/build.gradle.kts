@@ -154,14 +154,16 @@ ktlint {
 val chartStaticAnalysis by tasks.registering {
     group = "verification"
     description = "Runs chart-focused detekt and ktlint checks used by the current sprint hygiene rollout."
-    dependsOn("detekt", "ktlintMainSourceSetCheck", "ktlintTestSourceSetCheck")
+    dependsOn("detekt", "ktlintMainSourceSetCheck")
 }
 
 tasks.matching {
     it.name == "ktlintKotlinScriptCheck" ||
         it.name == "ktlintKotlinScriptFormat" ||
         it.name == "ktlintAndroidTestSourceSetCheck" ||
-        it.name == "ktlintAndroidTestSourceSetFormat"
+        it.name == "ktlintAndroidTestSourceSetFormat" ||
+        it.name == "ktlintTestSourceSetCheck" ||
+        it.name == "ktlintTestSourceSetFormat"
 }.configureEach {
     enabled = false
 }

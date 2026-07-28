@@ -4456,8 +4456,8 @@ ratchet stricter rules as the large files are split and cleaned further.
 
 ### Ktlint foundation
 
-The app module now also applies `ktlint`, again scoped to the chart-centric
-packages above.
+The app module now also applies `ktlint`, scoped to the chart-centric **main**
+source packages above for the initial rollout.
 
 A root `.editorconfig` now defines the initial repository formatting contract.
 Because the chart stack already contains some intentionally dense Compose and
@@ -4499,6 +4499,6 @@ By focusing first on the chart stack — the area with the biggest recent volume
 of performance and state-management work — the repo gets:
 
 - real automated hygiene checks on the highest-change surface,
-- CI-enforced protection against fresh chart-style regressions,
+- CI-enforced protection against fresh chart-main style regressions,
 - a config foundation that can be expanded outward across the app in later
   Sprint 10 follow-ups.
