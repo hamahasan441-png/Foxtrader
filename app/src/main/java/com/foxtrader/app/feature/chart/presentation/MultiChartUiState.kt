@@ -1,7 +1,6 @@
 package com.foxtrader.app.feature.chart.presentation
 
 import com.foxtrader.app.domain.model.Bias
-import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.CandleSource
 import androidx.compose.runtime.Immutable
 import com.foxtrader.app.domain.usecase.chart.ChartLayout
@@ -29,7 +28,7 @@ data class MultiChartPanelUiState(
     val id: String,
     val symbol: String,
     val timeframe: com.foxtrader.app.domain.model.Timeframe,
-    val candles: List<Candle> = emptyList(),
+    val candles: CandleSeries = CandleSeries.EMPTY,
     val dataSource: CandleSource = CandleSource.CACHED,
     val bias: Bias = Bias.NEUTRAL,
     val isActive: Boolean = false,

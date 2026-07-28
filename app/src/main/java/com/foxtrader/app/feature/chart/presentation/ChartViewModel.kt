@@ -42,6 +42,7 @@ import com.foxtrader.app.feature.chart.presentation.components.ChartPerformanceM
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toPersistentList
+import kotlin.collections.AbstractList
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -143,7 +144,9 @@ class ChartViewModel @Inject constructor(
 
     /** Older pages kept only in-memory so the Room hot cache can stay bounded. */
     private val prependedHistory = mutableListOf<Candle>()
+    private var prependedHistorySnapshot: List<Candle> = emptyList()
     private var prependedHistorySource: CandleSource = CandleSource.CACHED
+    private var mergedVisibleCandles: List<Candle> = emptyList()
 
     private val multiChartPanelJobs = linkedMapOf<String, Job>()
     private val multiChartPanels = linkedMapOf<String, MultiChartPanelUiState>()
@@ -352,6 +355,7 @@ class ChartViewModel @Inject constructor(
             }
             .onEach { sourced ->
                 currentObservedCandles = sourced
+                rebuildMergedVisibleCandles()
                 viewModelScope.launch {
                     processMergedCandles(
                         sourceHint = sourced.source,
@@ -382,25 +386,30 @@ class ChartViewModel @Inject constructor(
         sourceHint: CandleSource = currentObservedCandles.source,
         preferIncremental: Boolean = false,
     ) {
-        val merged = mergeVisibleCandles()
         val mergedSource = CandleSource.worstOf(
             buildList {
                 add(sourceHint)
-                if (prependedHistory.isNotEmpty()) add(prependedHistorySource)
+                if (prependedHistorySnapshot.isNotEmpty()) add(prependedHistorySource)
             }
         )
-        processCandles(merged, mergedSource, preferIncremental)
+        processCandles(mergedVisibleCandles, mergedSource, preferIncremental)
     }
 
-    private fun mergeVisibleCandles(): List<Candle> =
-        (prependedHistory + currentObservedCandles.candles)
-            .distinctBy { it.timestamp }
-            .sortedBy { it.timestamp }
+    private fun rebuildMergedVisibleCandles() {
+        val observed = currentObservedCandles.candles
+        mergedVisibleCandles = when {
+            prependedHistorySnapshot.isEmpty() -> observed
+            observed.isEmpty() -> prependedHistorySnapshot
+            else -> ConcatenatedCandleList(prependedHistorySnapshot, observed)
+        }
+    }
 
     private fun clearPrependedHistory() {
         prependedHistory.clear()
+        prependedHistorySnapshot = emptyList()
         prependedHistorySource = CandleSource.CACHED
         lastProcessedSnapshot = null
+        rebuildMergedVisibleCandles()
         _uiState.value = _uiState.value.copy(
             isLoadingOlder = false,
             historyEndReached = false,
@@ -442,12 +451,13 @@ class ChartViewModel @Inject constructor(
                 beforeTimestamp = beforeTimestamp,
                 limit = HISTORY_PAGE_SIZE,
             ).onSuccess { page ->
-                val newCandles = page.candles
-                    .filter { it.timestamp < beforeTimestamp }
-                    .filterNot { older ->
-                        prependedHistory.any { it.timestamp == older.timestamp } ||
-                            currentObservedCandles.candles.any { it.timestamp == older.timestamp }
-                    }
+                val existingTimestamps = HashSet<Long>(prependedHistory.size + currentObservedCandles.candles.size).apply {
+                    prependedHistory.forEach { add(it.timestamp) }
+                    currentObservedCandles.candles.forEach { add(it.timestamp) }
+                }
+                val newCandles = page.candles.filter { candle ->
+                    candle.timestamp < beforeTimestamp && existingTimestamps.add(candle.timestamp)
+                }
                 if (newCandles.isEmpty()) {
                     _uiState.value = _uiState.value.copy(
                         isLoadingOlder = false,
@@ -455,10 +465,11 @@ class ChartViewModel @Inject constructor(
                     )
                 } else {
                     prependedHistory.addAll(0, newCandles)
-                    prependedHistory.sortBy { it.timestamp }
+                    prependedHistorySnapshot = prependedHistory.toList()
                     prependedHistorySource = CandleSource.worstOf(
                         listOf(prependedHistorySource, page.source)
                     )
+                    rebuildMergedVisibleCandles()
                     _uiState.value = _uiState.value.copy(
                         isLoadingOlder = false,
                         historyEndReached = false,
@@ -486,32 +497,33 @@ class ChartViewModel @Inject constructor(
         source: CandleSource = _uiState.value.dataSource,
         preferIncremental: Boolean = false,
     ) {
+        val stableCandles = candles.asCandleSeries()
         val ind = _uiState.value.indicators
         val computation = computeFrame(
-            candles = candles,
+            candles = stableCandles,
             toggles = ind,
             preferIncremental = preferIncremental,
         )
 
         _uiState.value = _uiState.value.copy(
-            candles = candles,
+            candles = stableCandles,
             dataSource = source,
             bias = computation.bias,
             structureBreaks = if (ind.structure) computation.structureBreaks.toPersistentList() else persistentListOf(),
-            emaShort = computation.overlays.emaShort,
-            emaLong = computation.overlays.emaLong,
-            bollingerUpper = computation.overlays.bollingerUpper,
-            bollingerMiddle = computation.overlays.bollingerMiddle,
-            bollingerLower = computation.overlays.bollingerLower,
-            superTrendValues = computation.overlays.superTrendValues,
-            superTrendDir = computation.overlays.superTrendDir,
-            parabolicSar = computation.overlays.parabolicSar,
-            vwap = computation.overlays.vwap,
-            ichimokuTenkan = computation.overlays.ichimokuTenkan,
-            ichimokuKijun = computation.overlays.ichimokuKijun,
-            ichimokuSenkouA = computation.overlays.ichimokuSenkouA,
-            ichimokuSenkouB = computation.overlays.ichimokuSenkouB,
-            ichimokuChikou = computation.overlays.ichimokuChikou,
+            emaShort = computation.overlays.emaShort.asImmutableDoubleSeries(),
+            emaLong = computation.overlays.emaLong.asImmutableDoubleSeries(),
+            bollingerUpper = computation.overlays.bollingerUpper.asImmutableDoubleSeries(),
+            bollingerMiddle = computation.overlays.bollingerMiddle.asImmutableDoubleSeries(),
+            bollingerLower = computation.overlays.bollingerLower.asImmutableDoubleSeries(),
+            superTrendValues = computation.overlays.superTrendValues.asImmutableDoubleSeries(),
+            superTrendDir = computation.overlays.superTrendDir.asImmutableIntSeries(),
+            parabolicSar = computation.overlays.parabolicSar.asImmutableDoubleSeries(),
+            vwap = computation.overlays.vwap.asImmutableDoubleSeries(),
+            ichimokuTenkan = computation.overlays.ichimokuTenkan.asImmutableDoubleSeries(),
+            ichimokuKijun = computation.overlays.ichimokuKijun.asImmutableDoubleSeries(),
+            ichimokuSenkouA = computation.overlays.ichimokuSenkouA.asImmutableDoubleSeries(),
+            ichimokuSenkouB = computation.overlays.ichimokuSenkouB.asImmutableDoubleSeries(),
+            ichimokuChikou = computation.overlays.ichimokuChikou.asImmutableDoubleSeries(),
             orderBlocks = computation.overlays.orderBlocks.toPersistentList(),
             fairValueGaps = computation.overlays.fairValueGaps.toPersistentList(),
             liquidityPools = computation.overlays.liquidityPools.toPersistentList(),
@@ -565,7 +577,7 @@ class ChartViewModel @Inject constructor(
             marketExplanationEngine.explain(
                 symbol = symbolFlow.value,
                 timeframe = timeframeFlow.value,
-                candles = candles,
+                candles = candles.asCandleSeries(),
             )
         } else null
         return ChartComputation(
@@ -600,7 +612,7 @@ class ChartViewModel @Inject constructor(
             marketExplanationEngine.explain(
                 symbol = symbolFlow.value,
                 timeframe = timeframeFlow.value,
-                candles = candles,
+                candles = candles.asCandleSeries(),
             )
         } else null
 
@@ -622,7 +634,7 @@ class ChartViewModel @Inject constructor(
         totalSize: Int,
     ): ComputeIndicatorsUseCase.Result {
         val visuals = computeIndicators.computeIncrementalVisuals(
-            candles = candles,
+            candles = candles.asCandleSeries(),
             toggles = toggles,
             previous = previous,
             recomputeFrom = windowStart,
@@ -743,7 +755,7 @@ class ChartViewModel @Inject constructor(
             val context = AgentContext(
                 symbol = analysisSymbol,
                 timeframe = analysisTimeframe,
-                candles = candles,
+                candles = candles.asCandleSeries(),
                 mtfCandles = mtfCandles,
                 correlatedCandles = correlatedCandles,
             )
@@ -779,7 +791,7 @@ class ChartViewModel @Inject constructor(
                 marketExplanationEngine.explain(
                     symbol = analysisSymbol,
                     timeframe = analysisTimeframe,
-                    candles = candles,
+                    candles = candles.asCandleSeries(),
                     htfCandles = mtfCandles,
                 )
             }
@@ -902,7 +914,7 @@ class ChartViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(
             symbol = symbol,
             timeframe = timeframe,
-            candles = emptyList(),
+            candles = CandleSeries.EMPTY,
             dataSource = CandleSource.CACHED,
             showSymbolPicker = if (clearSymbolPicker) false else _uiState.value.showSymbolPicker,
             aiDecision = null,
@@ -1163,7 +1175,7 @@ class ChartViewModel @Inject constructor(
                         id = panel.id,
                         symbol = panel.symbol,
                         timeframe = panel.timeframe,
-                        candles = compactCandles,
+                        candles = compactCandles.asCandleSeries(),
                         dataSource = sourced.source,
                         bias = bias,
                         isActive = panel.isActive,
@@ -1354,6 +1366,16 @@ class ChartViewModel @Inject constructor(
         val overlays: ComputeIndicatorsUseCase.Result,
         val marketExplanation: com.foxtrader.app.domain.usecase.ai.MarketExplanation?,
     )
+
+    private class ConcatenatedCandleList(
+        private val older: List<Candle>,
+        private val newer: List<Candle>,
+    ) : AbstractList<Candle>() {
+        override val size: Int = older.size + newer.size
+
+        override fun get(index: Int): Candle =
+            if (index < older.size) older[index] else newer[index - older.size]
+    }
 
     private companion object {
         const val HISTORY_PAGE_SIZE = 500

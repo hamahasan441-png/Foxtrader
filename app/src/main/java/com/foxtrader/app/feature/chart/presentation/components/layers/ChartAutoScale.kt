@@ -13,6 +13,8 @@ import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.StructureBreak
 import com.foxtrader.app.domain.model.StructureBreakType
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.feature.chart.presentation.ImmutableDoubleSeries
+import com.foxtrader.app.feature.chart.presentation.ImmutableIntSeries
 import com.foxtrader.app.feature.chart.presentation.components.ChartViewport
 import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxBearish
@@ -37,19 +39,19 @@ import kotlin.math.min
 internal fun autoScaleToVisibleContent(
     viewport: ChartViewport,
     candles: List<Candle>,
-    emaShort: DoubleArray?,
-    emaLong: DoubleArray?,
-    bollingerUpper: DoubleArray?,
-    bollingerMiddle: DoubleArray?,
-    bollingerLower: DoubleArray?,
-    superTrendValues: DoubleArray?,
-    parabolicSar: DoubleArray?,
-    vwap: DoubleArray?,
-    ichimokuTenkan: DoubleArray?,
-    ichimokuKijun: DoubleArray?,
-    ichimokuSenkouA: DoubleArray?,
-    ichimokuSenkouB: DoubleArray?,
-    ichimokuChikou: DoubleArray?,
+    emaShort: ImmutableDoubleSeries?,
+    emaLong: ImmutableDoubleSeries?,
+    bollingerUpper: ImmutableDoubleSeries?,
+    bollingerMiddle: ImmutableDoubleSeries?,
+    bollingerLower: ImmutableDoubleSeries?,
+    superTrendValues: ImmutableDoubleSeries?,
+    parabolicSar: ImmutableDoubleSeries?,
+    vwap: ImmutableDoubleSeries?,
+    ichimokuTenkan: ImmutableDoubleSeries?,
+    ichimokuKijun: ImmutableDoubleSeries?,
+    ichimokuSenkouA: ImmutableDoubleSeries?,
+    ichimokuSenkouB: ImmutableDoubleSeries?,
+    ichimokuChikou: ImmutableDoubleSeries?,
     orderBlocks: List<com.foxtrader.app.domain.model.OrderBlock>,
     fairValueGaps: List<com.foxtrader.app.domain.model.FairValueGap>,
     liquidityPools: List<com.foxtrader.app.domain.model.LiquidityPool>,
@@ -71,7 +73,7 @@ internal fun autoScaleToVisibleContent(
         if (price < lo) lo = price
     }
 
-    fun includeSeries(values: DoubleArray?) {
+    fun includeSeries(values: ImmutableDoubleSeries?) {
         if (values == null) return
         val seriesEnd = min(values.size, end)
         for (i in start until seriesEnd) include(values[i])
@@ -96,20 +98,28 @@ internal fun autoScaleToVisibleContent(
     includeSeries(ichimokuSenkouB)
     includeSeries(ichimokuChikou)
 
-    orderBlocks.filter { it.endIndex >= start && it.startIndex < end }.forEach {
-        include(it.highPrice)
-        include(it.lowPrice)
+    orderBlocks.forEach { block ->
+        if (block.endIndex >= start && block.startIndex < end) {
+            include(block.highPrice)
+            include(block.lowPrice)
+        }
     }
-    fairValueGaps.filter { it.index in start until end }.forEach {
-        include(it.highPrice)
-        include(it.lowPrice)
+    fairValueGaps.forEach { gap ->
+        if (gap.index in start until end) {
+            include(gap.highPrice)
+            include(gap.lowPrice)
+        }
     }
-    liquidityPools.filter { it.endIndex >= start && it.startIndex < end }.forEach {
-        include(it.price)
+    liquidityPools.forEach { pool ->
+        if (pool.endIndex >= start && pool.startIndex < end) {
+            include(pool.price)
+        }
     }
-    sessions.filter { it.endIndex >= start && it.startIndex < end }.forEach {
-        include(it.highPrice)
-        include(it.lowPrice)
+    sessions.forEach { session ->
+        if (session.endIndex >= start && session.startIndex < end) {
+            include(session.highPrice)
+            include(session.lowPrice)
+        }
     }
     volumeProfile?.levels?.forEach { include(it.priceLevel) }
 

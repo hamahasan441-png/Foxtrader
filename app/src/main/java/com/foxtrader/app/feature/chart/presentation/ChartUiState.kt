@@ -52,11 +52,12 @@ data class IndicatorToggles(
  * Immutable UI state for the Chart screen (MVVM).
  * The View is a pure function of this state.
  */
+@Immutable
 data class ChartUiState(
     // --- Core market data ---
     val symbol: String = "EURUSD",
     val timeframe: Timeframe = Timeframe.M15,
-    val candles: List<Candle> = emptyList(),
+    val candles: CandleSeries = CandleSeries.EMPTY,
     /**
      * Provenance of [candles]. Drives the SIMULATED DATA banner and the
      * decision engine's data-integrity veto.
@@ -66,20 +67,20 @@ data class ChartUiState(
 
     // --- Technical analysis ---
     val structureBreaks: ImmutableList<StructureBreak> = persistentListOf(),
-    val emaShort: DoubleArray? = null,  // EMA(20)
-    val emaLong: DoubleArray? = null,   // EMA(50)
-    val bollingerUpper: DoubleArray? = null,
-    val bollingerMiddle: DoubleArray? = null,
-    val bollingerLower: DoubleArray? = null,
-    val superTrendValues: DoubleArray? = null,
-    val superTrendDir: IntArray? = null,
-    val parabolicSar: DoubleArray? = null,
-    val vwap: DoubleArray? = null,
-    val ichimokuTenkan: DoubleArray? = null,
-    val ichimokuKijun: DoubleArray? = null,
-    val ichimokuSenkouA: DoubleArray? = null,
-    val ichimokuSenkouB: DoubleArray? = null,
-    val ichimokuChikou: DoubleArray? = null,
+    val emaShort: ImmutableDoubleSeries? = null,  // EMA(20)
+    val emaLong: ImmutableDoubleSeries? = null,   // EMA(50)
+    val bollingerUpper: ImmutableDoubleSeries? = null,
+    val bollingerMiddle: ImmutableDoubleSeries? = null,
+    val bollingerLower: ImmutableDoubleSeries? = null,
+    val superTrendValues: ImmutableDoubleSeries? = null,
+    val superTrendDir: ImmutableIntSeries? = null,
+    val parabolicSar: ImmutableDoubleSeries? = null,
+    val vwap: ImmutableDoubleSeries? = null,
+    val ichimokuTenkan: ImmutableDoubleSeries? = null,
+    val ichimokuKijun: ImmutableDoubleSeries? = null,
+    val ichimokuSenkouA: ImmutableDoubleSeries? = null,
+    val ichimokuSenkouB: ImmutableDoubleSeries? = null,
+    val ichimokuChikou: ImmutableDoubleSeries? = null,
 
     // --- Smart Money Concepts ---
     val orderBlocks: ImmutableList<OrderBlock> = persistentListOf(),
@@ -138,74 +139,5 @@ data class ChartUiState(
 
     val hasSmcData: Boolean
         get() = orderBlocks.isNotEmpty() || fairValueGaps.isNotEmpty() || liquidityPools.isNotEmpty()
-
-    // Custom equals/hashCode because of array fields. Note: indicator arrays
-    // co-vary with `candles`, so comparing candles + toggles is sufficient to
-    // drive recomposition correctly without comparing every array.
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (other !is ChartUiState) return false
-        return symbol == other.symbol && timeframe == other.timeframe &&
-            candles == other.candles && dataSource == other.dataSource &&
-            availableSymbols == other.availableSymbols &&
-            activeWatchlistId == other.activeWatchlistId &&
-            bias == other.bias &&
-            structureBreaks == other.structureBreaks &&
-            orderBlocks == other.orderBlocks &&
-            fairValueGaps == other.fairValueGaps &&
-            liquidityPools == other.liquidityPools &&
-            volumeProfile == other.volumeProfile &&
-            marketProfile == other.marketProfile &&
-            supportResistanceZones == other.supportResistanceZones &&
-            autoFibLevels == other.autoFibLevels &&
-            autoFibDirection == other.autoFibDirection &&
-            autoFibSwingHigh == other.autoFibSwingHigh &&
-            autoFibSwingLow == other.autoFibSwingLow &&
-            sessions == other.sessions &&
-            drawings == other.drawings &&
-            drawingMode == other.drawingMode &&
-            activeTool == other.activeTool &&
-            showDrawingToolbar == other.showDrawingToolbar &&
-            indicators == other.indicators &&
-            showIndicatorPanel == other.showIndicatorPanel &&
-            showSymbolPicker == other.showSymbolPicker &&
-            showCalculator == other.showCalculator &&
-            connectionState == other.connectionState &&
-            liveEnabled == other.liveEnabled &&
-            isLoading == other.isLoading &&
-            isLoadingOlder == other.isLoadingOlder &&
-            historyEndReached == other.historyEndReached &&
-            error == other.error &&
-            aiDecision == other.aiDecision &&
-            marketExplanation == other.marketExplanation &&
-            confluence == other.confluence &&
-            syncedCrosshairTimestamp == other.syncedCrosshairTimestamp
-    }
-
-    override fun hashCode(): Int {
-        var result = symbol.hashCode()
-        result = 31 * result + timeframe.hashCode()
-        result = 31 * result + candles.hashCode()
-        result = 31 * result + dataSource.hashCode()
-        result = 31 * result + indicators.hashCode()
-        result = 31 * result + (volumeProfile?.hashCode() ?: 0)
-        result = 31 * result + (marketProfile?.hashCode() ?: 0)
-        result = 31 * result + supportResistanceZones.hashCode()
-        result = 31 * result + autoFibLevels.hashCode()
-        result = 31 * result + (autoFibDirection?.hashCode() ?: 0)
-        result = 31 * result + (autoFibSwingHigh?.hashCode() ?: 0)
-        result = 31 * result + (autoFibSwingLow?.hashCode() ?: 0)
-        result = 31 * result + connectionState.hashCode()
-        result = 31 * result + showIndicatorPanel.hashCode()
-        result = 31 * result + showSymbolPicker.hashCode()
-        result = 31 * result + showCalculator.hashCode()
-        result = 31 * result + isLoadingOlder.hashCode()
-        result = 31 * result + historyEndReached.hashCode()
-        result = 31 * result + (aiDecision?.hashCode() ?: 0)
-        result = 31 * result + (marketExplanation?.hashCode() ?: 0)
-        result = 31 * result + (confluence?.hashCode() ?: 0)
-        result = 31 * result + (syncedCrosshairTimestamp?.hashCode() ?: 0)
-        return result
-    }
 
 }

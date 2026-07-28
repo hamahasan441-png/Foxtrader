@@ -34,6 +34,8 @@ import com.foxtrader.app.domain.usecase.analysis.FibonacciEngine
 import com.foxtrader.app.domain.usecase.analysis.MarketProfile
 import com.foxtrader.app.domain.usecase.analysis.SupportResistanceDetector
 import com.foxtrader.app.domain.usecase.chart.ChartViewportState
+import com.foxtrader.app.feature.chart.presentation.ImmutableDoubleSeries
+import com.foxtrader.app.feature.chart.presentation.ImmutableIntSeries
 import com.foxtrader.app.domain.usecase.performance.QualitySettings
 import com.foxtrader.app.feature.chart.presentation.components.layers.autoScaleToVisibleContent
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawAutoFibonacciLevels
@@ -97,20 +99,20 @@ fun CandleChart(
     initialViewportState: ChartViewportState? = null,
     onViewportStateChange: (ChartViewportState) -> Unit = {},
     performanceMonitor: ChartPerformanceMonitor? = null,
-    emaShort: DoubleArray? = null,
-    emaLong: DoubleArray? = null,
-    bollingerUpper: DoubleArray? = null,
-    bollingerMiddle: DoubleArray? = null,
-    bollingerLower: DoubleArray? = null,
-    superTrendValues: DoubleArray? = null,
-    superTrendDir: IntArray? = null,
-    parabolicSar: DoubleArray? = null,
-    vwap: DoubleArray? = null,
-    ichimokuTenkan: DoubleArray? = null,
-    ichimokuKijun: DoubleArray? = null,
-    ichimokuSenkouA: DoubleArray? = null,
-    ichimokuSenkouB: DoubleArray? = null,
-    ichimokuChikou: DoubleArray? = null,
+    emaShort: ImmutableDoubleSeries? = null,
+    emaLong: ImmutableDoubleSeries? = null,
+    bollingerUpper: ImmutableDoubleSeries? = null,
+    bollingerMiddle: ImmutableDoubleSeries? = null,
+    bollingerLower: ImmutableDoubleSeries? = null,
+    superTrendValues: ImmutableDoubleSeries? = null,
+    superTrendDir: ImmutableIntSeries? = null,
+    parabolicSar: ImmutableDoubleSeries? = null,
+    vwap: ImmutableDoubleSeries? = null,
+    ichimokuTenkan: ImmutableDoubleSeries? = null,
+    ichimokuKijun: ImmutableDoubleSeries? = null,
+    ichimokuSenkouA: ImmutableDoubleSeries? = null,
+    ichimokuSenkouB: ImmutableDoubleSeries? = null,
+    ichimokuChikou: ImmutableDoubleSeries? = null,
     orderBlocks: List<com.foxtrader.app.domain.model.OrderBlock> = emptyList(),
     fairValueGaps: List<com.foxtrader.app.domain.model.FairValueGap> = emptyList(),
     liquidityPools: List<com.foxtrader.app.domain.model.LiquidityPool> = emptyList(),

@@ -4281,3 +4281,75 @@ A `SettingsFlowSmokeTest` now verifies the Settings flow can reach the Data
 Provider section and complete the save action, which broadens confidence around
 one of the app's highest-change configuration surfaces.
 
+
+---
+
+# Appendix Z: Sprint 9 wrap-up — stable chart state and history-merge allocation cleanup
+
+This pass closes another meaningful Sprint 9 gap in the chart hot path:
+
+1. **more immutable / Compose-stable chart state**, and
+2. **less avoidable allocation when older history is present**.
+
+## Stable chart state without copying the whole series every tick
+
+The main chart state previously had two Compose-stability weak points:
+
+- the primary `candles` payload was exposed as a raw `List<Candle>`,
+- overlay arrays (`DoubleArray` / `IntArray`) were stored directly in
+  `ChartUiState`, which forced a custom `equals` implementation and still left
+  the hot state awkward for Compose stability analysis.
+
+This pass introduces small immutable-by-contract wrappers in
+`feature/chart/presentation/ChartStableCollections.kt`:
+
+- `CandleSeries`
+- `ImmutableDoubleSeries`
+- `ImmutableIntSeries`
+
+That lets `ChartUiState` become an `@Immutable` data class again while avoiding
+an expensive full copy of thousands of candles into a persistent collection on
+every market update.
+
+`NOTE` This is an important Sprint 9 trade-off improvement: the UI now gets a
+much stronger stability contract **without** paying the obvious allocation cost
+that a naive `toPersistentList()` on every tick would create.
+
+## History paging merge cleanup
+
+When older pages were present, the chart used to rebuild the visible series via
+`prependedHistory + currentObservedCandles`, then `distinctBy`, then `sortedBy`.
+That is correct but unnecessarily allocation-heavy in a path that can run often.
+
+This pass changes the merge model:
+
+- prepended history keeps a snapshot updated only when paging changes,
+- live/Room updates rebuild the visible series with a lightweight concatenated
+  view instead of sorting/deduplicating every time,
+- duplicate detection during `loadOlderHistory()` now uses a timestamp set
+  rather than nested scans.
+
+Because prepended pages are only accepted when they are strictly older than the
+current earliest bar, the chart can preserve ordering without a full re-sort on
+normal updates.
+
+## Draw-path cleanup continuation
+
+`ChartAutoScale.kt` also drops a few `filter { ... }.forEach { ... }` chains in
+favor of direct loops over order blocks, gaps, liquidity pools and sessions.
+
+Individually these are small, but they run in a path the viewport touches often
+while panning / zooming, so they are exactly the kind of "boring but real"
+allocation cleanup Sprint 9.5 is supposed to accumulate.
+
+## Stability config refinement
+
+`compose-stability.conf` now explicitly marks the FoxTrader domain model and the
+chart-analysis result packages used by the hot chart state, which helps the
+Compose compiler treat the new immutable chart surface more honestly.
+
+## Test coverage
+
+`ChartUiStateTest` now asserts that array-backed overlay wrappers compare by
+content, preserving correct `StateFlow` emission semantics after the state
+surface moved away from raw arrays.

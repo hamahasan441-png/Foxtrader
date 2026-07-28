@@ -11,6 +11,7 @@ android {
         minSdk = 29
         targetSdk = 34
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunnerArguments["androidx.benchmark.enabledRules"] = "Macrobenchmark,BaselineProfile"
     }
 
     targetProjectPath = ":app"

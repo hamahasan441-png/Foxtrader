@@ -10,6 +10,7 @@ import com.foxtrader.app.domain.usecase.ai.MarketExplanation
 import com.foxtrader.app.domain.usecase.analysis.SupportResistanceDetector
 import com.foxtrader.app.domain.usecase.mtf.ConfluenceEngine
 import kotlinx.collections.immutable.toPersistentList
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
@@ -67,6 +68,24 @@ class ChartUiStateTest {
         val withSyncedCrosshair = base.copy(syncedCrosshairTimestamp = 1_700_000_000_000L)
 
         assertNotEquals(base, withSyncedCrosshair)
+    }
+
+
+    @Test
+    fun `array-backed overlays compare by content after immutable wrapping`() {
+        val first = ChartUiState(
+            isLoading = false,
+            emaShort = doubleArrayOf(100.0, 101.5, 102.25).asImmutableDoubleSeries(),
+            superTrendDir = intArrayOf(1, 1, -1).asImmutableIntSeries(),
+        )
+        val second = ChartUiState(
+            isLoading = false,
+            emaShort = doubleArrayOf(100.0, 101.5, 102.25).asImmutableDoubleSeries(),
+            superTrendDir = intArrayOf(1, 1, -1).asImmutableIntSeries(),
+        )
+
+        assertEquals(first, second)
+        assertEquals(first.hashCode(), second.hashCode())
     }
 
     private fun decision(): DecisionResult = DecisionResult(
