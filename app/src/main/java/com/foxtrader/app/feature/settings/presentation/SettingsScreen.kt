@@ -36,12 +36,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.AlertPriority
 import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.PositionSizingMethod
@@ -88,7 +90,7 @@ fun SettingsScreen(
             SettingsCard {
                 if (state.isLoggedIn) {
                     Text(
-                        text = "Signed in — cloud sync enabled",
+                        text = stringResource(R.string.settings_signed_in),
                         style = MaterialTheme.typography.bodyMedium,
                         color = FoxSuccess,
                     )
@@ -123,7 +125,7 @@ fun SettingsScreen(
                     }
                 } else {
                     Text(
-                        text = "Sign in to back up and sync your journal, drawings, and settings across devices.",
+                        text = stringResource(R.string.settings_sign_in_description),
                         style = MaterialTheme.typography.bodySmall,
                         color = FoxNeutral60,
                     )
@@ -154,13 +156,13 @@ fun SettingsScreen(
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        text = "Lock the app with your fingerprint, face, or device PIN on launch.",
+                        text = stringResource(R.string.settings_biometric_description),
                         style = MaterialTheme.typography.bodySmall,
                         color = FoxNeutral60,
                     )
                 } else {
                     Text(
-                        text = "Biometric unlock unavailable — no biometrics or screen lock set up on this device.",
+                        text = stringResource(R.string.settings_biometric_unavailable),
                         style = MaterialTheme.typography.bodySmall,
                         color = FoxNeutral60,
                     )
@@ -318,7 +320,7 @@ fun SettingsScreen(
 
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = "WorkManager runs the watchlist AI gate in the background with Android battery constraints. Risk and psychology vetoes always remain authoritative.",
+                    text = stringResource(R.string.settings_background_scan_note),
                     style = MaterialTheme.typography.bodySmall,
                     color = FoxNeutral60,
                 )
@@ -357,8 +359,7 @@ fun SettingsScreen(
                 if (planned.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        text = "Coming soon: " + planned.joinToString { it.displayName } +
-                            ". These are not connected yet, so they are not selectable.",
+                        text = stringResource(R.string.settings_coming_soon, planned.joinToString { it.displayName }),
                         style = MaterialTheme.typography.bodySmall,
                         color = FoxNeutral60,
                     )
@@ -366,7 +367,7 @@ fun SettingsScreen(
                 if (state.dataProvider == DataProvider.BINANCE || state.dataProvider == DataProvider.BYBIT) {
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        text = "Live chart routing is active for ${state.dataProvider.displayName} crypto symbols.",
+                        text = stringResource(R.string.settings_live_routing_active, state.dataProvider.displayName),
                         style = MaterialTheme.typography.bodySmall,
                         color = FoxNeutral60,
                     )
@@ -383,7 +384,7 @@ fun SettingsScreen(
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        text = "Saved only on this device for the selected chart/data provider.",
+                        text = stringResource(R.string.settings_api_key_saved_note),
                         style = MaterialTheme.typography.bodySmall,
                         color = FoxNeutral60,
                     )

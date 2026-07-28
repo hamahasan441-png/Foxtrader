@@ -33,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -40,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.usecase.portfolio.PositionExposure
 import com.foxtrader.app.ui.theme.FoxAmber50
@@ -126,15 +128,14 @@ private fun EmptyPortfolio() {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
-            text = "No open positions",
+            text = stringResource(R.string.portfolio_no_positions_title),
             color = MaterialTheme.colorScheme.onSurface,
             fontWeight = FontWeight.Bold,
             fontSize = 16.sp,
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            text = "Exposure is derived from open trades in your journal. " +
-                "Log a trade without an exit price to track it here.",
+            text = stringResource(R.string.portfolio_no_positions_subtitle),
             color = FoxNeutral60,
             fontSize = 12.sp,
         )
@@ -159,7 +160,7 @@ private fun SyntheticNotice() {
     ) {
         Icon(Icons.Default.Warning, contentDescription = null, tint = FoxWarning)
         Text(
-            text = "Priced from simulated data — correlations and P&L are not real.",
+            text = stringResource(R.string.portfolio_synthetic_notice),
             color = FoxWarning,
             fontSize = 11.sp,
         )
@@ -185,7 +186,7 @@ private fun ExposureSummaryCard(state: PortfolioUiState) {
             )
             Spacer(Modifier.height(2.dp))
             Text(
-                text = "of ${formatMoney(state.accountEquity)} equity",
+                text = stringResource(R.string.portfolio_of_equity, formatMoney(state.accountEquity)),
                 color = FoxNeutral60,
                 fontSize = 11.sp,
             )
@@ -380,12 +381,12 @@ private fun PositionRow(position: PositionExposure) {
             Spacer(Modifier.height(6.dp))
             Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
                 Text(
-                    text = "${trimZeros(position.volume)} lots @ ${trimZeros(position.notional)}",
+                    text = stringResource(R.string.portfolio_lots_at_notional, trimZeros(position.volume), trimZeros(position.notional)),
                     color = FoxNeutral60,
                     fontSize = 10.sp,
                 )
                 Text(
-                    text = "${formatPercent(position.exposurePercent)} of equity",
+                    text = stringResource(R.string.portfolio_percent_of_equity, formatPercent(position.exposurePercent)),
                     color = FoxNeutral60,
                     fontSize = 10.sp,
                 )
