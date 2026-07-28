@@ -219,6 +219,15 @@ object TechnicalIndicators {
         avgGain /= period
         avgLoss /= period
 
+        // Emit the first RSI value at index [period] from the seed averages.
+        // Previously this bar was skipped (the loop began at period + 1), leaving
+        // rsi[period] stuck at the 50.0 default — one incorrect bar that could
+        // suppress a genuine oversold/overbought signal on that candle.
+        rsi[period] = run {
+            val rs = if (avgLoss > 0) avgGain / avgLoss else 100.0
+            100.0 - 100.0 / (1.0 + rs)
+        }
+
         for (i in period + 1 until candles.size) {
             val change = candles[i].close - candles[i - 1].close
             val gain = if (change > 0) change else 0.0
