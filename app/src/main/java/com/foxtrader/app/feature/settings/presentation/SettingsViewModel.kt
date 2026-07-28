@@ -61,6 +61,7 @@ class SettingsViewModel @Inject constructor(
             authState = authRepository.authState.value,
             appLockEnabled = appPreferences.appLockEnabled.value,
             biometricAvailable = biometricAuthManager.canAuthenticate(),
+            crashReportingEnabled = appPreferences.crashReportingEnabled.value,
         )
     )
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
@@ -80,6 +81,9 @@ class SettingsViewModel @Inject constructor(
             .launchIn(viewModelScope)
         appPreferences.defaultTimeframe
             .onEach { tf -> _uiState.update { it.copy(defaultTimeframe = tf) } }
+            .launchIn(viewModelScope)
+        appPreferences.crashReportingEnabled
+            .onEach { enabled -> _uiState.update { it.copy(crashReportingEnabled = enabled) } }
             .launchIn(viewModelScope)
         combine(
             appPreferences.aiMinConfluences,
@@ -200,6 +204,14 @@ class SettingsViewModel @Inject constructor(
         if (enabled && !biometricAuthManager.canAuthenticate()) return
         appPreferences.setAppLockEnabled(enabled)
         _uiState.update { it.copy(appLockEnabled = enabled) }
+    }
+
+    // --- Privacy ---
+
+    /** Opt-in crash reporting. Persisted immediately; defaults OFF. */
+    fun setCrashReportingEnabled(enabled: Boolean) {
+        appPreferences.setCrashReportingEnabled(enabled)
+        _uiState.update { it.copy(crashReportingEnabled = enabled) }
     }
 
     // --- AI Config ---

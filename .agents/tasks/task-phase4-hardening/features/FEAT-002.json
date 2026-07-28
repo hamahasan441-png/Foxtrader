@@ -1,0 +1,15 @@
+{
+  "id": "FEAT-002",
+  "type": "chore",
+  "description": "T4.2: Create baseline profile stub at app/src/main/baseline-prof.txt",
+  "status": "completed",
+  "steps": [
+    "Create app/src/main/baseline-prof.txt with critical startup class rules"
+  ],
+  "acceptance_criteria": [
+    "File exists at app/src/main/baseline-prof.txt",
+    "Contains HSPL rules for FoxTraderApp, MainActivity, FoxNavigation, ChartViewModel, ChartViewport, RiskEngine"
+  ],
+  "blocked_reason": null,
+  "findings": "Created seed profile with 6 HSPL rules covering app startup, navigation, chart, and risk engine critical paths. This is a hand-written seed; the full profile from BaselineProfileGenerator replaces it on a real instrumented build."
+}
