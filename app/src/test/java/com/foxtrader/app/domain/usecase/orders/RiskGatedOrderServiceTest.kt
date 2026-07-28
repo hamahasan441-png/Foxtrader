@@ -2,6 +2,7 @@ package com.foxtrader.app.domain.usecase.orders
 
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.OrderType
+import com.foxtrader.app.domain.usecase.calculator.InstrumentTypeResolver
 import com.foxtrader.app.domain.usecase.risk.RiskEngine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -18,7 +19,7 @@ class RiskGatedOrderServiceTest {
 
     @Before
     fun setup() {
-        riskEngine = RiskEngine()
+        riskEngine = RiskEngine(InstrumentTypeResolver())
         riskEngine.reset()
         orderManager = OrderManager()
         service = RiskGatedOrderService(riskEngine, orderManager)

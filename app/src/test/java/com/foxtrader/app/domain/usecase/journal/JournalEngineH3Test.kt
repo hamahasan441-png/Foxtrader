@@ -3,6 +3,7 @@ package com.foxtrader.app.domain.usecase.journal
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.EmotionTag
 import com.foxtrader.app.domain.model.JournalEntry
+import com.foxtrader.app.domain.usecase.calculator.InstrumentTypeResolver
 import com.foxtrader.app.domain.model.Timeframe
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -19,7 +20,7 @@ class JournalEngineH3Test {
 
     @Before
     fun setup() {
-        engine = JournalEngine()
+        engine = JournalEngine(InstrumentTypeResolver())
     }
 
     private fun entry(

@@ -1,0 +1,457 @@
+# FoxTrader — Enterprise Master Plan
+
+**Status:** proposed · **Type:** full-repository engineering review + prioritized roadmap
+**Baseline reviewed:** `main` working tree · 347 Kotlin files (~45,684 LOC main+test), 68 unit-test files (~9,896 LOC), 10 instrumentation tests, 8 macrobenchmarks
+**Reference (non-built):** `reference/typescript-src/` — the original Capacitor/WebGL web app (v2.1.0) being ported to native Kotlin. Not shipped, not compiled.
+**Supersedes:** `ENHANCEMENT_MASTERPLAN.md` (Sprint 6→11) and `MARKET_DATA_ENGINE_CONTINUATION.md` — both are now partially executed; this plan reconciles the codebase against them and re-prioritizes from the *current* reality.
+
+> **Reading order:** §1 gives the verdict. §2 is maturity. §3–§13 are the per-domain reviews with file/line evidence. §14 classifies every item (implement / refactor / remove / keep / postpone). §15 is the prioritized, sequenced roadmap with acceptance + DoD per task. §16 is metrics, §17 the risk register.
+
+---
+
+## 1. Executive Summary
+
+FoxTrader is a **genuinely strong, well-architected native Android trading-analysis app** that is significantly further along than a typical project at this stage. The prior masterplan's Class-A data-integrity work is **done and done well**: data provenance is a first-class concept, migrations are non-destructive, the decision engine hard-vetoes synthetic data, and the cache is bounded. The chart engine is **production-grade** — allocation-free camera math, frame-rate-independent fling, anchored zoom, prepend paging, adaptive quality. The domain logic (SMC/ICT detection, risk engine, multi-agent decisioning) is pure, deterministic, non-repainting, and heavily unit-tested.
+
+The project is **not** held back by missing features. It is held back by **four structural issues** that now dominate the risk profile:
+
+1. **A large orphaned subsystem.** The new `data/market/*` real-time engine (19 production + 16 test files) has **zero wiring** into the app. It is the exact "dead capability" anti-pattern the previous plan warned against — recreated at scale. Decision required: **finish it or delete it.** Leaving it is the single biggest source of technical debt in the repo.
+2. **A god-object ViewModel.** `ChartViewModel` is 1,388 lines with 17+ injected dependencies and 44 functions. It is the maintainability bottleneck of the whole chart feature and the highest-value refactor.
+3. **A correctness bug in the risk core.** `RiskEngine` hardcodes the forex standard-lot contract size (`* 100_000`) in every sizing path. Position size, risk amount, and every downstream risk gate are **wrong for crypto, stocks, indices, and metals** — instruments the app explicitly supports. For a tool whose entire value proposition is disciplined risk, this is the most important non-cosmetic defect.
+4. **Honest-but-hollow capabilities.** Several advertised systems are architecturally present but non-functional: the external LLM provider (only a `NoOp` exists), the `NewsAgent` (votes on news that is never fetched), and 6 fully-tested but unreferenced engines. The app is honest about none-of-these lying to the user, but the capability gap should be closed or the surface trimmed.
+
+**Verdict on maturity:** late-**Beta** on the client; **Alpha** on live-data breadth (only crypto + Alpha Vantage are real providers; no backend for forex/stocks); **pre-Alpha** on release engineering (debug signing, `versionCode = 1`, no crash reporting).
+
+**The strategic move** is not to build more trading features. It is to **consolidate**: wire or remove the orphaned engine, break up the god object, fix the risk math, then harden for release. Feature breadth is already ahead of engineering consolidation — closing that gap is where the return is.
+
+---
+
+## 2. Current Maturity
+
+| Dimension | Level | Evidence |
+|---|---|---|
+| **Architecture** | High / mature | Clean MVVM + Clean Architecture; domain owns repository interfaces; 8 focused Hilt modules; offline-first Room SSOT |
+| **Chart / rendering** | Production-grade | `ChartViewport` pure math; fling frame-rate independent; anchored zoom; prepend paging; adaptive quality; layer split |
+| **Domain / trading logic** | High | `SmcDetector`, `RiskEngine`, `MasterDecisionEngine`, `AgentOrchestrator` — pure, non-repainting, deterministic, tested |
+| **Data integrity** | High | Provenance (`CandleSource`), non-destructive migrations (DB v6), pruning, provider gating, synthetic-data veto |
+| **Live data breadth** | Alpha | Real: Binance, Bybit (crypto), Alpha Vantage. Forex/stocks depend on a **non-existent** backend → synthetic fallback |
+| **AI** | Deterministic-rules mature; ML absent | 10 heuristic agents + master gate. No machine learning, no real LLM provider (NoOp only) |
+| **Testing** | Good, unevenly distributed | 68 unit files, migration test, 10 smoke tests, 8 macrobenchmarks. Coverage gate is chart-only (25% floor) |
+| **Engineering hygiene** | Partial | detekt + ktlint + jacoco exist but **scoped to the chart package only**; not app-wide |
+| **Release engineering** | Pre-Alpha | Debug signing, `versionCode = 1`, no crash reporting, no committed baseline profile, 2 TODOs |
+| **Documentation** | Very high (verbose) | `DEVELOPMENT.md` = 4,791 lines / 382 headers; thorough but drifting from code reality |
+| **Consolidation / debt** | Weak | Orphaned market engine (35 files), god-object ViewModel, 6 dead engines |
+
+---
+
+## 3. Strengths (keep and protect)
+
+- **Correct, defensible core invariants.** Non-repainting analysis, synthetic-data veto ranked *above* the risk veto (`MasterDecisionEngine.kt` §0), LLM kept narration-only, dependency inversion at the repository seam. These are the right hills to have died on.
+- **Chart engine.** `ChartViewport.kt` and `CandleChart.kt` are exemplary: hoisted `Paint`, `remember`-scoped viewport, `withFrameNanos` fling loop that *only runs during a fling*, prepend-paging that preserves the camera anchor (`shiftForPrependedBars`). This is genuinely hard to get right and it is right.
+- **Data layer discipline.** The team removed the unsourced `getCandles` overload specifically to stop three call sites from silently bypassing provenance (documented in `MarketRepository.kt`). That is mature, defensive API design.
+- **DI cleanliness.** HTTPS enforced for release (`NetworkModule`), a separate no-auth client so FoxTrader tokens never leak to third-party market hosts, injectable dispatchers for testability.
+- **Test culture.** 68 unit-test files with evidence-first KDocs, a real Room `MigrationTestHelper` suite, macrobenchmarks, and LeakCanary in debug.
+
+---
+
+## 4. Weaknesses & Architecture Problems
+
+| # | Problem | Evidence | Severity |
+|---|---|---|---|
+| W1 | **Orphaned real-time market engine** — 19 prod + 16 test files, 0 references outside `data/market/`. Wiring blocks (RealtimeConnection, OkHttp transport, provider factory, engine façade, DI) never built | `find` shows `RealtimeConnection`, `RealtimeMarketDataEngine`, `MarketDataProviderFactory`, `OkHttpWebSocketTransport` = **MISSING**; app uses old `MarketWebSocket` | **Critical (debt)** |
+| W2 | **God-object `ChartViewModel`** — 1,388 LOC, 17+ deps, 44 functions | `feature/chart/presentation/ChartViewModel.kt` | **High** |
+| W3 | **Forex-only risk math** — `* 100_000` contract size in every sizing path | `RiskEngine.kt` (8 occurrences) | **High (correctness)** |
+| W4 | **Dead engines** — `SmartAlertEngine`, `NewsEngine`, `SeasonalityEngine`, `MultiTimeframeAnalysisUseCase`, `SignalPipeline`, `RiskGatedBrokerExecutor` = 0 call sites | grep across `app/src/main` | Medium |
+| W5 | **No concrete LLM provider** — only `NoOpAiProviderClient` implements `AiProviderClient` | `di/AiModule.kt` | Medium |
+| W6 | **`NewsAgent` votes with no news source** — an AI confluence dimension that is structurally inert | `NewsEngine` dead + no news fetch path | Medium |
+| W7 | **Schemas not committed** — `exportSchema = true` and migration tests reference `app/schemas`, but 0 schema files are tracked | `git ls-files app/schemas` = 0 | **High (test integrity)** |
+| W8 | **No backend for non-crypto** — forex/stocks route to a FastAPI backend that does not exist → synthetic fallback | `MarketRepositoryImpl.fetchDefaultCandles` → `api.getCandles`; README roadmap "FastAPI backend" unchecked | Medium |
+| W9 | **Hygiene gates are chart-scoped** — detekt/ktlint sources and jacoco includes cover only chart+indicator packages | `app/build.gradle.kts` detekt/ktlint `source`/`filter` blocks | Medium |
+| W10 | **Manifest requires GLES 3.0** (`required="true"`) but the chart is Compose Canvas, not GL — needlessly excludes devices and misrepresents the renderer | `AndroidManifest.xml` `uses-feature glEsVersion=0x00030000` | Low–Medium |
+| W11 | **Partial string externalization** — ~34 hardcoded `text = "…"` literals remain in feature screens | grep of `feature/**` | Low |
+| W12 | **Two live TODOs** — fox notification icon, Dukascopy stub — violating the "no TODO" directive | `AlertDispatcher.kt:77`, `DukascopyAdapter.kt:36` | Low |
+| W13 | **Doc drift** — `DEVELOPMENT.md` (4,791 lines) and `README` advertise capabilities that are dead/absent (multi-provider, smart alerts, news) | cross-reference | Low–Medium |
+
+---
+
+## 5. Technical Debt Ledger
+
+Ranked by carrying cost:
+
+1. **Orphaned `data/market/*` engine (W1)** — ~35 files of tested code delivering zero value while imposing full maintenance, review, and cognitive cost. Every refactor must reason about code that runs nowhere. *This is the largest single debt.*
+2. **`ChartViewModel` god object (W2)** — blocks safe change to the most important screen; every chart feature touches it; testing requires 17 mocks.
+3. **Six dead engines (W4)** — smaller than W1 but the same category. Each is a standing invitation to "just wire it later" that never comes.
+4. **Chart-only hygiene gates (W9)** — the rest of the codebase (data, domain/ai, features) has no complexity/style/coverage floor, so debt accrues silently outside the chart package.
+5. **Uncommitted schemas (W7)** — migration tests give false confidence; a broken upgrade path can ship.
+6. **Doc drift (W13)** — 4,791 lines that partially describe an aspirational app, not the built one; misleads contributors and future planning.
+
+---
+
+## 6. Chart Engine Review
+
+**Verdict: the strongest part of the codebase. Keep almost entirely as-is.**
+
+- Coordinate transforms, culling, and camera ops live in `ChartViewport` (`@Stable`, allocation-free, no Compose snapshot reads in hot paths). Correct separation from the composable.
+- `CandleChart.kt` was split from ~1,200 lines into a `layers/` package (8 layer files) with the composable reduced to orchestration — exactly the right structure.
+- Fling uses `v *= friction^dt` (frame-rate independent, verified in code), started only on qualifying lift-off, and the animation loop exits when settled (no idle vsync wakeups).
+- Prepend paging preserves the visual anchor (`shiftForPrependedBars`) and prefetches at a bar threshold — this is what makes the "100k candles" claim actually reachable.
+- Adaptive quality gates each layer before the frame budget is spent.
+
+**Gaps:**
+- `MAX_VISIBLE_BARS = 100_000` but the hot cache is capped at 5,000 bars (`MAX_CACHED_BARS`) and refresh `limit = 500`. The renderer can *draw* 100k; the data layer's paging must actually feed it that deep for the claim to hold end-to-end. Paging exists but is in-memory per session — validate the deep-scroll path under test.
+- The manifest's `uses-feature glEsVersion` requirement (W10) misrepresents this as a GL renderer. It is hardware-accelerated Compose Canvas. Fix the manifest and the marketing language.
+- Full-series indicator/structure recompute on data change still exists in the ViewModel path; incremental (trailing-window) analysis is the next scale lever (tie to W2 refactor).
+
+---
+
+## 7. Trading Engine Review
+
+**Verdict: high-quality domain logic with one serious correctness bug and some redundant compute.**
+
+- `SmcDetector` is comprehensive (OB, FVG, liquidity pools, volume profile, breaker blocks, IFVG, BPR, AMD/Power-of-Three) and rigorously **non-repainting** (index `i` uses only `[0..i]`). Pure, thread-safe, stateless.
+- `RiskEngine` is thread-safe (atomic halt flag, `CopyOnWriteArrayList`, `synchronized` balance), with 6 sizing methods, 4 stop methods, pre-trade gating, Kelly, drawdown auto-halt.
+
+**Problems:**
+- **R1 (correctness, High):** `RiskEngine` assumes a forex 100,000-unit standard lot in *every* sizing branch. For BTCUSD, AAPL, or US30 this yields absurd volumes and risk amounts, corrupting every gate that depends on `riskAmount`. Needs an **instrument/contract-spec abstraction** (contract size, tick value, quote currency) keyed off asset class. This is the top trading-engine fix.
+- **R2 (scale, Medium):** `SmcDetector.detectBreakers/detectIFVG/detectBPR` each re-run `detectOrderBlocks`/`detectFairValueGaps`; `findPriceClusters` is O(n²). At 5,000 bars recomputed per tick this is a CPU cliff. Cache primitives per (series, version) and/or compute on windows.
+- **R3 (Low):** `RiskEngine` daily/weekly loss uses `config.accountBalance` (static) as the denominator while sizing uses `currentBalance` — a subtle inconsistency worth aligning.
+
+**Scanner / backtest / replay** are wired to real screens and tested; no blocking issues found. Backtest is bar-by-bar with no look-ahead (matches the invariant).
+
+---
+
+## 8. Backend Review
+
+**Verdict: there is no backend. This is the honest state and it is fine for now — but it caps the product.**
+
+- The `reference/typescript-src/` tree is the **old web app**, not a server. It is not built or deployed.
+- The Kotlin app is offline-first and correct without a server. Real live data exists only for **crypto (Binance/Bybit)** and **Alpha Vantage**. Forex/stocks/indices route to `api.getCandles` (a FoxTrader backend that does not exist), fail, and fall back to clearly-labelled synthetic data.
+- **Consequence:** the advertised multi-asset breadth is real only for crypto today. This is disclosed honestly in-app, but it is a hard ceiling on the value proposition and on any future sync/social feature.
+- **Recommendation:** keep the app backend-optional. Do **not** build a heavyweight FastAPI+Postgres+Redis platform speculatively. Add real *client-side* providers (Polygon, Twelve Data, OANDA) behind the existing adapter seam first — they deliver forex/stock/index data with no server to operate. A backend becomes justified only when cloud sync or social features are actually scheduled.
+
+---
+
+## 9. Database Review
+
+**Verdict: mature and safe, with one test-integrity gap.**
+
+- Room, 6 entities, DB **v6**, all migrations hand-written and non-destructive; `fallbackToDestructiveMigration()` deliberately removed. User-authored data (journal, drawings, watchlists) is protected.
+- Provenance column (`candles.source`) added correctly in `MIGRATION_3_4` (drops unclassifiable legacy rows rather than mislabeling them — the right call).
+- Cache retention via `CandleDao.prune(keepCount)` bounds growth.
+
+**Gaps:**
+- **D1 (High):** `app/schemas/` is **not committed** (0 tracked files) though `exportSchema = true` and `FoxDatabaseMigrationTest` + the build's `androidTest` asset wiring depend on it. Without committed per-version schema JSON, migration tests cannot validate historical upgrade paths — they give false confidence. Generate and commit schemas v1–v6.
+- **D2 (Low):** `observe()` has no `LIMIT`; retention relies on `prune` running. A defensive bounded window on the query would harden against a missed prune.
+
+---
+
+## 10. AI Review
+
+**Verdict: excellent deterministic decisioning; "AI" is rule-based, not machine-learned; the LLM and news seams are hollow.**
+
+- `AgentOrchestrator` runs 10 agents in dependency phases with weighted aggregation and a >15% edge requirement to avoid coin-flip signals. `MasterDecisionEngine` gates on data integrity → risk/psychology veto → directional consensus → confluence count → confidence. Pure and deterministic. **This is the right architecture for a trading tool** (auditable, non-repainting, no black-box authority).
+
+**Gaps:**
+- **AI1 (Medium):** No concrete `AiProviderClient` implementation exists — only `NoOpAiProviderClient`. The "external AI provider" narration feature always degrades. Either implement one real provider (OpenAI/Anthropic-compatible, narration-only) or stop advertising it.
+- **AI2 (Medium):** `NewsAgent` contributes to confluence but there is no news data source (`NewsEngine` is dead). The agent is either inert or fabricating a signal dimension. Wire a real news/economic-calendar source or remove the agent from the confluence set until one exists.
+- **AI3 (info):** There is **no machine learning** anywhere — no models, training, or feature pipeline. That is a legitimate and arguably safer design choice; just align the "Chief AI Officer / ML / DL" framing and docs with reality. If ML is ever wanted, it belongs as an *advisory* signal behind the master gate, never as trade authority.
+
+---
+
+## 11. Performance Review
+
+**Verdict: strong foundations, measurement infrastructure exists, a few known cliffs.**
+
+- Allocation-free chart hot path; hoisted `Paint`; `kotlinx-collections-immutable` + a compose stability config; CPU work on `Dispatchers.Default`; adaptive quality.
+- `:benchmark` module with 8 macrobenchmarks (startup, chart scroll, pinch, workspace, navigation, scanner/settings, portfolio/alerts) + `BaselineProfileGenerator`.
+
+**Gaps:**
+- **P1 (Medium):** No **committed baseline profile** — cold start and first-frame jank are unoptimized by default despite the generator existing. Generate and commit.
+- **P2 (Medium):** Full-series recompute per tick (ties to R2 and W2). Incremental/windowed analysis is the main remaining lever.
+- **P3 (Low):** Benchmarks are defined but there is no evidence they run in CI with regression thresholds; wire them (or a subset) into the pipeline so the numbers in `DEVELOPMENT.md` are *measured*, not asserted.
+
+---
+
+## 12. Testing Review
+
+**Verdict: good coverage and culture, unevenly gated.**
+
+- 68 unit-test files (~9.9k LOC) across domain/data; 10 instrumentation smoke tests; a real migration test; 8 macrobenchmarks.
+
+**Gaps:**
+- **T1 (High):** Coverage gate (`jacocoChartCoverageVerification`) enforces only a **25% line floor on chart+indicator packages**. The risk engine, decision engine, SMC detector, repositories — the correctness-critical core — have **no enforced floor**. Extend a coverage gate to `domain/` (the previous plan proposed 80%; start at a realistic ratchet).
+- **T2 (Medium):** Migration tests are undermined by uncommitted schemas (D1).
+- **T3 (Medium):** No screenshot/visual-regression tests for the design system, so theme/layer regressions are invisible in PR diffs.
+- **T4 (Low):** No tests target the risk-math instrument bug (R1) precisely because the bug is baked into expectations — add asset-class-parametrized sizing tests when fixing R1.
+
+---
+
+## 13. Documentation & Developer-Experience Review
+
+- **Docs:** `DEVELOPMENT.md` is extraordinarily thorough (4,791 lines) but has **drifted** — it documents dead/aspirational capabilities (multi-provider, smart alerts, news, LLM) as if shipped. Volume is not the problem; accuracy is. Add a short, authoritative "what is actually wired today" matrix at the top and keep it current; move aspirational sections into a clearly-labeled "Future" appendix (much of §15 already is).
+- **DX:** Version catalog, committed wrapper, fast-feedback CI, LeakCanary, detekt/ktlint/jacoco — all good. Two friction points: hygiene gates are chart-only (so most of the repo has no guardrails), and configuration-cache is disabled (documented trade-off; revisit once Hilt/KSP support stabilizes).
+- **Two live TODOs (W12)** contradict the stated "no TODO" directive and should be closed or converted to tracked tasks.
+
+---
+
+## 14. Disposition — What to Implement / Refactor / Remove / Keep / Postpone
+
+### Implement (new work that closes a real gap)
+- **Instrument/contract-spec model** for `RiskEngine` (fixes R1 forex-only math).
+- **Commit Room schemas v1–v6** and make migration tests real (D1).
+- **One real market-data provider** for non-crypto behind the existing adapter (Polygon or Twelve Data) — delivers forex/stock data with no backend (W8).
+- **App-wide hygiene + coverage gates** (extend detekt/ktlint/jacoco beyond chart) (W9, T1).
+- **Committed baseline profile** + benchmark-in-CI (P1, P3).
+- **One real `AiProviderClient`** (narration-only) *or* formally descope the feature (AI1).
+- **Release engineering:** signing config, `versionCode` from CI, crash reporting behind opt-in, AAB output (release gap).
+
+### Refactor (improve existing code, no behavior change)
+- **`ChartViewModel`** → decompose into cohesive collaborators (data/stream controller, indicator coordinator, AI/decision coordinator, drawing/watchlist controllers) behind a slim ViewModel (W2).
+- **`SmcDetector` compute reuse** — share OB/FVG results across breaker/IFVG/BPR; window the O(n²) clustering (R2).
+- **Incremental analysis** — split full vs trailing-window passes (P2).
+- **Fix the manifest GLES requirement** and align renderer language (W10).
+- **Finish string externalization** in feature screens (W11).
+
+### Remove (delete; it is pure debt)
+- **Either fully wire OR delete the `data/market/*` engine (W1).** Decision in §15 T1. If not scheduled for wiring within one cycle, **delete it** (it is preserved in git history) rather than carry 35 dead files.
+- **Dead engines with no near-term surface:** `SeasonalityEngine`, `MultiTimeframeAnalysisUseCase` (superseded by `MtfContextProvider`/`ConfluenceEngine`), `SignalPipeline` — remove unless a concrete consumer is scheduled.
+- **`NewsAgent` from the confluence set** until a news source exists (AI2) — or wire `NewsEngine` to a real feed.
+
+### Keep unchanged (do not touch)
+- The chart engine (`ChartViewport`, `CandleChart`, `layers/`), except the incremental-analysis hook.
+- The data-integrity architecture (provenance, veto, migrations, pruning, provider gating).
+- The DI structure, dispatcher injection, and repository seam.
+- The deterministic AI decision architecture and non-repainting invariants.
+- The `RiskGatedBrokerExecutor` (dead but intentional — paper-trading only; keep behind a flag, do **not** wire to live capital).
+
+### Postpone (explicitly out of scope now)
+- FastAPI/Postgres/Redis backend, social/copy-trading, live broker order routing, Wear OS/Android Auto/voice, marketplace/scripting SDK (H4/H5), any ML/model training.
+
+---
+
+## 15. Prioritized Roadmap
+
+Six phases. Each ends green (`:app:assembleDebug` + `:app:testDebugUnitTest`), is independently shippable, and is ordered risk/correctness-first → debt → hardening → release. Fields per task: **Priority · Impact · Complexity · Dependencies · Order · Acceptance · DoD.**
+
+Global Definition of Done (applies to every task): compiles; unit tests green; no new TODOs/placeholders; no new detekt/ktlint violations in touched files; Conventional Commit; `DEVELOPMENT.md` "what's wired" matrix updated; one logical change per commit.
+
+---
+
+### Phase 0 — Correctness & Test Integrity *(non-negotiable, do first)*
+
+**T0.1 — Fix forex-only risk math (instrument contract spec)**
+- **Priority:** P0 · **Impact:** Very High (core correctness) · **Complexity:** M
+- **Dependencies:** none · **Order:** 1
+- **Acceptance:** an `InstrumentSpec` (asset class, contract size, tick/point value, quote currency) drives all `RiskEngine` sizing/stop math; BTCUSD, AAPL, US30, XAUUSD, EURUSD each produce correct volume + risk amount; no literal `100_000` remains in sizing paths.
+- **DoD:** asset-class-parametrized unit tests for all 6 sizing methods; existing risk tests updated; gates (`canOpenTrade`) verified against corrected `riskAmount`.
+
+**T0.2 — Commit Room schemas v1–v6, make migration tests real**
+- **Priority:** P0 · **Impact:** High (data safety) · **Complexity:** S
+- **Dependencies:** none · **Order:** 2
+- **Acceptance:** `app/schemas/…/{1..6}.json` committed; `FoxDatabaseMigrationTest` validates 1→2→…→6 with row-survival assertions on journal/drawings/watchlists; a deliberately missing migration fails CI.
+- **DoD:** schemas tracked in git; migration test documented; CI runs it (instrumented or Robolectric where possible).
+
+**T0.3 — Close the two live TODOs**
+- **Priority:** P1 · **Impact:** Low · **Complexity:** S
+- **Dependencies:** none · **Order:** 3
+- **Acceptance:** real fox notification icon shipped (`AlertDispatcher`); `DukascopyAdapter` TODO removed by either implementing behind the provider seam or deleting the stub and marking the provider unimplemented.
+- **DoD:** grep for `TODO|FIXME` in `app/src/main` returns 0.
+
+---
+
+### Phase 1 — Decide the Orphaned Engine *(kill the biggest debt)*
+
+**T1.1 — Market-engine decision gate: wire or delete**
+- **Priority:** P0 (debt) · **Impact:** Very High (maintainability) · **Complexity:** L (wire) / S (delete)
+- **Dependencies:** none · **Order:** 4
+- **Decision rule:** if the real-time engine will be the live-data path this cycle → execute the wiring blocks below. Otherwise → **delete `data/market/*` + its tests** (recover from git if revived).
+- **Acceptance (wire path):** `OkHttpWebSocketTransport` + `RealtimeConnection` + `MarketDataProviderFactory` + `RealtimeMarketDataEngine` implemented and injected; `ChartViewModel` (post-T2) consumes no-repaint candles from it; the old `MarketWebSocket` path is removed; live Binance/Bybit ticks flow through the new engine with provenance intact.
+- **Acceptance (delete path):** `data/market/*` and its 16 tests removed; build green; no references dangling; a one-line note in `DEVELOPMENT.md` records the decision.
+- **DoD:** zero orphaned files in the chosen direction; engine (if kept) has ≥1 production call site and an integration test.
+
+---
+
+### Phase 2 — Decompose the God Object
+
+**T2.1 — Refactor `ChartViewModel` into cohesive collaborators**
+- **Priority:** P1 · **Impact:** High (maintainability, testability) · **Complexity:** L
+- **Dependencies:** T1.1 (so live-data source is settled first) · **Order:** 5
+- **Acceptance:** `ChartViewModel` drops below ~350 LOC and ≤6 direct collaborators; extracted units (e.g., `ChartDataStreamController`, `IndicatorCoordinator`, `DecisionCoordinator`, `DrawingController`) are independently unit-tested; UI behavior unchanged (smoke tests pass).
+- **DoD:** each extracted collaborator has its own tests; no regression in chart smoke/benchmark suites; recomposition/stability report shows no new unstable params.
+
+**T2.2 — Incremental analysis pass**
+- **Priority:** P2 · **Impact:** Medium-High (scale) · **Complexity:** M
+- **Dependencies:** T2.1 · **Order:** 6
+- **Acceptance:** on a live tick, only the trailing window recomputes; EMA/RSI/ATR state is resumable; tick-to-frame under target (measure on reference device); full pass only on symbol/timeframe change.
+- **DoD:** correctness tests prove incremental == full-recompute results; benchmark shows tick-to-frame improvement.
+
+**T2.3 — `SmcDetector` compute reuse + window clustering**
+- **Priority:** P2 · **Impact:** Medium · **Complexity:** M
+- **Dependencies:** T2.2 · **Order:** 7
+- **Acceptance:** breaker/IFVG/BPR reuse a single OB/FVG computation; `findPriceClusters` no longer O(n²) at 5k bars (bucketed or windowed); outputs identical to current within tolerance.
+- **DoD:** regression tests assert identical detections; micro-benchmark shows reduced compute.
+
+---
+
+### Phase 3 — Trim & Truthful Capabilities
+
+**T3.1 — Remove or wire dead engines**
+- **Priority:** P2 · **Impact:** Medium (debt) · **Complexity:** S–M
+- **Dependencies:** none · **Order:** 8
+- **Acceptance:** `SeasonalityEngine`, `MultiTimeframeAnalysisUseCase`, `SignalPipeline`, `SmartAlertEngine` each either gain a real production surface **or** are removed; final grep shows 0 zero-call-site domain engines (excluding the intentionally-flagged `RiskGatedBrokerExecutor`).
+- **DoD:** each decision recorded; tests for anything newly wired; build green.
+
+**T3.2 — News: wire a source or descope the agent**
+- **Priority:** P2 · **Impact:** Medium (signal integrity) · **Complexity:** M
+- **Dependencies:** none · **Order:** 9
+- **Acceptance:** either `NewsEngine` is fed by a real news/economic-calendar source and surfaced, **or** `NewsAgent` is removed from the confluence set and docs updated so no inert dimension influences decisions.
+- **DoD:** decision engine confluence set matches reality; tests updated; README/DEVELOPMENT corrected.
+
+**T3.3 — LLM provider: implement one or descope**
+- **Priority:** P2 · **Impact:** Medium · **Complexity:** M
+- **Dependencies:** none · **Order:** 10
+- **Acceptance:** either one real narration-only `AiProviderClient` (OpenAI/Anthropic-compatible, key from encrypted store, timeouts, no-PII, never sees raw candles for authority) ships and is user-selectable, **or** the feature is formally descoped and docs/settings reflect offline-only.
+- **DoD:** if implemented — integration test with a fake HTTP server, key never logged, graceful degradation preserved.
+
+---
+
+### Phase 4 — Engineering Hardening
+
+**T4.1 — App-wide hygiene + coverage gates**
+- **Priority:** P1 · **Impact:** High (regression protection) · **Complexity:** M
+- **Dependencies:** Phases 0–3 (so churned code is stable) · **Order:** 11
+- **Acceptance:** detekt + ktlint cover `data/`, `domain/`, `feature/` (baseline existing violations, fail on new); jacoco floor extended to `domain/` at a ratchet (start realistic, e.g., 50%, scheduled to climb); `lint { abortOnError = true }` retained.
+- **DoD:** CI enforces all gates as required checks; baseline file committed with a burn-down note.
+
+**T4.2 — Baseline profile + benchmarks in CI**
+- **Priority:** P2 · **Impact:** Medium · **Complexity:** M
+- **Dependencies:** T2.2 · **Order:** 12
+- **Acceptance:** baseline profile generated from the benchmark journeys and committed; a benchmark subset runs in CI with regression thresholds published as an artifact.
+- **DoD:** cold-start improvement measured and recorded; thresholds enforced.
+
+**T4.3 — Manifest/renderer truth + string externalization**
+- **Priority:** P3 · **Impact:** Low-Medium · **Complexity:** S
+- **Dependencies:** none · **Order:** 13
+- **Acceptance:** GLES `required` fixed (removed or set to reflect actual usage); remaining ~34 hardcoded feature-screen strings moved to `strings.xml` with content descriptions on interactive chart controls.
+- **DoD:** device-compatibility footprint verified; accessibility scan on key screens passes.
+
+---
+
+### Phase 5 — Release Readiness
+
+**T5.1 — Signing, versioning, AAB**
+- **Priority:** P1 · **Impact:** High (shippability) · **Complexity:** M
+- **Dependencies:** Phase 4 · **Order:** 14
+- **Acceptance:** release signing from secure keystore/env; `versionCode` derived from CI; AAB output alongside APK; release R8/proguard build gated in CI.
+- **DoD:** a signed release AAB builds in CI; no debug signing in release.
+
+**T5.2 — Crash/ANR reporting (opt-in, no PII)**
+- **Priority:** P1 · **Impact:** High (operability) · **Complexity:** M
+- **Dependencies:** T5.1 · **Order:** 15
+- **Acceptance:** Crashlytics or Sentry behind an opt-in privacy toggle; documented no-PII policy; keys/tokens never captured.
+- **DoD:** verified crash appears in dashboard from a release build; opt-out fully disables collection.
+
+**T5.3 — Store readiness**
+- **Priority:** P2 · **Impact:** Medium · **Complexity:** M
+- **Dependencies:** T5.1, T5.2 · **Order:** 16
+- **Acceptance:** icon set, screenshots (from screenshot tests if T3 adds them), data-safety declaration, prominent in-app educational-tool disclaimer; internal testing track.
+- **DoD:** internal track release succeeds; disclaimer surfaced before first analysis.
+
+---
+
+## 16. Success Metrics
+
+| Metric | Baseline (now) | Target |
+|---|---|---|
+| Orphaned files (`data/market/*` unwired) | 35 | 0 (wired or deleted) |
+| Zero-call-site domain engines | 6 | 0 (excl. flagged broker executor) |
+| Largest ViewModel LOC | 1,388 | < 350 |
+| Risk math correct across asset classes | forex only | all supported classes |
+| Committed Room schemas | 0 | 6 (v1–v6) |
+| Coverage gate scope | chart only (25%) | `domain/` floor (ratcheting) |
+| Live TODOs in `app/src/main` | 2 | 0 |
+| Real non-crypto data provider | 0 (backend absent) | ≥ 1 (client-side) |
+| Committed baseline profile | no | yes |
+| Release signing | debug | release keystore |
+| Crash reporting | none | opt-in, no-PII |
+| Hygiene gate scope | chart only | app-wide |
+
+---
+
+## 17. Risk Register
+
+| Risk | Impact | Mitigation |
+|---|---|---|
+| Deleting the market engine loses valuable work | Rework later | It stays in git history; delete only if not scheduled within the cycle |
+| Risk-math fix changes existing outputs | Test churn, user-visible sizing changes | Asset-class-parametrized tests first; document the correction as a fix, not a regression |
+| ViewModel refactor introduces chart regressions | The app's core screen breaks | Do it after smoke tests exist and hold; keep behavior identical; lean on benchmarks |
+| Incremental analysis diverges from full recompute | Silent wrong signals | Equivalence tests gate the change |
+| Committing schemas surfaces an already-broken migration | Short-term CI red | That is the point — fix the migration before release, not on a user's device |
+| App-wide gates surface a wall of violations | Momentum stall | Baseline + fail-on-new only; scheduled burn-down |
+| Scope creep into new features during consolidation | Debt count rises again | Phases 1–3 have a hard rule: no new trading features until debt is cleared |
+
+---
+
+## 18. Sequencing Rationale
+
+```
+Phase 0  Correctness & Test Integrity   ← wrong risk math + untested migrations are the only
+   │                                       things that can hurt a user right now
+   ▼
+Phase 1  Decide the Orphaned Engine      ← settle the live-data source before touching the
+   │                                       ViewModel that consumes it
+   ▼
+Phase 2  Decompose the God Object        ← now safe; unlocks incremental analysis + future work
+   │
+   ▼
+Phase 3  Trim & Truthful Capabilities    ← remove dead code / make advertised features real
+   │
+   ▼
+Phase 4  Engineering Hardening           ← gates protect everything above from regression
+   │
+   ▼
+Phase 5  Release Readiness               ← ship it
+```
+
+Phase 0 is non-negotiable and non-parallelizable. Phase 1's decision blocks Phase 2 (the ViewModel consumes whatever live-data source wins). Phases 3 can partially overlap Phase 2 with a second workstream, except anything touching the chart, which must not run concurrently with T2.1.
+
+---
+
+*Prepared as a complete engineering review of FoxTrader. No code was changed in producing this plan.*
+
+
+
+---
+
+## 19. Sprint Log
+
+### Sprint 1 — T0.1: Asset-class-correct money math *(status: implemented, pending CI build)*
+
+**Problem fixed.** Money-to-price conversion was hardcoded to the forex 100,000-unit standard lot in six places, so position size, risk amount, portfolio exposure, realized P&L, and backtest P&L were wrong by orders of magnitude for crypto, metals, indices, and stocks — the instruments the app supports. Validated against the professional standard in `ENGINEERING_RESEARCH.md` §1.4 (`money = stopDistance × volume × contractSize`, contract size varies by asset class).
+
+**Approach.** Reused the codebase's existing, correct concept — `PositionCalculator.InstrumentType` + `AssetClassifier` + `InstrumentTypeResolver` — instead of inventing a competing one. The key insight: money-risk per unit = `stopDistance × contractSize` (the pip size cancels), so the correct generalization of `100_000` is simply each instrument's resolved `contractSize`.
+
+**Changes (7 files):**
+- `RiskEngine` — injects `InstrumentTypeResolver`; all 6 sizing branches use the resolved `contractSize`; result now carries `contractSize`.
+- `PositionSizeResult` (model) — new `contractSize` field so downstream consumers share the same contract assumption.
+- `RiskGatedOrderService` + `RiskGatedBrokerExecutor` — volume-override risk uses the result's `contractSize`; deleted both `CONTRACT_SIZE = 100_000` constants.
+- `PortfolioEngine` — resolves contract size **per position** (was one blanket lot across the whole book); removed the blanket `contractSize` param.
+- `JournalPositionMapper` + `JournalEngine` — mark-to-market and realized P&L resolve per symbol.
+- `BacktestLabViewModel` — sets `BacktestConfig.contractSize` from the tested symbol (engine stays pure/configurable).
+
+**Tests:** added 6 asset-class sizing tests to `RiskEngineTest` (forex/crypto/gold/index + a fixed-lots crypto regression guard + a differentiation assertion); updated `PortfolioEngineTest`'s crypto-warnings case to a realistic large book (it previously only tripped warnings *because* of the bug). Forex-based existing tests are unchanged (resolver returns 100k for FX).
+
+**Self-review / benchmark:** the fix adds one symbol→type resolution (a handful of string comparisons) per order/snapshot/close — all rare, non-per-frame operations. No hot-path or rendering impact. Net maintainability gain: 5 duplicated magic constants eliminated, unified on a single resolver.
+
+**Known limitations (logged, not blocking):** quote→account currency FX conversion is assumed 1.0 — correct for the USD-quoted/USD-account instruments in scope, but cross-currency pairs (e.g. EURGBP on a USD account) would need an FX-rate factor; `InstrumentType` is coarse (no per-contract futures multipliers). Both are acceptable for current scope and noted for a future refinement.
+
+**Definition of Done status:**
+- [x] No literal `100_000` remains in any sizing/P&L/exposure path (verified repo-wide; only an unrelated 5-dp rounding utility remains).
+- [x] BTCUSD, XAUUSD, US30, AAPL, EURUSD each produce asset-class-correct volume and risk amount (unit tests).
+- [x] Downstream risk gates consume the corrected `riskAmount`.
+- [x] No new TODOs; no fully-qualified names in bodies; single logical change.
+- [ ] **CI build + unit tests green** — cannot be run in this offline sandbox (no Android SDK / no dependency network). Must be confirmed by the GitHub Actions `android.yml` workflow on push. This is the one open item before merge.
+
+**Blocked in this environment (deferred within Phase 0):**
+- **T0.2 (commit Room schemas)** — requires a Gradle/KSP build to generate the schema JSON; blocked without the Android SDK. Do on a machine/CI with the SDK.
+- **T0.3 (fox notification icon)** — needs a real drawable asset (design), so deferred; the Dukascopy stub TODO can be removed independently in a follow-up.

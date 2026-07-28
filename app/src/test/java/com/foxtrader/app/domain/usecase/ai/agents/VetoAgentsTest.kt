@@ -3,6 +3,7 @@ package com.foxtrader.app.domain.usecase.ai.agents
 import com.foxtrader.app.domain.model.AgentContext
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.usecase.calculator.InstrumentTypeResolver
 import com.foxtrader.app.domain.usecase.risk.RiskEngine
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -29,14 +30,14 @@ class VetoAgentsTest {
 
     @Test
     fun `risk agent allows trade when no limits breached`() {
-        val agent = RiskAgent(RiskEngine())
+        val agent = RiskAgent(RiskEngine(InstrumentTypeResolver()))
         val output = agent.analyze(context())
         assertTrue("No block insights expected", output.insights.none { it.tags.contains("BLOCK") })
     }
 
     @Test
     fun `risk agent blocks when trading is halted`() {
-        val riskEngine = RiskEngine().apply { haltTrading("test halt") }
+        val riskEngine = RiskEngine(InstrumentTypeResolver()).apply { haltTrading("test halt") }
         val agent = RiskAgent(riskEngine)
 
         val output = agent.analyze(context())

@@ -3,6 +3,7 @@ package com.foxtrader.app.domain.usecase.portfolio
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.JournalEntry
 import com.foxtrader.app.domain.sdk.broker.Position
+import com.foxtrader.app.domain.usecase.calculator.InstrumentTypeResolver
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -24,7 +25,9 @@ import javax.inject.Singleton
  * open exposure. Including them would double-count risk that no longer exists.
  */
 @Singleton
-class JournalPositionMapper @Inject constructor() {
+class JournalPositionMapper @Inject constructor(
+    private val instrumentTypeResolver: InstrumentTypeResolver,
+) {
 
     /**
      * @param entries all journal entries; closed ones are filtered out.
@@ -59,11 +62,10 @@ class JournalPositionMapper @Inject constructor() {
             Direction.BULLISH -> currentPrice - entry.entryPrice
             Direction.BEARISH -> entry.entryPrice - currentPrice
         }
-        return delta * entry.volume * CONTRACT_SIZE
-    }
-
-    private companion object {
-        /** Matches PortfolioEngine.DEFAULT_CONTRACT_SIZE so the two agree. */
-        const val CONTRACT_SIZE = 100_000
+        // Per-instrument contract size, resolved from the symbol, so the mark-to
+        // -market P&L matches the exposure PortfolioEngine computes for the same
+        // position instead of assuming every instrument is a 100k forex lot.
+        val contractSize = instrumentTypeResolver.resolve(entry.symbol).contractSize
+        return delta * entry.volume * contractSize
     }
 }

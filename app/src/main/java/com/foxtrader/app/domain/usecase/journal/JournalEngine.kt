@@ -1,8 +1,10 @@
 package com.foxtrader.app.domain.usecase.journal
 
+import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.EmotionTag
 import com.foxtrader.app.domain.model.JournalEntry
 import com.foxtrader.app.domain.model.JournalStats
+import com.foxtrader.app.domain.usecase.calculator.InstrumentTypeResolver
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -22,9 +24,19 @@ import kotlin.math.max
  * Pure domain logic — persistence handled by repository layer.
  */
 @Singleton
-class JournalEngine @Inject constructor() {
+class JournalEngine @Inject constructor(
+    private val instrumentTypeResolver: InstrumentTypeResolver,
+) {
 
     private val entries = mutableListOf<JournalEntry>()
+
+    /**
+     * Money value of a full price move for one unit of volume of [symbol].
+     * Resolved per instrument so realised P&L is asset-class-correct instead of
+     * assuming every trade is a 100k forex lot.
+     */
+    private fun contractSizeFor(symbol: String): Double =
+        instrumentTypeResolver.resolve(symbol).contractSize
 
     // ========================================================================
     // ENTRY MANAGEMENT
@@ -51,12 +63,12 @@ class JournalEngine @Inject constructor() {
         if (idx < 0) return null
 
         val entry = entries[idx]
-        val priceDiff = if (entry.direction == com.foxtrader.app.domain.model.Direction.BULLISH) {
+        val priceDiff = if (entry.direction == Direction.BULLISH) {
             exitPrice - entry.entryPrice
         } else {
             entry.entryPrice - exitPrice
         }
-        val pnl = priceDiff * entry.volume * 100_000 // Standard lot conversion
+        val pnl = priceDiff * entry.volume * contractSizeFor(entry.symbol)
         val risk = abs(entry.entryPrice - entry.stopLoss)
         val rMultiple = if (risk > 0) priceDiff / risk else 0.0
 
@@ -134,12 +146,12 @@ class JournalEngine @Inject constructor() {
         exitPrice: Double,
         exitTime: Long = System.currentTimeMillis(),
     ): JournalEntry {
-        val priceDiff = if (entry.direction == com.foxtrader.app.domain.model.Direction.BULLISH) {
+        val priceDiff = if (entry.direction == Direction.BULLISH) {
             exitPrice - entry.entryPrice
         } else {
             entry.entryPrice - exitPrice
         }
-        val pnl = priceDiff * entry.volume * 100_000
+        val pnl = priceDiff * entry.volume * contractSizeFor(entry.symbol)
         val risk = abs(entry.entryPrice - entry.stopLoss)
         val rMultiple = if (risk > 0) priceDiff / risk else 0.0
         return entry.copy(exitPrice = exitPrice, exitTime = exitTime, pnl = pnl, rMultiple = rMultiple)

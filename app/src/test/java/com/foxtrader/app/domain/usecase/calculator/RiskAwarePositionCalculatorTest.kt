@@ -2,6 +2,7 @@ package com.foxtrader.app.domain.usecase.calculator
 
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.RiskConfig
+import com.foxtrader.app.domain.usecase.calculator.InstrumentTypeResolver
 import com.foxtrader.app.domain.usecase.risk.RiskEngine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -25,7 +26,7 @@ class RiskAwarePositionCalculatorTest {
 
     @Before
     fun setUp() {
-        riskEngine = RiskEngine()
+        riskEngine = RiskEngine(InstrumentTypeResolver())
         riskEngine.updateConfig(
             RiskConfig(accountBalance = 100_000.0, riskPercentPerTrade = 1.0)
         )
