@@ -104,7 +104,9 @@ class JsonTickDecoder(
     private fun JsonElement?.longSafe(): Long? =
         (this as? JsonPrimitive)?.content?.toLongOrNull()
     private fun JsonElement?.boolSafe(): Boolean? =
-        (this as? JsonPrimitive)?.content?.toBooleanOrNull()
+        // No stdlib `toBooleanOrNull`; `toBooleanStrictOrNull` parses exactly
+        // "true"/"false" (what a JSON boolean primitive's content always is).
+        (this as? JsonPrimitive)?.content?.toBooleanStrictOrNull()
 
     companion object {
         private val LenientJson = Json { ignoreUnknownKeys = true }
