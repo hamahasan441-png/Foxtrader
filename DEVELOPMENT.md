@@ -25,6 +25,8 @@ Conventions used throughout:
 
 The word **"must"** is normative. **"Should"** is a strong recommendation. **"May"** is optional.
 
+> **Before you change anything, read [`ENHANCEMENT_GUIDE.md`](ENHANCEMENT_GUIDE.md).** It is the practical, build-safe playbook for improving FoxTrader — the mandatory workflow, where each kind of change goes, the four invariants, the exact Hilt/Room/Gradle rules that keep CI green, testing/refactoring discipline, a pre-flight checklist, and a catalog of every CI failure we have hit and how to prevent it. Any human or AI enhancing this app follows that guide; this Bible is the deeper specification behind it.
+
 ---
 
 ## Master Table of Contents
