@@ -13,6 +13,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import com.foxtrader.app.R
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -74,7 +75,7 @@ class AlertDispatcher @Inject constructor(
         }
 
         val notification = NotificationCompat.Builder(context, channelId)
-            .setSmallIcon(android.R.drawable.ic_dialog_info) // TODO: replace with fox icon
+            .setSmallIcon(R.drawable.ic_notification_fox)
             .setContentTitle(alert.title)
             .setContentText(alert.body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(alert.body))
