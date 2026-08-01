@@ -3,11 +3,10 @@ package com.foxtrader.app.domain.usecase.tradepro
 import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
-import com.foxtrader.app.domain.model.tradepro.AbsorptionEvent
+import com.foxtrader.app.domain.model.SwingPoint
 import com.foxtrader.app.domain.model.tradepro.FlipZone
 import com.foxtrader.app.domain.model.tradepro.HoldZone
 import com.foxtrader.app.domain.model.tradepro.HoldZoneType
-import com.foxtrader.app.domain.model.tradepro.Imbalance
 import com.foxtrader.app.domain.model.tradepro.SetupStage
 import com.foxtrader.app.domain.model.tradepro.TradeProAnalysis
 import com.foxtrader.app.domain.model.tradepro.TradeProConfig
@@ -137,8 +136,8 @@ class TradeProSignalEngine @Inject constructor(
         priceInZone: Boolean,
         zone: HoldZone,
         flipZone: FlipZone,
-        swingHighs: List<com.foxtrader.app.domain.model.SwingPoint>,
-        swingLows: List<com.foxtrader.app.domain.model.SwingPoint>,
+        swingHighs: List<SwingPoint>,
+        swingLows: List<SwingPoint>,
         recentImbalance: Boolean,
         absorptionReversal: Boolean,
         config: TradeProConfig,
