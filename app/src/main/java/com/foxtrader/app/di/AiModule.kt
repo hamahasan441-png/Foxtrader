@@ -5,6 +5,7 @@ import com.foxtrader.app.domain.usecase.ai.agents.IctAgent
 import com.foxtrader.app.domain.usecase.ai.agents.LitAgent
 import com.foxtrader.app.domain.usecase.ai.agents.MarketStructureAgent
 import com.foxtrader.app.domain.usecase.ai.agents.NewsAgent
+import com.foxtrader.app.domain.usecase.ai.agents.OrderFlowAgent
 import com.foxtrader.app.domain.usecase.ai.agents.PsychologyAgent
 import com.foxtrader.app.domain.usecase.ai.agents.RiskAgent
 import com.foxtrader.app.domain.usecase.ai.agents.SmartMoneyAgent
@@ -23,7 +24,7 @@ import javax.inject.Singleton
 /**
  * Assembles the multi-agent AI reasoning layer.
  *
- * Provides a singleton [AgentOrchestrator] with ALL 10 reasoning agents
+ * Provides a singleton [AgentOrchestrator] with ALL 11 reasoning agents
  * pre-registered. The [com.foxtrader.app.domain.usecase.ai.MasterDecisionEngine]
  * has an `@Inject` constructor and is provided automatically.
  *
@@ -48,6 +49,7 @@ abstract class AiModule {
             marketStructureAgent: MarketStructureAgent,
             trendAgent: TrendAgent,
             volumeAgent: VolumeAgent,
+            orderFlowAgent: OrderFlowAgent,
             smartMoneyAgent: SmartMoneyAgent,
             ictAgent: IctAgent,
             litAgent: LitAgent,
@@ -59,6 +61,7 @@ abstract class AiModule {
             registerAgent(marketStructureAgent)
             registerAgent(trendAgent)
             registerAgent(volumeAgent)
+            registerAgent(orderFlowAgent)
             registerAgent(smartMoneyAgent)
             registerAgent(ictAgent)
             registerAgent(litAgent)

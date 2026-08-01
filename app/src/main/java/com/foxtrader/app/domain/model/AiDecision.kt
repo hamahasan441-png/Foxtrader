@@ -30,6 +30,7 @@ enum class AgentName {
     ICT,
     LIT,
     VOLUME,
+    ORDER_FLOW,
     TREND,
     RISK,
     NEWS,
