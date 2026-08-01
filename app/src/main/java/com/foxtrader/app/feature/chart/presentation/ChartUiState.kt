@@ -47,6 +47,7 @@ data class IndicatorToggles(
     val sessions: Boolean = false,
     val structure: Boolean = true,
     val rsi: Boolean = false,
+    val macd: Boolean = false,
 )
 
 /**
@@ -134,6 +135,9 @@ data class ChartUiState(
 
     // --- Oscillator sub-panels ---
     val rsiValues: ImmutableDoubleSeries? = null,
+    val macdLine: ImmutableDoubleSeries? = null,
+    val macdSignal: ImmutableDoubleSeries? = null,
+    val macdHistogram: ImmutableDoubleSeries? = null,
 ) {
     val lastPrice: Double? get() = candles.lastOrNull()?.close
     val hasData: Boolean get() = candles.isNotEmpty()

@@ -89,6 +89,15 @@ class ChartViewModel @Inject constructor(
     val unreadAlertCount: StateFlow<Int> = alertRepository.observeUnacknowledgedCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
+    /**
+     * Observable primary-chart viewport. Emitted on every pan/zoom/fling frame
+     * so oscillator sub-panels (RSI, MACD) can track the main chart's visible
+     * window in real time. Only the sub-panel container collects this, so the
+     * main chart's own render loop is unaffected.
+     */
+    private val _primaryViewport = MutableStateFlow<ChartViewportState?>(null)
+    val primaryViewport: StateFlow<ChartViewportState?> = _primaryViewport.asStateFlow()
+
     // --- Controllers (plain classes, NOT @Inject) ---
     private val dataController = ChartDataController(
         repository = repository,
@@ -191,6 +200,9 @@ class ChartViewModel @Inject constructor(
             ichimokuSenkouB = c.overlays.ichimokuSenkouB.asImmutableDoubleSeries(),
             ichimokuChikou = c.overlays.ichimokuChikou.asImmutableDoubleSeries(),
             rsiValues = c.overlays.rsi.asImmutableDoubleSeries(),
+            macdLine = c.overlays.macdLine.asImmutableDoubleSeries(),
+            macdSignal = c.overlays.macdSignal.asImmutableDoubleSeries(),
+            macdHistogram = c.overlays.macdHistogram.asImmutableDoubleSeries(),
             orderBlocks = c.overlays.orderBlocks.toPersistentList(),
             fairValueGaps = c.overlays.fairValueGaps.toPersistentList(),
             liquidityPools = c.overlays.liquidityPools.toPersistentList(),
@@ -317,6 +329,7 @@ class ChartViewModel @Inject constructor(
         aiCoordinator.lastAiCandlesHash = 0L
         dataController.resetPrimaryChartContext()
         multiChartController.resetPrimaryViewportState()
+        _primaryViewport.value = null
         _uiState.value = _uiState.value.copy(
             symbol = symbol, timeframe = timeframe,
             candles = CandleSeries.EMPTY, dataSource = CandleSource.CACHED,
@@ -362,7 +375,10 @@ class ChartViewModel @Inject constructor(
     fun onMultiChartPanelCrosshairTimestampChange(panelId: String, timestamp: Long?) = multiChartController.onMultiChartPanelCrosshairTimestampChange(panelId, timestamp)
     fun currentPrimaryViewportState(): ChartViewportState? = multiChartController.currentPrimaryViewportState()
     fun currentMultiChartPanelViewportState(panelId: String): ChartViewportState? = multiChartController.currentMultiChartPanelViewportState(panelId)
-    fun onPrimaryViewportStateChange(state: ChartViewportState) = multiChartController.onPrimaryViewportStateChange(state)
+    fun onPrimaryViewportStateChange(state: ChartViewportState) {
+        _primaryViewport.value = state
+        multiChartController.onPrimaryViewportStateChange(state)
+    }
     fun onMultiChartPanelViewportStateChange(panelId: String, state: ChartViewportState) = multiChartController.onMultiChartPanelViewportStateChange(panelId, state)
 
     // --- Drawing delegates ---

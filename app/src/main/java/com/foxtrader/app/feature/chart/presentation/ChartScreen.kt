@@ -72,6 +72,7 @@ import com.foxtrader.app.feature.chart.presentation.components.MultiChartSection
 import com.foxtrader.app.feature.chart.presentation.components.MultiChartToolbar
 import com.foxtrader.app.domain.usecase.performance.PerformanceSnapshot
 import com.foxtrader.app.feature.chart.presentation.components.MarketContextPanel
+import com.foxtrader.app.feature.chart.presentation.components.MacdSubChart
 import com.foxtrader.app.feature.chart.presentation.components.PerformanceOverlay
 import com.foxtrader.app.feature.chart.presentation.components.ReplayControlBar
 import com.foxtrader.app.feature.chart.presentation.components.RsiSubChart
@@ -370,13 +371,18 @@ fun ChartScreen(
             )
         }
 
-        // --- RSI sub-panel (shown below chart when RSI is toggled on) ---
-        if (state.indicators.rsi && state.rsiValues != null && state.hasData) {
-            val vpState = viewModel.currentPrimaryViewportState()
-            RsiSubChart(
-                rsiValues = state.rsiValues!!,
-                startIndex = vpState?.startIndex ?: 0f,
-                visibleBars = vpState?.visibleBars ?: 120f,
+        // --- Oscillator sub-panels (RSI / MACD) below the chart ---
+        // Isolated composable that collects the reactive viewport so panels
+        // track main-chart pan/zoom in real time without recomposing the chart.
+        if (state.hasData) {
+            OscillatorPanels(
+                indicators = state.indicators,
+                rsiValues = state.rsiValues,
+                macdLine = state.macdLine,
+                macdSignal = state.macdSignal,
+                macdHistogram = state.macdHistogram,
+                viewportFlow = viewModel.primaryViewport,
+                fallbackViewport = viewModel.currentPrimaryViewportState(),
             )
         }
 
@@ -394,6 +400,48 @@ fun ChartScreen(
             onPanelCrosshairTimestampChange = viewModel::onMultiChartPanelCrosshairTimestampChange,
             onPanelViewportStateChange = viewModel::onMultiChartPanelViewportStateChange,
             panelViewportState = viewModel::currentMultiChartPanelViewportState,
+        )
+    }
+}
+
+/**
+ * Oscillator sub-panels container (RSI / MACD).
+ *
+ * Collects the primary chart's viewport as reactive state so the panels redraw
+ * in sync with main-chart pan/zoom/fling. Isolating the [collectAsStateWithLifecycle]
+ * read here means only this container recomposes on viewport changes — the main
+ * [CandleChart] keeps its full-FPS internal render loop untouched.
+ */
+@Composable
+private fun OscillatorPanels(
+    indicators: IndicatorToggles,
+    rsiValues: ImmutableDoubleSeries?,
+    macdLine: ImmutableDoubleSeries?,
+    macdSignal: ImmutableDoubleSeries?,
+    macdHistogram: ImmutableDoubleSeries?,
+    viewportFlow: kotlinx.coroutines.flow.StateFlow<com.foxtrader.app.domain.usecase.chart.ChartViewportState?>,
+    fallbackViewport: com.foxtrader.app.domain.usecase.chart.ChartViewportState?,
+) {
+    val liveViewport by viewportFlow.collectAsStateWithLifecycle()
+    val vp = liveViewport ?: fallbackViewport
+    val startIndex = vp?.startIndex ?: 0f
+    val visibleBars = vp?.visibleBars ?: 120f
+
+    if (indicators.rsi && rsiValues != null) {
+        RsiSubChart(
+            rsiValues = rsiValues,
+            startIndex = startIndex,
+            visibleBars = visibleBars,
+        )
+    }
+
+    if (indicators.macd && macdLine != null && macdSignal != null && macdHistogram != null) {
+        MacdSubChart(
+            macdLine = macdLine,
+            macdSignal = macdSignal,
+            macdHistogram = macdHistogram,
+            startIndex = startIndex,
+            visibleBars = visibleBars,
         )
     }
 }
