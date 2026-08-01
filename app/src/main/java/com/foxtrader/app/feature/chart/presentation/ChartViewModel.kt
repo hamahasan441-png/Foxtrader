@@ -30,6 +30,7 @@ import com.foxtrader.app.domain.usecase.performance.AdaptiveQualityController
 import com.foxtrader.app.domain.usecase.performance.PerformanceProfiler
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.domain.usecase.replay.ReplayEngine
+import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
 import com.foxtrader.app.feature.chart.presentation.components.ChartPerformanceMonitor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.persistentListOf
@@ -70,6 +71,7 @@ class ChartViewModel @Inject constructor(
     private val watchlistRepository: WatchlistRepository,
     private val drawingRepository: DrawingRepository,
     private val appPreferences: AppPreferences,
+    private val tradeProEngine: TradeProSignalEngine,
     profiler: PerformanceProfiler,
     qualityController: AdaptiveQualityController,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
@@ -206,6 +208,7 @@ class ChartViewModel @Inject constructor(
             orderBlocks = c.overlays.orderBlocks.toPersistentList(),
             fairValueGaps = c.overlays.fairValueGaps.toPersistentList(),
             liquidityPools = c.overlays.liquidityPools.toPersistentList(),
+            tradeProAnalysis = tradeProEngine.analyze(symbol, candles),
             volumeProfile = c.overlays.volumeProfile,
             marketProfile = c.overlays.marketProfile,
             supportResistanceZones = c.overlays.supportResistanceZones.toPersistentList(),

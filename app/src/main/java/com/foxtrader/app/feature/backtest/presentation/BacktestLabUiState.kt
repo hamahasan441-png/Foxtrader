@@ -24,6 +24,11 @@ enum class BacktestStrategyTemplate(
         displayName = "ATR Breakout",
         description = "Trades volatility expansion through the recent range.",
     ),
+    TRADEPRO(
+        displayName = "TRADEPRO",
+        description = "Order-flow/auction: Flip-Zone bias, Buy/Sell-Hold pullback + confirmation, " +
+            "structural stop, trend-filtered.",
+    ),
 }
 
 /** Immutable UI state for the Backtesting Lab screen. */

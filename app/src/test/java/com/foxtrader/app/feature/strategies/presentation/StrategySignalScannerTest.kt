@@ -9,6 +9,14 @@ import com.foxtrader.app.domain.usecase.indicators.IchimokuCloud
 import com.foxtrader.app.domain.usecase.patterns.CandlePatternDetector
 import com.foxtrader.app.domain.usecase.patterns.HarmonicPatternDetector
 import com.foxtrader.app.domain.usecase.smc.SmcDetector
+import com.foxtrader.app.domain.usecase.tradepro.AbsorptionDetector
+import com.foxtrader.app.domain.usecase.tradepro.CandleDerivedOrderFlowProvider
+import com.foxtrader.app.domain.usecase.tradepro.FlipZoneEngine
+import com.foxtrader.app.domain.usecase.tradepro.HoldZoneEngine
+import com.foxtrader.app.domain.usecase.tradepro.ImbalanceDetector
+import com.foxtrader.app.domain.usecase.tradepro.TradeProRiskGuard
+import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
+import com.foxtrader.app.domain.usecase.tradepro.TrendRegimeFilter
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.sin
@@ -30,6 +38,16 @@ class StrategySignalScannerTest {
         ichimokuCloud = IchimokuCloud(),
         analyzeStructure = AnalyzeMarketStructureUseCase(),
         riskReward = RiskRewardOptimizer(),
+        tradeProEngine = TradeProSignalEngine(
+            analyzeStructure = AnalyzeMarketStructureUseCase(),
+            flipZoneEngine = FlipZoneEngine(),
+            orderFlowProvider = CandleDerivedOrderFlowProvider(),
+            imbalanceDetector = ImbalanceDetector(),
+            absorptionDetector = AbsorptionDetector(),
+            holdZoneEngine = HoldZoneEngine(),
+            riskGuard = TradeProRiskGuard(),
+            trendRegimeFilter = TrendRegimeFilter(),
+        ),
     )
 
     /** A deterministic wavy series with enough bars for every detector to run. */

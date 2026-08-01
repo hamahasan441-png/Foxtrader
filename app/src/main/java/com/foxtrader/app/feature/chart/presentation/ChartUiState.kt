@@ -14,6 +14,7 @@ import com.foxtrader.app.domain.model.FairValueGap
 import com.foxtrader.app.domain.model.LiquidityPool
 import com.foxtrader.app.domain.model.OrderBlock
 import com.foxtrader.app.domain.model.SessionRange
+import com.foxtrader.app.domain.model.tradepro.TradeProAnalysis
 import com.foxtrader.app.domain.usecase.ai.MarketExplanation
 import com.foxtrader.app.domain.model.StructureBreak
 import com.foxtrader.app.domain.model.Timeframe
@@ -88,6 +89,7 @@ data class ChartUiState(
     val orderBlocks: ImmutableList<OrderBlock> = persistentListOf(),
     val fairValueGaps: ImmutableList<FairValueGap> = persistentListOf(),
     val liquidityPools: ImmutableList<LiquidityPool> = persistentListOf(),
+    val tradeProAnalysis: TradeProAnalysis? = null,
     val volumeProfile: com.foxtrader.app.domain.model.VolumeProfile? = null,
     val marketProfile: MarketProfile.ProfileResult? = null,
     val supportResistanceZones: ImmutableList<SupportResistanceDetector.SRZone> = persistentListOf(),
