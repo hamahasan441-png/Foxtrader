@@ -38,6 +38,7 @@ class TradeProSignalEngine @Inject constructor(
     private val absorptionDetector: AbsorptionDetector,
     private val holdZoneEngine: HoldZoneEngine,
     private val riskGuard: TradeProRiskGuard,
+    private val trendRegimeFilter: TrendRegimeFilter,
 ) {
 
     fun analyze(
@@ -70,6 +71,17 @@ class TradeProSignalEngine @Inject constructor(
         }
 
         val direction = if (flipZone.bias == Bias.BULLISH) Direction.BULLISH else Direction.BEARISH
+
+        // Structure before execution: only trade with the trend, stand aside in chop.
+        if (!trendRegimeFilter.allows(candles, direction, config)) {
+            return TradeProAnalysis(
+                symbol, flipZone, holdZones, imbalances, absorptions,
+                setup = null, stage = SetupStage.LEVEL,
+                narrative = "$direction bias, but market is choppy / against the higher-timeframe " +
+                    "trend — standing aside per TRADEPRO discipline.",
+            )
+        }
+
         val zone = selectAlignedZone(holdZones, direction, currentPrice)
         if (zone == null) {
             return TradeProAnalysis(
