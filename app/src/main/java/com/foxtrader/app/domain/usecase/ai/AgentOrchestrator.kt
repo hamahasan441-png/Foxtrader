@@ -26,6 +26,7 @@ data class OrchestratorConfig(
             AgentName.ICT to 1.3,
             AgentName.LIT to 1.3,
             AgentName.VOLUME to 1.0,
+            AgentName.ORDER_FLOW to 1.2,
             AgentName.TREND to 1.2,
             AgentName.RISK to 1.1,
             AgentName.NEWS to 0.8,
@@ -169,7 +170,7 @@ class AgentOrchestrator(
     private companion object {
         // Foundational agents run first; strategy-like agents run last.
         val PHASES: List<List<AgentName>> = listOf(
-            listOf(AgentName.MARKET_STRUCTURE, AgentName.VOLUME, AgentName.TREND, AgentName.NEWS),
+            listOf(AgentName.MARKET_STRUCTURE, AgentName.VOLUME, AgentName.ORDER_FLOW, AgentName.TREND, AgentName.NEWS),
             listOf(AgentName.SMART_MONEY, AgentName.ICT, AgentName.LIT, AgentName.RISK, AgentName.PSYCHOLOGY),
             listOf(AgentName.STRATEGY),
         )
