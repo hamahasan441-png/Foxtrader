@@ -16,6 +16,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
@@ -25,10 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.foxtrader.app.feature.chart.presentation.ImmutableDoubleSeries
 import com.foxtrader.app.ui.theme.FoxAmber50
-import com.foxtrader.app.ui.theme.FoxBearish
-import com.foxtrader.app.ui.theme.FoxBullish
 import com.foxtrader.app.ui.theme.FoxNeutral5
-import com.foxtrader.app.ui.theme.FoxNeutral60
 import kotlin.math.max
 import kotlin.math.min
 
@@ -70,7 +68,7 @@ fun RsiSubChart(
     }
 
     // Current RSI value for the label
-    val currentRsi = rsiValues.lastOrNull() ?: 50.0
+    val currentRsi = if (rsiValues.size > 0) rsiValues[rsiValues.size - 1] else 50.0
     val rsiColor = when {
         currentRsi >= 70 -> RsiOverbought
         currentRsi <= 30 -> RsiOversold
@@ -161,7 +159,7 @@ fun RsiSubChart(
             drawRect(
                 color = RsiZoneFill,
                 topLeft = Offset(0f, y70),
-                size = androidx.compose.ui.geometry.Size(chartW, y30 - y70),
+                size = Size(chartW, y30 - y70),
             )
 
             // Draw RSI line
