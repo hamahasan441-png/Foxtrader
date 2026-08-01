@@ -163,6 +163,7 @@ internal class ChartIndicatorCoordinator(
             superTrendFinalLower = visuals.superTrendFinalLower,
             parabolicSar = visuals.parabolicSar,
             vwap = visuals.vwap,
+            rsi = visuals.rsi,
             ichimokuTenkan = visuals.ichimokuTenkan,
             ichimokuKijun = visuals.ichimokuKijun,
             ichimokuSenkouA = visuals.ichimokuSenkouA,

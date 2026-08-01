@@ -163,6 +163,7 @@ class ChartViewModel @Inject constructor(
     // ========================================================================
     private suspend fun processCandles(source: CandleSource, preferIncremental: Boolean) {
         val candles = dataController.mergedVisibleCandles
+        if (candles.isEmpty()) return // Safety: skip processing when data is being cleared
         val ind = _uiState.value.indicators
         val symbol = dataController.symbolFlow.value
         val timeframe = dataController.timeframeFlow.value
@@ -189,6 +190,7 @@ class ChartViewModel @Inject constructor(
             ichimokuSenkouA = c.overlays.ichimokuSenkouA.asImmutableDoubleSeries(),
             ichimokuSenkouB = c.overlays.ichimokuSenkouB.asImmutableDoubleSeries(),
             ichimokuChikou = c.overlays.ichimokuChikou.asImmutableDoubleSeries(),
+            rsiValues = c.overlays.rsi.asImmutableDoubleSeries(),
             orderBlocks = c.overlays.orderBlocks.toPersistentList(),
             fairValueGaps = c.overlays.fairValueGaps.toPersistentList(),
             liquidityPools = c.overlays.liquidityPools.toPersistentList(),
@@ -271,7 +273,14 @@ class ChartViewModel @Inject constructor(
             indicators = updated,
             confluence = if (updated.confluence) _uiState.value.confluence else null,
         )
-        viewModelScope.launch { dataController.processMergedCandles(preferIncremental = false) }
+        viewModelScope.launch {
+            try {
+                dataController.processMergedCandles(preferIncremental = false)
+            } catch (_: Exception) {
+                // Swallow concurrent modification exceptions during indicator toggle.
+                // The next data emission will trigger a successful recompute.
+            }
+        }
     }
 
     // ========================================================================
@@ -393,7 +402,13 @@ class ChartViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         multiChartController.cancelAllPanelJobs()
-        viewModelScope.launch { webSocket.disconnectAll() }
+        // BUGFIX: viewModelScope is already cancelled when onCleared() runs,
+        // so launching into it would never execute. Use runBlocking for the
+        // short, non-blocking disconnect call to prevent the websocket from
+        // leaking the Service context (SystemJobService leak in crash report).
+        kotlinx.coroutines.runBlocking {
+            try { webSocket.disconnectAll() } catch (_: Exception) { }
+        }
         replayEngine.stop()
     }
 }

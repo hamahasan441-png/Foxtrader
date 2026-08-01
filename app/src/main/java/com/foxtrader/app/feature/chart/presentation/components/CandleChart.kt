@@ -57,7 +57,7 @@ import com.foxtrader.app.feature.chart.presentation.components.layers.drawStruct
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawSupportResistanceZones
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawSuperTrend
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawTimeAxis
-import com.foxtrader.app.ui.theme.FoxNeutral5
+import com.foxtrader.app.ui.theme.FoxNeutral0
 import kotlin.math.max
 
 private val AxisLabelArgb = android.graphics.Color.parseColor("#99999F")
@@ -314,6 +314,9 @@ fun CandleChart(
         }
     }
 
+    // Keep candles reference fresh for gesture/fling handlers without restarting them.
+    val currentCandles = rememberUpdatedState(candles)
+
     // ------------------------------------------------------------------------
     // FLING ANIMATION LOOP (DEVELOPMENT.md §4.9)
     // ------------------------------------------------------------------------
@@ -322,19 +325,22 @@ fun CandleChart(
     // as soon as the fling settles. An always-on `withFrameNanos` loop would
     // wake the chart on every vsync even while the user is doing nothing,
     // burning battery for no reason.
-    LaunchedEffect(flingTick, candles.size) {
+    LaunchedEffect(flingTick) {
         if (flingTick == 0 || !viewport.isFling) return@LaunchedEffect
         var lastNanos = withFrameNanos { it }
         while (viewport.isFling) {
             withFrameNanos { now ->
                 val dt = (now - lastNanos) / 1_000_000_000f
                 lastNanos = now
-                // advanceFling returns false on the settling frame; either way
-                // the camera moved, so clamp/rescale/redraw exactly once.
-                viewport.advanceFling(dt, candles.size)
-                viewport.clamp(candles.size)
+                val currentCount = currentCandles.value.size
+                if (currentCount == 0) {
+                    viewport.stopFling()
+                    return@withFrameNanos
+                }
+                viewport.advanceFling(dt, currentCount)
+                viewport.clamp(currentCount)
                 rescale()
-                followLiveEdge[0] = viewport.isAtRightEdge(candles.size)
+                followLiveEdge[0] = viewport.isAtRightEdge(currentCount)
                 publishViewportState()
                 invalidateTick++
             }
@@ -346,20 +352,20 @@ fun CandleChart(
         onDispose { performanceMonitor?.stop() }
     }
 
+    // Use a stable key for pointerInput to prevent gesture handler restarts
+    // during data transitions (timeframe changes, indicator toggles). The
+    // seriesKey changes only on meaningful context switches (symbol+timeframe),
+    // not on every tick or indicator recompute. This eliminates the crash where
+    // mid-gesture handler restart causes NPE/IndexOutOfBounds.
+    val stableGestureKey = remember(seriesKey) { seriesKey }
+
     Canvas(
         modifier = modifier
-            .background(FoxNeutral5)
+            .background(FoxNeutral0)
             // --- FLING VELOCITY TRACKING ---
-            // Runs before the transform handler in the same pass: it observes
-            // pointer positions to compute lift-off velocity without consuming
-            // any event, so pan/zoom behaviour is completely unaffected.
-            .pointerInput(candles.size) {
+            .pointerInput(stableGestureKey) {
                 val tracker = VelocityTracker()
                 awaitEachGesture {
-                    // `WARNING` Suspend for the touch FIRST. Cancelling the
-                    // fling before awaitFirstDown would kill every fling the
-                    // instant it started, because this loop re-enters as soon
-                    // as the previous gesture ends.
                     val down = awaitFirstDown(requireUnconsumed = false)
                     viewport.stopFling()
                     tracker.resetTracking()
@@ -369,8 +375,6 @@ fun CandleChart(
                         val changes = awaitPointerEvent().changes
                         val pressed = changes.count { it.pressed }
                         if (pressed == 0) break
-                        // Only single-pointer drags fling; a pinch must settle
-                        // exactly where the fingers left it.
                         if (pressed == 1) {
                             changes.firstOrNull { it.pressed }?.let {
                                 tracker.addPosition(it.uptimeMillis, it.position)
@@ -380,7 +384,6 @@ fun CandleChart(
                         }
                     }
 
-                    // Crosshair mode consumes the drag; never fling out of it.
                     if (!viewport.crosshairActive) {
                         val velocityX = tracker.calculateVelocity().x
                         val chartAreaWidth = viewport.chartWidth(size.width.toFloat())
@@ -391,59 +394,62 @@ fun CandleChart(
                 }
             }
             // --- PAN (single finger) + ZOOM (pinch) in ONE handler ---
-            // A single detectTransformGestures prevents the chart "drift" bug:
-            // previously a transform handler AND a drag handler both applied pan
-            // to the same one-finger drag, doubling/fighting the movement.
-            // detectTransformGestures natively reports pan for a single pointer.
-            .pointerInput(candles.size) {
+            .pointerInput(stableGestureKey) {
                 detectTransformGestures { centroid, pan, zoom, _ ->
+                    val candleList = currentCandles.value
+                    val candleCount = candleList.size
+                    if (candleCount == 0) return@detectTransformGestures
+
                     val cw = viewport.chartWidth(size.width.toFloat())
 
-                    // While the crosshair is up, a drag moves the crosshair
-                    // instead of the camera — this is how desktop terminals
-                    // behave and it makes precise bar inspection possible.
                     if (viewport.crosshairActive) {
                         viewport.crosshairX = (viewport.crosshairX + pan.x)
                             .coerceIn(0f, cw)
                         viewport.crosshairY = (viewport.crosshairY + pan.y)
                             .coerceIn(0f, viewport.chartHeight(size.height.toFloat()))
                         viewport.crosshairTotalWidth = size.width.toFloat()
-                        val crosshairIndex = viewport.snappedCrosshairIndex(candles.size, cw)
-                        onCrosshairTimestampChange(candles.getOrNull(crosshairIndex)?.timestamp)
+                        val crosshairIndex = viewport.snappedCrosshairIndex(candleCount, cw)
+                        onCrosshairTimestampChange(candleList.getOrNull(crosshairIndex)?.timestamp)
                         invalidateTick++
                         return@detectTransformGestures
                     }
 
                     viewport.panByPixels(pan.x, cw)
-                    viewport.zoomBy(zoom, centroid.x, cw, candles.size)
+                    viewport.zoomBy(zoom, centroid.x, cw, candleCount)
 
-                    viewport.clamp(candles.size)
+                    viewport.clamp(candleCount)
                     rescale()
-                    followLiveEdge[0] = viewport.isAtRightEdge(candles.size)
+                    followLiveEdge[0] = viewport.isAtRightEdge(candleCount)
                     publishViewportState()
                     invalidateTick++
                 }
             }
             // --- TAP GESTURES: crosshair + double-tap reset ---
-            .pointerInput(candles.size) {
+            .pointerInput(stableGestureKey) {
                 detectTapGestures(
                     onLongPress = { offset ->
+                        val candleList = currentCandles.value
+                        val candleCount = candleList.size
+                        if (candleCount == 0) return@detectTapGestures
+
                         viewport.stopFling()
                         viewport.crosshairActive = true
                         viewport.crosshairX = offset.x.coerceIn(0f, viewport.chartWidth(size.width.toFloat()))
                         viewport.crosshairY = offset.y.coerceIn(0f, viewport.chartHeight(size.height.toFloat()))
                         viewport.crosshairTotalWidth = size.width.toFloat()
-                        val crosshairIndex = viewport.snappedCrosshairIndex(candles.size, viewport.chartWidth(size.width.toFloat()))
-                        onCrosshairTimestampChange(candles.getOrNull(crosshairIndex)?.timestamp)
+                        val crosshairIndex = viewport.snappedCrosshairIndex(candleCount, viewport.chartWidth(size.width.toFloat()))
+                        onCrosshairTimestampChange(candleList.getOrNull(crosshairIndex)?.timestamp)
                         invalidateTick++
                     },
                     onDoubleTap = {
-                        // "Go to now" — snap back to the most recent bars.
+                        val candleCount = currentCandles.value.size
                         viewport.crosshairActive = false
                         onCrosshairTimestampChange(null)
-                        viewport.resetToLatest(candles.size)
-                        viewport.clamp(candles.size)
-                        rescale()
+                        if (candleCount > 0) {
+                            viewport.resetToLatest(candleCount)
+                            viewport.clamp(candleCount)
+                            rescale()
+                        }
                         followLiveEdge[0] = true
                         publishViewportState()
                         invalidateTick++

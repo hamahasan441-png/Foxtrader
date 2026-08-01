@@ -46,6 +46,7 @@ data class IndicatorToggles(
     val liquidity: Boolean = true,
     val sessions: Boolean = false,
     val structure: Boolean = true,
+    val rsi: Boolean = false,
 )
 
 /**
@@ -130,6 +131,9 @@ data class ChartUiState(
     val marketExplanation: MarketExplanation? = null,
     val confluence: ConfluenceEngine.ConfluenceResult? = null,
     val syncedCrosshairTimestamp: Long? = null,
+
+    // --- Oscillator sub-panels ---
+    val rsiValues: ImmutableDoubleSeries? = null,
 ) {
     val lastPrice: Double? get() = candles.lastOrNull()?.close
     val hasData: Boolean get() = candles.isNotEmpty()
