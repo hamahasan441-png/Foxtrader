@@ -19,6 +19,7 @@ class TradeProSignalEngineTest {
         absorptionDetector = AbsorptionDetector(),
         holdZoneEngine = HoldZoneEngine(),
         riskGuard = TradeProRiskGuard(),
+        trendRegimeFilter = TrendRegimeFilter(),
     )
 
     private fun flat(n: Int): List<Candle> =
