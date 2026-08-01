@@ -28,9 +28,9 @@ class TrendRegimeFilter @Inject constructor() {
         if (efficiencyRatio(closes, config.efficiencyRatioPeriod) < config.minEfficiencyRatio) {
             return false // too choppy — stand aside
         }
-        val ema = ema(closes, config.trendEmaPeriod)
-        if (ema.size <= config.trendSlopeLookback) return false
-        val slope = ema.last() - ema[ema.size - 1 - config.trendSlopeLookback]
+        val emaSeries = ema(closes, config.trendEmaPeriod)
+        if (emaSeries.size <= config.trendSlopeLookback) return false
+        val slope = emaSeries.last() - emaSeries[emaSeries.size - 1 - config.trendSlopeLookback]
         return when (direction) {
             Direction.BULLISH -> slope > 0.0
             Direction.BEARISH -> slope < 0.0
