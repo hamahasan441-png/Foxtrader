@@ -30,6 +30,9 @@ import com.foxtrader.app.domain.usecase.performance.AdaptiveQualityController
 import com.foxtrader.app.domain.usecase.performance.PerformanceProfiler
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.domain.usecase.replay.ReplayEngine
+import com.foxtrader.app.domain.model.StrategyType
+import com.foxtrader.app.domain.usecase.backtest.BacktestEngine
+import com.foxtrader.app.domain.usecase.strategies.StrategyLibrary
 import com.foxtrader.app.feature.chart.presentation.components.ChartPerformanceMonitor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.persistentListOf
@@ -70,6 +73,8 @@ class ChartViewModel @Inject constructor(
     private val watchlistRepository: WatchlistRepository,
     private val drawingRepository: DrawingRepository,
     private val appPreferences: AppPreferences,
+    private val strategyLibrary: StrategyLibrary,
+    private val backtestEngine: BacktestEngine,
     profiler: PerformanceProfiler,
     qualityController: AdaptiveQualityController,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
@@ -152,6 +157,24 @@ class ChartViewModel @Inject constructor(
         timeframeAccessor = { dataController.timeframeFlow.value },
     )
 
+    private val strategyController = ChartStrategyController(
+        strategyLibrary = strategyLibrary,
+        backtestEngine = backtestEngine,
+        scope = viewModelScope,
+        defaultDispatcher = defaultDispatcher,
+        onComputing = { computing ->
+            _uiState.value = _uiState.value.copy(strategyComputing = computing)
+        },
+        onResult = { result ->
+            _uiState.value = _uiState.value.copy(
+                strategyTrades = result.trades.toPersistentList(),
+                strategyMetrics = result.metrics,
+                liveSignal = result.liveSignal,
+                strategyNote = result.note,
+            )
+        },
+    )
+
     init {
         dataController.symbolFlow.value = _uiState.value.symbol
         dataController.timeframeFlow.value = _uiState.value.timeframe
@@ -231,6 +254,18 @@ class ChartViewModel @Inject constructor(
                 confluence = result.confluence,
             )
         }
+
+        // Recompute the strategy backtest/signal overlay when active. The
+        // controller is internally debounced (fingerprinted), so this is a
+        // no-op unless a bar actually opened/closed.
+        if (_uiState.value.signalsEnabled) {
+            strategyController.compute(
+                candles = candles,
+                symbol = symbol,
+                timeframe = timeframe,
+                strategy = _uiState.value.selectedStrategy,
+            )
+        }
     }
 
     // ========================================================================
@@ -275,6 +310,57 @@ class ChartViewModel @Inject constructor(
 
     fun toggleIndicatorPanel() {
         _uiState.value = _uiState.value.copy(showIndicatorPanel = !_uiState.value.showIndicatorPanel)
+    }
+
+    // ========================================================================
+    // STRATEGY SIGNALS + BACKTEST-ON-CHART
+    // ========================================================================
+    fun toggleSignals() {
+        val enabled = !_uiState.value.signalsEnabled
+        _uiState.value = _uiState.value.copy(signalsEnabled = enabled)
+        if (enabled) {
+            recomputeStrategy(force = true)
+        } else {
+            // Clear the overlay and cancel any in-flight computation.
+            strategyController.cancel()
+            strategyController.invalidate()
+            _uiState.value = _uiState.value.copy(
+                strategyTrades = persistentListOf(),
+                strategyMetrics = null,
+                liveSignal = null,
+                strategyNote = null,
+                strategyComputing = false,
+            )
+        }
+    }
+
+    fun toggleStrategyPicker() {
+        _uiState.value = _uiState.value.copy(showStrategyPicker = !_uiState.value.showStrategyPicker)
+    }
+
+    fun selectStrategy(type: StrategyType) {
+        if (type == _uiState.value.selectedStrategy && _uiState.value.strategyMetrics != null) {
+            _uiState.value = _uiState.value.copy(showStrategyPicker = false)
+            return
+        }
+        _uiState.value = _uiState.value.copy(
+            selectedStrategy = type,
+            showStrategyPicker = false,
+            signalsEnabled = true,
+        )
+        recomputeStrategy(force = true)
+    }
+
+    private fun recomputeStrategy(force: Boolean) {
+        val candles = dataController.mergedVisibleCandles
+        if (candles.isEmpty()) return
+        strategyController.compute(
+            candles = candles,
+            symbol = dataController.symbolFlow.value,
+            timeframe = dataController.timeframeFlow.value,
+            strategy = _uiState.value.selectedStrategy,
+            force = force,
+        )
     }
 
     fun updateIndicators(transform: (IndicatorToggles) -> IndicatorToggles) {
@@ -330,6 +416,16 @@ class ChartViewModel @Inject constructor(
         dataController.resetPrimaryChartContext()
         multiChartController.resetPrimaryViewportState()
         _primaryViewport.value = null
+        // Drop stale strategy overlay from the previous symbol/timeframe.
+        strategyController.cancel()
+        strategyController.invalidate()
+        _uiState.value = _uiState.value.copy(
+            strategyTrades = persistentListOf(),
+            strategyMetrics = null,
+            liveSignal = null,
+            strategyNote = null,
+            strategyComputing = false,
+        )
         _uiState.value = _uiState.value.copy(
             symbol = symbol, timeframe = timeframe,
             candles = CandleSeries.EMPTY, dataSource = CandleSource.CACHED,
@@ -418,6 +514,7 @@ class ChartViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         multiChartController.cancelAllPanelJobs()
+        strategyController.cancel()
         // BUGFIX: viewModelScope is already cancelled when onCleared() runs,
         // so launching into it would never execute. Use runBlocking for the
         // short, non-blocking disconnect call to prevent the websocket from

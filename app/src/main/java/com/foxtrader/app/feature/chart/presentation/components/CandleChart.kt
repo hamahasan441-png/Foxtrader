@@ -53,6 +53,8 @@ import com.foxtrader.app.feature.chart.presentation.components.layers.drawLineSe
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawLivePriceLine
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawParabolicSar
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawPriceScale
+import com.foxtrader.app.feature.chart.presentation.components.layers.drawStrategyTrades
+import com.foxtrader.app.feature.chart.presentation.components.layers.drawLiveSignalLevels
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawStructureLayer
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawSupportResistanceZones
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawSuperTrend
@@ -132,6 +134,9 @@ fun CandleChart(
     onLoadOlder: () -> Unit = {},
     syncedCrosshairTimestamp: Long? = null,
     onCrosshairTimestampChange: (Long?) -> Unit = {},
+    showSignals: Boolean = false,
+    strategyTrades: List<com.foxtrader.app.domain.model.BacktestTrade> = emptyList(),
+    liveSignal: com.foxtrader.app.domain.model.StrategySignal? = null,
 ) {
     val density = LocalDensity.current
     val context = LocalContext.current
@@ -569,6 +574,22 @@ fun CandleChart(
         if (structureBreaks.isNotEmpty() && quality.structureAnnotations) {
             clipRect(right = cw, bottom = ch) {
                 drawStructureLayer(structureBreaks, candles, viewport, cw, ch, structureLabelPaint)
+            }
+        }
+
+        // ====================================================================
+        // LAYER 3.5: STRATEGY BACKTEST TRADES + LIVE SIGNAL LEVELS
+        // ====================================================================
+        if (showSignals) {
+            if (strategyTrades.isNotEmpty()) {
+                clipRect(right = cw, bottom = ch) {
+                    drawStrategyTrades(strategyTrades, viewport, cw, ch)
+                }
+            }
+            if (liveSignal != null) {
+                clipRect(right = cw, bottom = ch) {
+                    drawLiveSignalLevels(liveSignal, viewport, cw, ch, structureLabelPaint)
+                }
             }
         }
 

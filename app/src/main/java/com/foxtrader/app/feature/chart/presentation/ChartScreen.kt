@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Edit
@@ -61,6 +62,7 @@ import com.foxtrader.app.BuildConfig
 import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.model.ConnectionState
+import com.foxtrader.app.domain.model.StrategyType
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.ui.theme.FoxWarning
 import com.foxtrader.app.feature.chart.presentation.components.CandleChart
@@ -76,6 +78,7 @@ import com.foxtrader.app.feature.chart.presentation.components.MacdSubChart
 import com.foxtrader.app.feature.chart.presentation.components.PerformanceOverlay
 import com.foxtrader.app.feature.chart.presentation.components.ReplayControlBar
 import com.foxtrader.app.feature.chart.presentation.components.RsiSubChart
+import com.foxtrader.app.feature.chart.presentation.components.StrategySignalCard
 import com.foxtrader.app.feature.calculator.presentation.PositionCalculatorSheet
 import com.foxtrader.app.feature.chart.presentation.components.SymbolPickerDialog
 import com.foxtrader.app.ui.theme.FoxAmber50
@@ -159,6 +162,7 @@ fun ChartScreen(
             activeMenu = activeMenu,
             currentTimeframe = state.timeframe,
             showDrawingActive = state.showDrawingToolbar,
+            signalsActive = state.signalsEnabled,
             onMenuToggle = { menu ->
                 activeMenu = if (activeMenu == menu) ChartMenu.NONE else menu
             },
@@ -229,6 +233,20 @@ fun ChartScreen(
                 onToggleTimeframeLink = viewModel::toggleMultiChartTimeframeLink,
                 onToggleCrosshairSync = viewModel::toggleMultiChartCrosshairSync,
                 onAddPanel = viewModel::addMultiChartPanel,
+            )
+        }
+
+        // Signals / strategy dropdown
+        AnimatedVisibility(
+            visible = activeMenu == ChartMenu.SIGNALS,
+            enter = expandVertically(),
+            exit = shrinkVertically(),
+        ) {
+            SignalsPanel(
+                signalsEnabled = state.signalsEnabled,
+                selectedStrategy = state.selectedStrategy,
+                onToggleSignals = viewModel::toggleSignals,
+                onSelectStrategy = viewModel::selectStrategy,
             )
         }
 
@@ -309,6 +327,9 @@ fun ChartScreen(
                             syncedCrosshairTimestamp = state.syncedCrosshairTimestamp,
                             onCrosshairTimestampChange = viewModel::onPrimaryCrosshairTimestampChange,
                             performanceMonitor = monitor,
+                            showSignals = state.signalsEnabled && !replayState.isActive,
+                            strategyTrades = state.strategyTrades,
+                            liveSignal = state.liveSignal,
                         )
                         state.isLoading -> CircularProgressIndicator(color = FoxAmber50)
                         state.error != null -> Text(
@@ -347,6 +368,20 @@ fun ChartScreen(
                     .align(Alignment.TopCenter)
                     .padding(top = 8.dp),
             )
+
+            // --- Strategy signal card (bottom-end overlay) ---
+            if (state.signalsEnabled) {
+                StrategySignalCard(
+                    strategy = state.selectedStrategy,
+                    signal = state.liveSignal,
+                    metrics = state.strategyMetrics,
+                    note = state.strategyNote,
+                    computing = state.strategyComputing,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 8.dp, bottom = 8.dp),
+                )
+            }
 
             // --- Debug FPS / frame-budget HUD (debug builds only) ---
             if (BuildConfig.DEBUG) {
@@ -560,7 +595,7 @@ private fun ChartTopBar(
  * Only one menu can be open at a time (TradingView behavior).
  */
 private enum class ChartMenu {
-    NONE, TIMEFRAME, INDICATORS, DRAWING, MULTI_CHART
+    NONE, TIMEFRAME, INDICATORS, DRAWING, MULTI_CHART, SIGNALS
 }
 
 /**
@@ -572,6 +607,7 @@ private fun ChartToolbar(
     activeMenu: ChartMenu,
     currentTimeframe: Timeframe,
     showDrawingActive: Boolean,
+    signalsActive: Boolean,
     onMenuToggle: (ChartMenu) -> Unit,
     onReplayStart: () -> Unit,
 ) {
@@ -605,6 +641,14 @@ private fun ChartToolbar(
             icon = Icons.Default.Edit,
             isActive = activeMenu == ChartMenu.DRAWING || showDrawingActive,
             onClick = { onMenuToggle(ChartMenu.DRAWING) },
+        )
+
+        // Signals / strategy button
+        ToolbarChipButton(
+            label = "Signals",
+            icon = Icons.Default.Bolt,
+            isActive = activeMenu == ChartMenu.SIGNALS || signalsActive,
+            onClick = { onMenuToggle(ChartMenu.SIGNALS) },
         )
 
         // Multi-chart button
@@ -709,6 +753,73 @@ private fun TimeframeDropdown(
                     .clickable { onSelect(tf) }
                     .padding(horizontal = 14.dp, vertical = 8.dp),
             )
+        }
+    }
+}
+
+/**
+ * Signals dropdown: an on/off switch plus a strategy picker. Selecting a
+ * strategy enables signals and runs its backtest over the visible candles.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SignalsPanel(
+    signalsEnabled: Boolean,
+    selectedStrategy: StrategyType,
+    onToggleSignals: () -> Unit,
+    onSelectStrategy: (StrategyType) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        // On/off toggle chip
+        Text(
+            text = if (signalsEnabled) "Signals ON — tap to hide" else "Signals OFF — tap to show",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = if (signalsEnabled) FoxAmber50 else FoxNeutral60,
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .background(
+                    if (signalsEnabled) MaterialTheme.colorScheme.primaryContainer
+                    else MaterialTheme.colorScheme.surfaceVariant
+                )
+                .clickable { onToggleSignals() }
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+        )
+
+        Text(
+            text = "Strategy",
+            style = MaterialTheme.typography.labelSmall,
+            color = FoxNeutral60,
+        )
+
+        // Strategy chips (LIT / Smart Money first — the SMC/LIT focus)
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            StrategyType.entries.forEach { type ->
+                val isSelected = signalsEnabled && type == selectedStrategy
+                Text(
+                    text = type.label,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                    color = if (isSelected) FoxAmber50 else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(
+                            if (isSelected) MaterialTheme.colorScheme.primaryContainer
+                            else MaterialTheme.colorScheme.surfaceVariant
+                        )
+                        .clickable { onSelectStrategy(type) }
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                )
+            }
         }
     }
 }

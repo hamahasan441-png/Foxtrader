@@ -15,6 +15,10 @@ import com.foxtrader.app.domain.model.LiquidityPool
 import com.foxtrader.app.domain.model.OrderBlock
 import com.foxtrader.app.domain.model.SessionRange
 import com.foxtrader.app.domain.usecase.ai.MarketExplanation
+import com.foxtrader.app.domain.model.BacktestMetrics
+import com.foxtrader.app.domain.model.BacktestTrade
+import com.foxtrader.app.domain.model.StrategySignal
+import com.foxtrader.app.domain.model.StrategyType
 import com.foxtrader.app.domain.model.StructureBreak
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.analysis.FibonacciEngine
@@ -138,6 +142,24 @@ data class ChartUiState(
     val macdLine: ImmutableDoubleSeries? = null,
     val macdSignal: ImmutableDoubleSeries? = null,
     val macdHistogram: ImmutableDoubleSeries? = null,
+
+    // --- Strategy signals + backtest-on-chart ---
+    /** Whether the strategy signal overlay is active on the chart. */
+    val signalsEnabled: Boolean = false,
+    /** Whether the strategy picker dropdown is open. */
+    val showStrategyPicker: Boolean = false,
+    /** The strategy currently backtested/plotted on the chart. */
+    val selectedStrategy: StrategyType = StrategyType.LIT,
+    /** Completed trades from the backtest of [selectedStrategy] over [candles]. */
+    val strategyTrades: ImmutableList<BacktestTrade> = persistentListOf(),
+    /** Aggregate performance of [selectedStrategy] over the visible history. */
+    val strategyMetrics: BacktestMetrics? = null,
+    /** The actionable setup on the most recent closed bar, if any. */
+    val liveSignal: StrategySignal? = null,
+    /** True while the strategy backtest is being computed off the main thread. */
+    val strategyComputing: Boolean = false,
+    /** Non-fatal note when the strategy can't run (e.g. not enough bars). */
+    val strategyNote: String? = null,
 ) {
     val lastPrice: Double? get() = candles.lastOrNull()?.close
     val hasData: Boolean get() = candles.isNotEmpty()
