@@ -14,6 +14,7 @@ import com.foxtrader.app.domain.usecase.backtest.BacktestAnalyticsEngine
 import com.foxtrader.app.domain.usecase.backtest.BacktestEngine
 import com.foxtrader.app.domain.usecase.backtest.StrategyFunction
 import com.foxtrader.app.domain.usecase.calculator.InstrumentTypeResolver
+import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
 import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
@@ -38,6 +39,7 @@ class BacktestLabViewModel @Inject constructor(
     private val aiScoredBacktestEngine: AiScoredBacktestEngine,
     private val analyticsEngine: BacktestAnalyticsEngine,
     private val instrumentTypeResolver: InstrumentTypeResolver,
+    private val tradeProEngine: TradeProSignalEngine,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
 
@@ -138,6 +140,29 @@ class BacktestLabViewModel @Inject constructor(
         BacktestStrategyTemplate.RSI_MEAN_REVERSION -> ::rsiMeanReversion
         BacktestStrategyTemplate.EMA_TREND_PULLBACK -> ::emaTrendPullback
         BacktestStrategyTemplate.ATR_BREAKOUT -> ::atrBreakout
+        BacktestStrategyTemplate.TRADEPRO -> ::tradePro
+    }
+
+    /**
+     * TRADEPRO strategy for the backtester: runs the order-flow/auction engine on a trailing window
+     * (recent structure only) and emits a signal solely when a setup reaches EXECUTE — i.e. price
+     * pulled into a defended Buy/Sell-Hold zone with order-flow confirmation, with the trend.
+     */
+    private fun tradePro(candles: List<Candle>, index: Int): StrategySignal? {
+        if (index < TRADEPRO_MIN_BARS || index >= candles.size) return null
+        val window = candles.subList((index - TRADEPRO_WINDOW + 1).coerceAtLeast(0), index + 1)
+        val setup = tradeProEngine.analyze(_uiState.value.symbol, window).setup ?: return null
+        if (!setup.isExecutable) return null
+        return StrategySignal(
+            index = index,
+            timestamp = candles[index].timestamp,
+            direction = setup.direction,
+            entry = setup.entry,
+            stopLoss = setup.stopLoss,
+            takeProfit = setup.target2,
+            confidence = setup.confidence.toDouble(),
+            setupType = BacktestStrategyTemplate.TRADEPRO.displayName,
+        )
     }
 
     private fun rsiMeanReversion(candles: List<Candle>, index: Int): StrategySignal? {
@@ -238,5 +263,7 @@ class BacktestLabViewModel @Inject constructor(
     private companion object {
         const val MIN_REQUIRED_BARS = 100
         const val BREAKOUT_LOOKBACK = 20
+        const val TRADEPRO_MIN_BARS = 40
+        const val TRADEPRO_WINDOW = 250
     }
 }

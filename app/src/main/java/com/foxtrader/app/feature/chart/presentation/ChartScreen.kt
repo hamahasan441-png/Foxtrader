@@ -294,6 +294,7 @@ fun ChartScreen(
                             orderBlocks = state.orderBlocks,
                             fairValueGaps = state.fairValueGaps,
                             liquidityPools = state.liquidityPools,
+                            tradeProAnalysis = state.tradeProAnalysis,
                             sessions = state.sessions,
                             drawings = state.drawings,
                             volumeProfile = state.volumeProfile,

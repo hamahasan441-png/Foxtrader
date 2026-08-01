@@ -15,6 +15,7 @@ import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
 import com.foxtrader.app.domain.usecase.patterns.CandlePatternDetector
 import com.foxtrader.app.domain.usecase.patterns.HarmonicPatternDetector
 import com.foxtrader.app.domain.usecase.smc.SmcDetector
+import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
 import java.util.UUID
 import javax.inject.Inject
 import kotlin.math.abs
@@ -38,6 +39,7 @@ class StrategySignalScanner @Inject constructor(
     private val ichimokuCloud: IchimokuCloud,
     private val analyzeStructure: AnalyzeMarketStructureUseCase,
     private val riskReward: RiskRewardOptimizer,
+    private val tradeProEngine: TradeProSignalEngine,
 ) {
 
     fun detect(symbol: String, candles: List<Candle>): List<StrategySignalItem> {
@@ -292,6 +294,26 @@ class StrategySignalScanner @Inject constructor(
                     )
                 }
             }
+        }
+
+        // --- TRADEPRO order-flow / auction setup (Flip Zone + Buy/Sell-Hold + confirmation) ---
+        // Only surfaced when the setup reaches EXECUTE (price pulled into a defended zone AND
+        // order flow confirmed) — respects the framework's "no chasing" rule.
+        val tradePro = tradeProEngine.analyze(symbol, candles).setup
+        if (tradePro != null && tradePro.isExecutable) {
+            out += StrategySignalItem(
+                id = UUID.randomUUID().toString(),
+                symbol = symbol,
+                strategyName = "TRADEPRO " + (tradePro.holdZone?.let { formatEnumName(it.type.name) } ?: "Flip Zone"),
+                direction = tradePro.direction,
+                confidence = tradePro.confidence.coerceIn(0, 100),
+                entry = tradePro.entry,
+                stopLoss = tradePro.stopLoss,
+                takeProfit = tradePro.target2,
+                riskReward = tradePro.riskReward,
+                signalProvider = "TRADEPRO",
+                note = tradePro.note,
+            )
         }
 
         return out

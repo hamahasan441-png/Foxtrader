@@ -118,6 +118,7 @@ fun CandleChart(
     orderBlocks: List<com.foxtrader.app.domain.model.OrderBlock> = emptyList(),
     fairValueGaps: List<com.foxtrader.app.domain.model.FairValueGap> = emptyList(),
     liquidityPools: List<com.foxtrader.app.domain.model.LiquidityPool> = emptyList(),
+    tradeProAnalysis: com.foxtrader.app.domain.model.tradepro.TradeProAnalysis? = null,
     sessions: List<com.foxtrader.app.domain.model.SessionRange> = emptyList(),
     drawings: List<com.foxtrader.app.domain.model.ChartDrawing> = emptyList(),
     volumeProfile: com.foxtrader.app.domain.model.VolumeProfile? = null,
@@ -519,6 +520,13 @@ fun CandleChart(
         // ====================================================================
         clipRect(right = cw, bottom = ch) {
             drawCandleLayer(candles, viewport, cw, ch)
+        }
+
+        // ====================================================================
+        // LAYER 1.4: TRADEPRO overlays (Flip Zone, Buy/Sell-Hold, setup, absorption)
+        // ====================================================================
+        clipRect(right = cw, bottom = ch) {
+            tradeProAnalysis?.let { drawTradeProOverlays(it, viewport, cw, ch) }
         }
 
         // ====================================================================
