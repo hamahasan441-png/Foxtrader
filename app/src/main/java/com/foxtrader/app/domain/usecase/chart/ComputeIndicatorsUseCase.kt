@@ -65,6 +65,10 @@ class ComputeIndicatorsUseCase @Inject constructor(
         val ichimokuSenkouA: DoubleArray?,
         val ichimokuSenkouB: DoubleArray?,
         val ichimokuChikou: DoubleArray?,
+        val rsi: DoubleArray?,
+        val macdLine: DoubleArray?,
+        val macdSignal: DoubleArray?,
+        val macdHistogram: DoubleArray?,
         val orderBlocks: List<com.foxtrader.app.domain.model.OrderBlock>,
         val fairValueGaps: List<com.foxtrader.app.domain.model.FairValueGap>,
         val liquidityPools: List<com.foxtrader.app.domain.model.LiquidityPool>,
@@ -96,6 +100,10 @@ class ComputeIndicatorsUseCase @Inject constructor(
                 ichimokuSenkouA.contentEquals(other.ichimokuSenkouA) &&
                 ichimokuSenkouB.contentEquals(other.ichimokuSenkouB) &&
                 ichimokuChikou.contentEquals(other.ichimokuChikou) &&
+                rsi.contentEquals(other.rsi) &&
+                macdLine.contentEquals(other.macdLine) &&
+                macdSignal.contentEquals(other.macdSignal) &&
+                macdHistogram.contentEquals(other.macdHistogram) &&
                 orderBlocks == other.orderBlocks &&
                 fairValueGaps == other.fairValueGaps &&
                 liquidityPools == other.liquidityPools &&
@@ -126,6 +134,10 @@ class ComputeIndicatorsUseCase @Inject constructor(
             h = 31 * h + ichimokuSenkouA.contentHashCode()
             h = 31 * h + ichimokuSenkouB.contentHashCode()
             h = 31 * h + ichimokuChikou.contentHashCode()
+            h = 31 * h + rsi.contentHashCode()
+            h = 31 * h + macdLine.contentHashCode()
+            h = 31 * h + macdSignal.contentHashCode()
+            h = 31 * h + macdHistogram.contentHashCode()
             h = 31 * h + orderBlocks.hashCode()
             h = 31 * h + fairValueGaps.hashCode()
             h = 31 * h + liquidityPools.hashCode()
@@ -152,6 +164,10 @@ class ComputeIndicatorsUseCase @Inject constructor(
             TechnicalIndicators.calculateEMA(candles, 50) else null
         val vwap = if (toggles.vwap && candles.isNotEmpty())
             TechnicalIndicators.calculateVWAP(candles) else null
+        val rsi = if (toggles.rsi && candles.size >= 15)
+            TechnicalIndicators.calculateRSI(candles, 14) else null
+        val macd = if (toggles.macd && candles.size >= 35)
+            TechnicalIndicators.calculateMACD(candles) else null
 
         val ichimoku = if (toggles.ichimoku && candles.size >= 52)
             ichimokuCloud.calculate(candles) else null
@@ -204,6 +220,10 @@ class ComputeIndicatorsUseCase @Inject constructor(
             superTrendFinalLower = st?.finalLowerBands,
             parabolicSar = psar,
             vwap = vwap,
+            rsi = rsi,
+            macdLine = macd?.macd,
+            macdSignal = macd?.signal,
+            macdHistogram = macd?.histogram,
             ichimokuTenkan = ichimoku?.tenkan,
             ichimokuKijun = ichimoku?.kijun,
             ichimokuSenkouA = ichimoku?.senkouA,
@@ -243,6 +263,10 @@ class ComputeIndicatorsUseCase @Inject constructor(
             superTrend.calculateIncremental(candles, previous.toSuperTrendResult(), recomputeFrom) else null
         val psar = if (toggles.parabolicSar && candles.size >= 2)
             parabolicSar.calculate(candles).sar else null
+        val rsi = if (toggles.rsi && candles.size >= 15)
+            TechnicalIndicators.calculateRSI(candles, 14) else null
+        val macd = if (toggles.macd && candles.size >= 35)
+            TechnicalIndicators.calculateMACD(candles) else null
 
         return previous.copy(
             emaShort = emaShort,
@@ -256,6 +280,10 @@ class ComputeIndicatorsUseCase @Inject constructor(
             superTrendFinalLower = st?.finalLowerBands,
             parabolicSar = psar,
             vwap = vwap,
+            rsi = rsi,
+            macdLine = macd?.macd,
+            macdSignal = macd?.signal,
+            macdHistogram = macd?.histogram,
             ichimokuTenkan = ichimoku?.tenkan,
             ichimokuKijun = ichimoku?.kijun,
             ichimokuSenkouA = ichimoku?.senkouA,

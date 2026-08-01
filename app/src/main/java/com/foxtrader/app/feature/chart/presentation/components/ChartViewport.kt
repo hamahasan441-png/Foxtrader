@@ -378,7 +378,7 @@ class ChartViewport(
         const val MAX_VISIBLE_BARS = 100_000f
 
         /** Default window on first layout / after "go to now". */
-        const val DEFAULT_VISIBLE_BARS = 120f
+        const val DEFAULT_VISIBLE_BARS = 80f
 
         /**
          * Per-second velocity retention during a fling (`v *= friction^dt`).

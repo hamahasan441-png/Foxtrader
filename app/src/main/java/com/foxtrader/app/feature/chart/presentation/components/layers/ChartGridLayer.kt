@@ -34,13 +34,20 @@ import kotlin.math.min
 // module-private. Pure DrawScope extensions - no Compose state - which is
 // what keeps them cheap enough for the 120fps budget.
 
-/** Grid lines — horizontal price levels + vertical time divisions. */
+/** Grid lines — horizontal price levels + vertical time divisions.
+ *
+ * TradingView-style: very subtle, almost invisible grid that doesn't
+ * distract from the price action but provides orientation reference.
+ */
 internal fun DrawScope.drawGridLayer(
     viewport: ChartViewport,
     cw: Float,
     ch: Float,
     totalW: Float,
 ) {
+    // TradingView uses very subtle grid lines (~8% opacity)
+    val gridColor = Color(0x14FFFFFF)
+
     val step = viewport.niceStep(6)
     if (step > 0.0) {
         var level = ceil(viewport.priceLow / step) * step
@@ -48,9 +55,9 @@ internal fun DrawScope.drawGridLayer(
             val y = viewport.yForPrice(level, ch)
             if (y in 0f..ch) {
                 drawLine(
-                    color = FoxNeutral20,
+                    color = gridColor,
                     start = Offset(0f, y),
-                    end = Offset(totalW, y), // Extend into price scale area
+                    end = Offset(totalW, y),
                     strokeWidth = 0.5f,
                 )
             }
@@ -68,7 +75,7 @@ internal fun DrawScope.drawGridLayer(
             val x = viewport.xForIndex(i.toFloat(), cw)
             if (x in 0f..cw) {
                 drawLine(
-                    color = FoxNeutral20,
+                    color = gridColor,
                     start = Offset(x, 0f),
                     end = Offset(x, ch),
                     strokeWidth = 0.5f,

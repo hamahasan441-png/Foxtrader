@@ -1,26 +1,33 @@
 package com.foxtrader.app.feature.chart.presentation
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Calculate
+import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ShowChart
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -65,8 +72,10 @@ import com.foxtrader.app.feature.chart.presentation.components.MultiChartSection
 import com.foxtrader.app.feature.chart.presentation.components.MultiChartToolbar
 import com.foxtrader.app.domain.usecase.performance.PerformanceSnapshot
 import com.foxtrader.app.feature.chart.presentation.components.MarketContextPanel
+import com.foxtrader.app.feature.chart.presentation.components.MacdSubChart
 import com.foxtrader.app.feature.chart.presentation.components.PerformanceOverlay
 import com.foxtrader.app.feature.chart.presentation.components.ReplayControlBar
+import com.foxtrader.app.feature.chart.presentation.components.RsiSubChart
 import com.foxtrader.app.feature.calculator.presentation.PositionCalculatorSheet
 import com.foxtrader.app.feature.chart.presentation.components.SymbolPickerDialog
 import com.foxtrader.app.ui.theme.FoxAmber50
@@ -121,6 +130,9 @@ fun ChartScreen(
         }
     }
 
+    // --- Track which dropdown menu is open (only one at a time) ---
+    var activeMenu by remember { mutableStateOf(ChartMenu.NONE) }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -135,54 +147,90 @@ fun ChartScreen(
             onAlertsClick = onNavigateToAlerts,
             onCalculatorClick = viewModel::openCalculator,
             onSymbolClick = viewModel::openSymbolPicker,
-            onIndicatorsToggle = viewModel::toggleIndicatorPanel,
             onLiveToggle = viewModel::toggleLive,
-            onDrawingToggle = viewModel::toggleDrawingToolbar,
-            onReplayStart = { viewModel.startReplay() },
         )
 
         // --- Synthetic-data warning (not dismissible while active) ---
         SyntheticDataBanner(visible = state.isSyntheticData)
 
-        // --- Timeframe selector row ---
-        TimeframeRow(
-            selected = state.timeframe,
-            onSelect = viewModel::onTimeframeChange,
+        // --- Compact Chart Toolbar (TradingView-style) ---
+        // Single row of small buttons - each opens/closes a dropdown panel below
+        ChartToolbar(
+            activeMenu = activeMenu,
+            currentTimeframe = state.timeframe,
+            showDrawingActive = state.showDrawingToolbar,
+            onMenuToggle = { menu ->
+                activeMenu = if (activeMenu == menu) ChartMenu.NONE else menu
+            },
+            onReplayStart = { viewModel.startReplay() },
         )
 
-        MultiChartToolbar(
-            layout = multiChartState.layout,
-            linkedToPrimary = multiChartState.linkedToPrimary,
-            symbolLinkEnabled = multiChartState.symbolLinkEnabled,
-            timeframeLinkEnabled = multiChartState.timeframeLinkEnabled,
-            crosshairSyncEnabled = multiChartState.crosshairSyncEnabled,
-            canAddPanel = multiChartState.panels.size < 4,
-            onLayoutChange = viewModel::setMultiChartLayout,
-            onToggleLinking = viewModel::toggleMultiChartLinking,
-            onToggleSymbolLink = viewModel::toggleMultiChartSymbolLink,
-            onToggleTimeframeLink = viewModel::toggleMultiChartTimeframeLink,
-            onToggleCrosshairSync = viewModel::toggleMultiChartCrosshairSync,
-            onAddPanel = viewModel::addMultiChartPanel,
-        )
+        // --- Expandable panels (only one visible at a time) ---
+        // Timeframe dropdown
+        AnimatedVisibility(
+            visible = activeMenu == ChartMenu.TIMEFRAME,
+            enter = expandVertically(),
+            exit = shrinkVertically(),
+        ) {
+            TimeframeDropdown(
+                selected = state.timeframe,
+                onSelect = { tf ->
+                    viewModel.onTimeframeChange(tf)
+                    activeMenu = ChartMenu.NONE
+                },
+            )
+        }
 
-        // --- Indicator toggle panel (slides in when active) ---
-        IndicatorPanel(
-            visible = state.showIndicatorPanel,
-            toggles = state.indicators,
-            onToggle = viewModel::updateIndicators,
-        )
+        // Indicators dropdown
+        AnimatedVisibility(
+            visible = activeMenu == ChartMenu.INDICATORS,
+            enter = expandVertically(),
+            exit = shrinkVertically(),
+        ) {
+            IndicatorPanel(
+                visible = true,
+                toggles = state.indicators,
+                onToggle = viewModel::updateIndicators,
+            )
+        }
 
-        // --- Drawing toolbar (slides in when active) ---
-        DrawingToolbar(
-            visible = state.showDrawingToolbar,
-            activeMode = state.drawingMode,
-            activeTool = state.activeTool,
-            onToolSelect = viewModel::startDrawing,
-            onClearAll = viewModel::clearAllDrawings,
-            onClose = viewModel::toggleDrawingToolbar,
-        )
+        // Drawing tools dropdown
+        AnimatedVisibility(
+            visible = activeMenu == ChartMenu.DRAWING,
+            enter = expandVertically(),
+            exit = shrinkVertically(),
+        ) {
+            DrawingToolbar(
+                visible = true,
+                activeMode = state.drawingMode,
+                activeTool = state.activeTool,
+                onToolSelect = viewModel::startDrawing,
+                onClearAll = viewModel::clearAllDrawings,
+                onClose = { activeMenu = ChartMenu.NONE },
+            )
+        }
 
-        Spacer(Modifier.height(1.dp))
+        // Multi-chart dropdown
+        AnimatedVisibility(
+            visible = activeMenu == ChartMenu.MULTI_CHART,
+            enter = expandVertically(),
+            exit = shrinkVertically(),
+        ) {
+            MultiChartToolbar(
+                layout = multiChartState.layout,
+                linkedToPrimary = multiChartState.linkedToPrimary,
+                symbolLinkEnabled = multiChartState.symbolLinkEnabled,
+                timeframeLinkEnabled = multiChartState.timeframeLinkEnabled,
+                crosshairSyncEnabled = multiChartState.crosshairSyncEnabled,
+                canAddPanel = multiChartState.panels.size < 4,
+                onLayoutChange = viewModel::setMultiChartLayout,
+                onToggleLinking = viewModel::toggleMultiChartLinking,
+                onToggleSymbolLink = viewModel::toggleMultiChartSymbolLink,
+                onToggleTimeframeLink = viewModel::toggleMultiChartTimeframeLink,
+                onToggleCrosshairSync = viewModel::toggleMultiChartCrosshairSync,
+                onAddPanel = viewModel::addMultiChartPanel,
+            )
+        }
 
         // --- Symbol picker dialog ---
         SymbolPickerDialog(
@@ -323,6 +371,21 @@ fun ChartScreen(
             )
         }
 
+        // --- Oscillator sub-panels (RSI / MACD) below the chart ---
+        // Isolated composable that collects the reactive viewport so panels
+        // track main-chart pan/zoom in real time without recomposing the chart.
+        if (state.hasData) {
+            OscillatorPanels(
+                indicators = state.indicators,
+                rsiValues = state.rsiValues,
+                macdLine = state.macdLine,
+                macdSignal = state.macdSignal,
+                macdHistogram = state.macdHistogram,
+                viewportFlow = viewModel.primaryViewport,
+                fallbackViewport = viewModel.currentPrimaryViewportState(),
+            )
+        }
+
         MultiChartSection(
             state = multiChartState,
             availableSymbols = state.availableSymbols,
@@ -341,6 +404,48 @@ fun ChartScreen(
     }
 }
 
+/**
+ * Oscillator sub-panels container (RSI / MACD).
+ *
+ * Collects the primary chart's viewport as reactive state so the panels redraw
+ * in sync with main-chart pan/zoom/fling. Isolating the [collectAsStateWithLifecycle]
+ * read here means only this container recomposes on viewport changes — the main
+ * [CandleChart] keeps its full-FPS internal render loop untouched.
+ */
+@Composable
+private fun OscillatorPanels(
+    indicators: IndicatorToggles,
+    rsiValues: ImmutableDoubleSeries?,
+    macdLine: ImmutableDoubleSeries?,
+    macdSignal: ImmutableDoubleSeries?,
+    macdHistogram: ImmutableDoubleSeries?,
+    viewportFlow: kotlinx.coroutines.flow.StateFlow<com.foxtrader.app.domain.usecase.chart.ChartViewportState?>,
+    fallbackViewport: com.foxtrader.app.domain.usecase.chart.ChartViewportState?,
+) {
+    val liveViewport by viewportFlow.collectAsStateWithLifecycle()
+    val vp = liveViewport ?: fallbackViewport
+    val startIndex = vp?.startIndex ?: 0f
+    val visibleBars = vp?.visibleBars ?: 120f
+
+    if (indicators.rsi && rsiValues != null) {
+        RsiSubChart(
+            rsiValues = rsiValues,
+            startIndex = startIndex,
+            visibleBars = visibleBars,
+        )
+    }
+
+    if (indicators.macd && macdLine != null && macdSignal != null && macdHistogram != null) {
+        MacdSubChart(
+            macdLine = macdLine,
+            macdSignal = macdSignal,
+            macdHistogram = macdHistogram,
+            startIndex = startIndex,
+            visibleBars = visibleBars,
+        )
+    }
+}
+
 @Composable
 private fun ChartTopBar(
     state: ChartUiState,
@@ -349,10 +454,7 @@ private fun ChartTopBar(
     onAlertsClick: () -> Unit,
     onCalculatorClick: () -> Unit,
     onSymbolClick: () -> Unit,
-    onIndicatorsToggle: () -> Unit,
     onLiveToggle: () -> Unit,
-    onDrawingToggle: () -> Unit,
-    onReplayStart: () -> Unit,
 ) {
     val currentSymbolDescription = stringResource(R.string.chart_current_symbol_cd, state.symbol)
     val live = connectionState == ConnectionState.CONNECTED
@@ -427,20 +529,12 @@ private fun ChartTopBar(
 
         Spacer(Modifier.weight(1f))
 
-        IconButton(onClick = onIndicatorsToggle) {
-            Icon(Icons.Default.ShowChart, contentDescription = stringResource(R.string.chart_toggle_indicators_panel), tint = FoxNeutral60)
-        }
-        IconButton(onClick = onDrawingToggle) {
-            Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.chart_toggle_drawing_tools), tint = FoxNeutral60)
-        }
-        IconButton(onClick = onReplayStart) {
-            Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.chart_start_replay_mode), tint = FoxNeutral60)
-        }
-        IconButton(onClick = onCalculatorClick) {
+        IconButton(onClick = onCalculatorClick, modifier = Modifier.size(32.dp)) {
             Icon(
                 Icons.Default.Calculate,
                 contentDescription = stringResource(R.string.chart_open_position_size_calculator),
                 tint = FoxNeutral60,
+                modifier = Modifier.size(18.dp),
             )
         }
         AlertsBellButton(unreadCount = unreadAlerts, onClick = onAlertsClick)
@@ -461,23 +555,142 @@ private fun ChartTopBar(
     }
 }
 
-@Composable
-private fun TimeframeRow(
-    selected: Timeframe,
-    onSelect: (Timeframe) -> Unit,
-) {
-    val timeframeSelectorDescription = stringResource(R.string.chart_timeframe_selector_cd)
-    val selectedStateDescription = stringResource(R.string.chart_tab_selected)
-    val notSelectedStateDescription = stringResource(R.string.chart_tab_not_selected)
+/**
+ * Enum for which dropdown menu is currently expanded.
+ * Only one menu can be open at a time (TradingView behavior).
+ */
+private enum class ChartMenu {
+    NONE, TIMEFRAME, INDICATORS, DRAWING, MULTI_CHART
+}
 
+/**
+ * Compact chart toolbar — TradingView-style.
+ * A single slim row of icon buttons; tapping one toggles its dropdown panel.
+ */
+@Composable
+private fun ChartToolbar(
+    activeMenu: ChartMenu,
+    currentTimeframe: Timeframe,
+    showDrawingActive: Boolean,
+    onMenuToggle: (ChartMenu) -> Unit,
+    onReplayStart: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-            .semantics { contentDescription = timeframeSelectorDescription },
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        // Timeframe button - shows current TF label
+        ToolbarChipButton(
+            label = currentTimeframe.label,
+            icon = Icons.Default.Timer,
+            isActive = activeMenu == ChartMenu.TIMEFRAME,
+            onClick = { onMenuToggle(ChartMenu.TIMEFRAME) },
+        )
+
+        // Indicators button
+        ToolbarChipButton(
+            label = "Indicators",
+            icon = Icons.Default.ShowChart,
+            isActive = activeMenu == ChartMenu.INDICATORS,
+            onClick = { onMenuToggle(ChartMenu.INDICATORS) },
+        )
+
+        // Drawing tools button
+        ToolbarChipButton(
+            label = "Draw",
+            icon = Icons.Default.Edit,
+            isActive = activeMenu == ChartMenu.DRAWING || showDrawingActive,
+            onClick = { onMenuToggle(ChartMenu.DRAWING) },
+        )
+
+        // Multi-chart button
+        ToolbarChipButton(
+            label = "Layout",
+            icon = Icons.Default.Dashboard,
+            isActive = activeMenu == ChartMenu.MULTI_CHART,
+            onClick = { onMenuToggle(ChartMenu.MULTI_CHART) },
+        )
+
+        Spacer(Modifier.weight(1f))
+
+        // Replay button (no dropdown, direct action)
+        IconButton(
+            onClick = onReplayStart,
+            modifier = Modifier.size(32.dp),
+        ) {
+            Icon(
+                Icons.Default.Refresh,
+                contentDescription = stringResource(R.string.chart_start_replay_mode),
+                tint = FoxNeutral60,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+    }
+}
+
+/**
+ * Small chip-style button for the toolbar.
+ */
+@Composable
+private fun ToolbarChipButton(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    isActive: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(
+                if (isActive) MaterialTheme.colorScheme.primaryContainer
+                else MaterialTheme.colorScheme.surfaceVariant
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = if (isActive) FoxAmber50 else FoxNeutral60,
+            modifier = Modifier.size(14.dp),
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
+            color = if (isActive) FoxAmber50 else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Icon(
+            Icons.Default.KeyboardArrowDown,
+            contentDescription = null,
+            tint = if (isActive) FoxAmber50 else FoxNeutral60,
+            modifier = Modifier.size(12.dp),
+        )
+    }
+}
+
+/**
+ * Timeframe dropdown panel - a compact flow of timeframe chips.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TimeframeDropdown(
+    selected: Timeframe,
+    onSelect: (Timeframe) -> Unit,
+) {
+    FlowRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Timeframe.entries.forEach { tf ->
             val isSelected = tf == selected
@@ -493,15 +706,8 @@ private fun TimeframeRow(
                         if (isSelected) MaterialTheme.colorScheme.primaryContainer
                         else MaterialTheme.colorScheme.surfaceVariant
                     )
-                    .clickable(
-                        onClickLabel = stringResource(R.string.chart_select_timeframe_cd, tf.label),
-                        onClick = { onSelect(tf) },
-                    )
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
-                    .semantics {
-                        role = Role.Tab
-                        stateDescription = if (isSelected) selectedStateDescription else notSelectedStateDescription
-                    },
+                    .clickable { onSelect(tf) }
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
             )
         }
     }
