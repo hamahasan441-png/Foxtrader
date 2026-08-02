@@ -229,7 +229,7 @@ class TradeProSignalEngine @Inject constructor(
 
     private fun fmt(v: Double): String = if (v.isFinite()) "%.2f".format(v) else "n/a"
 
-    private companion object {
+    companion object {
         const val MIN_BARS = 30
         const val CONFIRM_WINDOW = 3
     }
