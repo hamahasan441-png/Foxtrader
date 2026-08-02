@@ -422,45 +422,40 @@ fun SettingsScreen(
                     label = "Stop (points)",
                     value = state.tradeProConfig.stopPoints.toFloat(),
                     range = 1f..10f,
-                    steps = 17,
+                    suffix = " pt",
                     onValueChange = { viewModel.setTradeProStopPoints(it.toDouble()) },
-                    valueDisplay = "%.1f".format(state.tradeProConfig.stopPoints),
                 )
                 Spacer(Modifier.height(8.dp))
                 SliderSetting(
                     label = "T1 target (points)",
                     value = state.tradeProConfig.target1Points.toFloat(),
                     range = 1f..20f,
-                    steps = 18,
+                    suffix = " pt",
                     onValueChange = { viewModel.setTradeProTarget1(it.toDouble()) },
-                    valueDisplay = "%.1f".format(state.tradeProConfig.target1Points),
                 )
                 Spacer(Modifier.height(8.dp))
                 SliderSetting(
                     label = "T2 target (points)",
                     value = state.tradeProConfig.target2Points.toFloat(),
                     range = 2f..40f,
-                    steps = 18,
+                    suffix = " pt",
                     onValueChange = { viewModel.setTradeProTarget2(it.toDouble()) },
-                    valueDisplay = "%.1f".format(state.tradeProConfig.target2Points),
                 )
                 Spacer(Modifier.height(8.dp))
                 SliderSetting(
                     label = "Contracts",
                     value = state.tradeProConfig.contracts.toFloat(),
                     range = 1f..20f,
-                    steps = 18,
+                    suffix = "",
                     onValueChange = { viewModel.setTradeProContracts(it.toInt()) },
-                    valueDisplay = state.tradeProConfig.contracts.toString(),
                 )
                 Spacer(Modifier.height(8.dp))
                 SliderSetting(
                     label = "Max daily loss (points)",
                     value = state.tradeProConfig.maxDailyLossPoints.toFloat(),
                     range = 5f..100f,
-                    steps = 18,
+                    suffix = "",
                     onValueChange = { viewModel.setTradeProMaxDailyLoss(it.toDouble()) },
-                    valueDisplay = "%.0f".format(state.tradeProConfig.maxDailyLossPoints),
                 )
                 Spacer(Modifier.height(12.dp))
                 SwitchSetting(
