@@ -63,6 +63,7 @@ enum class DataProvider(
         supportsLive = true,
         requiresApiKey = true,
         apiKeyLabel = "Twelve Data API Key",
+        implemented = true,
     ),
     INTERACTIVE_BROKERS(
         "Interactive Brokers",

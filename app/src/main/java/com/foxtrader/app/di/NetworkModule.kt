@@ -7,6 +7,7 @@ import com.foxtrader.app.data.remote.api.BinanceApi
 import com.foxtrader.app.data.remote.api.BybitApi
 import com.foxtrader.app.data.remote.api.MarketApi
 import com.foxtrader.app.data.remote.api.SyncApi
+import com.foxtrader.app.data.remote.api.TwelveDataApi
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import dagger.Module
 import dagger.Provides
@@ -41,6 +42,11 @@ annotation class BybitRetrofit
 @Retention(AnnotationRetention.BINARY)
 annotation class AlphaVantageRetrofit
 
+/** Qualifier for the Twelve Data Retrofit instance. */
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class TwelveDataRetrofit
+
 @Module
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
@@ -68,6 +74,8 @@ object NetworkModule {
     private const val BYBIT_BASE_URL = "https://api.bybit.com/"
     /** Alpha Vantage public API base URL. */
     private const val ALPHA_VANTAGE_BASE_URL = "https://www.alphavantage.co/"
+    /** Twelve Data public API base URL. */
+    private const val TWELVE_DATA_BASE_URL = "https://api.twelvedata.com/"
 
     // Shared timeout constants (seconds).
     private const val CONNECT_TIMEOUT = 15L
@@ -241,4 +249,37 @@ object NetworkModule {
     @Singleton
     fun provideAlphaVantageApi(@AlphaVantageRetrofit retrofit: Retrofit): AlphaVantageApi =
         retrofit.create(AlphaVantageApi::class.java)
+
+    // ========================================================================
+    // TWELVE DATA PUBLIC API (forex, stocks, indices, crypto — single key)
+    // ========================================================================
+
+    @Provides
+    @Singleton
+    @TwelveDataRetrofit
+    fun provideTwelveDataRetrofit(json: Json): Retrofit {
+        val logging = HttpLoggingInterceptor().apply {
+            level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC
+            else HttpLoggingInterceptor.Level.NONE
+        }
+        val client = OkHttpClient.Builder()
+            .addInterceptor(logging)
+            .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
+            .readTimeout(READ_TIMEOUT, TimeUnit.SECONDS)
+            .writeTimeout(WRITE_TIMEOUT, TimeUnit.SECONDS)
+            .callTimeout(CALL_TIMEOUT, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(false)
+            .build()
+        val contentType = "application/json".toMediaType()
+        return Retrofit.Builder()
+            .baseUrl(TWELVE_DATA_BASE_URL)
+            .client(client)
+            .addConverterFactory(json.asConverterFactory(contentType))
+            .build()
+    }
+
+    @Provides
+    @Singleton
+    fun provideTwelveDataApi(@TwelveDataRetrofit retrofit: Retrofit): TwelveDataApi =
+        retrofit.create(TwelveDataApi::class.java)
 }

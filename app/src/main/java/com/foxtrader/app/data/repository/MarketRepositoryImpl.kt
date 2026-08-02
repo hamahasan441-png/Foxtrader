@@ -8,6 +8,7 @@ import com.foxtrader.app.data.remote.api.AlphaVantageDataSource
 import com.foxtrader.app.data.remote.api.BinanceDataSource
 import com.foxtrader.app.data.remote.api.BybitDataSource
 import com.foxtrader.app.data.remote.api.MarketApi
+import com.foxtrader.app.data.remote.api.TwelveDataDataSource
 import com.foxtrader.app.di.IoDispatcher
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.CandleSource
@@ -40,6 +41,7 @@ class MarketRepositoryImpl @Inject constructor(
     private val binance: BinanceDataSource,
     private val bybit: BybitDataSource,
     private val alphaVantage: AlphaVantageDataSource,
+    private val twelveData: TwelveDataDataSource,
     private val appPreferences: AppPreferences,
     @IoDispatcher private val io: CoroutineDispatcher,
 ) : MarketRepository {
@@ -94,6 +96,18 @@ class MarketRepositoryImpl @Inject constructor(
                         throw IllegalStateException(
                             "Bybit returned no candle data for $symbol ${timeframe.label}. " +
                                 "Check that the spot symbol is supported by Bybit."
+                        )
+                    }
+                }
+                selectedProvider == DataProvider.TWELVE_DATA -> {
+                    val tdKey = appPreferences.getApiKey(DataProvider.TWELVE_DATA).orEmpty()
+                    require(tdKey.isNotBlank()) {
+                        "Twelve Data API key is required. Navigate to Settings → Data Provider and enter your API key."
+                    }
+                    twelveData.fetchCandles(symbol, timeframe, limit, tdKey).ifEmpty {
+                        throw IllegalStateException(
+                            "Twelve Data returned no candle data for $symbol ${timeframe.label}. " +
+                                "Check supported symbols/timeframes and API key validity."
                         )
                     }
                 }
@@ -211,6 +225,13 @@ class MarketRepositoryImpl @Inject constructor(
                 }
                 selectedProvider == DataProvider.BYBIT && bybit.isBybitSymbol(symbol) ->
                     bybit.fetchCandlesBefore(symbol, timeframe, beforeTimestamp, limit)
+                selectedProvider == DataProvider.TWELVE_DATA -> {
+                    val tdKey = appPreferences.getApiKey(DataProvider.TWELVE_DATA).orEmpty()
+                    require(tdKey.isNotBlank()) {
+                        "Twelve Data API key is required. Navigate to Settings → Data Provider and enter your API key."
+                    }
+                    twelveData.fetchCandlesBefore(symbol, timeframe, beforeTimestamp, limit, tdKey)
+                }
                 else -> fetchDefaultCandlesBefore(symbol, timeframe, beforeTimestamp, limit)
             }
 
