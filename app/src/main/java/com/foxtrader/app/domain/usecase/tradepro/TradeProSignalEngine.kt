@@ -4,6 +4,7 @@ import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.SwingPoint
+import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.model.tradepro.FlipZone
 import com.foxtrader.app.domain.model.tradepro.HoldZone
 import com.foxtrader.app.domain.model.tradepro.HoldZoneType
@@ -39,12 +40,24 @@ class TradeProSignalEngine @Inject constructor(
     private val holdZoneEngine: HoldZoneEngine,
     private val riskGuard: TradeProRiskGuard,
     private val trendRegimeFilter: TrendRegimeFilter,
+    private val mtfEngine: MtfTradeProEngine,
 ) {
 
     fun analyze(
         symbol: String,
         candles: List<Candle>,
         config: TradeProConfig = TradeProConfig(),
+    ): TradeProAnalysis = analyze(symbol, candles, config, htfCandles = emptyMap())
+
+    /**
+     * Full multi-timeframe analysis: runs the LTF analysis, then validates against HTF bias.
+     * If [htfCandles] is non-empty, the setup is only promoted to EXECUTE when HTF agrees.
+     */
+    fun analyze(
+        symbol: String,
+        candles: List<Candle>,
+        config: TradeProConfig = TradeProConfig(),
+        htfCandles: Map<Timeframe, List<Candle>>,
     ): TradeProAnalysis {
         if (candles.size < MIN_BARS) {
             return TradeProAnalysis.empty(symbol, "Need at least $MIN_BARS bars for a TRADEPRO read.")
@@ -115,10 +128,18 @@ class TradeProSignalEngine @Inject constructor(
             structure.swingHighs, structure.swingLows, recentImbalance, absorptionReversal, config,
         )
 
-        return TradeProAnalysis(
+        val ltfAnalysis = TradeProAnalysis(
             symbol, flipZone, holdZones, imbalances, absorptions,
             setup = setup, stage = stage, narrative = setup.note,
         )
+
+        // Multi-timeframe validation: if HTF candles are available, check alignment.
+        return if (htfCandles.isNotEmpty()) {
+            val htfBias = mtfEngine.computeHtfBias(htfCandles, config)
+            mtfEngine.validateAlignment(ltfAnalysis, htfBias)
+        } else {
+            ltfAnalysis
+        }
     }
 
     private fun selectAlignedZone(
