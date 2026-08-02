@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -71,6 +72,7 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BacktestLabScreen(
+    onNavigateToTradeProReport: () -> Unit = {},
     viewModel: BacktestLabViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -80,6 +82,9 @@ fun BacktestLabScreen(
             TopAppBar(
                 title = { Text("Backtesting Lab", fontWeight = FontWeight.Bold, fontSize = 20.sp) },
                 actions = {
+                    IconButton(onClick = onNavigateToTradeProReport) {
+                        Icon(Icons.Default.ShowChart, contentDescription = "TRADEPRO backtest report", tint = FoxAmber50)
+                    }
                     IconButton(onClick = viewModel::runBacktest, enabled = !state.isRunning) {
                         Icon(Icons.Default.Refresh, contentDescription = "Run backtest", tint = FoxAmber50)
                     }

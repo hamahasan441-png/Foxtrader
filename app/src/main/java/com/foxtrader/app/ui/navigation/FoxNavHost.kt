@@ -35,6 +35,7 @@ import com.foxtrader.app.feature.scanner.presentation.ScannerScreen
 import com.foxtrader.app.feature.settings.presentation.SettingsScreen
 import com.foxtrader.app.feature.strategies.presentation.StrategiesScreen
 import com.foxtrader.app.feature.trademanagement.presentation.TradeManagementScreen
+import com.foxtrader.app.feature.tradepro.presentation.TradeProBacktestReportScreen
 
 /** Type-safe route constants for the app's destinations. */
 object FoxRoutes {
@@ -48,6 +49,7 @@ object FoxRoutes {
     const val SETTINGS = "settings"
     const val LOGIN = "login"
     const val TRADE_MANAGEMENT = "trade_management"
+    const val TRADEPRO_BACKTEST = "tradepro_backtest"
 }
 
 /** Bottom navigation tab definition. */
@@ -106,7 +108,9 @@ fun FoxNavHost(
                 StrategiesScreen()
             }
             composable(FoxRoutes.BACKTEST_LAB) {
-                BacktestLabScreen()
+                BacktestLabScreen(
+                    onNavigateToTradeProReport = { navController.navigate(FoxRoutes.TRADEPRO_BACKTEST) },
+                )
             }
             composable(FoxRoutes.JOURNAL) {
                 JournalScreen(
@@ -133,6 +137,15 @@ fun FoxNavHost(
             }
             composable(FoxRoutes.TRADE_MANAGEMENT) {
                 TradeManagementScreen()
+            }
+            // TRADEPRO Backtest Report is reached from the Backtesting Lab (it
+            // shares the Lab's symbol/timeframe mental model) rather than a 7th
+            // bottom tab: Material 3 caps the bar at 5 destinations (already
+            // exceeded at 6).
+            composable(FoxRoutes.TRADEPRO_BACKTEST) {
+                TradeProBacktestReportScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                )
             }
         }
     }
