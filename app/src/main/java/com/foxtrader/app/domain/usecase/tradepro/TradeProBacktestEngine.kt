@@ -1,6 +1,7 @@
 package com.foxtrader.app.domain.usecase.tradepro
 
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.model.tradepro.ManagedTrade
 import com.foxtrader.app.domain.model.tradepro.ManagedTradeState
 import com.foxtrader.app.domain.model.tradepro.TradeManagementAction
@@ -28,7 +29,11 @@ import kotlin.math.max
  * - **One position at a time.** No pyramiding or overlapping setups — focus over frequency.
  * - **No look-ahead.** The bar that *generates* a setup is never used to fill it; management starts on
  *   the following bar.
- * - A trailing [analysisWindow] feeds the signal engine so cost stays roughly linear over long series.
+ * - A trailing [run]'s `analysisWindow` feeds the signal engine so cost stays roughly linear.
+ * - **Multi-timeframe.** The trailing window is resampled up the timeframe ladder (via
+ *   [TimeframeResampler]) and fed to the signal engine as higher-timeframe context, so the same
+ *   "HTF defines bias, LTF provides entry" filter that gates live signals also gates backtested ones.
+ *   Because the window ends at the current bar, the resampled HTF view carries no future information.
  */
 class TradeProBacktestEngine @Inject constructor(
     private val signalEngine: TradeProSignalEngine,
@@ -36,14 +41,21 @@ class TradeProBacktestEngine @Inject constructor(
 ) {
 
     /**
+     * @param baseTimeframe the timeframe [candles] are sampled at. Used to pick which higher
+     *   timeframes to resample the trailing window into for MTF bias validation. Pass the actual
+     *   series timeframe; the HTF ladder is derived from it.
      * @param analysisWindow number of trailing bars handed to the signal engine each evaluation.
      *   Large enough to see recent structure, bounded to keep the walk near-linear.
+     * @param multiTimeframe when true (default), setups are validated against higher-timeframe bias
+     *   just as they are live. Set false to measure the raw single-timeframe edge.
      */
     fun run(
         symbol: String,
         candles: List<Candle>,
         config: TradeProConfig = TradeProConfig(),
+        baseTimeframe: Timeframe = Timeframe.H1,
         analysisWindow: Int = DEFAULT_ANALYSIS_WINDOW,
+        multiTimeframe: Boolean = true,
     ): TradeProBacktestResult {
         if (candles.size <= TradeProSignalEngine.MIN_BARS) {
             return TradeProBacktestResult.empty(
@@ -65,7 +77,9 @@ class TradeProBacktestEngine @Inject constructor(
                 // Flat: look for a fresh executable setup using history up to and including this bar.
                 val from = max(0, i - analysisWindow + 1)
                 val window = candles.subList(from, i + 1)
-                val setup = signalEngine.analyze(symbol, window, config).setup
+                val htfCandles: Map<Timeframe, List<Candle>> =
+                    if (multiTimeframe) buildHtfContext(window, baseTimeframe) else emptyMap()
+                val setup = signalEngine.analyze(symbol, window, config, htfCandles).setup
                 if (setup != null && setup.isExecutable) {
                     if (trades.isEmpty()) {
                         requiredBreakevenWinRate = setup.managementPlan.breakevenWinRate
@@ -212,6 +226,31 @@ class TradeProBacktestEngine @Inject constructor(
     private fun fmt(v: Double): String = if (v.isFinite()) "%.1f".format(v) else "n/a"
 
     /**
+     * Resample the trailing [window] into each higher timeframe in the ladder and keep those with
+     * enough bars to read structure. The window ends at the current bar, so no future data leaks in.
+     */
+    private fun buildHtfContext(
+        window: List<Candle>,
+        baseTimeframe: Timeframe,
+    ): Map<Timeframe, List<Candle>> {
+        val ladder = higherTimeframes(baseTimeframe)
+        if (ladder.isEmpty()) return emptyMap()
+        val context = LinkedHashMap<Timeframe, List<Candle>>(ladder.size)
+        for (tf in ladder) {
+            val resampled = TimeframeResampler.resample(window, tf)
+            if (resampled.size >= MIN_HTF_BARS) context[tf] = resampled
+        }
+        return context
+    }
+
+    /** The up-to-[MAX_HTF_COUNT] timeframes directly above [base], closest first (mirrors live MTF). */
+    private fun higherTimeframes(base: Timeframe): List<Timeframe> {
+        val idx = ORDERED_TIMEFRAMES.indexOf(base)
+        if (idx < 0) return emptyList()
+        return ORDERED_TIMEFRAMES.drop(idx + 1).take(MAX_HTF_COUNT)
+    }
+
+    /**
      * Mutable holder tracking one open position and which milestones it reached, so the final
      * [TradeProBacktestTrade] can report T1/T2/runner attainment without re-deriving it.
      */
@@ -276,5 +315,17 @@ class TradeProBacktestEngine @Inject constructor(
 
     companion object {
         const val DEFAULT_ANALYSIS_WINDOW = 250
+
+        /** Minimum resampled HTF bars needed before an HTF is trusted for a structural read. */
+        const val MIN_HTF_BARS = 30
+
+        /** Cap on higher timeframes fed per evaluation (mirrors MtfContextProvider). */
+        const val MAX_HTF_COUNT = 3
+
+        /** Timeframes ordered lowest -> highest, used to derive the HTF ladder. */
+        private val ORDERED_TIMEFRAMES = listOf(
+            Timeframe.M1, Timeframe.M5, Timeframe.M15, Timeframe.M30,
+            Timeframe.H1, Timeframe.H4, Timeframe.D1, Timeframe.W1, Timeframe.MN,
+        )
     }
 }

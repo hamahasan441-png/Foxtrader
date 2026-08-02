@@ -67,6 +67,7 @@ import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.ui.theme.FoxWarning
 import com.foxtrader.app.feature.chart.presentation.components.CandleChart
 import com.foxtrader.app.feature.chart.presentation.components.ConfluenceRibbon
+import com.foxtrader.app.feature.chart.presentation.components.TradeProSetupCard
 import com.foxtrader.app.feature.chart.presentation.components.AiDecisionPanel
 import com.foxtrader.app.feature.chart.presentation.components.DrawingToolbar
 import com.foxtrader.app.feature.chart.presentation.components.IndicatorPanel
@@ -350,6 +351,14 @@ fun ChartScreen(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = 8.dp),
+            )
+
+            // --- TRADEPRO setup + MTF-alignment badge (left-center overlay) ---
+            TradeProSetupCard(
+                analysis = state.tradeProAnalysis,
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(start = 8.dp),
             )
 
             // --- Debug FPS / frame-budget HUD (debug builds only) ---
