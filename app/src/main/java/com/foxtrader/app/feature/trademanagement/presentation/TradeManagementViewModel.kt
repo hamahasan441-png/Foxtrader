@@ -1,18 +1,21 @@
 package com.foxtrader.app.feature.trademanagement.presentation
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.tradepro.ManagedTrade
 import com.foxtrader.app.domain.model.tradepro.ManagedTradeState
 import com.foxtrader.app.domain.model.tradepro.TradeProSetup
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.domain.usecase.tradepro.TradeManagementEngine
+import com.foxtrader.app.domain.usecase.tradepro.TradeProJournalBridge
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
@@ -23,6 +26,7 @@ import javax.inject.Inject
 class TradeManagementViewModel @Inject constructor(
     private val engine: TradeManagementEngine,
     private val appPreferences: AppPreferences,
+    private val journalBridge: TradeProJournalBridge,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TradeManagementUiState())
@@ -48,6 +52,7 @@ class TradeManagementViewModel @Inject constructor(
         if (index < 0) return
         val closed = engine.closeManually(trades[index], price)
         trades[index] = closed
+        autoJournal(closed)
         emitState()
     }
 
@@ -70,8 +75,17 @@ class TradeManagementViewModel @Inject constructor(
             if (trade.state == ManagedTradeState.CLOSED) continue
             val (updated, _) = engine.tick(trade, candle)
             trades[i] = updated
+            if (updated.state == ManagedTradeState.CLOSED) {
+                autoJournal(updated)
+            }
         }
         emitState()
+    }
+
+    private fun autoJournal(trade: ManagedTrade) {
+        viewModelScope.launch {
+            journalBridge.logClosedTrade(trade)
+        }
     }
 
     private fun emitState() {
