@@ -17,6 +17,7 @@ class TradeProBacktestEngineTest {
         holdZoneEngine = HoldZoneEngine(),
         riskGuard = TradeProRiskGuard(),
         trendRegimeFilter = TrendRegimeFilter(),
+        mtfEngine = MtfTradeProEngine(AnalyzeMarketStructureUseCase(), FlipZoneEngine()),
     )
 
     private val engine = TradeProBacktestEngine(
