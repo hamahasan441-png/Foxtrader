@@ -158,7 +158,7 @@ private fun SyntheticNotice() {
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Default.Warning, contentDescription = null, tint = FoxWarning)
+        Icon(Icons.Default.Warning, contentDescription = "Synthetic data warning", tint = FoxWarning)
         Text(
             text = stringResource(R.string.portfolio_synthetic_notice),
             color = FoxWarning,

@@ -208,7 +208,7 @@ class ChartViewModel @Inject constructor(
             orderBlocks = c.overlays.orderBlocks.toPersistentList(),
             fairValueGaps = c.overlays.fairValueGaps.toPersistentList(),
             liquidityPools = c.overlays.liquidityPools.toPersistentList(),
-            tradeProAnalysis = tradeProEngine.analyze(symbol, candles),
+            tradeProAnalysis = tradeProEngine.analyze(symbol, candles, appPreferences.tradeProConfig.value),
             volumeProfile = c.overlays.volumeProfile,
             marketProfile = c.overlays.marketProfile,
             supportResistanceZones = c.overlays.supportResistanceZones.toPersistentList(),

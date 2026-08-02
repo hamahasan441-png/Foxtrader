@@ -53,7 +53,7 @@ fun LockScreen(
     ) {
         Icon(
             imageVector = Icons.Default.Lock,
-            contentDescription = null,
+            contentDescription = "App locked",
             tint = FoxAmber50,
             modifier = Modifier.size(56.dp),
         )
