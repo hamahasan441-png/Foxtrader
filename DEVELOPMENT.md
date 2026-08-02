@@ -9,6 +9,38 @@
 
 ---
 
+## What's Wired Today (authoritative status)
+
+> **Read this first.** The rest of this document describes the full design; this matrix records **what is actually built and reachable on `main` right now** versus what is aspirational or environment-blocked. Keep it current in every PR that changes wiring. Last reconciled against `main` after PRs #47–#49 merged (TRADEPRO core, OrderFlow agent, reversal/range bars).
+
+| Capability | Status | Notes |
+|---|---|---|
+| Chart engine (Compose-Canvas viewport, fling, anchored zoom, prepend paging, adaptive quality) | ✅ Wired | Production-grade; not OpenGL |
+| SMC/ICT detection (order blocks, FVG, liquidity, volume profile, breaker/IFVG/BPR) | ✅ Wired | Non-repainting; `SmcDetector` |
+| Market structure (BOS / CHOCH / MSS) | ✅ Wired | `AnalyzeMarketStructureUseCase` |
+| Multi-agent AI decisioning (11 agents + `MasterDecisionEngine` gating) | ✅ Wired | Deterministic rules; incl. `OrderFlowAgent` |
+| Risk engine (6 sizing + 4 stop methods, **asset-class-correct** contract sizes, pre-trade gates, auto-halt, Kelly) | ✅ Wired | `InstrumentTypeResolver` drives contract size |
+| Backtesting (bar-by-bar, no look-ahead; spread/commission/slippage; AI-gated) | ✅ Wired | `BacktestEngine` / `AiScoredBacktestEngine` |
+| Scanner · Journal · Portfolio · Alerts · Calculator | ✅ Wired | Real screens + tests |
+| Data layer: offline-first Room v6, provenance (`CandleSource`), non-destructive migrations, synthetic-data veto, cache pruning | ✅ Wired | Room is the SSOT |
+| Live market data | ⚠️ Partial | **Real:** Binance, Bybit (crypto), Alpha Vantage. Forex/stocks/indices have no backend → clearly-labelled **synthetic fallback** |
+| TRADEPRO order-flow/auction framework — core (Flip Zone, Buy/Sell-Hold, imbalance, absorption, signal engine, risk guard, reversal/range bars, sanitizer) | ✅ Wired | On `main` via #47/#48/#49 |
+| TRADEPRO — scanner signals + backtest template + chart overlays + trend/regime filter | 🔜 In review | PR #50 (recovers commits orphaned by an early #47 merge) |
+| External LLM provider | 🟡 Seam only | `NoOpAiProviderClient`; the deterministic engine holds all trade authority — narration seam is intentionally future work |
+| Machine learning / model training | ❌ None | Deliberate: rules-based only. Any future ML must be advisory, behind the master gate |
+| Release signing + R8/resource-shrink + `versionCode`/`versionName` from CI | ✅ Wired | Guarded: release keystore from env; safe debug-signing fallback when absent (`app/build.gradle.kts`) |
+| Committed Room schema JSON (v1–v6) | ❌ Pending | Dir exists (`app/schemas/`); JSON generation needs a Gradle/KSP build |
+| App-wide detekt/ktlint/jacoco gates + benchmarks-in-CI | ❌ Pending | Currently chart-scoped; CI runs `assembleDebug` + `testDebugUnitTest` only |
+| Committed baseline profile | ⚠️ Minimal | `baseline-prof.txt` present but a stub; regenerate from the benchmark journeys |
+| Crash/ANR reporting (opt-in, no-PII) | ❌ Pending | No Crashlytics/Sentry wired yet (Master Plan T5.2) |
+| Store readiness (AAB-in-CI, data-safety declaration, screenshots) | ❌ Pending | Master Plan T5.3 |
+
+**Legend:** ✅ built & reachable · ⚠️ partially real · 🔜 in an open PR · 🟡 present but intentionally hollow · ❌ not built yet.
+
+See `ENTERPRISE_MASTER_PLAN.md` §19 (Sprint Log) for the execution history and the remaining, build-environment-dependent roadmap.
+
+---
+
 ## How to read this document
 
 This is not a tutorial and it is not a summary. It is the **specification of record** for how FoxTrader is designed, built, rendered, tested, secured, and shipped. It is written so that a senior engineer who has never seen the repository could rebuild any subsystem from this text alone, and so that an AI agent can make correct changes without guessing.
