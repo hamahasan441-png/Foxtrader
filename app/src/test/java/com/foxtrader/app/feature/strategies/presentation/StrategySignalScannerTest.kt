@@ -14,6 +14,7 @@ import com.foxtrader.app.domain.usecase.tradepro.CandleDerivedOrderFlowProvider
 import com.foxtrader.app.domain.usecase.tradepro.FlipZoneEngine
 import com.foxtrader.app.domain.usecase.tradepro.HoldZoneEngine
 import com.foxtrader.app.domain.usecase.tradepro.ImbalanceDetector
+import com.foxtrader.app.domain.usecase.tradepro.MtfTradeProEngine
 import com.foxtrader.app.domain.usecase.tradepro.TradeProRiskGuard
 import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
 import com.foxtrader.app.domain.usecase.tradepro.TrendRegimeFilter
@@ -47,6 +48,7 @@ class StrategySignalScannerTest {
             holdZoneEngine = HoldZoneEngine(),
             riskGuard = TradeProRiskGuard(),
             trendRegimeFilter = TrendRegimeFilter(),
+            mtfEngine = MtfTradeProEngine(AnalyzeMarketStructureUseCase(), FlipZoneEngine()),
         ),
     )
 

@@ -4,6 +4,15 @@ import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.tradepro.SetupStage
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
+import com.foxtrader.app.domain.usecase.tradepro.AbsorptionDetector
+import com.foxtrader.app.domain.usecase.tradepro.CandleDerivedOrderFlowProvider
+import com.foxtrader.app.domain.usecase.tradepro.FlipZoneEngine
+import com.foxtrader.app.domain.usecase.tradepro.HoldZoneEngine
+import com.foxtrader.app.domain.usecase.tradepro.ImbalanceDetector
+import com.foxtrader.app.domain.usecase.tradepro.MtfTradeProEngine
+import com.foxtrader.app.domain.usecase.tradepro.TradeProRiskGuard
+import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
+import com.foxtrader.app.domain.usecase.tradepro.TrendRegimeFilter
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -20,6 +29,7 @@ class TradeProSignalEngineTest {
         holdZoneEngine = HoldZoneEngine(),
         riskGuard = TradeProRiskGuard(),
         trendRegimeFilter = TrendRegimeFilter(),
+        mtfEngine = MtfTradeProEngine(AnalyzeMarketStructureUseCase(), FlipZoneEngine()),
     )
 
     private fun flat(n: Int): List<Candle> =
