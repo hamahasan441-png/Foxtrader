@@ -30,6 +30,17 @@ data class TradeProConfig(
     val acceptanceMinBars: Int = 2,
     /** Left/right bars for swing detection feeding the Flip Zone. */
     val swingLookback: Int = 5,
+    // --- Trend / regime filter ("structure before execution": trade with trend, avoid chop) ---
+    /** When true, only take setups that are trending (Efficiency Ratio) and with the HTF trend. */
+    val useTrendFilter: Boolean = true,
+    /** Lookback for the Kaufman Efficiency Ratio (trend vs chop). */
+    val efficiencyRatioPeriod: Int = 30,
+    /** Minimum Efficiency Ratio to qualify as trending (below = chop -> stand aside). */
+    val minEfficiencyRatio: Double = 0.30,
+    /** EMA period defining the higher-timeframe trend direction. */
+    val trendEmaPeriod: Int = 40,
+    /** Bars back used to measure the trend EMA's slope. */
+    val trendSlopeLookback: Int = 10,
     // --- Edge protection / daily limits ---
     /** Stop for the day after this many consecutive losses. */
     val maxConsecutiveLosses: Int = 3,
