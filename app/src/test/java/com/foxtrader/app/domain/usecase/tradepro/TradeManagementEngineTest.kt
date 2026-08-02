@@ -247,8 +247,9 @@ class TradeManagementEngineTest {
         assertEquals(108.0, (trailAction as TradeManagementAction.TrailStop).newStop, 1e-9)
 
         // Next bar drops but trail should NOT widen
-        // close=107 => trail = 107 - 4 = 103, which is below current stop (108) => no change
-        val dropCandle = candle(open = 110.0, high = 111.0, low = 106.0, close = 107.0, timestamp = 5_000_000L)
+        // close=109 => trail = 109 - 4 = 105, which is below current stop (108) => no change
+        // low=108.5 stays above stop (108) so no stop-hit either
+        val dropCandle = candle(open = 110.0, high = 111.0, low = 108.5, close = 109.0, timestamp = 5_000_000L)
         val (afterDrop, dropAction) = engine.tick(afterTrail, dropCandle)
 
         assertEquals(108.0, afterDrop.stopPrice, 1e-9)
