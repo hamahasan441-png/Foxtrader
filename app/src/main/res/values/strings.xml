@@ -48,6 +48,7 @@
     <string name="chart_toggle_drawing_tools">Toggle drawing tools</string>
     <string name="chart_start_replay_mode">Start replay mode</string>
     <string name="chart_open_position_size_calculator">Open position size calculator</string>
+    <string name="chart_open_trade_management">Open trade management dashboard</string>
     <string name="chart_current_price_cd">Current price: %1$s</string>
     <string name="chart_timeframe_selector_cd">Timeframe selector</string>
     <string name="chart_select_timeframe_cd">Select %1$s timeframe</string>

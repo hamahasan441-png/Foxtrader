@@ -28,12 +28,14 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -102,6 +104,7 @@ import com.foxtrader.app.ui.theme.FoxSuccess
 fun ChartScreen(
     modifier: Modifier = Modifier,
     onNavigateToAlerts: () -> Unit = {},
+    onNavigateToTradeManagement: () -> Unit = {},
     viewModel: ChartViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -370,6 +373,23 @@ fun ChartScreen(
                 onClose = viewModel::stopReplay,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
+
+            // --- Trade Management FAB (visible when executable setup is showing) ---
+            if (state.tradeProAnalysis?.setup?.isExecutable == true) {
+                SmallFloatingActionButton(
+                    onClick = onNavigateToTradeManagement,
+                    containerColor = FoxAmber50,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 12.dp, bottom = 12.dp),
+                ) {
+                    Icon(
+                        Icons.Default.TrendingUp,
+                        contentDescription = stringResource(R.string.chart_open_trade_management),
+                    )
+                }
+            }
         }
 
         // --- Oscillator sub-panels (RSI / MACD) below the chart ---
