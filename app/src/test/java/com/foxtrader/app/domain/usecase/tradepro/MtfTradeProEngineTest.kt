@@ -23,12 +23,18 @@ class MtfTradeProEngineTest {
         flipZoneEngine = FlipZoneEngine(),
     )
 
-    /** Rising candles that produce a bullish structure. */
+    /** Rising candles that produce a bullish structure.
+     *
+     * Uses an 8-up / 6-down cycle (14 bars) so that swing highs and lows are
+     * detectable with the default swingLookback=5 (leftBars=5, rightBars=5).
+     * The 6-bar correction keeps the 5 confirmation bars after each peak below
+     * the swing high, satisfying the right-bars check in AnalyzeMarketStructureUseCase.
+     */
     private fun bullishCandles(n: Int): List<Candle> {
         val list = ArrayList<Candle>()
         var price = 100.0
         for (i in 0 until n) {
-            if (i % 10 < 7) {
+            if (i % 14 < 8) {
                 val open = price; val close = price + 1.0
                 list += Candle(i * 60_000L, open, close + 0.2, open - 0.2, close, 100.0)
                 price = close
@@ -41,12 +47,16 @@ class MtfTradeProEngineTest {
         return list
     }
 
-    /** Falling candles that produce a bearish structure. */
+    /** Falling candles that produce a bearish structure.
+     *
+     * Uses an 8-down / 6-up cycle (14 bars) so that swing lows are detectable
+     * with the default swingLookback=5, mirroring the bullish helper.
+     */
     private fun bearishCandles(n: Int): List<Candle> {
         val list = ArrayList<Candle>()
         var price = 200.0
         for (i in 0 until n) {
-            if (i % 10 < 7) {
+            if (i % 14 < 8) {
                 val open = price; val close = price - 1.0
                 list += Candle(i * 60_000L, open, open + 0.2, close - 0.2, close, 100.0)
                 price = close
