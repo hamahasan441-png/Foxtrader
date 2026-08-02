@@ -28,10 +28,12 @@
 | TRADEPRO — scanner signals + backtest template + chart overlays + trend/regime filter | 🔜 In review | PR #50 (recovers commits orphaned by an early #47 merge) |
 | External LLM provider | 🟡 Seam only | `NoOpAiProviderClient`; the deterministic engine holds all trade authority — narration seam is intentionally future work |
 | Machine learning / model training | ❌ None | Deliberate: rules-based only. Any future ML must be advisory, behind the master gate |
+| Release signing + R8/resource-shrink + `versionCode`/`versionName` from CI | ✅ Wired | Guarded: release keystore from env; safe debug-signing fallback when absent (`app/build.gradle.kts`) |
 | Committed Room schema JSON (v1–v6) | ❌ Pending | Dir exists (`app/schemas/`); JSON generation needs a Gradle/KSP build |
 | App-wide detekt/ktlint/jacoco gates + benchmarks-in-CI | ❌ Pending | Currently chart-scoped; CI runs `assembleDebug` + `testDebugUnitTest` only |
-| Committed baseline profile | ❌ Pending | Generator exists; needs a build to produce |
-| Release engineering (release signing, `versionCode` from CI, AAB, crash/ANR reporting, store readiness) | ❌ Pending | Pre-Alpha; see Enterprise Master Plan Phase 5 |
+| Committed baseline profile | ⚠️ Minimal | `baseline-prof.txt` present but a stub; regenerate from the benchmark journeys |
+| Crash/ANR reporting (opt-in, no-PII) | ❌ Pending | No Crashlytics/Sentry wired yet (Master Plan T5.2) |
+| Store readiness (AAB-in-CI, data-safety declaration, screenshots) | ❌ Pending | Master Plan T5.3 |
 
 **Legend:** ✅ built & reachable · ⚠️ partially real · 🔜 in an open PR · 🟡 present but intentionally hollow · ❌ not built yet.
 

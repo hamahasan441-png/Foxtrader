@@ -506,9 +506,12 @@ All guards fail fast in debug, are cheap in release (no allocations on the happy
 
 **Change in this sprint (W13 — the one open, sandbox-feasible item).** Added an authoritative **"What's Wired Today"** status matrix to the top of `DEVELOPMENT.md`, reconciling the 4,791-line spec against built reality (incl. the TRADEPRO additions and the live-data breadth caveat). This directly addresses the doc-drift weakness and would have prevented the #47 partial-merge confusion (later recovered in PR #50).
 
+**Also already done (found during this audit, beyond the earlier sprints):**
+- **T5.1 (release engineering core):** `app/build.gradle.kts` already drives `versionCode`/`versionName` from CI env/property with local fallbacks, and has a guarded `release` `signingConfig` (keystore from `FOXTRADER_KEYSTORE_*` env, safe debug-signing fallback when absent) with `isMinifyEnabled`/`isShrinkResources`/proguard on release. Only the store-upload keystore secrets + AAB-in-CI wiring remain.
+
 **Remaining roadmap — blocked in an offline/no-SDK sandbox, must be done on a build-capable machine or CI:**
 - **T0.2:** generate + commit Room schema JSON v1–v6 (needs Gradle/KSP build).
-- **T4.1:** extend detekt/ktlint/jacoco to `data/`/`domain/`/`feature/` **and** add the static-analysis step to CI (workflow-file change).
-- **T4.2:** generate + commit the baseline profile; wire a benchmark subset into CI.
-- **T5.1–T5.3:** release signing, `versionCode` from CI, AAB, opt-in crash/ANR reporting, store readiness.
+- **T4.1:** extend detekt/ktlint/jacoco to `data/`/`domain/`/`feature/` **and** add the static-analysis step to CI (workflow-file change — currently push-blocked for the agent).
+- **T4.2:** the committed `baseline-prof.txt` is a stub; regenerate from the benchmark journeys and wire a benchmark subset into CI.
+- **T5.2 / T5.3:** opt-in crash/ANR reporting (no Crashlytics/Sentry yet), AAB-in-CI, data-safety declaration, store screenshots.
 - **T4.3 (string half):** the remaining ~15 hardcoded literals are almost all dynamic/interpolated or technical labels (`RSI(14)`, FPS/replay counters, `#${trade.id}…`) — low-value to externalize; revisit only alongside a real localization effort.
