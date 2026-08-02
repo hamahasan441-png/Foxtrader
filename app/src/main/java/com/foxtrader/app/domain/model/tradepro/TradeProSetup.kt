@@ -1,6 +1,7 @@
 package com.foxtrader.app.domain.model.tradepro
 
 import com.foxtrader.app.domain.model.Direction
+import kotlinx.serialization.Serializable
 
 /**
  * Configuration for the TRADEPRO engines. Defaults follow the course's baseline for an ES/MES-style
@@ -9,6 +10,7 @@ import com.foxtrader.app.domain.model.Direction
  * All risk is expressed in *points*, not dollars — points don't change with contract size, so the plan
  * stays stable as size scales.
  */
+@Serializable
 data class TradeProConfig(
     /** Price units per "point". 1.0 for ES/MES; set smaller for FX/crypto to keep point-math sane. */
     val pointSize: Double = 1.0,

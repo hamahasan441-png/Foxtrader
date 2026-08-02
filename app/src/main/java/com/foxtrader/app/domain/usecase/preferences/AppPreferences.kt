@@ -20,6 +20,7 @@ import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.PositionSizingMethod
 import com.foxtrader.app.domain.model.RiskConfig
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.model.tradepro.TradeProConfig
 import com.foxtrader.app.domain.usecase.chart.ChartLayout
 import com.foxtrader.app.domain.usecase.chart.ChartPanelSeed
 import com.foxtrader.app.domain.usecase.chart.ChartViewportState
@@ -96,6 +97,9 @@ class AppPreferences @Inject constructor(
     private val _crashReportingEnabled = MutableStateFlow(false)
     val crashReportingEnabled: StateFlow<Boolean> = _crashReportingEnabled.asStateFlow()
 
+    private val _tradeProConfig = MutableStateFlow(TradeProConfig())
+    val tradeProConfig: StateFlow<TradeProConfig> = _tradeProConfig.asStateFlow()
+
     init {
         // Load persisted values into StateFlows on init.
         scope.launch {
@@ -141,6 +145,9 @@ class AppPreferences @Inject constructor(
                     ?.let(::decodeMultiChartState)
                     ?: PersistedMultiChartState()
                 _crashReportingEnabled.value = prefs[KEY_CRASH_REPORTING_ENABLED] ?: false
+                _tradeProConfig.value = prefs[KEY_TRADEPRO_CONFIG]
+                    ?.let { raw -> runCatching { json.decodeFromString<TradeProConfig>(raw) }.getOrDefault(TradeProConfig()) }
+                    ?: TradeProConfig()
             }
         }
     }
@@ -148,6 +155,11 @@ class AppPreferences @Inject constructor(
     fun setCrashReportingEnabled(enabled: Boolean) {
         _crashReportingEnabled.value = enabled
         scope.launch { context.dataStore.edit { it[KEY_CRASH_REPORTING_ENABLED] = enabled } }
+    }
+
+    fun setTradeProConfig(config: TradeProConfig) {
+        _tradeProConfig.value = config
+        scope.launch { context.dataStore.edit { it[KEY_TRADEPRO_CONFIG] = json.encodeToString(config) } }
     }
 
     fun setDataProvider(provider: DataProvider) {
@@ -382,6 +394,7 @@ class AppPreferences @Inject constructor(
         val KEY_ALPHA_VANTAGE_API_KEY = stringPreferencesKey("alpha_vantage_api_key")
         val KEY_MULTI_CHART_STATE = stringPreferencesKey("multi_chart_state")
         val KEY_CRASH_REPORTING_ENABLED = booleanPreferencesKey("crash_reporting_enabled")
+        val KEY_TRADEPRO_CONFIG = stringPreferencesKey("tradepro_config")
     }
 }
 
