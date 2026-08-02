@@ -2,7 +2,6 @@ package com.foxtrader.app.data.remote.api
 
 import com.foxtrader.app.domain.model.Timeframe
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -10,8 +9,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AlphaVantageDataSourceTest {
-
-    private val json = Json { ignoreUnknownKeys = true }
 
     private class FakeAlphaVantageApi(
         private val responseJson: String,
