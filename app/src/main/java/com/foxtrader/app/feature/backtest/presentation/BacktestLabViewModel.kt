@@ -160,7 +160,7 @@ class BacktestLabViewModel @Inject constructor(
             entry = setup.entry,
             stopLoss = setup.stopLoss,
             takeProfit = setup.target2,
-            confidence = setup.confidence.toDouble(),
+            confidence = setup.confidence,
             setupType = BacktestStrategyTemplate.TRADEPRO.displayName,
         )
     }
