@@ -414,6 +414,57 @@ fun SettingsScreen(
                 }
             }
 
+            // === TRADEPRO ===
+            SectionHeader("TRADEPRO")
+
+            SettingsCard {
+                SliderSetting(
+                    label = "Stop (points)",
+                    value = state.tradeProConfig.stopPoints.toFloat(),
+                    range = 1f..10f,
+                    suffix = " pt",
+                    onValueChange = { viewModel.setTradeProStopPoints(it.toDouble()) },
+                )
+                Spacer(Modifier.height(8.dp))
+                SliderSetting(
+                    label = "T1 target (points)",
+                    value = state.tradeProConfig.target1Points.toFloat(),
+                    range = 1f..20f,
+                    suffix = " pt",
+                    onValueChange = { viewModel.setTradeProTarget1(it.toDouble()) },
+                )
+                Spacer(Modifier.height(8.dp))
+                SliderSetting(
+                    label = "T2 target (points)",
+                    value = state.tradeProConfig.target2Points.toFloat(),
+                    range = 2f..40f,
+                    suffix = " pt",
+                    onValueChange = { viewModel.setTradeProTarget2(it.toDouble()) },
+                )
+                Spacer(Modifier.height(8.dp))
+                SliderSetting(
+                    label = "Contracts",
+                    value = state.tradeProConfig.contracts.toFloat(),
+                    range = 1f..20f,
+                    suffix = "",
+                    onValueChange = { viewModel.setTradeProContracts(it.toInt()) },
+                )
+                Spacer(Modifier.height(8.dp))
+                SliderSetting(
+                    label = "Max daily loss (points)",
+                    value = state.tradeProConfig.maxDailyLossPoints.toFloat(),
+                    range = 5f..100f,
+                    suffix = "",
+                    onValueChange = { viewModel.setTradeProMaxDailyLoss(it.toDouble()) },
+                )
+                Spacer(Modifier.height(12.dp))
+                SwitchSetting(
+                    label = "Trend filter (avoid chop)",
+                    checked = state.tradeProConfig.useTrendFilter,
+                    onCheckedChange = viewModel::setTradeProTrendFilter,
+                )
+            }
+
             // === GENERAL ===
             SectionHeader("General")
 

@@ -62,6 +62,7 @@ class SettingsViewModel @Inject constructor(
             appLockEnabled = appPreferences.appLockEnabled.value,
             biometricAvailable = biometricAuthManager.canAuthenticate(),
             crashReportingEnabled = appPreferences.crashReportingEnabled.value,
+            tradeProConfig = appPreferences.tradeProConfig.value,
         )
     )
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
@@ -214,6 +215,32 @@ class SettingsViewModel @Inject constructor(
         _uiState.update { it.copy(crashReportingEnabled = enabled) }
     }
 
+    // --- TRADEPRO ---
+
+    fun setTradeProStopPoints(value: Double) {
+        _uiState.update { it.copy(tradeProConfig = it.tradeProConfig.copy(stopPoints = value.coerceIn(1.0, 10.0)), saved = false) }
+    }
+
+    fun setTradeProTarget1(value: Double) {
+        _uiState.update { it.copy(tradeProConfig = it.tradeProConfig.copy(target1Points = value.coerceIn(1.0, 20.0)), saved = false) }
+    }
+
+    fun setTradeProTarget2(value: Double) {
+        _uiState.update { it.copy(tradeProConfig = it.tradeProConfig.copy(target2Points = value.coerceIn(2.0, 40.0)), saved = false) }
+    }
+
+    fun setTradeProContracts(value: Int) {
+        _uiState.update { it.copy(tradeProConfig = it.tradeProConfig.copy(contracts = value.coerceIn(1, 20)), saved = false) }
+    }
+
+    fun setTradeProMaxDailyLoss(value: Double) {
+        _uiState.update { it.copy(tradeProConfig = it.tradeProConfig.copy(maxDailyLossPoints = value.coerceIn(5.0, 100.0)), saved = false) }
+    }
+
+    fun setTradeProTrendFilter(enabled: Boolean) {
+        _uiState.update { it.copy(tradeProConfig = it.tradeProConfig.copy(useTrendFilter = enabled), saved = false) }
+    }
+
     // --- AI Config ---
 
     fun setMinConfluences(value: Int) {
@@ -273,6 +300,7 @@ class SettingsViewModel @Inject constructor(
             enabled = state.aiConfig.backgroundScanEnabled,
             intervalMinutes = state.aiConfig.backgroundScanIntervalMinutes,
         )
+        appPreferences.setTradeProConfig(state.tradeProConfig)
         scanAlertScheduler.apply(
             enabled = state.aiConfig.backgroundScanEnabled,
             intervalMinutes = state.aiConfig.backgroundScanIntervalMinutes,
