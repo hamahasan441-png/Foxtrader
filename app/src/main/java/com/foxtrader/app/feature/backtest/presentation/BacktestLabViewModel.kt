@@ -15,6 +15,7 @@ import com.foxtrader.app.domain.usecase.backtest.BacktestEngine
 import com.foxtrader.app.domain.usecase.backtest.StrategyFunction
 import com.foxtrader.app.domain.usecase.calculator.InstrumentTypeResolver
 import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
+import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
@@ -40,6 +41,7 @@ class BacktestLabViewModel @Inject constructor(
     private val analyticsEngine: BacktestAnalyticsEngine,
     private val instrumentTypeResolver: InstrumentTypeResolver,
     private val tradeProEngine: TradeProSignalEngine,
+    private val appPreferences: AppPreferences,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
 
@@ -151,7 +153,7 @@ class BacktestLabViewModel @Inject constructor(
     private fun tradePro(candles: List<Candle>, index: Int): StrategySignal? {
         if (index < TRADEPRO_MIN_BARS || index >= candles.size) return null
         val window = candles.subList((index - TRADEPRO_WINDOW + 1).coerceAtLeast(0), index + 1)
-        val setup = tradeProEngine.analyze(_uiState.value.symbol, window).setup ?: return null
+        val setup = tradeProEngine.analyze(_uiState.value.symbol, window, appPreferences.tradeProConfig.value).setup ?: return null
         if (!setup.isExecutable) return null
         return StrategySignal(
             index = index,

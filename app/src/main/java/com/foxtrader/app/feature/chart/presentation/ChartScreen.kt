@@ -773,7 +773,7 @@ private fun SyntheticDataBanner(visible: Boolean) {
     ) {
         Icon(
             imageVector = Icons.Default.Warning,
-            contentDescription = null,
+            contentDescription = "Warning",
             tint = FoxWarning,
             modifier = Modifier.height(16.dp),
         )
