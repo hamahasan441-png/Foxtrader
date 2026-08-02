@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.foxtrader.app.data.remote.websocket.MarketWebSocket
 import com.foxtrader.app.data.alerts.AlertDispatcher
 import com.foxtrader.app.di.DefaultDispatcher
+import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.DrawingToolType
@@ -100,6 +101,15 @@ class ChartViewModel @Inject constructor(
     private val _primaryViewport = MutableStateFlow<ChartViewportState?>(null)
     val primaryViewport: StateFlow<ChartViewportState?> = _primaryViewport.asStateFlow()
 
+    /**
+     * Cached higher-timeframe candle context for the TRADEPRO MTF read
+     * (HTF defines bias, LTF provides entry). Keyed by "symbol|timeframe" and
+     * only refetched when that changes — HTF bias evolves slowly, so refetching
+     * on every live tick would be needless DB work.
+     */
+    private var htfContextKey: String? = null
+    private var htfContextCache: Map<Timeframe, List<Candle>> = emptyMap()
+
     // --- Controllers (plain classes, NOT @Inject) ---
     private val dataController = ChartDataController(
         repository = repository,
@@ -184,6 +194,15 @@ class ChartViewModel @Inject constructor(
             symbol = symbol, timeframe = timeframe, preferIncremental = preferIncremental,
         )
 
+        // Refresh the HTF context only when the symbol/timeframe changes so the
+        // TRADEPRO read is validated against higher-timeframe bias without
+        // hitting the DB on every tick.
+        val htfKey = "$symbol|$timeframe"
+        if (htfKey != htfContextKey) {
+            htfContextCache = mtfContextProvider.getHtfContext(symbol, timeframe)
+            htfContextKey = htfKey
+        }
+
         _uiState.value = _uiState.value.copy(
             candles = candles.asCandleSeries(), dataSource = source, bias = c.bias,
             structureBreaks = if (ind.structure) c.structureBreaks.toPersistentList() else persistentListOf(),
@@ -208,7 +227,9 @@ class ChartViewModel @Inject constructor(
             orderBlocks = c.overlays.orderBlocks.toPersistentList(),
             fairValueGaps = c.overlays.fairValueGaps.toPersistentList(),
             liquidityPools = c.overlays.liquidityPools.toPersistentList(),
-            tradeProAnalysis = tradeProEngine.analyze(symbol, candles, appPreferences.tradeProConfig.value),
+            tradeProAnalysis = tradeProEngine.analyze(
+                symbol, candles, appPreferences.tradeProConfig.value, htfContextCache,
+            ),
             volumeProfile = c.overlays.volumeProfile,
             marketProfile = c.overlays.marketProfile,
             supportResistanceZones = c.overlays.supportResistanceZones.toPersistentList(),

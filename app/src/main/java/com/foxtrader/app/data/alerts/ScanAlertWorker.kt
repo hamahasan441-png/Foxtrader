@@ -12,6 +12,7 @@ import com.foxtrader.app.domain.usecase.ai.AgentOrchestrator
 import com.foxtrader.app.domain.usecase.ai.AiAlertService
 import com.foxtrader.app.domain.usecase.ai.MasterDecisionEngine
 import com.foxtrader.app.domain.usecase.ai.MtfContextProvider
+import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.domain.usecase.scanner.ScannerUseCase
 import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
 import dagger.assisted.Assisted
@@ -43,6 +44,7 @@ class ScanAlertWorker @AssistedInject constructor(
     private val aiAlertService: AiAlertService,
     private val alertDispatcher: AlertDispatcher,
     private val tradeProEngine: TradeProSignalEngine,
+    private val appPreferences: AppPreferences,
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
@@ -70,11 +72,15 @@ class ScanAlertWorker @AssistedInject constructor(
         if (candles.size < MIN_BARS) return
         if (!sourced.source.isTrustworthy) return
 
+        // Fetch HTF context once and reuse it for both the AI orchestrator and
+        // the standalone TRADEPRO read below (HTF defines bias, LTF the entry).
+        val htfCandles = mtfContextProvider.getHtfContext(symbol, SCAN_TIMEFRAME)
+
         val context = AgentContext(
             symbol = symbol,
             timeframe = SCAN_TIMEFRAME,
             candles = candles,
-            mtfCandles = mtfContextProvider.getHtfContext(symbol, SCAN_TIMEFRAME),
+            mtfCandles = htfCandles,
             correlatedCandles = mtfContextProvider.getCorrelatedContext(symbol, SCAN_TIMEFRAME),
         )
 
@@ -91,7 +97,14 @@ class ScanAlertWorker @AssistedInject constructor(
         // confirmed order-flow/auction setups that the conservative 5-confluence gate
         // might miss (TRADEPRO has its own Flip-Zone/Hold-Zone/imbalance qualification).
         if (alert == null) {
-            val analysis = tradeProEngine.analyze(symbol, candles)
+            // MTF-validated: HTF bias must agree before a background alert fires,
+            // and the user's configured TRADEPRO settings are honoured.
+            val analysis = tradeProEngine.analyze(
+                symbol,
+                candles,
+                appPreferences.tradeProConfig.value,
+                htfCandles,
+            )
             val setup = analysis.setup
             if (setup != null && setup.isExecutable) {
                 val tradeProAlert = FoxAlert(
