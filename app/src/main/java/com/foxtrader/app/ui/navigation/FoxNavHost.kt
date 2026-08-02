@@ -34,6 +34,7 @@ import com.foxtrader.app.feature.portfolio.presentation.PortfolioScreen
 import com.foxtrader.app.feature.scanner.presentation.ScannerScreen
 import com.foxtrader.app.feature.settings.presentation.SettingsScreen
 import com.foxtrader.app.feature.strategies.presentation.StrategiesScreen
+import com.foxtrader.app.feature.trademanagement.presentation.TradeManagementScreen
 
 /** Type-safe route constants for the app's destinations. */
 object FoxRoutes {
@@ -46,6 +47,7 @@ object FoxRoutes {
     const val ALERTS = "alerts"
     const val SETTINGS = "settings"
     const val LOGIN = "login"
+    const val TRADE_MANAGEMENT = "trade_management"
 }
 
 /** Bottom navigation tab definition. */
@@ -87,6 +89,7 @@ fun FoxNavHost(
             composable(FoxRoutes.CHART) {
                 ChartScreen(
                     onNavigateToAlerts = { navController.navigate(FoxRoutes.ALERTS) },
+                    onNavigateToTradeManagement = { navController.navigate(FoxRoutes.TRADE_MANAGEMENT) },
                 )
             }
             // Alerts is reachable from the Chart top bar rather than a 7th
@@ -127,6 +130,9 @@ fun FoxNavHost(
                     onAuthenticated = { navController.popBackStack() },
                     onDismiss = { navController.popBackStack() },
                 )
+            }
+            composable(FoxRoutes.TRADE_MANAGEMENT) {
+                TradeManagementScreen()
             }
         }
     }
