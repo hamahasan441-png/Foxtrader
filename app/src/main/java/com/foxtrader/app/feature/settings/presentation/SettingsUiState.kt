@@ -7,6 +7,7 @@ import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.PositionSizingMethod
 import com.foxtrader.app.domain.model.RiskConfig
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.model.tradepro.TradeProConfig
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentMapOf
 
@@ -47,6 +48,8 @@ data class SettingsUiState(
     val biometricAvailable: Boolean = false,
     // --- Privacy ---
     val crashReportingEnabled: Boolean = false,
+    // --- TRADEPRO ---
+    val tradeProConfig: TradeProConfig = TradeProConfig(),
     val saved: Boolean = false,
 ) {
     val isLoggedIn: Boolean get() = authState == AuthState.AUTHENTICATED
