@@ -184,6 +184,8 @@ private fun ResultContent(result: TradeProBacktestResult) {
     HeadlineCard(result)
     MetricsGrid(result)
     EquityCurveCard(result.equityCurve)
+    DrawdownCard(result.drawdownCurve, result.maxDrawdownPoints)
+    RDistributionCard(result.rMultiples)
     StagedExitCard(result)
     RecentTradesCard(result)
 }
@@ -235,6 +237,10 @@ private fun MetricsGrid(result: TradeProBacktestResult) {
             MetricTile("Max DD (pts)", points(result.maxDrawdownPoints), FoxBearishText, Modifier.weight(1f))
             MetricTile("Win / Loss", "${result.wins} / ${result.losses}", FoxNeutral60, Modifier.weight(1f))
         }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            MetricTile("System Quality", ratio(result.systemQualityNumber), sqnColor(result.systemQualityNumber), Modifier.weight(1f))
+            MetricTile("Payoff", profitFactor(result.payoffRatio), FoxAmber50, Modifier.weight(1f))
+        }
     }
 }
 
@@ -259,6 +265,115 @@ private fun StagedExitCard(result: TradeProBacktestResult) {
             MetricTile("Avg Win", points(result.avgWin), FoxBullishText, Modifier.weight(1f))
             MetricTile("Avg Loss", points(result.avgLoss), FoxBearishText, Modifier.weight(1f))
             MetricTile("Max Streak", "${result.maxWinStreak}W/${result.maxLossStreak}L", FoxNeutral60, Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun DrawdownCard(drawdown: List<Double>, maxDrawdown: Double) {
+    LabCard {
+        SectionTitle("Drawdown (pts)")
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "Peak-to-trough underwater equity. Max ${String.format(Locale.US, "-%.1f", maxDrawdown)} pts.",
+            fontSize = 11.sp,
+            color = FoxNeutral60,
+        )
+        Spacer(Modifier.height(10.dp))
+        if (drawdown.size < 2) {
+            Text("Not enough closed trades to plot drawdown.", color = FoxNeutral60, fontSize = 12.sp)
+        } else {
+            DrawdownGraph(drawdown)
+        }
+    }
+}
+
+@Composable
+private fun DrawdownGraph(drawdown: List<Double>) {
+    val maxDd = drawdown.maxOf { it }.takeIf { it > 0.0 } ?: 1.0
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(90.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(FoxNeutral15)
+            .padding(8.dp),
+    ) {
+        val lastIndex = drawdown.lastIndex.coerceAtLeast(1)
+        for (i in 1 until drawdown.size) {
+            val d0 = drawdown[i - 1]
+            val d1 = drawdown[i]
+            val x0 = ((i - 1).toFloat() / lastIndex) * size.width
+            val x1 = (i.toFloat() / lastIndex) * size.width
+            // 0 drawdown at the top, deepest drawdown at the bottom.
+            val y0 = (d0 / maxDd).toFloat() * size.height
+            val y1 = (d1 / maxDd).toFloat() * size.height
+            drawLine(
+                color = FoxBearishText,
+                start = Offset(x0, y0),
+                end = Offset(x1, y1),
+                strokeWidth = 2.5.dp.toPx(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun RDistributionCard(rMultiples: List<Double>) {
+    LabCard {
+        SectionTitle("R-Multiple Distribution")
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "How trade outcomes cluster in R (multiples of risk).",
+            fontSize = 11.sp,
+            color = FoxNeutral60,
+        )
+        Spacer(Modifier.height(12.dp))
+        if (rMultiples.isEmpty()) {
+            Text("No trades.", color = FoxNeutral60, fontSize = 12.sp)
+        } else {
+            val buckets = bucketizeR(rMultiples)
+            val maxCount = (buckets.maxOfOrNull { it.count } ?: 0).coerceAtLeast(1)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                buckets.forEach { bucket ->
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Box(modifier = Modifier.fillMaxWidth().height(96.dp)) {
+                            if (bucket.count > 0) {
+                                Text(
+                                    text = bucket.count.toString(),
+                                    modifier = Modifier.align(Alignment.TopCenter),
+                                    fontSize = 10.sp,
+                                    color = FoxNeutral60,
+                                )
+                            }
+                            val barHeight = (BAR_MAX_HEIGHT * bucket.count / maxCount).dp
+                            if (barHeight > 0.dp) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .fillMaxWidth(0.7f)
+                                        .height(barHeight)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(if (bucket.positive) FoxBullishText else FoxBearishText),
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = bucket.label,
+                            fontSize = 9.sp,
+                            color = FoxNeutral60,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -437,6 +552,44 @@ private fun pnlColor(value: Double): Color = when {
     value < 0.0 -> FoxBearishText
     else -> FoxNeutral60
 }
+
+private fun sqnColor(sqn: Double): Color = when {
+    sqn >= 2.0 -> FoxBullishText
+    sqn >= 1.0 -> FoxAmber50
+    else -> FoxBearishText
+}
+
+private data class RBucket(val label: String, val count: Int, val positive: Boolean)
+
+/** Buckets realised R into fixed ranges for the distribution histogram. */
+private fun bucketizeR(rMultiples: List<Double>): List<RBucket> {
+    var fullLoss = 0   // <= -1R
+    var partialLoss = 0 // -1R .. 0
+    var smallWin = 0   // 0 .. 1R
+    var oneToTwo = 0   // 1 .. 2R
+    var twoToThree = 0 // 2 .. 3R
+    var runner = 0     // >= 3R
+    for (r in rMultiples) {
+        when {
+            r <= -1.0 -> fullLoss++
+            r < 0.0 -> partialLoss++
+            r < 1.0 -> smallWin++
+            r < 2.0 -> oneToTwo++
+            r < 3.0 -> twoToThree++
+            else -> runner++
+        }
+    }
+    return listOf(
+        RBucket("<=-1", fullLoss, false),
+        RBucket("-1..0", partialLoss, false),
+        RBucket("0..1", smallWin, true),
+        RBucket("1..2", oneToTwo, true),
+        RBucket("2..3", twoToThree, true),
+        RBucket(">=3", runner, true),
+    )
+}
+
+private const val BAR_MAX_HEIGHT = 80f
 
 private fun stageLabel(trade: TradeProBacktestTrade): String = when {
     trade.reachedRunner -> "Runner • ${trade.confidence}% conf"

@@ -11,6 +11,7 @@ import com.foxtrader.app.domain.model.tradepro.TradeProConfig
 import com.foxtrader.app.domain.model.tradepro.TradeProSetup
 import javax.inject.Inject
 import kotlin.math.max
+import kotlin.math.sqrt
 
 /**
  * Replays the **full** TRADEPRO lifecycle over historical candles, bar-by-bar, using the real
@@ -141,8 +142,9 @@ class TradeProBacktestEngine @Inject constructor(
             else -> 0.0
         }
 
-        // Equity curve + max drawdown in cumulative point-contracts.
+        // Equity + underwater (drawdown) curves in cumulative point-contracts.
         val equityCurve = ArrayList<Double>(total)
+        val drawdownCurve = ArrayList<Double>(total)
         var running = 0.0
         var peak = 0.0
         var maxDrawdown = 0.0
@@ -151,6 +153,7 @@ class TradeProBacktestEngine @Inject constructor(
             equityCurve += running
             if (running > peak) peak = running
             val dd = peak - running
+            drawdownCurve += dd
             if (dd > maxDrawdown) maxDrawdown = dd
         }
 
@@ -177,7 +180,24 @@ class TradeProBacktestEngine @Inject constructor(
         val expectancy = netPoints / total
         val avgWin = if (wins > 0) grossProfit / wins else 0.0
         val avgLoss = if (losses > 0) grossLoss / losses else 0.0
-        val avgR = trades.sumOf { it.rMultiple } / total
+        val rMultiples = trades.map { it.rMultiple }
+        val avgR = rMultiples.sum() / total
+        val payoffRatio = when {
+            avgLoss > 0.0 -> avgWin / avgLoss
+            avgWin > 0.0 -> Double.POSITIVE_INFINITY
+            else -> 0.0
+        }
+
+        // Van Tharp System Quality Number: mean(R) / sampleStdev(R) * sqrt(n).
+        // Needs >= 2 trades and non-zero dispersion to be defined.
+        val systemQualityNumber = if (total >= 2) {
+            val variance = rMultiples.sumOf { (it - avgR) * (it - avgR) } / (total - 1)
+            val stdev = sqrt(variance)
+            if (stdev > 0.0) (avgR / stdev) * sqrt(total.toDouble()) else 0.0
+        } else {
+            0.0
+        }
+
         val t1HitRate = trades.count { it.reachedT1 }.toDouble() / total
         val t2HitRate = trades.count { it.reachedT2 }.toDouble() / total
         val runnerHitRate = trades.count { it.reachedRunner }.toDouble() / total
@@ -219,6 +239,10 @@ class TradeProBacktestEngine @Inject constructor(
             runnerHitRate = runnerHitRate,
             requiredBreakevenWinRate = requiredBreakevenWinRate,
             equityCurve = equityCurve,
+            rMultiples = rMultiples,
+            drawdownCurve = drawdownCurve,
+            systemQualityNumber = systemQualityNumber,
+            payoffRatio = payoffRatio,
             narrative = narrative,
         )
     }
