@@ -31,6 +31,7 @@ import com.foxtrader.app.feature.backtest.presentation.BacktestLabScreen
 import com.foxtrader.app.feature.chart.presentation.ChartScreen
 import com.foxtrader.app.feature.journal.presentation.JournalScreen
 import com.foxtrader.app.feature.tradepro.presentation.OpportunityBoardScreen
+import com.foxtrader.app.feature.tradepro.presentation.AlertRulesScreen
 import com.foxtrader.app.feature.tradepro.presentation.DailyPlanScreen
 import com.foxtrader.app.feature.tradepro.presentation.TraderProfileScreen
 import com.foxtrader.app.feature.portfolio.presentation.PortfolioScreen
@@ -61,6 +62,7 @@ object FoxRoutes {
     const val RISK_DASHBOARD = "risk_dashboard"
     const val TRADER_PROFILE = "trader_profile"
     const val DAILY_PLAN = "daily_plan"
+    const val ALERT_RULES = "alert_rules"
     const val OPPORTUNITY_BOARD = "opportunity_board"
 }
 
@@ -111,7 +113,15 @@ fun FoxNavHost(
             // exceeded at 6), and the chart is where a trader reacts to a
             // signal.
             composable(FoxRoutes.ALERTS) {
-                AlertsScreen()
+                AlertsScreen(
+                    onNavigateToRules = { navController.navigate(FoxRoutes.ALERT_RULES) },
+                )
+            }
+            // Smart Alert rule builder \u2014 user-defined TRADEPRO alert conditions.
+            composable(FoxRoutes.ALERT_RULES) {
+                AlertRulesScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                )
             }
             composable(FoxRoutes.SCANNER) {
                 ScannerScreen(

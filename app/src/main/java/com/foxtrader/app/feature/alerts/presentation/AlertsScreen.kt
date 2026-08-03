@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -70,6 +71,7 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AlertsScreen(
+    onNavigateToRules: () -> Unit = {},
     viewModel: AlertsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -87,6 +89,13 @@ fun AlertsScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = onNavigateToRules) {
+                        Icon(
+                            Icons.Default.Tune,
+                            contentDescription = "Smart alert rules",
+                            tint = FoxAmber50,
+                        )
+                    }
                     if (state.hasAlerts) {
                         IconButton(
                             onClick = viewModel::acknowledgeAll,
