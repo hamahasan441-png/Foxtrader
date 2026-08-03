@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Calculate
+import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -106,6 +107,7 @@ fun ChartScreen(
     modifier: Modifier = Modifier,
     onNavigateToAlerts: () -> Unit = {},
     onNavigateToTradeManagement: () -> Unit = {},
+    onNavigateToLitX: (String, Timeframe) -> Unit = { _, _ -> },
     viewModel: ChartViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -152,6 +154,7 @@ fun ChartScreen(
             onCalculatorClick = viewModel::openCalculator,
             onSymbolClick = viewModel::openSymbolPicker,
             onLiveToggle = viewModel::toggleLive,
+            onLitXClick = { onNavigateToLitX(state.symbol, state.timeframe) },
         )
 
         // --- Synthetic-data warning (not dismissible while active) ---
@@ -485,6 +488,7 @@ private fun ChartTopBar(
     onCalculatorClick: () -> Unit,
     onSymbolClick: () -> Unit,
     onLiveToggle: () -> Unit,
+    onLitXClick: () -> Unit,
 ) {
     val currentSymbolDescription = stringResource(R.string.chart_current_symbol_cd, state.symbol)
     val live = connectionState == ConnectionState.CONNECTED
@@ -564,6 +568,14 @@ private fun ChartTopBar(
                 Icons.Default.Calculate,
                 contentDescription = stringResource(R.string.chart_open_position_size_calculator),
                 tint = FoxNeutral60,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+        IconButton(onClick = onLitXClick, modifier = Modifier.size(32.dp)) {
+            Icon(
+                Icons.Default.Insights,
+                contentDescription = stringResource(R.string.chart_open_litx),
+                tint = FoxAmber50,
                 modifier = Modifier.size(18.dp),
             )
         }

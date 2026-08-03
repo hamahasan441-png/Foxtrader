@@ -22,14 +22,18 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
+import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.foxtrader.app.feature.auth.presentation.LoginScreen
 import com.foxtrader.app.feature.alerts.presentation.AlertsScreen
 import com.foxtrader.app.feature.backtest.presentation.BacktestLabScreen
 import com.foxtrader.app.feature.chart.presentation.ChartScreen
+import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.feature.journal.presentation.JournalScreen
+import com.foxtrader.app.feature.litx.presentation.LitXScreen
 import com.foxtrader.app.feature.tradepro.presentation.OpportunityBoardScreen
 import com.foxtrader.app.feature.tradepro.presentation.AlertRulesScreen
 import com.foxtrader.app.feature.tradepro.presentation.CorrelationScreen
@@ -68,6 +72,13 @@ object FoxRoutes {
     const val ALERT_RULES = "alert_rules"
     const val OPPORTUNITY_BOARD = "opportunity_board"
     const val CORRELATION = "correlation"
+
+    // LIT X institutional analysis for a specific symbol/timeframe (reached
+    // from the Chart top bar — additive, not a bottom tab).
+    const val LITX = "litx/{symbol}/{timeframe}"
+
+    /** Builds a concrete LIT X route for the given symbol/timeframe label. */
+    fun litx(symbol: String, timeframeLabel: String): String = "litx/$symbol/$timeframeLabel"
 }
 
 /** Bottom navigation tab definition. */
@@ -110,6 +121,25 @@ fun FoxNavHost(
                 ChartScreen(
                     onNavigateToAlerts = { navController.navigate(FoxRoutes.ALERTS) },
                     onNavigateToTradeManagement = { navController.navigate(FoxRoutes.TRADE_MANAGEMENT) },
+                    onNavigateToLitX = { symbol, tf ->
+                        navController.navigate(FoxRoutes.litx(symbol, tf.label))
+                    },
+                )
+            }
+            // LIT X Institutional Framework analysis for the charted symbol.
+            composable(
+                route = FoxRoutes.LITX,
+                arguments = listOf(
+                    navArgument("symbol") { type = NavType.StringType },
+                    navArgument("timeframe") { type = NavType.StringType },
+                ),
+            ) { entry ->
+                val symbol = entry.arguments?.getString("symbol") ?: "EURUSD"
+                val tfLabel = entry.arguments?.getString("timeframe") ?: Timeframe.H1.label
+                LitXScreen(
+                    symbol = symbol,
+                    timeframe = Timeframe.fromLabel(tfLabel),
+                    onNavigateBack = { navController.popBackStack() },
                 )
             }
             // Alerts is reachable from the Chart top bar rather than a 7th
