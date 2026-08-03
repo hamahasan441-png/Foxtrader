@@ -77,6 +77,20 @@ fun TradeManagementScreen(
             Text("Risk Dashboard", fontWeight = FontWeight.Bold)
         }
 
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Button(
+            onClick = onNavigateToSimulator,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+            ),
+            shape = RoundedCornerShape(10.dp),
+        ) {
+            Text("Trade Simulator", fontWeight = FontWeight.Bold)
+        }
+
         Spacer(modifier = Modifier.height(16.dp))
 
         if (!state.hasActiveTrades && state.managedTrades.isEmpty()) {
