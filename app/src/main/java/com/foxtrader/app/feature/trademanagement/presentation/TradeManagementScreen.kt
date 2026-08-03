@@ -45,6 +45,7 @@ import com.foxtrader.app.ui.theme.FoxNeutral60
 @Composable
 fun TradeManagementScreen(
     modifier: Modifier = Modifier,
+    onNavigateToSimulator: () -> Unit = {},
     onNavigateToRiskDashboard: () -> Unit = {},
     viewModel: TradeManagementViewModel = hiltViewModel(),
 ) {
@@ -74,6 +75,20 @@ fun TradeManagementScreen(
             shape = RoundedCornerShape(10.dp),
         ) {
             Text("Risk Dashboard", fontWeight = FontWeight.Bold)
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Button(
+            onClick = onNavigateToSimulator,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+            ),
+            shape = RoundedCornerShape(10.dp),
+        ) {
+            Text("Trade Simulator", fontWeight = FontWeight.Bold)
         }
 
         Spacer(modifier = Modifier.height(16.dp))
