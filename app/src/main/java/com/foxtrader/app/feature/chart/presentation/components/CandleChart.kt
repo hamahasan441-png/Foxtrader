@@ -26,6 +26,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.Candle
@@ -137,6 +139,14 @@ fun CandleChart(
     onLoadOlder: () -> Unit = {},
     syncedCrosshairTimestamp: Long? = null,
     onCrosshairTimestampChange: (Long?) -> Unit = {},
+    /**
+     * When false, the price (Y) scale is *locked*: interactive pan/zoom no
+     * longer re-fits the visible price range (TradingView "lock scale", R7).
+     * Data-driven refits (new symbol/timeframe, history load) still apply.
+     */
+    autoScaleEnabled: Boolean = true,
+    /** Spoken summary of the chart for TalkBack (R7 accessibility). */
+    chartContentDescription: String? = null,
 ) {
     val density = LocalDensity.current
     val context = LocalContext.current
@@ -345,7 +355,7 @@ fun CandleChart(
                 }
                 viewport.advanceFling(dt, currentCount)
                 viewport.clamp(currentCount)
-                rescale()
+                if (autoScaleEnabled) rescale() // locked scale skips the re-fit
                 followLiveEdge[0] = viewport.isAtRightEdge(currentCount)
                 publishViewportState()
                 invalidateTick++
@@ -368,6 +378,9 @@ fun CandleChart(
     Canvas(
         modifier = modifier
             .background(FoxNeutral0)
+            // A11y (R7): the Canvas is opaque to TalkBack, so expose a spoken
+            // one-line summary of what the chart is currently showing.
+            .semantics { chartContentDescription?.let { contentDescription = it } }
             // --- FLING VELOCITY TRACKING ---
             .pointerInput(stableGestureKey) {
                 val tracker = VelocityTracker()
@@ -424,7 +437,7 @@ fun CandleChart(
                     viewport.zoomBy(zoom, centroid.x, cw, candleCount)
 
                     viewport.clamp(candleCount)
-                    rescale()
+                    if (autoScaleEnabled) rescale() // locked scale skips the re-fit
                     followLiveEdge[0] = viewport.isAtRightEdge(candleCount)
                     publishViewportState()
                     invalidateTick++

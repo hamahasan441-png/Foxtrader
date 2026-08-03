@@ -26,6 +26,8 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ShowChart
@@ -143,6 +145,9 @@ fun ChartScreen(
     // sheet, keeping the canvas clean (TradingView-style).
     var analysisExpanded by remember { mutableStateOf(false) }
 
+    // --- Price-scale lock (R7): freezes the Y auto-fit during pan/zoom ---
+    var scaleLocked by remember { mutableStateOf(false) }
+
     // The candle series shown right now (replay bars while replaying, else the
     // live series), as a stable CandleSeries. Shared by the main chart and the
     // volume pane so their bar indices stay aligned (R3/R5).
@@ -192,6 +197,8 @@ fun ChartScreen(
                 },
                 onReplayStart = { viewModel.startReplay() },
                 onToggleFullscreen = onToggleImmersive,
+                scaleLocked = scaleLocked,
+                onToggleScaleLock = { scaleLocked = !scaleLocked },
             )
         }
 
@@ -331,6 +338,12 @@ fun ChartScreen(
                             syncedCrosshairTimestamp = state.syncedCrosshairTimestamp,
                             onCrosshairTimestampChange = viewModel::onPrimaryCrosshairTimestampChange,
                             performanceMonitor = monitor,
+                            autoScaleEnabled = !scaleLocked,
+                            chartContentDescription = stringResource(
+                                R.string.chart_canvas_cd,
+                                state.symbol,
+                                state.timeframe.label,
+                            ),
                         )
                         state.isLoading -> CircularProgressIndicator(color = FoxAmber50)
                         state.error != null -> Text(
@@ -604,6 +617,8 @@ private fun ChartToolbar(
     onMenuToggle: (ChartMenu) -> Unit,
     onReplayStart: () -> Unit,
     onToggleFullscreen: () -> Unit,
+    scaleLocked: Boolean,
+    onToggleScaleLock: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -659,6 +674,19 @@ private fun ChartToolbar(
                 Icons.Default.Refresh,
                 contentDescription = stringResource(R.string.chart_start_replay_mode),
                 tint = FoxNeutral60,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+
+        // Lock / unlock the price scale (R7).
+        IconButton(
+            onClick = onToggleScaleLock,
+            modifier = Modifier.size(32.dp),
+        ) {
+            Icon(
+                if (scaleLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                contentDescription = stringResource(R.string.chart_scale_toggle_lock),
+                tint = if (scaleLocked) FoxAmber50 else FoxNeutral60,
                 modifier = Modifier.size(18.dp),
             )
         }
