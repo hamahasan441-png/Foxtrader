@@ -41,6 +41,13 @@ data class TradeProRiskDashboardUiState(
     val positionSizerDirection: Direction = Direction.BULLISH,
     /** Result of the position sizing calculation (null until computed). */
     val positionSizerResult: PositionSizeResult? = null,
+    /**
+     * True when open positions exist but price data is stale (using entry price
+     * instead of current market price). The UI should display a staleness indicator
+     * to warn that unrealized P&L and heat metrics reflect risk at entry, not
+     * current market exposure.
+     */
+    val priceDataIsStale: Boolean = false,
     /** True while loading initial data. */
     val isLoading: Boolean = false,
     /** Error message, if any. */

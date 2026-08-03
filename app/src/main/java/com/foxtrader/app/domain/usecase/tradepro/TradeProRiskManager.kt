@@ -332,6 +332,25 @@ class TradeProRiskManager @Inject constructor(
                 threshold = CORRELATION_ALERT_THRESHOLD,
             )
         }
+
+        // Check for untracked symbols: positions whose instruments are not in any
+        // correlation group. These can silently over-concentrate risk because the
+        // correlation engine has no data for them.
+        val trackedSymbols = CORRELATION_MATRIX.flatMap { it.first }.map { it.uppercase() }.toSet()
+        val untrackedPositions = state.positionHeat
+            .filter { it.symbol.uppercase() !in trackedSymbols }
+        if (untrackedPositions.isNotEmpty()) {
+            val symbolList = untrackedPositions.joinToString(", ") { it.symbol }
+            alerts += RiskAlert(
+                type = RiskAlertType.CORRELATION,
+                severity = AlertSeverity.INFO,
+                message = "Untracked correlation: $symbolList not in correlation matrix. " +
+                    "Actual co-movement is unknown; monitor concentration manually.",
+                value = untrackedPositions.size.toDouble(),
+                threshold = 0.0,
+            )
+        }
+
         return alerts
     }
 
@@ -555,11 +574,16 @@ class TradeProRiskManager @Inject constructor(
 
     /**
      * Estimate win rate from the current state. Uses a conservative default if no data.
+     *
+     * On a fresh session (no trades taken, zero consecutive losses), returns a conservative
+     * 40% to avoid oversizing the first position via half-Kelly. As session history builds,
+     * this could be refined by pulling from [JournalRepository] historical win rates.
      */
     private fun estimateWinRate(state: PortfolioRiskState): Double {
-        // Use a conservative baseline win rate for half-Kelly sizing.
-        // In a more sophisticated version this would pull from JournalRepository history.
-        return 0.55 // Conservative 55% baseline for TRADEPRO framework
+        // Conservative 40% baseline to prevent oversized first-trade positions.
+        // Half-Kelly at 40% win rate with typical 1.33 payoff ratio yields ~2.5% fraction,
+        // which is appropriately cautious for a session with no history.
+        return 0.40
     }
 
     /**

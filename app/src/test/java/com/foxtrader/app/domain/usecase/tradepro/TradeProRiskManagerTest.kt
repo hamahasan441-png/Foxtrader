@@ -7,6 +7,7 @@ import com.foxtrader.app.domain.model.tradepro.DailyPerformance
 import com.foxtrader.app.domain.model.tradepro.ManagedTrade
 import com.foxtrader.app.domain.model.tradepro.ManagedTradeState
 import com.foxtrader.app.domain.model.tradepro.PortfolioRiskState
+import com.foxtrader.app.domain.model.tradepro.PositionHeat
 import com.foxtrader.app.domain.model.tradepro.RiskAlertType
 import com.foxtrader.app.domain.model.tradepro.RiskDecision
 import com.foxtrader.app.domain.model.tradepro.TradeProConfig
@@ -264,6 +265,67 @@ class TradeProRiskManagerTest {
         assertTrue(
             "Expected ReduceSize but got $decision",
             decision is RiskDecision.ReduceSize,
+        )
+    }
+
+    @Test
+    fun `Untracked symbol triggers INFO correlation alert`() {
+        // USDZAR is not in the hardcoded correlation matrix.
+        val state = defaultState().copy(
+            positionHeat = listOf(
+                PositionHeat(
+                    symbol = "USDZAR",
+                    direction = Direction.BULLISH,
+                    riskPoints = 5.0,
+                    heatPercent = 0.17,
+                ),
+            ),
+        )
+
+        val alerts = manager.checkRiskAlerts(state)
+
+        val infoAlert = alerts.find {
+            it.type == RiskAlertType.CORRELATION && it.severity == AlertSeverity.INFO
+        }
+        assertTrue(
+            "Expected an INFO CORRELATION alert for untracked USDZAR but found none in $alerts",
+            infoAlert != null,
+        )
+        assertTrue(
+            "Alert message should mention untracked correlation",
+            infoAlert!!.message.contains("Untracked correlation", ignoreCase = true),
+        )
+        assertTrue(
+            "Alert message should reference USDZAR",
+            infoAlert.message.contains("USDZAR"),
+        )
+    }
+
+    @Test
+    fun `Conservative Kelly sizing with 40 percent win rate does not oversize`() {
+        // With 0.40 win rate and payoffRatio of 4/3:
+        // rawKelly = (0.40 * 1.333 - 0.60) / 1.333 = (0.533 - 0.60) / 1.333 = -0.05
+        // This is negative, so halfKelly = MIN_KELLY_FRACTION (0.01).
+        // The sizing should produce a minimal position (1 contract).
+        val state = defaultState(
+            dailyPnl = 0.0,
+            openRisk = 0.0,
+            maxRiskBudget = 30.0,
+        )
+
+        val result = manager.assessPosition(
+            symbol = "EURUSD",
+            direction = Direction.BULLISH,
+            config = config,
+            currentState = state,
+        )
+
+        // With a negative Kelly (forced to MIN_KELLY_FRACTION = 0.01),
+        // the sizing should be very conservative (1 contract).
+        assertEquals(
+            "Expected 1 contract for conservative Kelly sizing",
+            1,
+            result.recommendedContracts,
         )
     }
 }

@@ -31,6 +31,14 @@ import javax.inject.Inject
  * Aggregates portfolio risk data from [TradeProRiskManager] and exposes it through
  * an immutable [TradeProRiskDashboardUiState] for the Compose screen. Collects journal
  * entries to derive open positions, daily performance, and risk metrics.
+ *
+ * Known limitations:
+ * - No ViewModel unit tests: the journal-to-state pipeline (filtering, mapping, isToday logic)
+ *   is untested because this project does not use MockK and Android ViewModel dependencies
+ *   (viewModelScope, Hilt injection) cannot be easily faked in JUnit4. The core risk logic
+ *   is exercised via [TradeProRiskManagerTest] instead.
+ * - Open positions use `currentPrice = entryPrice` since no live price feed is available.
+ *   The UI exposes a `priceDataIsStale` flag so the dashboard can display a staleness indicator.
  */
 @HiltViewModel
 class TradeProRiskDashboardViewModel @Inject constructor(
@@ -95,49 +103,9 @@ class TradeProRiskDashboardViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
-                val entries = withContext(defaultDispatcher) {
-                    journalRepository.getAllEntries()
-                }
                 val config = appPreferences.tradeProConfig.value
-                val today = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
-
-                // Derive open positions as ManagedTrade approximations from journal entries.
-                val openPositions = entries
-                    .filter { it.isOpen }
-                    .map { entry ->
-                        ManagedTrade(
-                            id = entry.id,
-                            symbol = entry.symbol,
-                            direction = entry.direction,
-                            entryPrice = entry.entryPrice,
-                            entryTimestamp = entry.entryTime,
-                            contracts = entry.volume.toInt().coerceAtLeast(1),
-                            stopPrice = entry.stopLoss,
-                            t1Price = entry.takeProfit,
-                            t2Price = entry.takeProfit * 1.5,
-                            runnerTarget = entry.takeProfit * 2.0,
-                            currentPrice = entry.entryPrice, // Best available approximation
-                            state = ManagedTradeState.ACTIVE,
-                        )
-                    }
-
-                // Derive daily performance from today's closed trades.
-                val todayEntries = entries.filter { entry ->
-                    !entry.isOpen && entry.exitTime != null &&
-                        isToday(entry.exitTime)
-                }
-                val dailyPerformance = DailyPerformance(
-                    date = today,
-                    tradesTaken = todayEntries.size,
-                    wins = todayEntries.count { it.isWin },
-                    losses = todayEntries.count { !it.isWin },
-                    netPoints = todayEntries.sumOf { it.pnl ?: 0.0 },
-                    cumulativeEquity = entries.sumOf { it.pnl ?: 0.0 },
-                    peakEquity = entries.runningFold(0.0) { acc, e -> acc + (e.pnl ?: 0.0) }
-                        .maxOrNull() ?: 0.0,
-                    drawdown = 0.0,
-                    complianceScore = 100.0,
-                )
+                val (openPositions, dailyPerformance, hasOpenPositions) =
+                    derivePortfolioData()
 
                 // Compute portfolio state, alerts, and correlations.
                 val portfolioState = withContext(defaultDispatcher) {
@@ -172,6 +140,7 @@ class TradeProRiskDashboardViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(
                         isLoading = false,
+                        priceDataIsStale = hasOpenPositions,
                         riskUtilization = (portfolioState.riskUtilizationPercent / 100.0)
                             .toFloat()
                             .coerceIn(0f, 1f),
@@ -195,11 +164,38 @@ class TradeProRiskDashboardViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Build the current [PortfolioRiskState] from journal data.
+     * Used by [calculatePositionSize] to get a fresh snapshot for the sizer.
+     */
     private suspend fun buildPortfolioState(): PortfolioRiskState {
-        val entries = journalRepository.getAllEntries()
         val config = appPreferences.tradeProConfig.value
+        val (openPositions, dailyPerformance, _) = derivePortfolioData()
+        return riskManager.getPortfolioState(openPositions, config, dailyPerformance)
+    }
+
+    // -------------------------------------------------------------------
+    // Shared portfolio derivation (single source of truth for both
+    // loadRiskData and buildPortfolioState).
+    // -------------------------------------------------------------------
+
+    /**
+     * Derives open positions and daily performance from journal entries.
+     *
+     * NOTE: `currentPrice` is set to `entryPrice` for all open positions because no live
+     * price feed is currently integrated. This means unrealized P&L, heat calculations,
+     * and utilization reflect risk *at entry* rather than current market risk. The UI
+     * indicates this via [TradeProRiskDashboardUiState.priceDataIsStale].
+     *
+     * @return Triple of (open positions, daily performance, whether open positions exist).
+     */
+    private suspend fun derivePortfolioData(): PortfolioDataSnapshot {
+        val entries = withContext(defaultDispatcher) {
+            journalRepository.getAllEntries()
+        }
         val today = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
 
+        // Derive open positions as ManagedTrade approximations from journal entries.
         val openPositions = entries
             .filter { it.isOpen }
             .map { entry ->
@@ -214,13 +210,18 @@ class TradeProRiskDashboardViewModel @Inject constructor(
                     t1Price = entry.takeProfit,
                     t2Price = entry.takeProfit * 1.5,
                     runnerTarget = entry.takeProfit * 2.0,
+                    // No live price feed available; using entry price as approximation.
+                    // Heat bars show risk based on stop distance (correct), but unrealized
+                    // P&L will be zero for all open positions.
                     currentPrice = entry.entryPrice,
                     state = ManagedTradeState.ACTIVE,
                 )
             }
 
+        // Derive daily performance from today's closed trades.
         val todayEntries = entries.filter { entry ->
-            !entry.isOpen && entry.exitTime != null && isToday(entry.exitTime)
+            !entry.isOpen && entry.exitTime != null &&
+                isToday(entry.exitTime)
         }
         val dailyPerformance = DailyPerformance(
             date = today,
@@ -235,7 +236,11 @@ class TradeProRiskDashboardViewModel @Inject constructor(
             complianceScore = 100.0,
         )
 
-        return riskManager.getPortfolioState(openPositions, config, dailyPerformance)
+        return PortfolioDataSnapshot(
+            openPositions = openPositions,
+            dailyPerformance = dailyPerformance,
+            hasOpenPositions = openPositions.isNotEmpty(),
+        )
     }
 
     private fun isToday(epochMs: Long): Boolean {
@@ -245,4 +250,14 @@ class TradeProRiskDashboardViewModel @Inject constructor(
             .toLocalDate()
         return tradeDate == today
     }
+
+    // -------------------------------------------------------------------
+    // Internal data holder for the shared derivation method.
+    // -------------------------------------------------------------------
+
+    private data class PortfolioDataSnapshot(
+        val openPositions: List<ManagedTrade>,
+        val dailyPerformance: DailyPerformance,
+        val hasOpenPositions: Boolean,
+    )
 }

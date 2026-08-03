@@ -129,6 +129,9 @@ fun TradeProRiskDashboardScreen(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 Spacer(Modifier.height(2.dp))
+                if (state.priceDataIsStale) {
+                    StalePriceDataBanner()
+                }
                 RiskUtilizationGauge(utilization = state.riskUtilization)
                 DailyPnlCard(state = state)
                 OpenRiskBreakdown(positionHeat = state.positionHeat)
@@ -594,6 +597,35 @@ private fun <T> ChipRow(
                     .background(if (isSelected) FoxAmber50 else FoxNeutral15)
                     .clickable { onSelect(item) }
                     .padding(horizontal = 12.dp, vertical = 7.dp),
+            )
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Stale Price Data Banner
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun StalePriceDataBanner() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF3E2723)),
+        shape = RoundedCornerShape(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "\u26A0",
+                fontSize = 14.sp,
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = "Price data is stale. Heat and P&L reflect entry prices, not current market.",
+                fontSize = 11.sp,
+                color = FoxAmber50,
             )
         }
     }
