@@ -60,7 +60,12 @@ class TradeProBacktestReportViewModel @Inject constructor(
                 val candles = sourced.candles
                 val config = appPreferences.tradeProConfig.value
                 val result = withContext(defaultDispatcher) {
-                    backtestEngine.run(state.symbol, candles, config)
+                    backtestEngine.run(
+                        symbol = state.symbol,
+                        candles = candles,
+                        config = config,
+                        baseTimeframe = state.timeframe,
+                    )
                 }
                 _uiState.update {
                     it.copy(

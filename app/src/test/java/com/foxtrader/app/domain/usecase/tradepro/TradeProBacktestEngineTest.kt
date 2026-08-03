@@ -1,6 +1,7 @@
 package com.foxtrader.app.domain.usecase.tradepro
 
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -120,6 +121,79 @@ class TradeProBacktestEngineTest {
         assertEquals(first.totalTrades, second.totalTrades)
         assertEquals(first.netPoints, second.netPoints, 1e-9)
         assertEquals(first.winRate, second.winRate, 1e-9)
+        assertEquals(first.equityCurve, second.equityCurve)
+    }
+
+    /**
+     * Same oscillating uptrend but at H1 spacing and enough bars that the trailing window
+     * resamples into >= 30 H4 bars — so MTF bias validation is actually exercised.
+     */
+    private fun uptrendH1(cycles: Int = 40): List<Candle> {
+        val list = ArrayList<Candle>()
+        var price = 100.0
+        var t = 0L
+        repeat(cycles) {
+            repeat(7) {
+                val open = price
+                val close = price + 1.0
+                list += Candle(t, open, close + 0.2, open - 0.2, close, 120.0)
+                price = close
+                t += 3_600_000L
+            }
+            repeat(3) {
+                val open = price
+                val close = price - 0.5
+                list += Candle(t, open, open + 0.2, close - 0.2, close, 80.0)
+                price = close
+                t += 3_600_000L
+            }
+        }
+        return list
+    }
+
+    private fun assertSelfConsistent(result: com.foxtrader.app.domain.model.tradepro.TradeProBacktestResult) {
+        assertEquals(result.totalTrades, result.wins + result.losses + result.breakeven)
+        assertEquals(result.totalTrades, result.trades.size)
+        assertEquals(result.totalTrades, result.equityCurve.size)
+        assertTrue(result.winRate in 0.0..1.0)
+        assertTrue(result.t1HitRate in 0.0..1.0)
+        assertTrue(result.t2HitRate in 0.0..1.0)
+        assertTrue(result.runnerHitRate in 0.0..1.0)
+        assertTrue(result.profitFactor >= 0.0)
+        assertTrue(result.maxDrawdownPoints >= 0.0)
+        if (result.totalTrades > 0) {
+            assertEquals(result.netPoints, result.equityCurve.last(), 1e-6)
+            assertEquals(result.netPoints / result.totalTrades, result.expectancy, 1e-6)
+        }
+    }
+
+    @Test
+    fun `mtf-mode backtest over an H1 trend is self-consistent`() {
+        val result = engine.run(
+            symbol = "MESUSD",
+            candles = uptrendH1(),
+            baseTimeframe = Timeframe.H1,
+        )
+        assertEquals("MESUSD", result.symbol)
+        assertSelfConsistent(result)
+    }
+
+    @Test
+    fun `single-timeframe and mtf modes both run and stay self-consistent`() {
+        val candles = uptrendH1()
+        val single = engine.run("MESUSD", candles, baseTimeframe = Timeframe.H1, multiTimeframe = false)
+        val mtf = engine.run("MESUSD", candles, baseTimeframe = Timeframe.H1, multiTimeframe = true)
+        assertSelfConsistent(single)
+        assertSelfConsistent(mtf)
+    }
+
+    @Test
+    fun `mtf-mode backtest is deterministic for identical inputs`() {
+        val candles = uptrendH1()
+        val first = engine.run("MESUSD", candles, baseTimeframe = Timeframe.H1)
+        val second = engine.run("MESUSD", candles, baseTimeframe = Timeframe.H1)
+        assertEquals(first.totalTrades, second.totalTrades)
+        assertEquals(first.netPoints, second.netPoints, 1e-9)
         assertEquals(first.equityCurve, second.equityCurve)
     }
 }
