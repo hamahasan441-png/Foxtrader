@@ -32,13 +32,14 @@ class CorrelationEngineTest {
     @Test
     fun `an inverse series correlates at negative 1`() {
         val closes = base()
-        // Mirror the returns: build a series whose step changes are negated.
+        // Build a series whose *percentage returns* are the exact negation of A's returns
+        // (compound the negated return each step). Pearson of x and -x is exactly -1.
         val inverse = ArrayList<Double>()
         var price = 100.0
         inverse += price
         for (i in 1 until closes.size) {
-            val delta = closes[i] - closes[i - 1]
-            price -= delta
+            val returnA = (closes[i] - closes[i - 1]) / closes[i - 1]
+            price *= (1.0 - returnA)
             inverse += price
         }
         val m = engine.compute(mapOf("A" to candles(closes), "B" to candles(inverse)))
