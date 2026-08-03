@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.EventNote
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material3.Card
@@ -57,6 +58,7 @@ import com.foxtrader.app.ui.theme.FoxNeutral60
 fun JournalScreen(
     onNavigateToPortfolio: () -> Unit = {},
     onNavigateToProfile: () -> Unit = {},
+    onNavigateToDailyPlan: () -> Unit = {},
     viewModel: JournalViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -77,6 +79,13 @@ fun JournalScreen(
                     Text("Journal", fontWeight = FontWeight.Bold, fontSize = 20.sp)
                 },
                 actions = {
+                    IconButton(onClick = onNavigateToDailyPlan) {
+                        Icon(
+                            imageVector = Icons.Default.EventNote,
+                            contentDescription = "Open daily trading plan",
+                            tint = FoxAmber50,
+                        )
+                    }
                     IconButton(onClick = onNavigateToProfile) {
                         Icon(
                             imageVector = Icons.Default.Insights,
