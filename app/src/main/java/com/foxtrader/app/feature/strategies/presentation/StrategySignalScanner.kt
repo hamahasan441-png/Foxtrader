@@ -3,6 +3,7 @@ package com.foxtrader.app.feature.strategies.presentation
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.FvgType
+import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.model.LiquidityType
 import com.foxtrader.app.domain.model.OrderBlockType
 import com.foxtrader.app.domain.model.StructureBreakType
@@ -14,6 +15,7 @@ import com.foxtrader.app.domain.usecase.indicators.IchimokuCloud
 import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
 import com.foxtrader.app.domain.usecase.patterns.CandlePatternDetector
 import com.foxtrader.app.domain.usecase.patterns.HarmonicPatternDetector
+import com.foxtrader.app.domain.model.tradepro.TradeProConfig
 import com.foxtrader.app.domain.usecase.smc.SmcDetector
 import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
 import java.util.UUID
@@ -42,7 +44,17 @@ class StrategySignalScanner @Inject constructor(
     private val tradeProEngine: TradeProSignalEngine,
 ) {
 
-    fun detect(symbol: String, candles: List<Candle>): List<StrategySignalItem> {
+    /**
+     * @param htfCandles higher-timeframe context (execution TF -> its HTFs) used to validate the
+     *   TRADEPRO setup against higher-timeframe bias, exactly as the live chart and alert worker do.
+     *   Empty (the default) keeps the single-timeframe behaviour, so this stays a pure, framework-free
+     *   unit — the caller owns the (async) HTF fetch.
+     */
+    fun detect(
+        symbol: String,
+        candles: List<Candle>,
+        htfCandles: Map<Timeframe, List<Candle>> = emptyMap(),
+    ): List<StrategySignalItem> {
         val out = mutableListOf<StrategySignalItem>()
 
         // --- Harmonic patterns ---
@@ -299,7 +311,7 @@ class StrategySignalScanner @Inject constructor(
         // --- TRADEPRO order-flow / auction setup (Flip Zone + Buy/Sell-Hold + confirmation) ---
         // Only surfaced when the setup reaches EXECUTE (price pulled into a defended zone AND
         // order flow confirmed) — respects the framework's "no chasing" rule.
-        val tradePro = tradeProEngine.analyze(symbol, candles).setup
+        val tradePro = tradeProEngine.analyze(symbol, candles, TradeProConfig(), htfCandles).setup
         if (tradePro != null && tradePro.isExecutable) {
             out += StrategySignalItem(
                 id = UUID.randomUUID().toString(),

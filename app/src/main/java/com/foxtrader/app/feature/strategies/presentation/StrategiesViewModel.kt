@@ -7,6 +7,7 @@ import com.foxtrader.app.domain.model.StrategySignal
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.repository.JournalRepository
 import com.foxtrader.app.domain.repository.MarketRepository
+import com.foxtrader.app.domain.usecase.ai.MtfContextProvider
 import com.foxtrader.app.domain.usecase.backtest.AiScoredBacktestEngine
 import com.foxtrader.app.domain.usecase.backtest.StrategyFunction
 import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
@@ -34,6 +35,7 @@ class StrategiesViewModel @Inject constructor(
     private val signalScanner: StrategySignalScanner,
     private val aiBacktestEngine: AiScoredBacktestEngine,
     private val journalRepository: JournalRepository,
+    private val mtfContextProvider: MtfContextProvider,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(StrategiesUiState())
@@ -53,7 +55,11 @@ class StrategiesViewModel @Inject constructor(
                 for (ws in watchlist) {
                     val candles = repository.getSourcedCandles(ws.symbol).candles
                     if (candles.size < 50) continue
-                    signals += signalScanner.detect(ws.symbol, candles)
+                    // Validate the scanner's TRADEPRO read against real higher-timeframe bias, the
+                    // same source the chart and alert worker use, so a watchlist signal is consistent
+                    // with what the trader sees elsewhere. Scans default to H1 (getSourcedCandles).
+                    val htfCandles = mtfContextProvider.getHtfContext(ws.symbol, Timeframe.H1)
+                    signals += signalScanner.detect(ws.symbol, candles, htfCandles)
                 }
 
                 signals.sortByDescending { it.confidence }
