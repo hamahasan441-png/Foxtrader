@@ -156,4 +156,28 @@
     <string name="settings_coming_soon">Coming soon: %1$s. These are not connected yet, so they are not selectable.</string>
     <string name="settings_live_routing_active">Live chart routing is active for %1$s crypto symbols.</string>
     <string name="settings_api_key_saved_note">Saved only on this device for the selected chart/data provider.</string>
+
+    <!-- Chart analysis bottom sheet (consolidates AI / context / confluence / setup) -->
+    <string name="chart_analysis_sheet_title">Analysis</string>
+    <string name="chart_analysis_expand">Show analysis details</string>
+    <string name="chart_analysis_collapse">Hide analysis details</string>
+    <string name="chart_analysis_empty">No analysis available yet</string>
+    <string name="chart_analysis_ai_short">AI %1$d%%</string>
+
+    <!-- Floating drawing tool palette -->
+    <string name="chart_drawing_palette_cd">Drawing tools</string>
+    <string name="chart_drawing_palette_close">Close drawing tools</string>
+
+    <!-- Immersive / focus mode -->
+    <string name="chart_focus_enter">Enter full-screen chart</string>
+    <string name="chart_focus_exit">Exit full-screen chart</string>
+
+    <!-- Resizable indicator panes -->
+    <string name="chart_pane_resize_cd">Drag to resize the %1$s pane</string>
+    <string name="chart_pane_volume_title">Volume</string>
+
+    <!-- Price-scale mode (auto / locked / log) -->
+    <string name="chart_scale_auto">Auto scale</string>
+    <string name="chart_scale_locked">Lock scale</string>
+    <string name="chart_scale_log">Log scale</string>
 </resources>

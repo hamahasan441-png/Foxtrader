@@ -66,15 +66,12 @@ import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.ui.theme.FoxWarning
 import com.foxtrader.app.feature.chart.presentation.components.CandleChart
-import com.foxtrader.app.feature.chart.presentation.components.ConfluenceRibbon
-import com.foxtrader.app.feature.chart.presentation.components.TradeProSetupCard
-import com.foxtrader.app.feature.chart.presentation.components.AiDecisionPanel
+import com.foxtrader.app.feature.chart.presentation.components.ChartAnalysisSheet
 import com.foxtrader.app.feature.chart.presentation.components.DrawingToolbar
 import com.foxtrader.app.feature.chart.presentation.components.IndicatorPanel
 import com.foxtrader.app.feature.chart.presentation.components.MultiChartSection
 import com.foxtrader.app.feature.chart.presentation.components.MultiChartToolbar
 import com.foxtrader.app.domain.usecase.performance.PerformanceSnapshot
-import com.foxtrader.app.feature.chart.presentation.components.MarketContextPanel
 import com.foxtrader.app.feature.chart.presentation.components.MacdSubChart
 import com.foxtrader.app.feature.chart.presentation.components.PerformanceOverlay
 import com.foxtrader.app.feature.chart.presentation.components.ReplayControlBar
@@ -136,6 +133,12 @@ fun ChartScreen(
 
     // --- Track which dropdown menu is open (only one at a time) ---
     var activeMenu by remember { mutableStateOf(ChartMenu.NONE) }
+
+    // --- Bottom "Analysis" sheet expand/collapse (R2) ---
+    // Consolidates the AI decision, market context, MTF confluence and TRADEPRO
+    // setup that previously floated over the price action into one on-demand
+    // sheet, keeping the canvas clean (TradingView-style).
+    var analysisExpanded by remember { mutableStateOf(false) }
 
     // `INSETS` The app-level Scaffold in FoxNavHost already applies the system-bar
     // window insets (status bar on top, navigation bar on the bottom) to the
@@ -343,36 +346,11 @@ fun ChartScreen(
                 }
             }
 
-            // --- AI Decision badge (top-left overlay) ---
-            AiDecisionPanel(
-                decision = state.aiDecision,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(start = 8.dp, top = 8.dp),
-            )
-
-            // --- Deterministic market context (top-right overlay) ---
-            MarketContextPanel(
-                explanation = state.marketExplanation,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(end = 8.dp, top = 8.dp),
-            )
-
-            ConfluenceRibbon(
-                result = if (state.indicators.confluence) state.confluence else null,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 8.dp),
-            )
-
-            // --- TRADEPRO setup + MTF-alignment badge (left-center overlay) ---
-            TradeProSetupCard(
-                analysis = state.tradeProAnalysis,
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .padding(start = 8.dp),
-            )
+            // NOTE (R2): the AI decision, market context, MTF confluence and
+            // TRADEPRO setup cards no longer float over the price action. They
+            // are consolidated into the collapsible ChartAnalysisSheet anchored
+            // at the bottom of this Box, so the canvas stays clean and the
+            // detail is available on demand (TradingView-style).
 
             // --- Debug FPS / frame-budget HUD (debug builds only) ---
             if (BuildConfig.DEBUG) {
@@ -411,6 +389,22 @@ fun ChartScreen(
                         contentDescription = stringResource(R.string.chart_open_trade_management),
                     )
                 }
+            }
+
+            // --- Consolidated Analysis sheet (bottom overlay, R2) ---
+            // Hidden during replay so it never fights the replay control bar,
+            // which also anchors to the bottom-centre.
+            if (!replayState.isActive) {
+                ChartAnalysisSheet(
+                    expanded = analysisExpanded,
+                    onToggleExpanded = { analysisExpanded = !analysisExpanded },
+                    bias = state.bias,
+                    decision = state.aiDecision,
+                    explanation = state.marketExplanation,
+                    confluence = if (state.indicators.confluence) state.confluence else null,
+                    tradeProAnalysis = state.tradeProAnalysis,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                )
             }
         }
 
