@@ -37,6 +37,7 @@ import com.foxtrader.app.feature.strategies.presentation.StrategiesScreen
 import com.foxtrader.app.feature.trademanagement.presentation.TradeManagementScreen
 import com.foxtrader.app.feature.tradepro.presentation.TradeProBacktestReportScreen
 import com.foxtrader.app.feature.tradepro.presentation.TradeProOptimizerScreen
+import com.foxtrader.app.feature.tradepro.presentation.TradeProRiskDashboardScreen
 import com.foxtrader.app.feature.tradepro.presentation.TradeProSimulatorScreen
 
 /** Type-safe route constants for the app's destinations. */
@@ -54,6 +55,7 @@ object FoxRoutes {
     const val TRADEPRO_BACKTEST = "tradepro_backtest"
     const val TRADEPRO_OPTIMIZER = "tradepro_optimizer"
     const val TRADEPRO_SIMULATOR = "tradepro_simulator"
+    const val RISK_DASHBOARD = "risk_dashboard"
 }
 
 /** Bottom navigation tab definition. */
@@ -142,6 +144,7 @@ fun FoxNavHost(
             composable(FoxRoutes.TRADE_MANAGEMENT) {
                 TradeManagementScreen(
                     onNavigateToSimulator = { navController.navigate(FoxRoutes.TRADEPRO_SIMULATOR) },
+                    onNavigateToRiskDashboard = { navController.navigate(FoxRoutes.RISK_DASHBOARD) },
                 )
             }
             // TRADEPRO Backtest Report is reached from the Backtesting Lab (it
@@ -161,6 +164,11 @@ fun FoxNavHost(
             }
             composable(FoxRoutes.TRADEPRO_SIMULATOR) {
                 TradeProSimulatorScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                )
+            }
+            composable(FoxRoutes.RISK_DASHBOARD) {
+                TradeProRiskDashboardScreen(
                     onNavigateBack = { navController.popBackStack() },
                 )
             }
