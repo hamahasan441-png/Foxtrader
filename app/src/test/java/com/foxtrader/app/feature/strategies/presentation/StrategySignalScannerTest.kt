@@ -1,6 +1,7 @@
 package com.foxtrader.app.feature.strategies.presentation
 
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import com.foxtrader.app.domain.usecase.analysis.DivergenceDetector
 import com.foxtrader.app.domain.usecase.analysis.RiskRewardOptimizer
@@ -93,5 +94,19 @@ class StrategySignalScannerTest {
         val signals = scanner.detect("EURUSD", series(size = 10))
         // Short series must be handled gracefully (no exception).
         assertTrue(signals.size >= 0)
+    }
+
+    @Test
+    fun `detect accepts higher-timeframe context and still returns well-formed signals`() {
+        // Passing HTF context exercises the MTF-validated TRADEPRO path; every emitted
+        // signal must still be well-formed and the call must not throw.
+        val htfCandles = mapOf(Timeframe.H4 to series(120), Timeframe.D1 to series(60))
+        val signals = scanner.detect("EURUSD", series(), htfCandles)
+        signals.forEach { s ->
+            assertTrue("symbol propagated", s.symbol == "EURUSD")
+            assertTrue("confidence in 0..100 (${s.confidence})", s.confidence in 0..100)
+            assertTrue("prices positive", s.entry > 0.0 && s.stopLoss > 0.0 && s.takeProfit > 0.0)
+            assertTrue("risk/reward non-negative", s.riskReward >= 0.0)
+        }
     }
 }
