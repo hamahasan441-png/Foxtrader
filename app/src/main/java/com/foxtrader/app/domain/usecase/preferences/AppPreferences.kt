@@ -21,6 +21,7 @@ import com.foxtrader.app.domain.model.PositionSizingMethod
 import com.foxtrader.app.domain.model.RiskConfig
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.model.tradepro.AlertRule
+import com.foxtrader.app.domain.model.LitXConfig
 import com.foxtrader.app.domain.model.tradepro.TradeProConfig
 import com.foxtrader.app.domain.usecase.chart.ChartLayout
 import com.foxtrader.app.domain.usecase.chart.ChartPanelSeed
@@ -101,6 +102,10 @@ class AppPreferences @Inject constructor(
     private val _tradeProConfig = MutableStateFlow(TradeProConfig())
     val tradeProConfig: StateFlow<TradeProConfig> = _tradeProConfig.asStateFlow()
 
+    /** LIT X Institutional Framework config (opt-in; defaults to disabled). */
+    private val _litXConfig = MutableStateFlow(LitXConfig())
+    val litXConfig: StateFlow<LitXConfig> = _litXConfig.asStateFlow()
+
     private val _tradeProAlertRules = MutableStateFlow<List<AlertRule>>(emptyList())
     val tradeProAlertRules: StateFlow<List<AlertRule>> = _tradeProAlertRules.asStateFlow()
 
@@ -152,6 +157,9 @@ class AppPreferences @Inject constructor(
                 _tradeProConfig.value = prefs[KEY_TRADEPRO_CONFIG]?.let { raw ->
                     runCatching { json.decodeFromString<TradeProConfig>(raw) }.getOrDefault(TradeProConfig())
                 } ?: TradeProConfig()
+                _litXConfig.value = prefs[KEY_LITX_CONFIG]?.let { raw ->
+                    runCatching { json.decodeFromString<LitXConfig>(raw) }.getOrDefault(LitXConfig())
+                } ?: LitXConfig()
                 _tradeProAlertRules.value = prefs[KEY_TRADEPRO_ALERT_RULES]?.let { raw ->
                     runCatching { json.decodeFromString<List<AlertRule>>(raw) }.getOrDefault(emptyList())
                 } ?: emptyList()
@@ -167,6 +175,11 @@ class AppPreferences @Inject constructor(
     fun setTradeProConfig(config: TradeProConfig) {
         _tradeProConfig.value = config
         scope.launch { context.dataStore.edit { it[KEY_TRADEPRO_CONFIG] = json.encodeToString(config) } }
+    }
+
+    fun setLitXConfig(config: LitXConfig) {
+        _litXConfig.value = config
+        scope.launch { context.dataStore.edit { it[KEY_LITX_CONFIG] = json.encodeToString(config) } }
     }
 
     fun setTradeProAlertRules(rules: List<AlertRule>) {
@@ -407,6 +420,7 @@ class AppPreferences @Inject constructor(
         val KEY_MULTI_CHART_STATE = stringPreferencesKey("multi_chart_state")
         val KEY_CRASH_REPORTING_ENABLED = booleanPreferencesKey("crash_reporting_enabled")
         val KEY_TRADEPRO_CONFIG = stringPreferencesKey("tradepro_config")
+        val KEY_LITX_CONFIG = stringPreferencesKey("litx_config")
         val KEY_TRADEPRO_ALERT_RULES = stringPreferencesKey("tradepro_alert_rules")
     }
 }
