@@ -37,6 +37,7 @@ import com.foxtrader.app.feature.strategies.presentation.StrategiesScreen
 import com.foxtrader.app.feature.trademanagement.presentation.TradeManagementScreen
 import com.foxtrader.app.feature.tradepro.presentation.TradeProBacktestReportScreen
 import com.foxtrader.app.feature.tradepro.presentation.TradeProOptimizerScreen
+import com.foxtrader.app.feature.tradepro.presentation.TradeProSimulatorScreen
 
 /** Type-safe route constants for the app's destinations. */
 object FoxRoutes {
@@ -52,6 +53,7 @@ object FoxRoutes {
     const val TRADE_MANAGEMENT = "trade_management"
     const val TRADEPRO_BACKTEST = "tradepro_backtest"
     const val TRADEPRO_OPTIMIZER = "tradepro_optimizer"
+    const val TRADEPRO_SIMULATOR = "tradepro_simulator"
 }
 
 /** Bottom navigation tab definition. */
@@ -138,7 +140,9 @@ fun FoxNavHost(
                 )
             }
             composable(FoxRoutes.TRADE_MANAGEMENT) {
-                TradeManagementScreen()
+                TradeManagementScreen(
+                    onNavigateToSimulator = { navController.navigate(FoxRoutes.TRADEPRO_SIMULATOR) },
+                )
             }
             // TRADEPRO Backtest Report is reached from the Backtesting Lab (it
             // shares the Lab's symbol/timeframe mental model) rather than a 7th
@@ -152,6 +156,11 @@ fun FoxNavHost(
             }
             composable(FoxRoutes.TRADEPRO_OPTIMIZER) {
                 TradeProOptimizerScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                )
+            }
+            composable(FoxRoutes.TRADEPRO_SIMULATOR) {
+                TradeProSimulatorScreen(
                     onNavigateBack = { navController.popBackStack() },
                 )
             }

@@ -45,6 +45,7 @@ import com.foxtrader.app.ui.theme.FoxNeutral60
 @Composable
 fun TradeManagementScreen(
     modifier: Modifier = Modifier,
+    onNavigateToSimulator: () -> Unit = {},
     viewModel: TradeManagementViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
