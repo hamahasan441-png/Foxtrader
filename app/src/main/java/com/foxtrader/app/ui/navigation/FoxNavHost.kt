@@ -36,6 +36,7 @@ import com.foxtrader.app.feature.settings.presentation.SettingsScreen
 import com.foxtrader.app.feature.strategies.presentation.StrategiesScreen
 import com.foxtrader.app.feature.trademanagement.presentation.TradeManagementScreen
 import com.foxtrader.app.feature.tradepro.presentation.TradeProBacktestReportScreen
+import com.foxtrader.app.feature.tradepro.presentation.TradeProOptimizerScreen
 
 /** Type-safe route constants for the app's destinations. */
 object FoxRoutes {
@@ -50,6 +51,7 @@ object FoxRoutes {
     const val LOGIN = "login"
     const val TRADE_MANAGEMENT = "trade_management"
     const val TRADEPRO_BACKTEST = "tradepro_backtest"
+    const val TRADEPRO_OPTIMIZER = "tradepro_optimizer"
 }
 
 /** Bottom navigation tab definition. */
@@ -144,6 +146,12 @@ fun FoxNavHost(
             // exceeded at 6).
             composable(FoxRoutes.TRADEPRO_BACKTEST) {
                 TradeProBacktestReportScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    onNavigateToOptimizer = { navController.navigate(FoxRoutes.TRADEPRO_OPTIMIZER) },
+                )
+            }
+            composable(FoxRoutes.TRADEPRO_OPTIMIZER) {
+                TradeProOptimizerScreen(
                     onNavigateBack = { navController.popBackStack() },
                 )
             }

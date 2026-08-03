@@ -20,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -65,6 +66,7 @@ import java.util.Locale
 @Composable
 fun TradeProBacktestReportScreen(
     onNavigateBack: () -> Unit = {},
+    onNavigateToOptimizer: () -> Unit = {},
     viewModel: TradeProBacktestReportViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -79,6 +81,9 @@ fun TradeProBacktestReportScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = onNavigateToOptimizer) {
+                        Icon(Icons.Default.TrendingUp, contentDescription = "Optimize parameters", tint = FoxAmber50)
+                    }
                     IconButton(onClick = viewModel::runReport, enabled = !state.isRunning) {
                         Icon(Icons.Default.Refresh, contentDescription = "Re-run report", tint = FoxAmber50)
                     }
