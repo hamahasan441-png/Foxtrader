@@ -2,7 +2,6 @@ package com.foxtrader.app.domain.usecase.tradepro
 
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
-import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.model.tradepro.ComplianceViolation
 import com.foxtrader.app.domain.model.tradepro.SetupStage
 import com.foxtrader.app.domain.model.tradepro.SimulatedTrade
@@ -10,7 +9,6 @@ import com.foxtrader.app.domain.model.tradepro.SimulatedTradeState
 import com.foxtrader.app.domain.model.tradepro.SimulationPerformance
 import com.foxtrader.app.domain.model.tradepro.SimulationSession
 import com.foxtrader.app.domain.model.tradepro.SimulationSpeed
-import com.foxtrader.app.domain.model.tradepro.TradeProAnalysis
 import com.foxtrader.app.domain.model.tradepro.TradeProConfig
 import com.foxtrader.app.domain.model.tradepro.ViolationSeverity
 import java.util.Locale
@@ -18,7 +16,6 @@ import java.util.UUID
 import javax.inject.Inject
 import kotlin.math.abs
 import kotlin.math.max
-import kotlin.math.sqrt
 
 /**
  * Interactive trade simulator that walks historical candles bar-by-bar, running the real
