@@ -30,6 +30,7 @@ import com.foxtrader.app.feature.alerts.presentation.AlertsScreen
 import com.foxtrader.app.feature.backtest.presentation.BacktestLabScreen
 import com.foxtrader.app.feature.chart.presentation.ChartScreen
 import com.foxtrader.app.feature.journal.presentation.JournalScreen
+import com.foxtrader.app.feature.tradepro.presentation.TraderProfileScreen
 import com.foxtrader.app.feature.portfolio.presentation.PortfolioScreen
 import com.foxtrader.app.feature.scanner.presentation.ScannerScreen
 import com.foxtrader.app.feature.settings.presentation.SettingsScreen
@@ -56,6 +57,7 @@ object FoxRoutes {
     const val TRADEPRO_OPTIMIZER = "tradepro_optimizer"
     const val TRADEPRO_SIMULATOR = "tradepro_simulator"
     const val RISK_DASHBOARD = "risk_dashboard"
+    const val TRADER_PROFILE = "trader_profile"
 }
 
 /** Bottom navigation tab definition. */
@@ -121,6 +123,14 @@ fun FoxNavHost(
             composable(FoxRoutes.JOURNAL) {
                 JournalScreen(
                     onNavigateToPortfolio = { navController.navigate(FoxRoutes.PORTFOLIO) },
+                    onNavigateToProfile = { navController.navigate(FoxRoutes.TRADER_PROFILE) },
+                )
+            }
+            // Trader Profile (journal analytics / coaching) lives under Journal —
+            // it is derived entirely from journal entries.
+            composable(FoxRoutes.TRADER_PROFILE) {
+                TraderProfileScreen(
+                    onNavigateBack = { navController.popBackStack() },
                 )
             }
             // Portfolio lives under Journal rather than as a 7th bottom tab:
