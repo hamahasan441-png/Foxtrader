@@ -33,6 +33,7 @@ import com.foxtrader.app.feature.journal.presentation.JournalScreen
 import com.foxtrader.app.feature.tradepro.presentation.OpportunityBoardScreen
 import com.foxtrader.app.feature.tradepro.presentation.AlertRulesScreen
 import com.foxtrader.app.feature.tradepro.presentation.DailyPlanScreen
+import com.foxtrader.app.feature.tradepro.presentation.RiskSimulatorScreen
 import com.foxtrader.app.feature.tradepro.presentation.TraderProfileScreen
 import com.foxtrader.app.feature.portfolio.presentation.PortfolioScreen
 import com.foxtrader.app.feature.scanner.presentation.ScannerScreen
@@ -62,6 +63,7 @@ object FoxRoutes {
     const val RISK_DASHBOARD = "risk_dashboard"
     const val TRADER_PROFILE = "trader_profile"
     const val DAILY_PLAN = "daily_plan"
+    const val RISK_SIMULATOR = "risk_simulator"
     const val ALERT_RULES = "alert_rules"
     const val OPPORTUNITY_BOARD = "opportunity_board"
 }
@@ -141,6 +143,14 @@ fun FoxNavHost(
             composable(FoxRoutes.BACKTEST_LAB) {
                 BacktestLabScreen(
                     onNavigateToTradeProReport = { navController.navigate(FoxRoutes.TRADEPRO_BACKTEST) },
+                    onNavigateToRiskSimulator = { navController.navigate(FoxRoutes.RISK_SIMULATOR) },
+                )
+            }
+            // Monte Carlo risk simulator \u2014 reached from the Backtesting Lab
+            // (both quantify an edge; the simulator adds tail-risk / risk-of-ruin).
+            composable(FoxRoutes.RISK_SIMULATOR) {
+                RiskSimulatorScreen(
+                    onNavigateBack = { navController.popBackStack() },
                 )
             }
             composable(FoxRoutes.JOURNAL) {
