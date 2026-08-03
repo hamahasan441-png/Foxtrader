@@ -3,6 +3,7 @@ package com.foxtrader.app.domain.usecase.tradepro
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.tradepro.SimulatedTradeState
+import com.foxtrader.app.domain.model.tradepro.SimulationPerformance
 import com.foxtrader.app.domain.model.tradepro.SimulationSpeed
 import com.foxtrader.app.domain.model.tradepro.TradeProConfig
 import com.foxtrader.app.domain.model.tradepro.ViolationSeverity
