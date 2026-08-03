@@ -9,7 +9,9 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import kotlin.math.abs
+import kotlin.math.exp
 import kotlin.math.floor
+import kotlin.math.ln
 import kotlin.math.log10
 import kotlin.math.max
 import kotlin.math.min
@@ -55,6 +57,15 @@ class ChartViewport(
 
     /** Bottom margin reserved for the time axis (X-axis labels). */
     var timeAxisHeight: Float = 28f
+
+    /**
+     * Logarithmic price scale (R7). When true, [yForPrice] / [priceForY] map
+     * price to pixels in log space so equal *percentage* moves occupy equal
+     * vertical distance — the standard view for long-range / high-growth series.
+     * Every layer maps price through [yForPrice], so this switch alone flips the
+     * whole chart (candles, overlays, drawings, grid, price scale, crosshair).
+     */
+    var logScale: Boolean = false
 
     /** The usable chart drawing area width (total width - priceScaleWidth). */
     fun chartWidth(totalWidth: Float): Float = (totalWidth - priceScaleWidth).coerceAtLeast(1f)
@@ -173,6 +184,13 @@ class ChartViewport(
 
     /** Map a price to y pixel within the CHART AREA (excludes time axis). */
     fun yForPrice(price: Double, chartAreaHeight: Float): Float {
+        if (logScale) {
+            val hi = ln(priceHigh.coerceAtLeast(LOG_MIN_PRICE))
+            val lo = ln(priceLow.coerceAtLeast(LOG_MIN_PRICE))
+            val p = ln(price.coerceAtLeast(LOG_MIN_PRICE))
+            val range = (hi - lo).coerceAtLeast(1e-9)
+            return (((hi - p) / range) * chartAreaHeight).toFloat()
+        }
         val range = (priceHigh - priceLow).coerceAtLeast(1e-9)
         return (((priceHigh - price) / range) * chartAreaHeight).toFloat()
     }
@@ -183,6 +201,12 @@ class ChartViewport(
 
     /** Map a y pixel (in chart area) back to a price. */
     fun priceForY(y: Float, chartAreaHeight: Float): Double {
+        if (logScale) {
+            val hi = ln(priceHigh.coerceAtLeast(LOG_MIN_PRICE))
+            val lo = ln(priceLow.coerceAtLeast(LOG_MIN_PRICE))
+            val range = (hi - lo).coerceAtLeast(1e-9)
+            return exp(hi - (y / chartAreaHeight) * range)
+        }
         val range = (priceHigh - priceLow).coerceAtLeast(1e-9)
         return priceHigh - (y / chartAreaHeight) * range
     }
@@ -406,5 +430,12 @@ class ChartViewport(
 
         /** Clamp for a single integration step (guards against frame stalls). */
         const val MAX_FLING_STEP_SECONDS = 0.05f
+
+        /**
+         * Floor applied before taking a logarithm on the log price scale.
+         * ln(price) is undefined for price <= 0, so prices are clamped to this
+         * tiny positive value (real instrument prices are always positive).
+         */
+        const val LOG_MIN_PRICE = 1e-9
     }
 }

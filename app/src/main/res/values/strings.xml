@@ -180,6 +180,7 @@
     <string name="chart_scale_auto">Auto scale</string>
     <string name="chart_scale_locked">Lock scale</string>
     <string name="chart_scale_log">Log scale</string>
+    <string name="chart_scale_log_short">Log</string>
     <string name="chart_scale_toggle_lock">Lock or unlock the price scale</string>
 
     <!-- Chart canvas accessibility summary -->

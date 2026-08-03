@@ -64,6 +64,27 @@ class ChartViewportTest {
         assertTrue("expected a finite y, got $y", y.isFinite())
     }
 
+    @Test
+    fun `log scale yForPrice and priceForY are inverse transforms`() {
+        val vp = ChartViewport(priceHigh = 1000.0, priceLow = 10.0).apply { logScale = true }
+
+        for (price in doubleArrayOf(10.0, 31.62, 100.0, 316.2, 1000.0)) {
+            val y = vp.yForPrice(price, chartHeight)
+            assertEquals(price, vp.priceForY(y, chartHeight), price * 1e-6)
+        }
+    }
+
+    @Test
+    fun `log scale places the geometric mean at the vertical midpoint`() {
+        // On a log axis the geometric mean of the bounds (sqrt(1*100) = 10)
+        // must sit exactly halfway down the chart.
+        val vp = ChartViewport(priceHigh = 100.0, priceLow = 1.0).apply { logScale = true }
+
+        val y = vp.yForPrice(10.0, chartHeight)
+
+        assertEquals(chartHeight / 2f, y, 0.5f)
+    }
+
     // ========================================================================
     // PAN / ZOOM (§4.6)
     // ========================================================================

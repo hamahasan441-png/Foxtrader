@@ -147,6 +147,8 @@ fun CandleChart(
     autoScaleEnabled: Boolean = true,
     /** Spoken summary of the chart for TalkBack (R7 accessibility). */
     chartContentDescription: String? = null,
+    /** Logarithmic price scale (R7). Flips the whole chart's price mapping. */
+    logScale: Boolean = false,
 ) {
     val density = LocalDensity.current
     val context = LocalContext.current
@@ -287,6 +289,13 @@ fun CandleChart(
 
     LaunchedEffect(seriesKey, candles.size) {
         publishViewportState()
+    }
+
+    // Toggle the log/linear price mapping and force one redraw. The auto-scale
+    // bounds are unchanged (still linear hi/lo), so only a repaint is needed.
+    LaunchedEffect(logScale) {
+        viewport.logScale = logScale
+        invalidateTick++
     }
 
     LaunchedEffect(seriesKey) {

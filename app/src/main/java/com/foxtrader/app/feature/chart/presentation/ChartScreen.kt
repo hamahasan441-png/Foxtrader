@@ -145,8 +145,10 @@ fun ChartScreen(
     // sheet, keeping the canvas clean (TradingView-style).
     var analysisExpanded by remember { mutableStateOf(false) }
 
-    // --- Price-scale lock (R7): freezes the Y auto-fit during pan/zoom ---
+    // --- Price-scale mode (R7): lock freezes the Y auto-fit; log switches to a
+    // logarithmic price axis (equal % moves = equal vertical distance). ---
     var scaleLocked by remember { mutableStateOf(false) }
+    var logScale by remember { mutableStateOf(false) }
 
     // The candle series shown right now (replay bars while replaying, else the
     // live series), as a stable CandleSeries. Shared by the main chart and the
@@ -199,6 +201,8 @@ fun ChartScreen(
                 onToggleFullscreen = onToggleImmersive,
                 scaleLocked = scaleLocked,
                 onToggleScaleLock = { scaleLocked = !scaleLocked },
+                logScale = logScale,
+                onToggleLog = { logScale = !logScale },
             )
         }
 
@@ -339,6 +343,7 @@ fun ChartScreen(
                             onCrosshairTimestampChange = viewModel::onPrimaryCrosshairTimestampChange,
                             performanceMonitor = monitor,
                             autoScaleEnabled = !scaleLocked,
+                            logScale = logScale,
                             chartContentDescription = stringResource(
                                 R.string.chart_canvas_cd,
                                 state.symbol,
@@ -619,6 +624,8 @@ private fun ChartToolbar(
     onToggleFullscreen: () -> Unit,
     scaleLocked: Boolean,
     onToggleScaleLock: () -> Unit,
+    logScale: Boolean,
+    onToggleLog: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -677,6 +684,25 @@ private fun ChartToolbar(
                 modifier = Modifier.size(18.dp),
             )
         }
+
+        // Logarithmic price-scale toggle (R7).
+        Text(
+            text = stringResource(R.string.chart_scale_log_short),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = if (logScale) FontWeight.Bold else FontWeight.Normal,
+            color = if (logScale) FoxAmber50 else FoxNeutral60,
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .background(
+                    if (logScale) MaterialTheme.colorScheme.primaryContainer
+                    else MaterialTheme.colorScheme.surfaceVariant,
+                )
+                .clickable(
+                    onClickLabel = stringResource(R.string.chart_scale_log),
+                    onClick = onToggleLog,
+                )
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+        )
 
         // Lock / unlock the price scale (R7).
         IconButton(
