@@ -333,18 +333,30 @@ class ChartViewport(
         else -> String.format(Locale.US, "%.5f", price) // Forex pairs
     }
 
+    // `PERF` Date formatting sits in the draw hot path — it is called once per
+    // visible time-axis label and on every crosshair frame. Constructing a
+    // SimpleDateFormat + a Date on each call (the previous implementation) was a
+    // per-frame allocation that churned the GC and violated the "zero per-frame
+    // allocations" contract in the header. These formatters are built once and
+    // reused; a single scratch Date is mutated in place. Safe because all
+    // drawing happens on the single UI/render thread.
+    private val dateAxisFormat: SimpleDateFormat by lazy {
+        SimpleDateFormat("MMM dd", Locale.US).apply { timeZone = TimeZone.getDefault() }
+    }
+    private val timeAxisFormat: SimpleDateFormat by lazy {
+        SimpleDateFormat("HH:mm", Locale.US).apply { timeZone = TimeZone.getDefault() }
+    }
+    private val scratchDate = Date()
+
     /**
-     * Format a timestamp for the X-axis label.
-     * Adapts based on the timeframe.
+     * Format a timestamp for the X-axis label. Adapts based on the timeframe.
+     *
+     * `PERF` Reuses hoisted formatters + a scratch Date — no per-call allocation.
      */
     fun formatTime(timestamp: Long, timeframe: Timeframe): String {
-        val sdf = when {
-            timeframe.minutes >= 1440 -> SimpleDateFormat("MMM dd", Locale.US)
-            timeframe.minutes >= 60 -> SimpleDateFormat("HH:mm", Locale.US)
-            else -> SimpleDateFormat("HH:mm", Locale.US)
-        }
-        sdf.timeZone = TimeZone.getDefault()
-        return sdf.format(Date(timestamp))
+        val sdf = if (timeframe.minutes >= 1440) dateAxisFormat else timeAxisFormat
+        scratchDate.time = timestamp
+        return sdf.format(scratchDate)
     }
 
     // ========================================================================
