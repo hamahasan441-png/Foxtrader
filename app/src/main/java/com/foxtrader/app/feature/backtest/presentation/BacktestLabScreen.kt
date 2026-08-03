@@ -18,6 +18,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material3.Button
@@ -73,6 +74,7 @@ import java.util.Locale
 @Composable
 fun BacktestLabScreen(
     onNavigateToTradeProReport: () -> Unit = {},
+    onNavigateToRiskSimulator: () -> Unit = {},
     viewModel: BacktestLabViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -84,6 +86,9 @@ fun BacktestLabScreen(
                 actions = {
                     IconButton(onClick = onNavigateToTradeProReport) {
                         Icon(Icons.Default.ShowChart, contentDescription = "TRADEPRO backtest report", tint = FoxAmber50)
+                    }
+                    IconButton(onClick = onNavigateToRiskSimulator) {
+                        Icon(Icons.Default.Casino, contentDescription = "Monte Carlo risk simulator", tint = FoxAmber50)
                     }
                     IconButton(onClick = viewModel::runBacktest, enabled = !state.isRunning) {
                         Icon(Icons.Default.Refresh, contentDescription = "Run backtest", tint = FoxAmber50)
