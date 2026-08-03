@@ -67,7 +67,7 @@ import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.ui.theme.FoxWarning
 import com.foxtrader.app.feature.chart.presentation.components.CandleChart
 import com.foxtrader.app.feature.chart.presentation.components.ChartAnalysisSheet
-import com.foxtrader.app.feature.chart.presentation.components.DrawingToolbar
+import com.foxtrader.app.feature.chart.presentation.components.DrawingPalette
 import com.foxtrader.app.feature.chart.presentation.components.IndicatorPanel
 import com.foxtrader.app.feature.chart.presentation.components.MultiChartSection
 import com.foxtrader.app.feature.chart.presentation.components.MultiChartToolbar
@@ -170,7 +170,9 @@ fun ChartScreen(
         ChartToolbar(
             activeMenu = activeMenu,
             currentTimeframe = state.timeframe,
-            showDrawingActive = state.showDrawingToolbar,
+            // Single source of truth (R4): the Draw chip lights up when a tool
+            // is actually armed, not from a duplicated showDrawingToolbar flag.
+            showDrawingActive = state.activeTool != null,
             onMenuToggle = { menu ->
                 activeMenu = if (activeMenu == menu) ChartMenu.NONE else menu
             },
@@ -206,21 +208,9 @@ fun ChartScreen(
             )
         }
 
-        // Drawing tools dropdown
-        AnimatedVisibility(
-            visible = activeMenu == ChartMenu.DRAWING,
-            enter = expandVertically(),
-            exit = shrinkVertically(),
-        ) {
-            DrawingToolbar(
-                visible = true,
-                activeMode = state.drawingMode,
-                activeTool = state.activeTool,
-                onToolSelect = viewModel::startDrawing,
-                onClearAll = viewModel::clearAllDrawings,
-                onClose = { activeMenu = ChartMenu.NONE },
-            )
-        }
+        // NOTE (R4): drawing tools are no longer an inline dropdown that pushes
+        // the chart down. They are a floating, auto-hiding DrawingPalette rail
+        // rendered as an overlay inside the chart Box below.
 
         // Multi-chart dropdown
         AnimatedVisibility(
@@ -362,6 +352,16 @@ fun ChartScreen(
                         .padding(start = 8.dp, bottom = 8.dp),
                 )
             }
+
+            // --- Floating drawing tool palette (left edge, auto-hiding, R4) ---
+            DrawingPalette(
+                visible = activeMenu == ChartMenu.DRAWING,
+                activeTool = state.activeTool,
+                onToolSelect = viewModel::startDrawing,
+                onClearAll = viewModel::clearAllDrawings,
+                onClose = { activeMenu = ChartMenu.NONE },
+                modifier = Modifier.align(Alignment.CenterStart),
+            )
 
             // --- Replay control bar (bottom overlay) ---
             ReplayControlBar(
