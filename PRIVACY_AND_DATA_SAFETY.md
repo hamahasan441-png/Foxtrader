@@ -4,7 +4,7 @@ This document is the source of truth for the Google Play **Data safety** form an
 
 ## What FoxTrader is
 
-FoxTrader is an **educational market-analysis tool**. It visualizes charts, computes technical/Smart-Money analysis, and produces *advisory* signals. **It does not place trades and is not financial advice.** Users are solely responsible for their own decisions. This disclaimer is surfaced in-app (Settings → Privacy).
+FoxTrader is an **educational market-analysis tool**. It visualizes charts, computes technical/Smart-Money analysis, and produces *advisory* signals. **It does not place trades and is not financial advice.** Users are solely responsible for their own decisions. This disclaimer is surfaced in-app as a **first-run gate that must be acknowledged before any analysis is shown**, and remains available afterwards in Settings → Privacy.
 
 ## Data collection & sharing summary
 
