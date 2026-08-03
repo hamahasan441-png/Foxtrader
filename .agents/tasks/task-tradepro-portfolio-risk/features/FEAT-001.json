@@ -1,0 +1,28 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Create TRADEPRO Portfolio Risk domain models and the TradeProRiskManager engine (~550 lines combined). Models: PortfolioRiskState, PositionSizeResult, DailyPerformance, RiskAlert (with severity enum and alert type enum), CorrelationGroup, RiskDecision. Engine: TradeProRiskManager with @Inject constructor, Kelly-criterion position sizing, daily performance tracking, multi-factor alert generation, correlation exposure calculation, portfolio state aggregation, and shouldTrade gate.",
+  "status": "in_progress",
+  "steps": [
+    "Create app/src/main/java/com/foxtrader/app/domain/model/tradepro/PortfolioRisk.kt containing: PortfolioRiskState (currentEquity, dailyPnl, openRisk, maxRiskBudget, correlationExposure, positionHeat list, riskUtilizationPercent), PositionSizeResult (recommendedContracts, riskPerContract, totalRiskPoints, kellyFraction, maxDrawdownBudget), DailyPerformance (date, tradesTaken, wins, losses, netPoints, cumulativeEquity, peakEquity, drawdown, complianceScore), RiskAlert with AlertSeverity enum (INFO/WARNING/CRITICAL) and RiskAlertType enum (DAILY_LIMIT/CORRELATION/DRAWDOWN/STREAK/TILT), CorrelationGroup (symbols list, correlationCoefficient, combinedExposure), RiskDecision enum (PROCEED/REDUCE_SIZE/STAND_ASIDE) with reason string. ~200 lines.",
+    "Create app/src/main/java/com/foxtrader/app/domain/usecase/tradepro/TradeProRiskManager.kt with @Inject constructor taking JournalRepository and AppPreferences. Implement: assessPosition(symbol, direction, config, currentState) using Kelly criterion with half-Kelly safety capped by max daily risk budget; updateDailyPerformance(trade: ManagedTrade) rolling daily tracker; checkRiskAlerts(state: PortfolioRiskState) generating alerts for daily loss limit, consecutive losses, drawdown threshold, correlation concentration, emotional tilt (trade frequency); calculateCorrelationExposure(openPositions: List<ManagedTrade>) with hardcoded correlation matrix for major pairs/indices; getPortfolioState() aggregating current risk picture; shouldTrade(symbol, direction) returning RiskDecision (PROCEED/REDUCE_SIZE/STAND_ASIDE with reason). ~350 lines.",
+    "Create app/src/test/java/com/foxtrader/app/domain/usecase/tradepro/TradeProRiskManagerTest.kt with JUnit4, backtick test names, direct construction, inline fixtures, NO MockK. Tests: Kelly sizing never exceeds max budget; Daily limit triggers STAND_ASIDE after threshold; Correlation alerts fire when exposure exceeds 60%; Consecutive loss streak triggers warning; Empty state returns safe defaults. ~150 lines."
+  ],
+  "acceptance_criteria": [
+    "PortfolioRisk.kt contains all 6 domain model classes/enums as specified",
+    "TradeProRiskManager.kt has @Inject constructor and all 6 public methods as specified",
+    "Kelly criterion logic uses half-Kelly and caps at maxRiskPoints from config",
+    "Correlation matrix covers at least 6 major pairs/indices",
+    "shouldTrade returns STAND_ASIDE when daily limits are hit",
+    "TradeProRiskManagerTest.kt contains at least 5 tests covering the specified scenarios",
+    "All test assertions use JUnit4 Assert, no MockK",
+    "Total lines across the 3 files exceeds 700"
+  ],
+  "verification": [
+    "Count lines in the 3 new files and confirm total > 700",
+    "Verify Kotlin syntax is valid by checking for balanced braces, correct import statements, and proper class declarations",
+    "Verify test file uses org.junit.Test annotation and backtick names"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}
