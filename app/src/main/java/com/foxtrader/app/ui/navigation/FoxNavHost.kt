@@ -31,6 +31,7 @@ import com.foxtrader.app.feature.backtest.presentation.BacktestLabScreen
 import com.foxtrader.app.feature.chart.presentation.ChartScreen
 import com.foxtrader.app.feature.journal.presentation.JournalScreen
 import com.foxtrader.app.feature.tradepro.presentation.OpportunityBoardScreen
+import com.foxtrader.app.feature.tradepro.presentation.DailyPlanScreen
 import com.foxtrader.app.feature.tradepro.presentation.TraderProfileScreen
 import com.foxtrader.app.feature.portfolio.presentation.PortfolioScreen
 import com.foxtrader.app.feature.scanner.presentation.ScannerScreen
@@ -59,6 +60,7 @@ object FoxRoutes {
     const val TRADEPRO_SIMULATOR = "tradepro_simulator"
     const val RISK_DASHBOARD = "risk_dashboard"
     const val TRADER_PROFILE = "trader_profile"
+    const val DAILY_PLAN = "daily_plan"
     const val OPPORTUNITY_BOARD = "opportunity_board"
 }
 
@@ -135,6 +137,14 @@ fun FoxNavHost(
                 JournalScreen(
                     onNavigateToPortfolio = { navController.navigate(FoxRoutes.PORTFOLIO) },
                     onNavigateToProfile = { navController.navigate(FoxRoutes.TRADER_PROFILE) },
+                    onNavigateToDailyPlan = { navController.navigate(FoxRoutes.DAILY_PLAN) },
+                )
+            }
+            // Daily Plan (pre-market briefing + session review) lives with the
+            // Journal — planning and reviewing are two ends of the same ritual.
+            composable(FoxRoutes.DAILY_PLAN) {
+                DailyPlanScreen(
+                    onNavigateBack = { navController.popBackStack() },
                 )
             }
             // Trader Profile (journal analytics / coaching) lives under Journal —
