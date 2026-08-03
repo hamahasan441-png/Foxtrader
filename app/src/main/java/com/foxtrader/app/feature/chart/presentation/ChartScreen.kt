@@ -279,7 +279,15 @@ fun ChartScreen(
                 ) {
                     when {
                         state.hasData -> CandleChart(
-                            candles = if (replayState.isActive) replayState.visibleCandles else state.candles,
+                            // `PERF` CandleChart now takes the stable CandleSeries
+                            // so Compose can skip it when inputs are unchanged.
+                            // state.candles is already a CandleSeries; the replay
+                            // engine emits a plain List, wrapped here (a single
+                            // cheap allocation, only while replay is active).
+                            candles = (
+                                if (replayState.isActive) replayState.visibleCandles
+                                else state.candles
+                                ).asCandleSeries(),
                             modifier = Modifier.fillMaxSize(),
                             structureBreaks = state.structureBreaks,
                             timeframe = state.timeframe,

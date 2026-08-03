@@ -36,9 +36,12 @@ import com.foxtrader.app.domain.usecase.analysis.FibonacciEngine
 import com.foxtrader.app.domain.usecase.analysis.MarketProfile
 import com.foxtrader.app.domain.usecase.analysis.SupportResistanceDetector
 import com.foxtrader.app.domain.usecase.chart.ChartViewportState
+import com.foxtrader.app.feature.chart.presentation.CandleSeries
 import com.foxtrader.app.feature.chart.presentation.ChartDimens
 import com.foxtrader.app.feature.chart.presentation.ImmutableDoubleSeries
 import com.foxtrader.app.feature.chart.presentation.ImmutableIntSeries
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 import com.foxtrader.app.domain.usecase.performance.QualitySettings
 import com.foxtrader.app.feature.chart.presentation.components.layers.autoScaleToVisibleContent
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawAutoFibonacciLevels
@@ -94,9 +97,9 @@ private val LoadingHistoryArgb = android.graphics.Color.parseColor("#D4A84E")
  */
 @Composable
 fun CandleChart(
-    candles: List<Candle>,
+    candles: CandleSeries,
     modifier: Modifier = Modifier,
-    structureBreaks: List<StructureBreak> = emptyList(),
+    structureBreaks: ImmutableList<StructureBreak> = persistentListOf(),
     timeframe: Timeframe = Timeframe.M15,
     seriesKey: String = "",
     initialViewportState: ChartViewportState? = null,
@@ -116,16 +119,16 @@ fun CandleChart(
     ichimokuSenkouA: ImmutableDoubleSeries? = null,
     ichimokuSenkouB: ImmutableDoubleSeries? = null,
     ichimokuChikou: ImmutableDoubleSeries? = null,
-    orderBlocks: List<com.foxtrader.app.domain.model.OrderBlock> = emptyList(),
-    fairValueGaps: List<com.foxtrader.app.domain.model.FairValueGap> = emptyList(),
-    liquidityPools: List<com.foxtrader.app.domain.model.LiquidityPool> = emptyList(),
+    orderBlocks: ImmutableList<com.foxtrader.app.domain.model.OrderBlock> = persistentListOf(),
+    fairValueGaps: ImmutableList<com.foxtrader.app.domain.model.FairValueGap> = persistentListOf(),
+    liquidityPools: ImmutableList<com.foxtrader.app.domain.model.LiquidityPool> = persistentListOf(),
     tradeProAnalysis: com.foxtrader.app.domain.model.tradepro.TradeProAnalysis? = null,
-    sessions: List<com.foxtrader.app.domain.model.SessionRange> = emptyList(),
-    drawings: List<com.foxtrader.app.domain.model.ChartDrawing> = emptyList(),
+    sessions: ImmutableList<com.foxtrader.app.domain.model.SessionRange> = persistentListOf(),
+    drawings: ImmutableList<com.foxtrader.app.domain.model.ChartDrawing> = persistentListOf(),
     volumeProfile: com.foxtrader.app.domain.model.VolumeProfile? = null,
     marketProfile: MarketProfile.ProfileResult? = null,
-    supportResistanceZones: List<SupportResistanceDetector.SRZone> = emptyList(),
-    autoFibLevels: List<FibonacciEngine.FibLevel> = emptyList(),
+    supportResistanceZones: ImmutableList<SupportResistanceDetector.SRZone> = persistentListOf(),
+    autoFibLevels: ImmutableList<FibonacciEngine.FibLevel> = persistentListOf(),
     autoFibDirection: Direction? = null,
     autoFibSwingHigh: Double? = null,
     autoFibSwingLow: Double? = null,
