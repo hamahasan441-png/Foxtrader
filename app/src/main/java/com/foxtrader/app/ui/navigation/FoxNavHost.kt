@@ -32,6 +32,7 @@ import com.foxtrader.app.feature.chart.presentation.ChartScreen
 import com.foxtrader.app.feature.journal.presentation.JournalScreen
 import com.foxtrader.app.feature.tradepro.presentation.OpportunityBoardScreen
 import com.foxtrader.app.feature.tradepro.presentation.AlertRulesScreen
+import com.foxtrader.app.feature.tradepro.presentation.CorrelationScreen
 import com.foxtrader.app.feature.tradepro.presentation.DailyPlanScreen
 import com.foxtrader.app.feature.tradepro.presentation.RiskSimulatorScreen
 import com.foxtrader.app.feature.tradepro.presentation.TraderProfileScreen
@@ -66,6 +67,7 @@ object FoxRoutes {
     const val RISK_SIMULATOR = "risk_simulator"
     const val ALERT_RULES = "alert_rules"
     const val OPPORTUNITY_BOARD = "opportunity_board"
+    const val CORRELATION = "correlation"
 }
 
 /** Bottom navigation tab definition. */
@@ -179,7 +181,15 @@ fun FoxNavHost(
             // exceeded at 6), and open exposure is derived from open journal
             // trades, so it belongs in that hierarchy.
             composable(FoxRoutes.PORTFOLIO) {
-                PortfolioScreen()
+                PortfolioScreen(
+                    onNavigateToCorrelation = { navController.navigate(FoxRoutes.CORRELATION) },
+                )
+            }
+            // Correlation matrix \u2014 data-driven concentration risk, under Portfolio.
+            composable(FoxRoutes.CORRELATION) {
+                CorrelationScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                )
             }
             composable(FoxRoutes.SETTINGS) {
                 SettingsScreen(
