@@ -184,7 +184,7 @@ class TraderCoachingEngine @Inject constructor() {
             .filter { it.emotion == EmotionTag.FOMO || it.emotion == EmotionTag.GREEDY }
             .sumOf { it.trades } / total
         val patientShare = emotions.filter { it.emotion == EmotionTag.PATIENT }.sumOf { it.trades } / total
-        val avgHoldMs = entries.mapNotNull { it.holdingTimeMs }.averageOrZero()
+        val avgHoldMs = entries.mapNotNull { it.holdingTimeMs?.toDouble() }.averageOrZero()
         val winRate = entries.count { it.isWin }.toDouble() / entries.size
 
         return when {
@@ -192,7 +192,7 @@ class TraderCoachingEngine @Inject constructor() {
             fomoGreedShare >= FOMO_ARCHETYPE_THRESHOLD -> TraderArchetype.MOMENTUM_CHASER
             patientShare >= PATIENT_ARCHETYPE_THRESHOLD && winRate >= 0.55 -> TraderArchetype.DISCIPLINED
             avgHoldMs >= SWING_HOLD_MS -> TraderArchetype.SWING_TRADER
-            avgHoldMs in 1L until SCALP_HOLD_MS -> TraderArchetype.SCALPER
+            avgHoldMs > 0.0 && avgHoldMs < SCALP_HOLD_MS -> TraderArchetype.SCALPER
             winRate >= 0.6 -> TraderArchetype.SNIPER
             else -> TraderArchetype.DISCIPLINED
         }
