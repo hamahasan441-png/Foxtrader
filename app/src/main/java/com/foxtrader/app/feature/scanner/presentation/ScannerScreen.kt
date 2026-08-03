@@ -21,8 +21,12 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -60,6 +64,7 @@ import com.foxtrader.app.ui.theme.FoxWarning
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ScannerScreen(
+    onNavigateToOpportunityBoard: () -> Unit = {},
     viewModel: ScannerViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -73,6 +78,15 @@ fun ScannerScreen(
                         fontWeight = FontWeight.Bold,
                         fontSize = 20.sp,
                     )
+                },
+                actions = {
+                    IconButton(onClick = onNavigateToOpportunityBoard) {
+                        Icon(
+                            imageVector = Icons.Default.GridView,
+                            contentDescription = "Open TRADEPRO opportunity board",
+                            tint = FoxAmber50,
+                        )
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
