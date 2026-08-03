@@ -30,6 +30,7 @@ import com.foxtrader.app.feature.alerts.presentation.AlertsScreen
 import com.foxtrader.app.feature.backtest.presentation.BacktestLabScreen
 import com.foxtrader.app.feature.chart.presentation.ChartScreen
 import com.foxtrader.app.feature.journal.presentation.JournalScreen
+import com.foxtrader.app.feature.tradepro.presentation.OpportunityBoardScreen
 import com.foxtrader.app.feature.tradepro.presentation.TraderProfileScreen
 import com.foxtrader.app.feature.portfolio.presentation.PortfolioScreen
 import com.foxtrader.app.feature.scanner.presentation.ScannerScreen
@@ -58,6 +59,7 @@ object FoxRoutes {
     const val TRADEPRO_SIMULATOR = "tradepro_simulator"
     const val RISK_DASHBOARD = "risk_dashboard"
     const val TRADER_PROFILE = "trader_profile"
+    const val OPPORTUNITY_BOARD = "opportunity_board"
 }
 
 /** Bottom navigation tab definition. */
@@ -110,7 +112,16 @@ fun FoxNavHost(
                 AlertsScreen()
             }
             composable(FoxRoutes.SCANNER) {
-                ScannerScreen()
+                ScannerScreen(
+                    onNavigateToOpportunityBoard = { navController.navigate(FoxRoutes.OPPORTUNITY_BOARD) },
+                )
+            }
+            // TRADEPRO Opportunity Board — a watchlist-wide readiness ranking,
+            // reached from the Scanner (both are market-wide scan surfaces).
+            composable(FoxRoutes.OPPORTUNITY_BOARD) {
+                OpportunityBoardScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                )
             }
             composable(FoxRoutes.STRATEGIES) {
                 StrategiesScreen()
