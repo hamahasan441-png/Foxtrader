@@ -161,9 +161,21 @@ class TradeProBacktestEngineTest {
         assertTrue(result.runnerHitRate in 0.0..1.0)
         assertTrue(result.profitFactor >= 0.0)
         assertTrue(result.maxDrawdownPoints >= 0.0)
+
+        // Analytics: series line up with the trade count and the drawdown curve is coherent.
+        assertEquals(result.totalTrades, result.rMultiples.size)
+        assertEquals(result.totalTrades, result.drawdownCurve.size)
+        assertTrue(result.drawdownCurve.all { it >= 0.0 })
+        assertTrue(result.systemQualityNumber.isFinite())
+        assertTrue(result.payoffRatio >= 0.0)
+
         if (result.totalTrades > 0) {
             assertEquals(result.netPoints, result.equityCurve.last(), 1e-6)
             assertEquals(result.netPoints / result.totalTrades, result.expectancy, 1e-6)
+            // The deepest point of the underwater curve is exactly the reported max drawdown.
+            assertEquals(result.maxDrawdownPoints, result.drawdownCurve.maxOrNull() ?: 0.0, 1e-6)
+            // avgR is the mean of the per-trade R list.
+            assertEquals(result.rMultiples.sum() / result.totalTrades, result.avgR, 1e-6)
         }
     }
 
@@ -195,5 +207,26 @@ class TradeProBacktestEngineTest {
         assertEquals(first.totalTrades, second.totalTrades)
         assertEquals(first.netPoints, second.netPoints, 1e-9)
         assertEquals(first.equityCurve, second.equityCurve)
+        // The full analytics payload is deterministic too.
+        assertEquals(first.rMultiples, second.rMultiples)
+        assertEquals(first.drawdownCurve, second.drawdownCurve)
+        assertEquals(first.systemQualityNumber, second.systemQualityNumber, 1e-9)
+    }
+
+    @Test
+    fun `analytics metrics are exposed and coherent`() {
+        val result = engine.run("MESUSD", uptrendH1(), baseTimeframe = Timeframe.H1)
+        assertSelfConsistent(result)
+        // SQN is only defined with >= 2 trades; it collapses to zero otherwise.
+        if (result.totalTrades < 2) {
+            assertEquals(0.0, result.systemQualityNumber, 0.0)
+        }
+        // The underwater curve is monotone in its running maximum and never exceeds max drawdown.
+        var runningMax = 0.0
+        for (dd in result.drawdownCurve) {
+            assertTrue(dd >= 0.0)
+            if (dd > runningMax) runningMax = dd
+        }
+        assertTrue(runningMax <= result.maxDrawdownPoints + 1e-9)
     }
 }

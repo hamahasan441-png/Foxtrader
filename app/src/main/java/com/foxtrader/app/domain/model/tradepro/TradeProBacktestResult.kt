@@ -77,6 +77,27 @@ data class TradeProBacktestResult(
     val requiredBreakevenWinRate: Double,
     /** Cumulative net point-contracts after each closed trade, in order. */
     val equityCurve: List<Double>,
+    /**
+     * Realised R of each trade, in chronological order (same length as [trades]). Feeds the
+     * R-multiple distribution — the shape of the edge, not just its average.
+     */
+    val rMultiples: List<Double>,
+    /**
+     * Underwater curve: peak-to-current drawdown in point-contracts after each closed trade
+     * (same length as [equityCurve]; every value >= 0; its maximum equals [maxDrawdownPoints]).
+     */
+    val drawdownCurve: List<Double>,
+    /**
+     * Van Tharp's System Quality Number: mean(R) / sampleStdev(R) * sqrt(n). Rewards a high, tight,
+     * positive R distribution over many trades. 0 when there are too few trades or zero dispersion.
+     * Rule of thumb: < 1 poor, 1.6-2 average, 2.5-3 good, > 3 excellent, > 5 superb.
+     */
+    val systemQualityNumber: Double,
+    /**
+     * Payoff ratio = average win / average loss (in points). [Double.POSITIVE_INFINITY] when there
+     * are no losing trades. Combined with [winRate] it determines the edge.
+     */
+    val payoffRatio: Double,
     val narrative: String,
 ) {
     /** True when the strategy's realised win rate clears the plan's break-even threshold. */
@@ -107,6 +128,10 @@ data class TradeProBacktestResult(
             runnerHitRate = 0.0,
             requiredBreakevenWinRate = 0.0,
             equityCurve = emptyList(),
+            rMultiples = emptyList(),
+            drawdownCurve = emptyList(),
+            systemQualityNumber = 0.0,
+            payoffRatio = 0.0,
             narrative = reason,
         )
     }
