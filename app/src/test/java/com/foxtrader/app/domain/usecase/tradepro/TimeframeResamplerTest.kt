@@ -77,6 +77,6 @@ class TimeframeResamplerTest {
         assertEquals(112.0, d1[0].high, 0.0)
         assertEquals(98.0, d1[0].low, 0.0)
         assertEquals(110.0, d1[0].close, 0.0)
-        assertEquals(107.0, d1[0].volume, 0.0) // sum of all eight volumes
+        assertEquals(84.0, d1[0].volume, 0.0) // 10+12+8+14+9+11+7+13
     }
 }
