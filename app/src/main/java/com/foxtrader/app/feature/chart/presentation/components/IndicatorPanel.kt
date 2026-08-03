@@ -57,6 +57,7 @@ fun IndicatorPanel(
             Chip(stringResource(R.string.chart_indicator_vwap), toggles.vwap) { onToggle { it.copy(vwap = !it.vwap) } }
             Chip("RSI", toggles.rsi) { onToggle { it.copy(rsi = !it.rsi) } }
             Chip("MACD", toggles.macd) { onToggle { it.copy(macd = !it.macd) } }
+            Chip(stringResource(R.string.chart_pane_volume_title), toggles.volume) { onToggle { it.copy(volume = !it.volume) } }
             Chip(stringResource(R.string.chart_indicator_ichimoku), toggles.ichimoku) { onToggle { it.copy(ichimoku = !it.ichimoku) } }
             Chip(stringResource(R.string.chart_indicator_volume_profile), toggles.volumeProfile) { onToggle { it.copy(volumeProfile = !it.volumeProfile) } }
             Chip(stringResource(R.string.chart_indicator_market_profile), toggles.marketProfile) { onToggle { it.copy(marketProfile = !it.marketProfile) } }

@@ -26,6 +26,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.Candle
@@ -36,8 +38,12 @@ import com.foxtrader.app.domain.usecase.analysis.FibonacciEngine
 import com.foxtrader.app.domain.usecase.analysis.MarketProfile
 import com.foxtrader.app.domain.usecase.analysis.SupportResistanceDetector
 import com.foxtrader.app.domain.usecase.chart.ChartViewportState
+import com.foxtrader.app.feature.chart.presentation.CandleSeries
+import com.foxtrader.app.feature.chart.presentation.ChartDimens
 import com.foxtrader.app.feature.chart.presentation.ImmutableDoubleSeries
 import com.foxtrader.app.feature.chart.presentation.ImmutableIntSeries
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 import com.foxtrader.app.domain.usecase.performance.QualitySettings
 import com.foxtrader.app.feature.chart.presentation.components.layers.autoScaleToVisibleContent
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawAutoFibonacciLevels
@@ -93,9 +99,9 @@ private val LoadingHistoryArgb = android.graphics.Color.parseColor("#D4A84E")
  */
 @Composable
 fun CandleChart(
-    candles: List<Candle>,
+    candles: CandleSeries,
     modifier: Modifier = Modifier,
-    structureBreaks: List<StructureBreak> = emptyList(),
+    structureBreaks: ImmutableList<StructureBreak> = persistentListOf(),
     timeframe: Timeframe = Timeframe.M15,
     seriesKey: String = "",
     initialViewportState: ChartViewportState? = null,
@@ -115,16 +121,16 @@ fun CandleChart(
     ichimokuSenkouA: ImmutableDoubleSeries? = null,
     ichimokuSenkouB: ImmutableDoubleSeries? = null,
     ichimokuChikou: ImmutableDoubleSeries? = null,
-    orderBlocks: List<com.foxtrader.app.domain.model.OrderBlock> = emptyList(),
-    fairValueGaps: List<com.foxtrader.app.domain.model.FairValueGap> = emptyList(),
-    liquidityPools: List<com.foxtrader.app.domain.model.LiquidityPool> = emptyList(),
+    orderBlocks: ImmutableList<com.foxtrader.app.domain.model.OrderBlock> = persistentListOf(),
+    fairValueGaps: ImmutableList<com.foxtrader.app.domain.model.FairValueGap> = persistentListOf(),
+    liquidityPools: ImmutableList<com.foxtrader.app.domain.model.LiquidityPool> = persistentListOf(),
     tradeProAnalysis: com.foxtrader.app.domain.model.tradepro.TradeProAnalysis? = null,
-    sessions: List<com.foxtrader.app.domain.model.SessionRange> = emptyList(),
-    drawings: List<com.foxtrader.app.domain.model.ChartDrawing> = emptyList(),
+    sessions: ImmutableList<com.foxtrader.app.domain.model.SessionRange> = persistentListOf(),
+    drawings: ImmutableList<com.foxtrader.app.domain.model.ChartDrawing> = persistentListOf(),
     volumeProfile: com.foxtrader.app.domain.model.VolumeProfile? = null,
     marketProfile: MarketProfile.ProfileResult? = null,
-    supportResistanceZones: List<SupportResistanceDetector.SRZone> = emptyList(),
-    autoFibLevels: List<FibonacciEngine.FibLevel> = emptyList(),
+    supportResistanceZones: ImmutableList<SupportResistanceDetector.SRZone> = persistentListOf(),
+    autoFibLevels: ImmutableList<FibonacciEngine.FibLevel> = persistentListOf(),
     autoFibDirection: Direction? = null,
     autoFibSwingHigh: Double? = null,
     autoFibSwingLow: Double? = null,
@@ -133,15 +139,24 @@ fun CandleChart(
     onLoadOlder: () -> Unit = {},
     syncedCrosshairTimestamp: Long? = null,
     onCrosshairTimestampChange: (Long?) -> Unit = {},
+    /**
+     * When false, the price (Y) scale is *locked*: interactive pan/zoom no
+     * longer re-fits the visible price range (TradingView "lock scale", R7).
+     * Data-driven refits (new symbol/timeframe, history load) still apply.
+     */
+    autoScaleEnabled: Boolean = true,
+    /** Spoken summary of the chart for TalkBack (R7 accessibility). */
+    chartContentDescription: String? = null,
 ) {
     val density = LocalDensity.current
     val context = LocalContext.current
 
-    // Viewport survives recomposition. Layout margins set in density-independent pixels.
+    // Viewport survives recomposition. Layout margins set in density-independent
+    // pixels from the central ChartDimens tokens (single source of truth).
     val viewport = remember {
         ChartViewport().apply {
-            priceScaleWidth = with(density) { 64.dp.toPx() }
-            timeAxisHeight = with(density) { 24.dp.toPx() }
+            priceScaleWidth = with(density) { ChartDimens.priceScaleWidth.toPx() }
+            timeAxisHeight = with(density) { ChartDimens.timeAxisHeight.toPx() }
         }
     }
     val publishViewportState: () -> Unit = { onViewportStateChange(viewport.snapshotState()) }
@@ -340,7 +355,7 @@ fun CandleChart(
                 }
                 viewport.advanceFling(dt, currentCount)
                 viewport.clamp(currentCount)
-                rescale()
+                if (autoScaleEnabled) rescale() // locked scale skips the re-fit
                 followLiveEdge[0] = viewport.isAtRightEdge(currentCount)
                 publishViewportState()
                 invalidateTick++
@@ -363,6 +378,9 @@ fun CandleChart(
     Canvas(
         modifier = modifier
             .background(FoxNeutral0)
+            // A11y (R7): the Canvas is opaque to TalkBack, so expose a spoken
+            // one-line summary of what the chart is currently showing.
+            .semantics { chartContentDescription?.let { contentDescription = it } }
             // --- FLING VELOCITY TRACKING ---
             .pointerInput(stableGestureKey) {
                 val tracker = VelocityTracker()
@@ -419,7 +437,7 @@ fun CandleChart(
                     viewport.zoomBy(zoom, centroid.x, cw, candleCount)
 
                     viewport.clamp(candleCount)
-                    rescale()
+                    if (autoScaleEnabled) rescale() // locked scale skips the re-fit
                     followLiveEdge[0] = viewport.isAtRightEdge(candleCount)
                     publishViewportState()
                     invalidateTick++

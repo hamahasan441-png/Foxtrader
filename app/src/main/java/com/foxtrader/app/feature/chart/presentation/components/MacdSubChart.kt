@@ -22,7 +22,9 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.foxtrader.app.feature.chart.presentation.ChartDimens
 import com.foxtrader.app.feature.chart.presentation.ImmutableDoubleSeries
 import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxBearish
@@ -59,8 +61,10 @@ fun MacdSubChart(
     startIndex: Float,
     visibleBars: Float,
     modifier: Modifier = Modifier,
+    canvasHeight: Dp = ChartDimens.paneDefaultHeight,
 ) {
     val density = LocalDensity.current
+    val priceScaleWidthPx = with(density) { ChartDimens.subPaneScaleWidth.toPx() }
     val labelPaint = remember {
         Paint().apply {
             color = MacdLabelArgb
@@ -102,12 +106,12 @@ fun MacdSubChart(
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(80.dp)
+                .height(canvasHeight)
                 .background(FoxNeutral5),
         ) {
             val w = size.width
             val h = size.height
-            val priceScaleWidth = 48f
+            val priceScaleWidth = priceScaleWidthPx
             val chartW = (w - priceScaleWidth).coerceAtLeast(1f)
             val chartH = h
 
@@ -164,10 +168,25 @@ fun MacdSubChart(
                 )
             }
 
-            // MACD line
-            drawSeriesLine(macdLine, visStart, visEnd, chartW, MacdLineColor, { xForIndex(it) }, { yForValue(it) })
-            // Signal line
-            drawSeriesLine(macdSignal, visStart, visEnd, chartW, SignalLineColor, { xForIndex(it) }, { yForValue(it) })
+            // MACD line + signal line.
+            // `PERF` Coordinates are computed inside drawSeriesLine from scalars
+            // rather than via per-call `(Float)->Float` / `(Double)->Float`
+            // lambdas, which previously allocated four closures every frame
+            // (this pane redraws on every pan/zoom frame via the viewport flow).
+            drawSeriesLine(
+                series = macdLine,
+                visStart = visStart, visEnd = visEnd,
+                startIndex = startIndex, visibleBars = visibleBars,
+                chartW = chartW, chartH = chartH, maxAbs = maxAbs,
+                color = MacdLineColor,
+            )
+            drawSeriesLine(
+                series = macdSignal,
+                visStart = visStart, visEnd = visEnd,
+                startIndex = startIndex, visibleBars = visibleBars,
+                chartW = chartW, chartH = chartH, maxAbs = maxAbs,
+                color = SignalLineColor,
+            )
 
             // Y-axis label (max scale value)
             val canvas = drawContext.canvas.nativeCanvas
@@ -179,26 +198,37 @@ fun MacdSubChart(
     }
 }
 
-/** Draw a value series as a connected line, viewport-culled. */
+/**
+ * Draw a value series as a connected line, viewport-culled.
+ *
+ * `PERF` Coordinate math is done inline from scalar params (no `xForIndex` /
+ * `yForValue` lambda parameters) so no `Function` objects are allocated per
+ * frame. `yForValue` mirrors the panel's symmetric-around-zero mapping.
+ */
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawSeriesLine(
     series: ImmutableDoubleSeries,
     visStart: Int,
     visEnd: Int,
+    startIndex: Float,
+    visibleBars: Float,
     chartW: Float,
+    chartH: Float,
+    maxAbs: Double,
     color: Color,
-    xForIndex: (Float) -> Float,
-    yForValue: (Double) -> Float,
 ) {
+    val half = chartH / 2f
     for (i in visStart until visEnd - 1) {
         if (i + 1 >= series.size) break
-        val x1 = xForIndex(i + 0.5f)
-        val x2 = xForIndex(i + 1.5f)
+        val x1 = (i + 0.5f - startIndex) / visibleBars * chartW
+        val x2 = (i + 1.5f - startIndex) / visibleBars * chartW
         if (x1 > chartW && x2 > chartW) continue
         if (x1 < 0f && x2 < 0f) continue
+        val y1 = half - (series[i] / maxAbs * half).toFloat()
+        val y2 = half - (series[i + 1] / maxAbs * half).toFloat()
         drawLine(
             color = color,
-            start = Offset(x1, yForValue(series[i])),
-            end = Offset(x2, yForValue(series[i + 1])),
+            start = Offset(x1, y1),
+            end = Offset(x2, y2),
             strokeWidth = 1.8f,
             cap = StrokeCap.Round,
         )

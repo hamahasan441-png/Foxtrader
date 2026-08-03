@@ -40,6 +40,26 @@ private val BullishTextArgb = android.graphics.Color.parseColor("#4CAF50")
 private val BearishTextArgb = android.graphics.Color.parseColor("#EF5350")
 private val CrosshairDash = PathEffect.dashPathEffect(floatArrayOf(5f, 4f))
 
+// `PERF` Reused across crosshair frames to build the OHLC readout without
+// allocating a chain of intermediate concatenation strings each frame. All
+// drawing is single-threaded (UI/render thread), so a shared builder is safe.
+private val ohlcBuilder = StringBuilder(96)
+
+/**
+ * Lower-bound binary search: index of the first candle whose timestamp is
+ * `>= target`, or `candles.size` when every candle precedes [target].
+ * Assumes [candles] is sorted ascending by timestamp (the app invariant).
+ */
+private fun lowerBoundByTimestamp(candles: List<Candle>, target: Long): Int {
+    var lo = 0
+    var hi = candles.size
+    while (lo < hi) {
+        val mid = (lo + hi) ushr 1
+        if (candles[mid].timestamp >= target) hi = mid else lo = mid + 1
+    }
+    return lo
+}
+
 /**
  * Professional crosshair with price/time readouts and a snapped OHLC panel.
  *
@@ -136,11 +156,16 @@ internal fun DrawScope.drawOhlcReadout(
 ) {
     val changeAbs = bar.close - bar.open
     val changePct = if (bar.open != 0.0) (changeAbs / bar.open) * 100.0 else 0.0
-    val text = "O ${viewport.formatPrice(bar.open)}  " +
-        "H ${viewport.formatPrice(bar.high)}  " +
-        "L ${viewport.formatPrice(bar.low)}  " +
-        "C ${viewport.formatPrice(bar.close)}  " +
-        String.format(Locale.US, "%+.2f%%", changePct)
+    // `PERF` Reuse a single builder rather than chaining `+` (which allocated a
+    // handful of intermediate strings on every crosshair frame).
+    val text = ohlcBuilder.apply {
+        setLength(0)
+        append("O ").append(viewport.formatPrice(bar.open)).append("  ")
+        append("H ").append(viewport.formatPrice(bar.high)).append("  ")
+        append("L ").append(viewport.formatPrice(bar.low)).append("  ")
+        append("C ").append(viewport.formatPrice(bar.close)).append("  ")
+        append(String.format(Locale.US, "%+.2f%%", changePct))
+    }.toString()
 
     val padding = 6f
     val textW = paint.measureText(text)
@@ -183,8 +208,12 @@ internal fun DrawScope.drawSyncedCrosshairLayer(
     ohlcPaint: Paint,
     timeframe: Timeframe,
 ) {
-    val barIdx = candles.indexOfFirst { it.timestamp >= syncedTimestamp }
-        .let { if (it >= 0) it else candles.lastIndex }
+    // `PERF` Candles are sorted ascending by timestamp, so resolve the synced
+    // bar with a binary search (lower-bound) instead of the previous O(n)
+    // indexOfFirst linear scan that ran on every frame the synced crosshair was
+    // visible.
+    val lowerBound = lowerBoundByTimestamp(candles, syncedTimestamp)
+    val barIdx = if (lowerBound < candles.size) lowerBound else candles.lastIndex
     if (barIdx !in candles.indices) return
 
     val snappedX = viewport.xForIndex(barIdx + 0.5f, cw).coerceIn(0f, cw)
