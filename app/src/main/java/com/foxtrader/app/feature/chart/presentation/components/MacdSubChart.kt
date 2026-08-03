@@ -22,7 +22,9 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.foxtrader.app.feature.chart.presentation.ChartDimens
 import com.foxtrader.app.feature.chart.presentation.ImmutableDoubleSeries
 import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxBearish
@@ -59,8 +61,10 @@ fun MacdSubChart(
     startIndex: Float,
     visibleBars: Float,
     modifier: Modifier = Modifier,
+    canvasHeight: Dp = ChartDimens.paneDefaultHeight,
 ) {
     val density = LocalDensity.current
+    val priceScaleWidthPx = with(density) { ChartDimens.subPaneScaleWidth.toPx() }
     val labelPaint = remember {
         Paint().apply {
             color = MacdLabelArgb
@@ -102,12 +106,12 @@ fun MacdSubChart(
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(80.dp)
+                .height(canvasHeight)
                 .background(FoxNeutral5),
         ) {
             val w = size.width
             val h = size.height
-            val priceScaleWidth = 48f
+            val priceScaleWidth = priceScaleWidthPx
             val chartW = (w - priceScaleWidth).coerceAtLeast(1f)
             val chartH = h
 

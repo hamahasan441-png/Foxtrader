@@ -47,8 +47,11 @@ data class IndicatorToggles(
     val liquidity: Boolean = true,
     val sessions: Boolean = false,
     val structure: Boolean = true,
+    // --- Separate-pane ("study") indicators, rendered in the resizable pane
+    // stack below the price chart rather than as overlays (R3). ---
     val rsi: Boolean = false,
     val macd: Boolean = false,
+    val volume: Boolean = false,
 )
 
 /**

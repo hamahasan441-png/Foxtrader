@@ -74,10 +74,9 @@ import com.foxtrader.app.feature.chart.presentation.components.IndicatorPanel
 import com.foxtrader.app.feature.chart.presentation.components.MultiChartSection
 import com.foxtrader.app.feature.chart.presentation.components.MultiChartToolbar
 import com.foxtrader.app.domain.usecase.performance.PerformanceSnapshot
-import com.foxtrader.app.feature.chart.presentation.components.MacdSubChart
+import com.foxtrader.app.feature.chart.presentation.components.ChartPaneStack
 import com.foxtrader.app.feature.chart.presentation.components.PerformanceOverlay
 import com.foxtrader.app.feature.chart.presentation.components.ReplayControlBar
-import com.foxtrader.app.feature.chart.presentation.components.RsiSubChart
 import com.foxtrader.app.feature.calculator.presentation.PositionCalculatorSheet
 import com.foxtrader.app.feature.chart.presentation.components.SymbolPickerDialog
 import com.foxtrader.app.ui.theme.FoxAmber50
@@ -143,6 +142,13 @@ fun ChartScreen(
     // setup that previously floated over the price action into one on-demand
     // sheet, keeping the canvas clean (TradingView-style).
     var analysisExpanded by remember { mutableStateOf(false) }
+
+    // The candle series shown right now (replay bars while replaying, else the
+    // live series), as a stable CandleSeries. Shared by the main chart and the
+    // volume pane so their bar indices stay aligned (R3/R5).
+    val displayCandles = remember(replayState.isActive, replayState.visibleCandles, state.candles) {
+        (if (replayState.isActive) replayState.visibleCandles else state.candles).asCandleSeries()
+    }
 
     // `INSETS` The app-level Scaffold in FoxNavHost already applies the system-bar
     // window insets (status bar on top, navigation bar on the bottom) to the
@@ -282,15 +288,10 @@ fun ChartScreen(
                 ) {
                     when {
                         state.hasData -> CandleChart(
-                            // `PERF` CandleChart now takes the stable CandleSeries
-                            // so Compose can skip it when inputs are unchanged.
-                            // state.candles is already a CandleSeries; the replay
-                            // engine emits a plain List, wrapped here (a single
-                            // cheap allocation, only while replay is active).
-                            candles = (
-                                if (replayState.isActive) replayState.visibleCandles
-                                else state.candles
-                                ).asCandleSeries(),
+                            // `PERF` Stable CandleSeries so Compose can skip the
+                            // chart when inputs are unchanged (R5). Shared with the
+                            // volume pane for index alignment (R3).
+                            candles = displayCandles,
                             modifier = Modifier.fillMaxSize(),
                             structureBreaks = state.structureBreaks,
                             timeframe = state.timeframe,
@@ -437,12 +438,13 @@ fun ChartScreen(
             }
         }
 
-        // --- Oscillator sub-panels (RSI / MACD) below the chart ---
-        // Isolated composable that collects the reactive viewport so panels
-        // track main-chart pan/zoom in real time without recomposing the chart.
-        if (state.hasData) {
-            OscillatorPanels(
+        // --- Separate-pane indicators (RSI / MACD / Volume) below the chart ---
+        // Resizable pane stack (R3). Collects the reactive viewport internally so
+        // panes track main-chart pan/zoom without recomposing the chart itself.
+        if (state.hasData && !immersive) {
+            ChartPaneStack(
                 indicators = state.indicators,
+                candles = displayCandles,
                 rsiValues = state.rsiValues,
                 macdLine = state.macdLine,
                 macdSignal = state.macdSignal,
@@ -466,48 +468,6 @@ fun ChartScreen(
             onPanelCrosshairTimestampChange = viewModel::onMultiChartPanelCrosshairTimestampChange,
             onPanelViewportStateChange = viewModel::onMultiChartPanelViewportStateChange,
             panelViewportState = viewModel::currentMultiChartPanelViewportState,
-        )
-    }
-}
-
-/**
- * Oscillator sub-panels container (RSI / MACD).
- *
- * Collects the primary chart's viewport as reactive state so the panels redraw
- * in sync with main-chart pan/zoom/fling. Isolating the [collectAsStateWithLifecycle]
- * read here means only this container recomposes on viewport changes — the main
- * [CandleChart] keeps its full-FPS internal render loop untouched.
- */
-@Composable
-private fun OscillatorPanels(
-    indicators: IndicatorToggles,
-    rsiValues: ImmutableDoubleSeries?,
-    macdLine: ImmutableDoubleSeries?,
-    macdSignal: ImmutableDoubleSeries?,
-    macdHistogram: ImmutableDoubleSeries?,
-    viewportFlow: kotlinx.coroutines.flow.StateFlow<com.foxtrader.app.domain.usecase.chart.ChartViewportState?>,
-    fallbackViewport: com.foxtrader.app.domain.usecase.chart.ChartViewportState?,
-) {
-    val liveViewport by viewportFlow.collectAsStateWithLifecycle()
-    val vp = liveViewport ?: fallbackViewport
-    val startIndex = vp?.startIndex ?: 0f
-    val visibleBars = vp?.visibleBars ?: 120f
-
-    if (indicators.rsi && rsiValues != null) {
-        RsiSubChart(
-            rsiValues = rsiValues,
-            startIndex = startIndex,
-            visibleBars = visibleBars,
-        )
-    }
-
-    if (indicators.macd && macdLine != null && macdSignal != null && macdHistogram != null) {
-        MacdSubChart(
-            macdLine = macdLine,
-            macdSignal = macdSignal,
-            macdHistogram = macdHistogram,
-            startIndex = startIndex,
-            visibleBars = visibleBars,
         )
     }
 }
