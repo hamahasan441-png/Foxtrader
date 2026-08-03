@@ -184,4 +184,16 @@
 
     <!-- Chart canvas accessibility summary -->
     <string name="chart_canvas_cd">%1$s %2$s price chart</string>
+
+    <!-- First-run educational disclaimer gate (shown before first analysis) -->
+    <string name="disclaimer_title">Before you start</string>
+    <string name="disclaimer_subtitle">FoxTrader is an educational analysis tool</string>
+    <string name="disclaimer_body">FoxTrader helps you study markets using technical analysis and historical or simulated data. Please read and accept the following before continuing.</string>
+    <string name="disclaimer_point_not_advice">This is not financial advice. Nothing shown here is a recommendation to buy or sell.</string>
+    <string name="disclaimer_point_no_trades">FoxTrader does not place trades and is not connected to any brokerage or live capital.</string>
+    <string name="disclaimer_point_simulated">When live data is unavailable, clearly-labelled simulated data is used and AI signals are disabled for it.</string>
+    <string name="disclaimer_point_risk">Trading carries substantial risk. You are solely responsible for your own decisions.</string>
+    <string name="disclaimer_point_local">Your journal, drawings, and settings stay on this device. Nothing is uploaded by default.</string>
+    <string name="disclaimer_acknowledge">I understand and agree</string>
+    <string name="disclaimer_settings_note">You can review this any time in Settings → Privacy.</string>
 </resources>

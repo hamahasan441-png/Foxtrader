@@ -32,8 +32,9 @@
 | Committed Room schema JSON (v1–v6) | ❌ Pending | Dir exists (`app/schemas/`); JSON generation needs a Gradle/KSP build |
 | App-wide detekt/ktlint/jacoco gates + benchmarks-in-CI | ❌ Pending | Currently chart-scoped; CI runs `assembleDebug` + `testDebugUnitTest` only |
 | Committed baseline profile | ⚠️ Minimal | `baseline-prof.txt` present but a stub; regenerate from the benchmark journeys |
-| Crash/ANR reporting (opt-in, no-PII) | ❌ Pending | No Crashlytics/Sentry wired yet (Master Plan T5.2) |
-| Store readiness (AAB-in-CI, data-safety declaration, screenshots) | ❌ Pending | Master Plan T5.3 |
+| Crash reporting (opt-in, no-PII, local) | ✅ Wired | `LocalCrashReporter` behind the `CrashReporter` seam; default OFF, no upload, rotates max 5 (Master Plan T5.2). Remote (Crashlytics/Sentry) + ANR capture remain future work |
+| First-run educational-disclaimer gate | ✅ Wired | `DisclaimerScreen` gated in `MainActivity` before any analysis; acknowledgment persisted (`AppPreferences.disclaimerAcknowledged`). Same text also in Settings → Privacy (Master Plan T5.3) |
+| Store readiness (AAB-in-CI, data-safety declaration, screenshots) | ⚠️ Partial | AAB build wired in `release.yml`; `PRIVACY_AND_DATA_SAFETY.md` is the data-safety source of truth; store screenshots still pending (Master Plan T5.3) |
 
 **Legend:** ✅ built & reachable · ⚠️ partially real · 🔜 in an open PR · 🟡 present but intentionally hollow · ❌ not built yet.
 

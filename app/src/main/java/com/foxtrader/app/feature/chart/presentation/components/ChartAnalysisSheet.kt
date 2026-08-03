@@ -153,7 +153,7 @@ fun ChartAnalysisSheet(
 
 @Composable
 private fun SummaryBiasChip(bias: Bias) {
-    val (label, color): Pair<String, Color> = when (bias) {
+    val (label: String, color: Color) = when (bias) {
         Bias.BULLISH -> stringResource(R.string.chart_bias_bullish) to FoxBullishText
         Bias.BEARISH -> stringResource(R.string.chart_bias_bearish) to FoxBearishText
         Bias.NEUTRAL -> stringResource(R.string.chart_bias_neutral) to FoxNeutral60

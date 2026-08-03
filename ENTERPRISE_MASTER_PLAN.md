@@ -515,3 +515,30 @@ All guards fail fast in debug, are cheap in release (no allocations on the happy
 - **T4.2:** the committed `baseline-prof.txt` is a stub; regenerate from the benchmark journeys and wire a benchmark subset into CI.
 - **T5.2 / T5.3:** opt-in crash/ANR reporting (no Crashlytics/Sentry yet), AAB-in-CI, data-safety declaration, store screenshots.
 - **T4.3 (string half):** the remaining ~15 hardcoded literals are almost all dynamic/interpolated or technical labels (`RSI(14)`, FPS/replay counters, `#${trade.id}…`) — low-value to externalize; revisit only alongside a real localization effort.
+
+
+---
+
+### Sprint 5 — Phase 5 (T5.3): first-run educational-disclaimer gate *(status: implemented)*
+
+**Audit finding.** A re-review of `main` for Phase 5 confirmed that two of the three release-readiness tasks were already substantially done and mis-tracked as "Pending":
+- **T5.1 (AAB in CI):** `.github/workflows/release.yml` already runs `:app:bundleRelease` and uploads the `.aab`; `app/build.gradle.kts` already drives `versionCode/versionName` from CI and has a guarded release `signingConfig` with R8 + resource-shrink. Effectively done.
+- **T5.2 (opt-in, no-PII crash reporting):** already built — `LocalCrashReporter` behind the `CrashReporter` seam, bound in `di/CrashModule.kt` (mirroring `AiModule`'s NoOp `@Binds`), installed first in `FoxTraderApp.onCreate()`, default OFF, no upload, exception-message-free, rotates to max 5 files. Remote (Crashlytics/Sentry) and ANR-specific capture remain genuine future work.
+
+**The one true gap — closed this sprint.** T5.3's DoD requires the educational-tool disclaimer to be *surfaced before first analysis*. Until now the disclaimer only lived passively in Settings → Privacy; there was no onboarding/first-run flow at all (grep for `Onboarding|FirstRun|hasSeenDisclaimer|welcome` = 0 matches). Added a first-run gate, reusing the existing preference + gate patterns rather than inventing new ones.
+
+**Changes (4 files):**
+- `AppPreferences` — new `disclaimerAcknowledged: StateFlow<Boolean>` (default false) + `KEY_DISCLAIMER_ACKNOWLEDGED` + init-hydration + `setDisclaimerAcknowledged(...)`, following the existing `crashReportingEnabled` recipe exactly (DataStore-backed).
+- `feature/onboarding/presentation/DisclaimerScreen.kt` — new stateless full-screen composable (Fox design-system styling: `FoxAmber50`/`FoxNeutral60`, scrollable), title + subtitle + body + five key points (not-advice, no-trades, simulated-data, risk, local-only) + a single "I understand and agree" action. Mirrors the `LockScreen` gate pattern (callback-driven, no ViewModel).
+- `MainActivity` — the disclaimer is now the **outermost** gate in `FoxTraderAppContent`: `when { showDisclaimer -> DisclaimerScreen; locked -> LockScreen; else -> FoxNavHost }`. Acknowledgment persists so it is shown once.
+- `strings.xml` — a new "First-run educational disclaimer gate" block (10 externalized strings); no hardcoded literals in the new screen.
+
+**Docs reconciled:** `PRIVACY_AND_DATA_SAFETY.md` now states the disclaimer is a first-run gate (not only Settings). `DEVELOPMENT.md`'s "What's Wired Today" matrix corrected: crash reporting → ✅ Wired (local, opt-in), added a "First-run educational-disclaimer gate → ✅ Wired" row, and store readiness → ⚠️ Partial (AAB + data-safety done; screenshots pending).
+
+**Definition of Done status:**
+- [x] Educational disclaimer surfaced before first analysis, non-bypassable, acknowledgment persisted.
+- [x] Reuses existing preference/gate/design-system patterns; no new architecture.
+- [x] No new TODOs/placeholders; strings externalized; single logical change.
+- [ ] **CI build + unit tests green** — cannot run in this offline/no-SDK sandbox; must be confirmed by the GitHub Actions `android.yml` workflow on push. Verified locally at source level: XML well-formed, imports resolve to existing symbols, brace/paren balance intact.
+
+**Remaining Phase 5 roadmap (build-environment- or asset-dependent):** remote crash/ANR backend (opt-in), Play store screenshots (from screenshot tests), internal testing track release. T0.2 (commit Room schema JSON) and T4.1/T4.2 (app-wide gates + real baseline profile in CI) remain blocked on a Gradle/KSP-capable build environment as previously logged.
