@@ -36,6 +36,7 @@ import com.foxtrader.app.domain.usecase.analysis.FibonacciEngine
 import com.foxtrader.app.domain.usecase.analysis.MarketProfile
 import com.foxtrader.app.domain.usecase.analysis.SupportResistanceDetector
 import com.foxtrader.app.domain.usecase.chart.ChartViewportState
+import com.foxtrader.app.feature.chart.presentation.ChartDimens
 import com.foxtrader.app.feature.chart.presentation.ImmutableDoubleSeries
 import com.foxtrader.app.feature.chart.presentation.ImmutableIntSeries
 import com.foxtrader.app.domain.usecase.performance.QualitySettings
@@ -137,11 +138,12 @@ fun CandleChart(
     val density = LocalDensity.current
     val context = LocalContext.current
 
-    // Viewport survives recomposition. Layout margins set in density-independent pixels.
+    // Viewport survives recomposition. Layout margins set in density-independent
+    // pixels from the central ChartDimens tokens (single source of truth).
     val viewport = remember {
         ChartViewport().apply {
-            priceScaleWidth = with(density) { 64.dp.toPx() }
-            timeAxisHeight = with(density) { 24.dp.toPx() }
+            priceScaleWidth = with(density) { ChartDimens.priceScaleWidth.toPx() }
+            timeAxisHeight = with(density) { ChartDimens.timeAxisHeight.toPx() }
         }
     }
     val publishViewportState: () -> Unit = { onViewportStateChange(viewport.snapshotState()) }

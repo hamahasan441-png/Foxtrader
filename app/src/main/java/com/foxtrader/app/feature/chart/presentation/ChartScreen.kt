@@ -137,11 +137,16 @@ fun ChartScreen(
     // --- Track which dropdown menu is open (only one at a time) ---
     var activeMenu by remember { mutableStateOf(ChartMenu.NONE) }
 
+    // `INSETS` The app-level Scaffold in FoxNavHost already applies the system-bar
+    // window insets (status bar on top, navigation bar on the bottom) to the
+    // NavHost that hosts this screen. The previous manual `padding(top = 24.dp)`
+    // was therefore redundant double-padding that stole ~24dp from the chart and
+    // rendered incorrectly on cutout/notch devices. It is intentionally removed
+    // so the chart reclaims that space and honours real insets.
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .padding(top = 24.dp),
+            .background(MaterialTheme.colorScheme.background),
     ) {
         // --- Top bar with symbol, bias, price, and action buttons ---
         ChartTopBar(
@@ -505,7 +510,10 @@ private fun ChartTopBar(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(
+                horizontal = ChartDimens.topBarHorizontalPadding,
+                vertical = ChartDimens.topBarVerticalPadding,
+            ),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -609,7 +617,10 @@ private fun ChartToolbar(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(
+                horizontal = ChartDimens.toolbarHorizontalPadding,
+                vertical = ChartDimens.toolbarVerticalPadding,
+            ),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
