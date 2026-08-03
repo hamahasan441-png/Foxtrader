@@ -17,6 +17,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -95,9 +98,19 @@ private val bottomTabs = listOf(
 fun FoxNavHost(
     navController: NavHostController = rememberNavController(),
 ) {
+    // Immersive full-screen chart focus mode (R1): when the Chart requests it,
+    // the bottom navigation bar is hidden so the chart can use the full height.
+    // Guarded by the current route so navigating to any other destination —
+    // even via an in-chart action while immersive — always restores the bar.
+    var chartImmersive by rememberSaveable { mutableStateOf(false) }
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
+
     Scaffold(
         bottomBar = {
-            FoxBottomBar(navController = navController)
+            if (!(chartImmersive && currentRoute == FoxRoutes.CHART)) {
+                FoxBottomBar(navController = navController)
+            }
         },
         containerColor = MaterialTheme.colorScheme.background,
     ) { innerPadding ->
@@ -110,6 +123,8 @@ fun FoxNavHost(
                 ChartScreen(
                     onNavigateToAlerts = { navController.navigate(FoxRoutes.ALERTS) },
                     onNavigateToTradeManagement = { navController.navigate(FoxRoutes.TRADE_MANAGEMENT) },
+                    immersive = chartImmersive,
+                    onToggleImmersive = { chartImmersive = !chartImmersive },
                 )
             }
             // Alerts is reachable from the Chart top bar rather than a 7th

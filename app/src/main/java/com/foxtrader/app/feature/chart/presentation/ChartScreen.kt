@@ -23,6 +23,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
@@ -103,6 +105,8 @@ fun ChartScreen(
     modifier: Modifier = Modifier,
     onNavigateToAlerts: () -> Unit = {},
     onNavigateToTradeManagement: () -> Unit = {},
+    immersive: Boolean = false,
+    onToggleImmersive: () -> Unit = {},
     viewModel: ChartViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -151,38 +155,44 @@ fun ChartScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
-        // --- Top bar with symbol, bias, price, and action buttons ---
-        ChartTopBar(
-            state = state,
-            connectionState = connectionState,
-            unreadAlerts = unreadAlerts,
-            onAlertsClick = onNavigateToAlerts,
-            onCalculatorClick = viewModel::openCalculator,
-            onSymbolClick = viewModel::openSymbolPicker,
-            onLiveToggle = viewModel::toggleLive,
-        )
+        // --- Top bar (hidden in immersive/full-screen focus mode, R1) ---
+        if (!immersive) {
+            ChartTopBar(
+                state = state,
+                connectionState = connectionState,
+                unreadAlerts = unreadAlerts,
+                onAlertsClick = onNavigateToAlerts,
+                onCalculatorClick = viewModel::openCalculator,
+                onSymbolClick = viewModel::openSymbolPicker,
+                onLiveToggle = viewModel::toggleLive,
+            )
+        }
 
-        // --- Synthetic-data warning (not dismissible while active) ---
+        // --- Synthetic-data warning ---
+        // Kept visible even in immersive mode: it is a safety-critical notice
+        // that the chart is rendering generated (not real) prices.
         SyntheticDataBanner(visible = state.isSyntheticData)
 
-        // --- Compact Chart Toolbar (TradingView-style) ---
-        // Single row of small buttons - each opens/closes a dropdown panel below
-        ChartToolbar(
-            activeMenu = activeMenu,
-            currentTimeframe = state.timeframe,
-            // Single source of truth (R4): the Draw chip lights up when a tool
-            // is actually armed, not from a duplicated showDrawingToolbar flag.
-            showDrawingActive = state.activeTool != null,
-            onMenuToggle = { menu ->
-                activeMenu = if (activeMenu == menu) ChartMenu.NONE else menu
-            },
-            onReplayStart = { viewModel.startReplay() },
-        )
+        // --- Compact Chart Toolbar (TradingView-style, hidden in immersive) ---
+        if (!immersive) {
+            ChartToolbar(
+                activeMenu = activeMenu,
+                currentTimeframe = state.timeframe,
+                // Single source of truth (R4): the Draw chip lights up when a tool
+                // is actually armed, not from a duplicated showDrawingToolbar flag.
+                showDrawingActive = state.activeTool != null,
+                onMenuToggle = { menu ->
+                    activeMenu = if (activeMenu == menu) ChartMenu.NONE else menu
+                },
+                onReplayStart = { viewModel.startReplay() },
+                onToggleFullscreen = onToggleImmersive,
+            )
+        }
 
         // --- Expandable panels (only one visible at a time) ---
         // Timeframe dropdown
         AnimatedVisibility(
-            visible = activeMenu == ChartMenu.TIMEFRAME,
+            visible = !immersive && activeMenu == ChartMenu.TIMEFRAME,
             enter = expandVertically(),
             exit = shrinkVertically(),
         ) {
@@ -197,7 +207,7 @@ fun ChartScreen(
 
         // Indicators dropdown
         AnimatedVisibility(
-            visible = activeMenu == ChartMenu.INDICATORS,
+            visible = !immersive && activeMenu == ChartMenu.INDICATORS,
             enter = expandVertically(),
             exit = shrinkVertically(),
         ) {
@@ -214,7 +224,7 @@ fun ChartScreen(
 
         // Multi-chart dropdown
         AnimatedVisibility(
-            visible = activeMenu == ChartMenu.MULTI_CHART,
+            visible = !immersive && activeMenu == ChartMenu.MULTI_CHART,
             enter = expandVertically(),
             exit = shrinkVertically(),
         ) {
@@ -341,6 +351,25 @@ fun ChartScreen(
             // are consolidated into the collapsible ChartAnalysisSheet anchored
             // at the bottom of this Box, so the canvas stays clean and the
             // detail is available on demand (TradingView-style).
+
+            // --- Exit full-screen button (only in immersive focus mode, R1) ---
+            // The chrome + bottom nav are hidden in immersive mode, so this is
+            // the way back out. Top-end keeps it clear of the bottom overlays.
+            if (immersive) {
+                SmallFloatingActionButton(
+                    onClick = onToggleImmersive,
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = FoxAmber50,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 8.dp, end = 8.dp),
+                ) {
+                    Icon(
+                        Icons.Default.FullscreenExit,
+                        contentDescription = stringResource(R.string.chart_focus_exit),
+                    )
+                }
+            }
 
             // --- Debug FPS / frame-budget HUD (debug builds only) ---
             if (BuildConfig.DEBUG) {
@@ -614,6 +643,7 @@ private fun ChartToolbar(
     showDrawingActive: Boolean,
     onMenuToggle: (ChartMenu) -> Unit,
     onReplayStart: () -> Unit,
+    onToggleFullscreen: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -668,6 +698,19 @@ private fun ChartToolbar(
             Icon(
                 Icons.Default.Refresh,
                 contentDescription = stringResource(R.string.chart_start_replay_mode),
+                tint = FoxNeutral60,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+
+        // Enter full-screen focus mode (R1) — hides the chrome + bottom nav.
+        IconButton(
+            onClick = onToggleFullscreen,
+            modifier = Modifier.size(32.dp),
+        ) {
+            Icon(
+                Icons.Default.Fullscreen,
+                contentDescription = stringResource(R.string.chart_focus_enter),
                 tint = FoxNeutral60,
                 modifier = Modifier.size(18.dp),
             )
