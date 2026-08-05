@@ -21,7 +21,9 @@ import javax.inject.Singleton
  *
  * The MetaApi auth token is retrieved from [AppPreferences.getApiKey] for
  * [DataProvider.MT4]. The account ID is obtained during [connect] and
- * stored for subsequent calls.
+ * persisted to [AppPreferences] so that subsequent reconnections (or app
+ * restarts) can reuse the existing MetaApi cloud account without provisioning
+ * a duplicate. Deploy is only called when no cached ID exists.
  */
 @Singleton
 class Mt4RepositoryImpl @Inject constructor(
@@ -30,12 +32,20 @@ class Mt4RepositoryImpl @Inject constructor(
     private val appPreferences: AppPreferences,
 ) : Mt4Repository {
 
-    private var accountId: String = ""
+    private var accountId: String = appPreferences.getMetaApiAccountId().orEmpty()
 
     override suspend fun connect(credentials: Mt4Credentials): Result<Mt4AccountInfo> =
         runCatching {
             val token = requireToken()
-            val deployedId = dataSource.deployAccount(token, credentials)
+            val cachedId = appPreferences.getMetaApiAccountId()
+            val deployedId = if (!cachedId.isNullOrBlank()) {
+                // Reuse previously provisioned account, skipping a redundant deploy call.
+                cachedId
+            } else {
+                val newId = dataSource.deployAccount(token, credentials)
+                appPreferences.setMetaApiAccountId(newId)
+                newId
+            }
             accountId = deployedId
             quoteStream.connect(token, deployedId)
             dataSource.getAccountInfo(token, deployedId)

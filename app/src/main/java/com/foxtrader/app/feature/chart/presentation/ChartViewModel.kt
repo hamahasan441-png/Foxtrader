@@ -8,10 +8,6 @@ import com.foxtrader.app.di.DefaultDispatcher
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.model.ChartBarMode
-import com.foxtrader.app.domain.model.ChartSignal
-import com.foxtrader.app.domain.model.Direction
-import com.foxtrader.app.domain.model.SignalSource
-import com.foxtrader.app.domain.model.tradepro.SetupStage
 import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.DrawingToolType
 import com.foxtrader.app.domain.model.ReplayState
@@ -32,6 +28,7 @@ import com.foxtrader.app.domain.usecase.chart.ComputeIndicatorsUseCase
 import com.foxtrader.app.domain.usecase.chart.HeikinAshiTransformer
 import com.foxtrader.app.domain.usecase.chart.CandleRenkoBuilder
 import com.foxtrader.app.domain.usecase.chart.MultiChartManager
+import com.foxtrader.app.domain.usecase.chart.SignalComputer
 import com.foxtrader.app.domain.usecase.drawing.DrawingEngine
 import com.foxtrader.app.domain.usecase.mtf.ConfluenceEngine
 import com.foxtrader.app.domain.usecase.performance.AdaptiveQualityController
@@ -85,6 +82,7 @@ class ChartViewModel @Inject constructor(
     private val smtDivergenceDetector: SmtDivergenceDetector,
     private val heikinAshiTransformer: HeikinAshiTransformer,
     private val candleRenkoBuilder: CandleRenkoBuilder,
+    private val signalComputer: SignalComputer,
     profiler: PerformanceProfiler,
     qualityController: AdaptiveQualityController,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
@@ -248,6 +246,14 @@ class ChartViewModel @Inject constructor(
         } else null
 
         val smtDivergences = if (ind.smt) {
+            // The correlatedCandles map is currently empty because peer-symbol candle
+            // data (e.g. DXY for EURUSD, or GBPUSD for EURUSD) is not yet fetched by
+            // MarketRepository for the current chart symbol. When a peer-data pipeline
+            // is implemented in the data layer (fetching correlated instruments alongside
+            // the primary symbol), that map should be populated here. Until then, the SMT
+            // detector returns an empty list because it early-returns on an empty map.
+            // The toggle remains wired so the UI and layer rendering are ready for when
+            // peer data becomes available.
             smtDivergenceDetector.detect(symbol, displayCandles, emptyMap())
         } else emptyList()
 
@@ -261,7 +267,7 @@ class ChartViewModel @Inject constructor(
             smtDivergences = smtDivergences,
             barMode = barMode,
         ).copy(
-            signals = computeSignals(litXAnalysis, tradeProAnalysis, smtDivergences, displayCandles),
+            signals = signalComputer.computeSignals(litXAnalysis, tradeProAnalysis, smtDivergences, displayCandles),
         )
 
         aiCoordinator.runAiDecision(
@@ -475,83 +481,6 @@ class ChartViewModel @Inject constructor(
     fun replayStepForward() = replayEngine.stepForward()
     fun replayStepBackward() = replayEngine.stepBackward()
     fun replayCycleSpeed() = replayEngine.cycleSpeed()
-
-    // ========================================================================
-    // SIGNAL COMPUTATION
-    // ========================================================================
-
-    /**
-     * Builds a unified [ChartSignal] list from the current LIT X, TradePro,
-     * and SMT analysis results. The most recent signal of each source is
-     * marked isLive=true; older ones are marked isLive=false.
-     */
-    private fun computeSignals(
-        litXAnalysis: com.foxtrader.app.domain.model.LitXAnalysis?,
-        tradeProAnalysis: com.foxtrader.app.domain.model.tradepro.TradeProAnalysis?,
-        smtDivergences: List<com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector.SmtDivergence>,
-        candles: List<Candle>,
-    ): List<ChartSignal> {
-        val signals = mutableListOf<ChartSignal>()
-
-        // LIT X signal
-        litXAnalysis?.signal?.let { signal ->
-            signals.add(
-                ChartSignal(
-                    id = "litx_${signal.timestamp}",
-                    source = SignalSource.LITX,
-                    direction = signal.direction,
-                    entry = signal.entry,
-                    sl = signal.stopLoss,
-                    tp = signal.takeProfit1,
-                    barIndex = candles.lastIndex.coerceAtLeast(0),
-                    timestamp = signal.timestamp,
-                    confidence = signal.confidence.score / 100.0,
-                    isLive = true,
-                )
-            )
-        }
-
-        // TradePro signal (only EXECUTE stage)
-        tradeProAnalysis?.setup?.let { setup ->
-            if (setup.stage == SetupStage.EXECUTE) {
-                signals.add(
-                    ChartSignal(
-                        id = "tradepro_${setup.symbol}_${setup.entry}",
-                        source = SignalSource.TRADEPRO,
-                        direction = setup.direction,
-                        entry = setup.entry,
-                        sl = setup.stopLoss,
-                        tp = setup.target1,
-                        barIndex = candles.lastIndex.coerceAtLeast(0),
-                        timestamp = System.currentTimeMillis(),
-                        confidence = setup.confidence / 100.0,
-                        isLive = true,
-                    )
-                )
-            }
-        }
-
-        // SMT divergences
-        val lastSmtDiv = smtDivergences.lastOrNull()
-        for (div in smtDivergences) {
-            signals.add(
-                ChartSignal(
-                    id = "smt_${div.primarySymbol}_${div.primaryIndex}",
-                    source = SignalSource.SMT,
-                    direction = div.direction,
-                    entry = div.primaryPrice,
-                    sl = 0.0,
-                    tp = 0.0,
-                    barIndex = div.primaryIndex,
-                    timestamp = System.currentTimeMillis(),
-                    confidence = div.confidence,
-                    isLive = div == lastSmtDiv,
-                )
-            )
-        }
-
-        return signals
-    }
 
     // ========================================================================
     // LIFECYCLE

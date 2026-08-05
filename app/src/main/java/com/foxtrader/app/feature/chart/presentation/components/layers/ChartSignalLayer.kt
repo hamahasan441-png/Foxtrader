@@ -153,12 +153,18 @@ internal fun DrawScope.drawSmtDivergences(
     }
 }
 
-private val SignalMarkerLabelPaint = Paint().apply {
+/**
+ * Creates a fresh [Paint] for signal marker labels on each call to avoid
+ * shared mutable state across concurrent DrawScope invocations. The alpha
+ * is set at creation time so no mutation occurs after construction.
+ */
+private fun signalMarkerLabelPaint(alpha: Float): Paint = Paint().apply {
     color = android.graphics.Color.WHITE
     textSize = 18f
     typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     isAntiAlias = true
     textAlign = Paint.Align.CENTER
+    this.alpha = (alpha * 255).toInt()
 }
 
 /**
@@ -216,13 +222,12 @@ internal fun DrawScope.drawSignalMarkers(
             SignalSource.TRADEPRO -> "T"
             SignalSource.SMT -> "S"
         }
+        val labelPaint = signalMarkerLabelPaint(alpha)
         drawContext.canvas.nativeCanvas.drawText(
             letter,
             x,
-            y + SignalMarkerLabelPaint.textSize / 3f,
-            SignalMarkerLabelPaint.apply {
-                this.alpha = (alpha * 255).toInt()
-            },
+            y + labelPaint.textSize / 3f,
+            labelPaint,
         )
     }
 }

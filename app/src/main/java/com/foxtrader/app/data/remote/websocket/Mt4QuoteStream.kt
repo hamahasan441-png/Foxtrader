@@ -136,6 +136,12 @@ class Mt4QuoteStream @Inject constructor(
         generation++
         val myGeneration = generation
 
+        // MetaApi's streaming API contract requires the auth token as a query parameter
+        // in the WebSocket URL. Header-based auth is not supported for WebSocket upgrades
+        // by their infrastructure. The @PublicMarketDataClient OkHttpClient used here has
+        // its HttpLoggingInterceptor set to Level.NONE in release builds, so full URLs
+        // (including the token) are never logged in production. In debug builds, logcat
+        // output is expected to contain the token for local development convenience.
         val url = "$BASE_WS_URL?auth-token=$authToken&accountId=$accountId"
         val request = Request.Builder().url(url).build()
 
