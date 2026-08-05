@@ -2,6 +2,7 @@ package com.foxtrader.app.feature.settings.presentation
 
 import androidx.compose.runtime.Immutable
 import com.foxtrader.app.domain.model.AlertConfig
+import com.foxtrader.app.domain.usecase.performance.PerformanceMode
 import com.foxtrader.app.domain.model.AuthState
 import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.PositionSizingMethod
@@ -55,6 +56,8 @@ data class SettingsUiState(
     val backendBaseUrl: String = "",
     /** Hot-cache ceiling per market (bars); performance/memory tradeoff. */
     val maxCachedBars: Int = 5_000,
+    /** Chart adaptive-quality ceiling. */
+    val performanceMode: PerformanceMode = PerformanceMode.SMOOTH,
     val providerTest: ConnectionTest = ConnectionTest.Idle,
     val backendTest: ConnectionTest = ConnectionTest.Idle,
     val authState: AuthState = AuthState.UNAUTHENTICATED,

@@ -235,6 +235,70 @@ class AdaptiveQualityControllerTest {
         assertEquals(controller.getSettings(QualityLevel.ULTRA), QualitySettings.FULL)
     }
 
+    // ========================================================================
+    // PERFORMANCE MODE / QUALITY CEILING
+    // ========================================================================
+
+    @Test
+    fun `setting a ceiling clamps the current level up to it`() {
+        assertEquals(QualityLevel.ULTRA, controller.getCurrentLevel())
+
+        controller.setQualityCeiling(QualityLevel.HIGH)
+
+        assertEquals(QualityLevel.HIGH, controller.getCurrentLevel())
+    }
+
+    @Test
+    fun `forceLevel cannot exceed the ceiling`() {
+        controller.setQualityCeiling(QualityLevel.MEDIUM)
+
+        controller.forceLevel(QualityLevel.ULTRA)
+
+        assertEquals(QualityLevel.MEDIUM, controller.getCurrentLevel())
+    }
+
+    @Test
+    fun `auto-restore stops at the ceiling`() {
+        controller.setQualityCeiling(QualityLevel.HIGH)
+        controller.forceLevel(QualityLevel.MINIMAL)
+
+        runFrames(excellentMs, times = AdaptiveQualityController.UPGRADE_THRESHOLD * 6)
+
+        assertEquals(
+            "quality must never auto-restore above the configured ceiling",
+            QualityLevel.HIGH,
+            controller.getCurrentLevel(),
+        )
+    }
+
+    @Test
+    fun `degradation below the ceiling is still allowed under load`() {
+        controller.setQualityCeiling(QualityLevel.HIGH)
+
+        runFrames(criticalMs, times = 10)
+
+        assertEquals(
+            "the ceiling caps the best quality, not the worst — jank still degrades",
+            QualityLevel.MINIMAL,
+            controller.getCurrentLevel(),
+        )
+    }
+
+    @Test
+    fun `default ceiling imposes no cap`() {
+        controller.forceLevel(QualityLevel.MINIMAL)
+        runFrames(excellentMs, times = AdaptiveQualityController.UPGRADE_THRESHOLD * 6)
+
+        assertEquals(QualityLevel.ULTRA, controller.getCurrentLevel())
+    }
+
+    @Test
+    fun `performance modes map to the expected ceilings`() {
+        assertEquals(QualityLevel.ULTRA, PerformanceMode.SMOOTH.ceiling)
+        assertEquals(QualityLevel.HIGH, PerformanceMode.BALANCED.ceiling)
+        assertEquals(QualityLevel.LOW, PerformanceMode.BATTERY_SAVER.ceiling)
+    }
+
     private fun runFramesReturning(frameMs: Float): QualitySettings {
         profiler.reset()
         repeat(10) { profiler.endFrame(frameMs) }

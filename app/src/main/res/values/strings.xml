@@ -163,6 +163,7 @@
     <string name="settings_testing">Testing…</string>
     <string name="settings_test_connected">Connected — received %1$d bar(s).</string>
     <string name="settings_perf_cache_note">More cached candles mean deeper scrollback without refetching, at the cost of memory and storage.</string>
+    <string name="settings_perf_mode_note">Caps chart detail to save battery/CPU. The chart still degrades further automatically under load. Smooth keeps full detail.</string>
 
     <!-- LIT X Institutional Framework -->
     <string name="chart_open_litx">Open LIT X institutional analysis</string>

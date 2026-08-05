@@ -2,6 +2,7 @@ package com.foxtrader.app.feature.chart.presentation.components
 
 import androidx.compose.runtime.Stable
 import com.foxtrader.app.domain.usecase.performance.AdaptiveQualityController
+import com.foxtrader.app.domain.usecase.performance.PerformanceMode
 import com.foxtrader.app.domain.usecase.performance.PerformanceProfiler
 import com.foxtrader.app.domain.usecase.performance.PerformanceSnapshot
 import com.foxtrader.app.domain.usecase.performance.QualityLevel
@@ -56,6 +57,11 @@ class ChartPerformanceMonitor(
     /** Stop profiling (chart left composition / went to background). */
     fun stop() {
         profiler.stop()
+    }
+
+    /** Apply a user performance mode (quality ceiling) to the controller. */
+    fun setPerformanceMode(mode: PerformanceMode) {
+        qualityController.setQualityCeiling(mode.ceiling)
     }
 
     /** Mark the start of a draw pass. */

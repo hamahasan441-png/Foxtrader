@@ -24,6 +24,7 @@ import com.foxtrader.app.domain.model.tradepro.AlertRule
 import com.foxtrader.app.domain.model.LitXConfig
 import com.foxtrader.app.domain.model.tradepro.TradeProConfig
 import com.foxtrader.app.domain.usecase.chart.ChartLayout
+import com.foxtrader.app.domain.usecase.performance.PerformanceMode
 import com.foxtrader.app.domain.usecase.chart.ChartPanelSeed
 import com.foxtrader.app.domain.usecase.chart.ChartViewportState
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -85,6 +86,13 @@ class AppPreferences @Inject constructor(
     private val _maxCachedBars = MutableStateFlow(DEFAULT_MAX_CACHED_BARS)
     val maxCachedBars: StateFlow<Int> = _maxCachedBars.asStateFlow()
 
+    /**
+     * Chart performance mode (adaptive-quality ceiling). Default [PerformanceMode.SMOOTH]
+     * imposes no cap, matching prior always-adaptive behaviour.
+     */
+    private val _performanceMode = MutableStateFlow(PerformanceMode.SMOOTH)
+    val performanceMode: StateFlow<PerformanceMode> = _performanceMode.asStateFlow()
+
     private val _backgroundScanEnabled = MutableStateFlow(true)
     val backgroundScanEnabled: StateFlow<Boolean> = _backgroundScanEnabled.asStateFlow()
 
@@ -142,6 +150,9 @@ class AppPreferences @Inject constructor(
                 _appLockEnabled.value = prefs[KEY_APP_LOCK] ?: false
                 _backendBaseUrl.value = prefs[KEY_BACKEND_BASE_URL].orEmpty()
                 _maxCachedBars.value = prefs[KEY_MAX_CACHED_BARS] ?: DEFAULT_MAX_CACHED_BARS
+                _performanceMode.value = prefs[KEY_PERFORMANCE_MODE]
+                    ?.let { name -> runCatching { PerformanceMode.valueOf(name) }.getOrNull() }
+                    ?: PerformanceMode.SMOOTH
                 _backgroundScanEnabled.value = prefs[KEY_BACKGROUND_SCAN_ENABLED] ?: true
                 _backgroundScanIntervalMinutes.value = (
                     prefs[KEY_BACKGROUND_SCAN_INTERVAL_MINUTES]
@@ -253,6 +264,12 @@ class AppPreferences @Inject constructor(
         val clamped = value.coerceIn(MIN_CACHED_BARS, MAX_CACHED_BARS)
         _maxCachedBars.value = clamped
         scope.launch { context.dataStore.edit { it[KEY_MAX_CACHED_BARS] = clamped } }
+    }
+
+    /** Persist the chart performance mode. */
+    fun setPerformanceMode(mode: PerformanceMode) {
+        _performanceMode.value = mode
+        scope.launch { context.dataStore.edit { it[KEY_PERFORMANCE_MODE] = mode.name } }
     }
 
     fun setBackgroundScanEnabled(enabled: Boolean) {
@@ -449,6 +466,7 @@ class AppPreferences @Inject constructor(
         val KEY_APP_LOCK = booleanPreferencesKey("app_lock_enabled")
         val KEY_BACKEND_BASE_URL = stringPreferencesKey("backend_base_url")
         val KEY_MAX_CACHED_BARS = intPreferencesKey("max_cached_bars")
+        val KEY_PERFORMANCE_MODE = stringPreferencesKey("performance_mode")
 
         /** Hot-cache ceiling bounds (bars per symbol/timeframe). */
         const val DEFAULT_MAX_CACHED_BARS = 5_000

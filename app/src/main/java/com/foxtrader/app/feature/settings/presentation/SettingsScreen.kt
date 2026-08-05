@@ -48,6 +48,7 @@ import com.foxtrader.app.domain.model.AlertPriority
 import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.PositionSizingMethod
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.usecase.performance.PerformanceMode
 import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxNeutral10
 import com.foxtrader.app.ui.theme.FoxNeutral60
@@ -446,6 +447,22 @@ fun SettingsScreen(
             SectionHeader("Performance")
 
             SettingsCard {
+                DropdownSetting(
+                    label = "Chart quality",
+                    selected = state.performanceMode.displayName,
+                    options = PerformanceMode.entries.map { it.displayName },
+                    onSelect = { name ->
+                        PerformanceMode.entries.firstOrNull { it.displayName == name }
+                            ?.let(viewModel::setPerformanceMode)
+                    },
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = stringResource(R.string.settings_perf_mode_note),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = FoxNeutral60,
+                )
+                Spacer(Modifier.height(16.dp))
                 DropdownSetting(
                     label = "Cached candles per market",
                     selected = formatBars(state.maxCachedBars),

@@ -186,6 +186,10 @@ class ChartViewModel @Inject constructor(
         webSocket.connectionState
             .onEach { cs -> _uiState.value = _uiState.value.copy(connectionState = cs) }
             .launchIn(viewModelScope)
+        // Apply the user's chart performance mode (quality ceiling), live.
+        appPreferences.performanceMode
+            .onEach { mode -> performanceMonitor.setPerformanceMode(mode) }
+            .launchIn(viewModelScope)
         refresh()
     }
 

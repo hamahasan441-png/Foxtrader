@@ -13,6 +13,7 @@ import com.foxtrader.app.domain.model.RiskConfig
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.repository.AuthRepository
 import com.foxtrader.app.domain.repository.MarketRepository
+import com.foxtrader.app.domain.usecase.performance.PerformanceMode
 import com.foxtrader.app.domain.usecase.ai.AiAlertService
 import com.foxtrader.app.domain.usecase.ai.MasterDecisionEngine
 import com.foxtrader.app.domain.usecase.alerts.AlertEngine
@@ -62,6 +63,7 @@ class SettingsViewModel @Inject constructor(
             darkMode = appPreferences.darkMode.value,
             backendBaseUrl = appPreferences.backendBaseUrl.value,
             maxCachedBars = appPreferences.maxCachedBars.value,
+            performanceMode = appPreferences.performanceMode.value,
             authState = authRepository.authState.value,
             appLockEnabled = appPreferences.appLockEnabled.value,
             biometricAvailable = biometricAuthManager.canAuthenticate(),
@@ -96,6 +98,9 @@ class SettingsViewModel @Inject constructor(
             .launchIn(viewModelScope)
         appPreferences.maxCachedBars
             .onEach { bars -> _uiState.update { it.copy(maxCachedBars = bars) } }
+            .launchIn(viewModelScope)
+        appPreferences.performanceMode
+            .onEach { mode -> _uiState.update { it.copy(performanceMode = mode) } }
             .launchIn(viewModelScope)
         appPreferences.litXConfig
             .onEach { cfg -> _uiState.update { it.copy(litXConfig = cfg) } }
@@ -156,6 +161,12 @@ class SettingsViewModel @Inject constructor(
     fun setMaxCachedBars(value: Int) {
         appPreferences.setMaxCachedBars(value)
         _uiState.update { it.copy(maxCachedBars = value, saved = false) }
+    }
+
+    /** Chart performance mode (adaptive-quality ceiling); persisted immediately. */
+    fun setPerformanceMode(mode: PerformanceMode) {
+        appPreferences.setPerformanceMode(mode)
+        _uiState.update { it.copy(performanceMode = mode, saved = false) }
     }
 
     /**
