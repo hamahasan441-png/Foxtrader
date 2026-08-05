@@ -70,5 +70,9 @@ class MtfContextProviderTest {
         ): Result<SourcedCandles> = Result.success(
             SourcedCandles(emptyList(), CandleSource.CACHED)
         )
+
+        override suspend fun testProviderConnection(): Result<Int> = Result.success(0)
+
+        override suspend fun testBackendConnection(): Result<Int> = Result.success(0)
     }
 }

@@ -159,6 +159,10 @@
     <string name="settings_backend_url_label">FoxTrader backend URL</string>
     <string name="settings_backend_url_placeholder">https://your-backend.example.com</string>
     <string name="settings_backend_url_note">Where the app fetches non-crypto candles and syncs. Point only at a FoxTrader backend you trust — your sign-in token is sent to it. Enter an origin only (no path). Leave blank to use the built-in default. Release builds require https.</string>
+    <string name="settings_test_connection">Test connection</string>
+    <string name="settings_testing">Testing…</string>
+    <string name="settings_test_connected">Connected — received %1$d bar(s).</string>
+    <string name="settings_perf_cache_note">More cached candles mean deeper scrollback without refetching, at the cost of memory and storage.</string>
 
     <!-- LIT X Institutional Framework -->
     <string name="chart_open_litx">Open LIT X institutional analysis</string>

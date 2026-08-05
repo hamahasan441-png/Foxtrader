@@ -12,6 +12,7 @@ import com.foxtrader.app.domain.model.PositionSizingMethod
 import com.foxtrader.app.domain.model.RiskConfig
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.repository.AuthRepository
+import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.ai.AiAlertService
 import com.foxtrader.app.domain.usecase.ai.MasterDecisionEngine
 import com.foxtrader.app.domain.usecase.alerts.AlertEngine
@@ -41,6 +42,7 @@ class SettingsViewModel @Inject constructor(
     private val syncManager: SyncManager,
     private val biometricAuthManager: BiometricAuthManager,
     private val scanAlertScheduler: ScanAlertScheduler,
+    private val marketRepository: MarketRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
@@ -59,6 +61,7 @@ class SettingsViewModel @Inject constructor(
             providerApiKeys = appPreferences.apiKeys.value.toPersistentMap(),
             darkMode = appPreferences.darkMode.value,
             backendBaseUrl = appPreferences.backendBaseUrl.value,
+            maxCachedBars = appPreferences.maxCachedBars.value,
             authState = authRepository.authState.value,
             appLockEnabled = appPreferences.appLockEnabled.value,
             biometricAvailable = biometricAuthManager.canAuthenticate(),
@@ -90,6 +93,9 @@ class SettingsViewModel @Inject constructor(
             .launchIn(viewModelScope)
         appPreferences.backendBaseUrl
             .onEach { url -> _uiState.update { it.copy(backendBaseUrl = url) } }
+            .launchIn(viewModelScope)
+        appPreferences.maxCachedBars
+            .onEach { bars -> _uiState.update { it.copy(maxCachedBars = bars) } }
             .launchIn(viewModelScope)
         appPreferences.litXConfig
             .onEach { cfg -> _uiState.update { it.copy(litXConfig = cfg) } }
@@ -144,6 +150,50 @@ class SettingsViewModel @Inject constructor(
     /** Backend origin override — persisted on Save (like the other text fields). */
     fun setBackendBaseUrl(value: String) {
         _uiState.update { it.copy(backendBaseUrl = value, saved = false) }
+    }
+
+    /** Cache ceiling — a performance/memory tradeoff; persisted immediately. */
+    fun setMaxCachedBars(value: Int) {
+        appPreferences.setMaxCachedBars(value)
+        _uiState.update { it.copy(maxCachedBars = value, saved = false) }
+    }
+
+    /**
+     * Test the selected provider against its live API. Commits the entered API
+     * key first so the test reflects what's on screen, then reports the result.
+     */
+    fun testProviderConnection() {
+        val state = _uiState.value
+        appPreferences.setApiKey(state.dataProvider, state.currentProviderApiKey)
+        _uiState.update { it.copy(providerTest = ConnectionTest.Testing) }
+        viewModelScope.launch {
+            val result = marketRepository.testProviderConnection()
+            _uiState.update {
+                it.copy(
+                    providerTest = result.fold(
+                        onSuccess = { count -> ConnectionTest.Success(count) },
+                        onFailure = { e -> ConnectionTest.Failure(e.message ?: "Connection failed.") },
+                    ),
+                )
+            }
+        }
+    }
+
+    /** Ping the FoxTrader backend, committing the entered URL first. */
+    fun testBackendConnection() {
+        appPreferences.setBackendBaseUrl(_uiState.value.backendBaseUrl)
+        _uiState.update { it.copy(backendTest = ConnectionTest.Testing) }
+        viewModelScope.launch {
+            val result = marketRepository.testBackendConnection()
+            _uiState.update {
+                it.copy(
+                    backendTest = result.fold(
+                        onSuccess = { count -> ConnectionTest.Success(count) },
+                        onFailure = { e -> ConnectionTest.Failure(e.message ?: "Backend unreachable.") },
+                    ),
+                )
+            }
+        }
     }
 
     fun setProviderApiKey(value: String) {

@@ -30,6 +30,16 @@ data class AiConfig(
 )
 
 /**
+ * Transient status of a one-shot connection test (never persisted).
+ */
+sealed interface ConnectionTest {
+    data object Idle : ConnectionTest
+    data object Testing : ConnectionTest
+    data class Success(val candleCount: Int) : ConnectionTest
+    data class Failure(val message: String) : ConnectionTest
+}
+
+/**
  * Immutable UI state for the Settings screen.
  */
 @Immutable
@@ -43,6 +53,10 @@ data class SettingsUiState(
     val darkMode: Boolean = true,
     /** User override for the FoxTrader backend origin; blank = build default. */
     val backendBaseUrl: String = "",
+    /** Hot-cache ceiling per market (bars); performance/memory tradeoff. */
+    val maxCachedBars: Int = 5_000,
+    val providerTest: ConnectionTest = ConnectionTest.Idle,
+    val backendTest: ConnectionTest = ConnectionTest.Idle,
     val authState: AuthState = AuthState.UNAUTHENTICATED,
     val isSyncing: Boolean = false,
     val syncMessage: String? = null,

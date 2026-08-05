@@ -77,6 +77,14 @@ class AppPreferences @Inject constructor(
     private val _backendBaseUrl = MutableStateFlow("")
     val backendBaseUrl: StateFlow<String> = _backendBaseUrl.asStateFlow()
 
+    /**
+     * Hot-cache ceiling per (symbol, timeframe). Higher keeps more scrollback
+     * without refetching, at the cost of memory/storage; the repository prunes
+     * to this after every fetch. Clamped to [MIN_CACHED_BARS]..[MAX_CACHED_BARS].
+     */
+    private val _maxCachedBars = MutableStateFlow(DEFAULT_MAX_CACHED_BARS)
+    val maxCachedBars: StateFlow<Int> = _maxCachedBars.asStateFlow()
+
     private val _backgroundScanEnabled = MutableStateFlow(true)
     val backgroundScanEnabled: StateFlow<Boolean> = _backgroundScanEnabled.asStateFlow()
 
@@ -133,6 +141,7 @@ class AppPreferences @Inject constructor(
                 _darkMode.value = prefs[KEY_DARK_MODE] ?: true
                 _appLockEnabled.value = prefs[KEY_APP_LOCK] ?: false
                 _backendBaseUrl.value = prefs[KEY_BACKEND_BASE_URL].orEmpty()
+                _maxCachedBars.value = prefs[KEY_MAX_CACHED_BARS] ?: DEFAULT_MAX_CACHED_BARS
                 _backgroundScanEnabled.value = prefs[KEY_BACKGROUND_SCAN_ENABLED] ?: true
                 _backgroundScanIntervalMinutes.value = (
                     prefs[KEY_BACKGROUND_SCAN_INTERVAL_MINUTES]
@@ -237,6 +246,13 @@ class AppPreferences @Inject constructor(
         val normalized = url.trim()
         _backendBaseUrl.value = normalized
         scope.launch { context.dataStore.edit { it[KEY_BACKEND_BASE_URL] = normalized } }
+    }
+
+    /** Persist the hot-cache ceiling, clamped to the supported range. */
+    fun setMaxCachedBars(value: Int) {
+        val clamped = value.coerceIn(MIN_CACHED_BARS, MAX_CACHED_BARS)
+        _maxCachedBars.value = clamped
+        scope.launch { context.dataStore.edit { it[KEY_MAX_CACHED_BARS] = clamped } }
     }
 
     fun setBackgroundScanEnabled(enabled: Boolean) {
@@ -432,6 +448,12 @@ class AppPreferences @Inject constructor(
         val KEY_DARK_MODE = booleanPreferencesKey("dark_mode")
         val KEY_APP_LOCK = booleanPreferencesKey("app_lock_enabled")
         val KEY_BACKEND_BASE_URL = stringPreferencesKey("backend_base_url")
+        val KEY_MAX_CACHED_BARS = intPreferencesKey("max_cached_bars")
+
+        /** Hot-cache ceiling bounds (bars per symbol/timeframe). */
+        const val DEFAULT_MAX_CACHED_BARS = 5_000
+        const val MIN_CACHED_BARS = 1_000
+        const val MAX_CACHED_BARS = 20_000
         val KEY_BACKGROUND_SCAN_ENABLED = booleanPreferencesKey("background_scan_enabled")
         val KEY_BACKGROUND_SCAN_INTERVAL_MINUTES = intPreferencesKey("background_scan_interval_minutes")
         val KEY_AI_MIN_CONFLUENCES = intPreferencesKey("ai_min_confluences")

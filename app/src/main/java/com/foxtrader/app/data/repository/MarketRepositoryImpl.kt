@@ -75,7 +75,7 @@ class MarketRepositoryImpl @Inject constructor(
             if (selectedProvider == DataProvider.SAMPLE) {
                 val seed = SampleData.generate(symbol, timeframe, limit)
                 dao.upsertAll(seed.map { it.toEntity(symbol, timeframe, CandleSource.SYNTHETIC) })
-                dao.prune(symbol, timeframe.label, MAX_CACHED_BARS)
+                dao.prune(symbol, timeframe.label, appPreferences.maxCachedBars.value)
                 return@runCatching
             }
 
@@ -118,7 +118,7 @@ class MarketRepositoryImpl @Inject constructor(
             }
             // A successful provider fetch is real data.
             dao.upsertAll(candles.map { it.toEntity(symbol, timeframe, CandleSource.LIVE) })
-            dao.prune(symbol, timeframe.label, MAX_CACHED_BARS)
+            dao.prune(symbol, timeframe.label, appPreferences.maxCachedBars.value)
         }.recoverCatching { error ->
             // Selecting an unimplemented provider is a configuration error, not
             // a transient network fault: surface it instead of papering over it
@@ -139,6 +139,34 @@ class MarketRepositoryImpl @Inject constructor(
                 throw error
             }
         }
+    }
+
+    override suspend fun testProviderConnection(): Result<Int> = withContext(io) {
+        runCatching {
+            when (val provider = appPreferences.dataProvider.value) {
+                DataProvider.SAMPLE ->
+                    SampleData.generate(FX_TEST_SYMBOL, Timeframe.H1, TEST_LIMIT).size
+                DataProvider.ALPHA_VANTAGE -> {
+                    val key = appPreferences.getApiKey(DataProvider.ALPHA_VANTAGE).orEmpty()
+                    require(key.isNotBlank()) { "Alpha Vantage API key is not set." }
+                    alphaVantage.fetchCandles(FX_TEST_SYMBOL, Timeframe.H1, TEST_LIMIT, key).size
+                }
+                DataProvider.TWELVE_DATA -> {
+                    val key = appPreferences.getApiKey(DataProvider.TWELVE_DATA).orEmpty()
+                    require(key.isNotBlank()) { "Twelve Data API key is not set." }
+                    twelveData.fetchCandles(FX_TEST_SYMBOL, Timeframe.H1, TEST_LIMIT, key).size
+                }
+                DataProvider.BINANCE ->
+                    binance.fetchCandles(CRYPTO_TEST_SYMBOL, Timeframe.H1, TEST_LIMIT).size
+                DataProvider.BYBIT ->
+                    bybit.fetchCandles(CRYPTO_TEST_SYMBOL, Timeframe.H1, TEST_LIMIT).size
+                else -> throw ProviderNotImplementedException(provider.displayName)
+            }
+        }
+    }
+
+    override suspend fun testBackendConnection(): Result<Int> = withContext(io) {
+        runCatching { api.getCandles(FX_TEST_SYMBOL, Timeframe.H1.label, 1).candles.size }
     }
 
     private suspend fun fetchDefaultCandles(
@@ -246,14 +274,12 @@ class MarketRepositoryImpl @Inject constructor(
     }
 
     private companion object {
-        /**
-         * Hot-cache ceiling per (symbol, timeframe). Enough for the deepest
-         * analysis window and a long scrollback, bounded so a multi-symbol LIVE
-         * session cannot grow the DB without limit.
-         */
-        const val MAX_CACHED_BARS = 5_000
-
         /** Bars generated when seeding an empty cache for the scanner. */
         const val SEED_BARS = 200
+
+        // Canonical instruments for one-shot connection tests.
+        const val FX_TEST_SYMBOL = "EURUSD"
+        const val CRYPTO_TEST_SYMBOL = "BTCUSDT"
+        const val TEST_LIMIT = 3
     }
 }
