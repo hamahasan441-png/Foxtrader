@@ -29,11 +29,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.EmotionTag
 import com.foxtrader.app.domain.model.JournalEntry
 import com.foxtrader.app.ui.theme.FoxAmber50
@@ -70,7 +72,7 @@ fun TradeReviewDialog(
                     .padding(20.dp),
             ) {
                 Text(
-                    text = "Review ${entry.symbol}",
+                    text = stringResource(R.string.journal_review_title, entry.symbol),
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
@@ -135,7 +137,7 @@ fun TradeReviewDialog(
                 Spacer(Modifier.height(16.dp))
                 if (confirmingDelete) {
                     Text(
-                        text = "Delete this trade permanently?",
+                        text = stringResource(R.string.journal_delete_confirm),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.error,
                     )

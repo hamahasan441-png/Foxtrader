@@ -18,4 +18,24 @@ interface CrashReporter {
      * setting takes effect without reinstalling.
      */
     fun install()
+
+    /**
+     * Records a non-fatal exception with optional context metadata.
+     * Implementations must sanitize the throwable (strip messages, keep only
+     * type + stack frames) before any remote transmission.
+     */
+    fun recordException(throwable: Throwable, context: Map<String, String> = emptyMap()) {}
+
+    /**
+     * Enables or disables crash reporting at runtime. Implementations should
+     * propagate this to any underlying backend so no data leaves the device
+     * when the user has opted out.
+     */
+    fun setEnabled(enabled: Boolean) {}
+
+    /**
+     * Records a breadcrumb for crash context. Breadcrumbs are short navigation
+     * or state-change markers that help diagnose what led to a crash.
+     */
+    fun recordBreadcrumb(message: String, category: String = "app") {}
 }

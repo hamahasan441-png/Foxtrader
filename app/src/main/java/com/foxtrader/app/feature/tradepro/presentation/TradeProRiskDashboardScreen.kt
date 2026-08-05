@@ -38,11 +38,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.tradepro.AlertSeverity
 import com.foxtrader.app.domain.model.tradepro.CorrelationGroup
@@ -185,7 +187,7 @@ private fun RiskUtilizationGauge(utilization: Float) {
                     color = gaugeColor,
                 )
                 Text(
-                    text = "of budget",
+                    text = stringResource(R.string.tradepro_risk_of_budget),
                     fontSize = 11.sp,
                     color = FoxNeutral60,
                 )
@@ -257,7 +259,7 @@ private fun OpenRiskBreakdown(positionHeat: List<PositionHeat>) {
         Spacer(Modifier.height(8.dp))
         if (positionHeat.isEmpty()) {
             Text(
-                text = "No open positions.",
+                text = stringResource(R.string.tradepro_risk_no_positions),
                 color = FoxNeutral60,
                 fontSize = 12.sp,
             )
@@ -328,7 +330,7 @@ private fun AlertFeed(alerts: List<RiskAlert>) {
         Spacer(Modifier.height(8.dp))
         if (alerts.isEmpty()) {
             Text(
-                text = "All clear - no active risk alerts.",
+                text = stringResource(R.string.tradepro_risk_all_clear),
                 color = FoxBullish,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -394,7 +396,7 @@ private fun CorrelationExposureCard(groups: List<CorrelationGroup>) {
         Spacer(Modifier.height(8.dp))
         if (groups.isEmpty()) {
             Text(
-                text = "No correlated positions detected.",
+                text = stringResource(R.string.tradepro_risk_no_correlated),
                 color = FoxNeutral60,
                 fontSize = 12.sp,
             )
@@ -488,7 +490,7 @@ private fun PositionSizerCard(
             PositionSizerResult(result)
         } else {
             Text(
-                text = "Select symbol and direction to calculate size.",
+                text = stringResource(R.string.tradepro_risk_select_symbol),
                 color = FoxNeutral60,
                 fontSize = 12.sp,
             )

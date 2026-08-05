@@ -1,0 +1,25 @@
+{
+  "id": "FEAT-001",
+  "type": "fix",
+  "description": "Sprint 9 quality fixes and additional domain tests: Fix TwelveDataProviderAdapter CancellationException handling, BacktestEngineTest vacuous-pass guard, StrategyTesterTest zero-score reliability, plus new edge-case tests for MonteCarloRiskEngine, TradeProBacktestEngine, CorrelationEngine, and ENTERPRISE_MASTER_PLAN.md Sprint 9 log.",
+  "status": "completed",
+  "steps": [
+    "Fix TwelveDataProviderAdapter: add KDoc explaining startTime is intentionally not forwarded, rethrow CancellationException from catch block.",
+    "Fix BacktestEngineTest: add assertTrue(metrics.totalTrades > 0) before conditional assertions in metrics test.",
+    "Fix StrategyTesterTest: reduce bar count from 25 to 5 in zero-score test to guarantee < 3 trades.",
+    "Add MonteCarloRiskEngine edge-case tests if gaps exist.",
+    "Add TradeProBacktestEngine edge-case tests (single bar, commission impact).",
+    "Add CorrelationEngine boundary tests (identical series, opposite series, single-element).",
+    "Update ENTERPRISE_MASTER_PLAN.md with Sprint 9 log."
+  ],
+  "acceptance_criteria": [
+    "TwelveDataProviderAdapter rethrows CancellationException and has KDoc for startTime",
+    "BacktestEngineTest metrics test has non-vacuous assertion guard",
+    "StrategyTesterTest zero-score test uses 5 bars guaranteeing < 3 trades",
+    "MonteCarloRiskEngine has additional edge-case tests",
+    "TradeProBacktestEngine has edge-case tests for single bar and commission",
+    "CorrelationEngine has boundary tests for identical, opposite, and single-element series",
+    "ENTERPRISE_MASTER_PLAN.md has Sprint 9 section"
+  ],
+  "blocked_reason": null
+}

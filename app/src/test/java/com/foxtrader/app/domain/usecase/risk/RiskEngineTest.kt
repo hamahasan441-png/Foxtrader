@@ -274,6 +274,14 @@ class RiskEngineTest {
     }
 
     @Test
+    fun `daily loss auto-halt triggers at exact limit boundary`() {
+        // 3% of 10_000 = 300 exactly at the daily loss limit
+        engine.recordTrade(-150.0, "EURUSD")
+        engine.recordTrade(-150.0, "GBPUSD")
+        assertTrue("Should halt when daily loss equals the limit (>= semantics)", engine.isTradingHalted())
+    }
+
+    @Test
     fun `winning trade resets consecutive loss counter`() {
         engine.recordTrade(-50.0, "EURUSD")
         engine.recordTrade(-50.0, "EURUSD")
@@ -317,9 +325,13 @@ class RiskEngineTest {
 
     @Test
     fun `risk status reflects current engine state`() {
-        engine.recordTrade(-300.0, "EURUSD")
+        // Loss stays below the 3% daily limit (300 on a 10k account) so the engine
+        // remains active — this test verifies the status snapshot for a normal,
+        // non-halted state. (checkAutoHalt now halts at >= the limit, matching
+        // canOpenTrade, so a -300 loss would legitimately halt here.)
+        engine.recordTrade(-250.0, "EURUSD")
         val status = engine.getRiskStatus()
-        assertEquals(9_700.0, status.balance, 1e-6)
+        assertEquals(9_750.0, status.balance, 1e-6)
         assertTrue(status.drawdownPercent > 0)
         assertFalse(status.halted)
     }

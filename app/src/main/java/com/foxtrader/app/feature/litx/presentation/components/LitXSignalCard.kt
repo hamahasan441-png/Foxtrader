@@ -16,8 +16,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.LitXGrade
 import com.foxtrader.app.domain.model.LitXSignal
@@ -53,7 +55,7 @@ fun LitXSignalCard(signal: LitXSignal, modifier: Modifier = Modifier) {
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = if (bullish) "LONG" else "SHORT",
+                    text = if (bullish) stringResource(R.string.litx_direction_long) else stringResource(R.string.litx_direction_short),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = dirColor,
@@ -75,11 +77,11 @@ fun LitXSignalCard(signal: LitXSignal, modifier: Modifier = Modifier) {
             color = FoxNeutral60,
         )
 
-        MetricRow("Entry", fmt(signal.entry))
-        MetricRow("Stop", fmt(signal.stopLoss))
-        MetricRow("Target 1", fmt(signal.takeProfit1))
-        MetricRow("Target 2", fmt(signal.takeProfit2))
-        MetricRow("Risk : Reward", String.format(Locale.US, "%.2f", signal.riskReward))
+        MetricRow(stringResource(R.string.litx_metric_entry), fmt(signal.entry))
+        MetricRow(stringResource(R.string.litx_metric_stop), fmt(signal.stopLoss))
+        MetricRow(stringResource(R.string.litx_metric_target_1), fmt(signal.takeProfit1))
+        MetricRow(stringResource(R.string.litx_metric_target_2), fmt(signal.takeProfit2))
+        MetricRow(stringResource(R.string.litx_metric_risk_reward), String.format(Locale.US, "%.2f", signal.riskReward))
     }
 }
 

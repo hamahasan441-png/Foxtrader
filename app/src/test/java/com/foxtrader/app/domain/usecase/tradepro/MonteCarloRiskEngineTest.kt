@@ -97,4 +97,44 @@ class MonteCarloRiskEngineTest {
         assertTrue(result.riskOfRuinFraction in 0.0..1.0)
         assertTrue(result.profitableRunFraction in 0.0..1.0)
     }
+
+    // -------------------------------------------------------------------------
+    // EDGE CASES
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `zero risk per trade keeps equity flat`() {
+        val result = engine.simulate(input(winRate = 0.5, risk = 0.0, trades = 100, runs = 100))
+        assertEquals(1.0, result.medianEndMultiple, 1e-9)
+        assertEquals(0.0, result.riskOfRuinFraction, 0.0)
+        assertEquals(0.0, result.medianMaxDrawdownFraction, 1e-9)
+    }
+
+    @Test
+    fun `single trade per run with a winning edge`() {
+        // 100% win rate, 1 trade per run: equity = 1 + risk * avgWinR
+        val risk = 0.02
+        val avgWin = 2.0
+        val result = engine.simulate(input(winRate = 1.0, avgWinR = avgWin, avgLossR = 1.0, risk = risk, trades = 1, runs = 500))
+        val expectedEnd = 1.0 + risk * avgWin
+        assertEquals(expectedEnd, result.medianEndMultiple, 1e-9)
+        assertEquals(0.0, result.riskOfRuinFraction, 0.0)
+    }
+
+    @Test
+    fun `boundary input with winRate exactly 0 and avgLossR 0 keeps equity flat`() {
+        // winRate=0 means always losing, but avgLossR=0 means loss magnitude is zero.
+        val result = engine.simulate(input(winRate = 0.0, avgWinR = 2.0, avgLossR = 0.0, risk = 0.05, trades = 50, runs = 200))
+        assertEquals(1.0, result.medianEndMultiple, 1e-9)
+        assertEquals(0.0, result.riskOfRuinFraction, 0.0)
+    }
+
+    @Test
+    fun `single run returns consistent percentiles`() {
+        val result = engine.simulate(input(winRate = 0.6, avgWinR = 1.5, avgLossR = 1.0, runs = 1), seed = 99L)
+        assertEquals(1, result.runsSimulated)
+        // With a single run, all percentile bands collapse to the same value.
+        assertEquals(result.medianEndMultiple, result.p5EndMultiple, 1e-9)
+        assertEquals(result.medianEndMultiple, result.p95EndMultiple, 1e-9)
+    }
 }

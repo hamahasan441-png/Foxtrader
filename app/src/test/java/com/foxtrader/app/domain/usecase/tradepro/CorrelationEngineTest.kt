@@ -121,4 +121,42 @@ class CorrelationEngineTest {
         assertEquals(a.symbols, b.symbols)
         assertEquals(a.notablePairs.map { it.correlation }, b.notablePairs.map { it.correlation })
     }
+
+    // -------------------------------------------------------------------------
+    // BOUNDARY / EDGE CASES
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `single-element series produces empty result`() {
+        // Each symbol has only 1 candle, which is below MIN_BARS (10).
+        val single = listOf(100.0)
+        val m = engine.compute(mapOf("A" to candles(single), "B" to candles(single)))
+        assertTrue("Series shorter than MIN_BARS should yield empty result", m.symbols.isEmpty())
+    }
+
+    @Test
+    fun `constant series produces zero correlation`() {
+        // All closes are the same value, so returns are all zero. Pearson is 0 when variance is zero.
+        val constant = List(60) { 100.0 }
+        val rising = base(60)
+        val m = engine.compute(mapOf("A" to candles(constant), "B" to candles(rising)))
+        assertEquals(0.0, m.correlation("A", "B"), 1e-9)
+    }
+
+    @Test
+    fun `exactly MIN_BARS plus one candle produces a valid result`() {
+        // MIN_BARS is 10, so 11 candles produce exactly 10 returns which is >= MIN_RETURNS (5).
+        val short = base(11)
+        val m = engine.compute(mapOf("A" to candles(short), "B" to candles(short)))
+        assertEquals(2, m.symbols.size)
+        assertEquals(1.0, m.correlation("A", "B"), 1e-6)
+    }
+
+    @Test
+    fun `empty input map returns empty result`() {
+        val m = engine.compute(emptyMap())
+        assertTrue(m.symbols.isEmpty())
+        assertTrue(m.notablePairs.isEmpty())
+        assertTrue(m.clusters.isEmpty())
+    }
 }
