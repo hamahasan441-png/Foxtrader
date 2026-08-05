@@ -76,6 +76,7 @@ class BybitDataSource @Inject constructor(
             low = this[3].toDoubleOrNull() ?: return null,
             close = this[4].toDoubleOrNull() ?: return null,
             volume = this[5].toDoubleOrNull() ?: 0.0,
+            source = com.foxtrader.app.domain.model.CandleSource.CACHED,
         )
     }
 

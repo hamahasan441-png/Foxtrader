@@ -232,6 +232,7 @@ class BybitWebSocket @Inject constructor(
             low = obj.string("low")?.toDoubleOrNull() ?: return null,
             close = obj.string("close")?.toDoubleOrNull() ?: return null,
             volume = obj.string("volume")?.toDoubleOrNull() ?: 0.0,
+            source = com.foxtrader.app.domain.model.CandleSource.LIVE,
         )
     }
 

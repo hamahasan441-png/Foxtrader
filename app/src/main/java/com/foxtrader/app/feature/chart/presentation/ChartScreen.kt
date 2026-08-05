@@ -294,6 +294,7 @@ fun ChartScreen(
                     contentAlignment = Alignment.Center,
                 ) {
                     when {
+                        state.isLoading -> CircularProgressIndicator(color = FoxAmber50)
                         state.hasData -> CandleChart(
                             // `PERF` Stable CandleSeries so Compose can skip the
                             // chart when inputs are unchanged (R5). Shared with the
@@ -345,12 +346,20 @@ fun ChartScreen(
                                 state.timeframe.label,
                             ),
                         )
-                        state.isLoading -> CircularProgressIndicator(color = FoxAmber50)
-                        state.error != null -> Text(
-                            text = state.error ?: "",
-                            color = FoxBearishText,
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
+                        state.error != null -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = state.error ?: "",
+                                color = FoxBearishText,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            androidx.compose.material3.Button(
+                                onClick = viewModel::refresh,
+                                colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = FoxAmber50),
+                            ) {
+                                Text("Retry", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
+                            }
+                        }
                         else -> Text(
                             text = stringResource(R.string.chart_no_data),
                             color = FoxNeutral60,
@@ -401,7 +410,7 @@ fun ChartScreen(
                 visible = activeMenu == ChartMenu.DRAWING,
                 activeTool = state.activeTool,
                 onToolSelect = viewModel::startDrawing,
-                onClearAll = viewModel::clearAllDrawings,
+                onClearAll = viewModel::confirmClearAllDrawings,
                 onClose = { activeMenu = ChartMenu.NONE },
                 modifier = Modifier.align(Alignment.CenterStart),
             )

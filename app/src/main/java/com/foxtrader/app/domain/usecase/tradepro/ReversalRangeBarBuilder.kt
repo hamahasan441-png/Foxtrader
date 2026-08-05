@@ -47,7 +47,7 @@ class ReversalRangeBarBuilder @Inject constructor(
             ts = c.timestamp
             touched = true
             if (high - low >= size) {
-                out += Candle(ts, open, high, low, price, vol)
+                out += Candle(ts, open, high, low, price, vol, source = com.foxtrader.app.domain.model.CandleSource.CACHED)
                 open = price
                 high = price
                 low = price
@@ -56,7 +56,7 @@ class ReversalRangeBarBuilder @Inject constructor(
             }
         }
         if (touched && high > low) {
-            out += Candle(ts, open, high, low, candles.last().close, vol)
+            out += Candle(ts, open, high, low, candles.last().close, vol, source = com.foxtrader.app.domain.model.CandleSource.CACHED)
         }
         return out
     }
@@ -87,22 +87,22 @@ class ReversalRangeBarBuilder @Inject constructor(
                 }
                 1 -> if (price > extreme) {
                     extreme = price
-                } else if (price <= extreme - size) {
-                    out += Candle(ts, open, high, low, price, vol)
+                 } else if (price <= extreme - size) {
+                    out += Candle(ts, open, high, low, price, vol, source = com.foxtrader.app.domain.model.CandleSource.CACHED)
                     open = price; high = price; low = price; vol = 0.0
                     dir = -1; extreme = price; touched = false
                 }
                 -1 -> if (price < extreme) {
                     extreme = price
-                } else if (price >= extreme + size) {
-                    out += Candle(ts, open, high, low, price, vol)
+                 } else if (price >= extreme + size) {
+                    out += Candle(ts, open, high, low, price, vol, source = com.foxtrader.app.domain.model.CandleSource.CACHED)
                     open = price; high = price; low = price; vol = 0.0
                     dir = 1; extreme = price; touched = false
                 }
             }
         }
         if (touched && high > low) {
-            out += Candle(ts, open, high, low, candles.last().close, vol)
+            out += Candle(ts, open, high, low, candles.last().close, vol, source = com.foxtrader.app.domain.model.CandleSource.CACHED)
         }
         return out
     }

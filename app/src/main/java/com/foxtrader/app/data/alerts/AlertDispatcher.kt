@@ -93,7 +93,7 @@ class AlertDispatcher @Inject constructor(
             }
             .build()
 
-        val notificationId = alert.id.hashCode()
+        val notificationId = (alert.id.hashCode() and 0x7fffffff) or 0x10000000
         notificationManager.notify(notificationId, notification)
     }
 
@@ -101,7 +101,7 @@ class AlertDispatcher @Inject constructor(
      * Cancel (dismiss) a notification by alert ID.
      */
     fun cancel(alertId: String) {
-        notificationManager.cancel(alertId.hashCode())
+        notificationManager.cancel((alertId.hashCode() and 0x7fffffff) or 0x10000000)
     }
 
     /**

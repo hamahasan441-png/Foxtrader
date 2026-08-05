@@ -13,6 +13,8 @@ data class Candle(
     val low: Double,
     val close: Double,
     val volume: Double,
+    /** Provenance of this bar. Defaults to CACHED for backward compatibility. */
+    val source: CandleSource = CandleSource.CACHED,
 ) {
     val isBullish: Boolean get() = close >= open
     val bodyHigh: Double get() = maxOf(open, close)

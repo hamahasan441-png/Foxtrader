@@ -57,9 +57,19 @@ class ScanAlertWorker @AssistedInject constructor(
                 evaluateSymbol(item.symbol)
             }
             Result.success()
-        } catch (_: Exception) {
-            // Non-fatal: retry next period. Don't crash the worker.
-            Result.retry()
+        } catch (e: Exception) {
+            // Only retry on transient failures (IO, timeout).
+            // Programming errors (NPE, cast, etc.) should fail fast so
+            // crash reporting can capture the root cause.
+            val cause = e.cause ?: e
+            if (cause is java.io.IOException ||
+                cause is java.util.concurrent.TimeoutException ||
+                cause is kotlinx.coroutines.TimeoutCancellationException
+            ) {
+                Result.retry()
+            } else {
+                Result.failure()
+            }
         }
     }
 
@@ -107,8 +117,9 @@ class ScanAlertWorker @AssistedInject constructor(
             )
             val setup = analysis.setup
             if (setup != null && setup.isExecutable) {
+                val id = "tradepro-${symbol}-${setup.entry}-${setup.stopLoss}-${setup.target1}"
                 val tradeProAlert = FoxAlert(
-                    id = "tradepro-${symbol}-${setup.entry.toLong()}",
+                    id = id,
                     title = "TRADEPRO ${if (setup.direction == com.foxtrader.app.domain.model.Direction.BULLISH) "BUY" else "SELL"} — $symbol",
                     body = setup.note,
                     priority = com.foxtrader.app.domain.model.AlertPriority.MEDIUM,

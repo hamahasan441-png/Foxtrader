@@ -44,20 +44,21 @@ class BiometricAuthManager @Inject constructor(
     }
 
     /**
+     * Check whether biometric hardware is present and enrolled.
+     * This is distinct from [canAuthenticate] which also permits device credential.
+     */
+    fun isBiometricEnrolled(): Boolean {
+        val bm = BiometricManager.from(context)
+        return bm.canAuthenticate(Authenticators.BIOMETRIC_WEAK) == BiometricManager.BIOMETRIC_SUCCESS
+    }
+
+    /**
      * Check whether the device supports biometric or device-credential auth.
      */
     fun canAuthenticate(): Boolean {
         val bm = BiometricManager.from(context)
         val result = bm.canAuthenticate(ALLOWED_AUTHENTICATORS)
         return result == BiometricManager.BIOMETRIC_SUCCESS
-    }
-
-    /**
-     * Check whether biometrics are enrolled (not just hardware present).
-     */
-    fun isBiometricEnrolled(): Boolean {
-        val bm = BiometricManager.from(context)
-        return bm.canAuthenticate(Authenticators.BIOMETRIC_WEAK) == BiometricManager.BIOMETRIC_SUCCESS
     }
 
     /**

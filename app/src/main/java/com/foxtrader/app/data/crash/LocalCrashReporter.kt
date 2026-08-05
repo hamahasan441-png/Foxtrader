@@ -45,6 +45,14 @@ class LocalCrashReporter @Inject constructor(
         }
     }
 
+    override fun report(throwable: Throwable) {
+        runCatching {
+            if (appPreferences.crashReportingEnabled.value) {
+                writeReport(Thread.currentThread(), throwable)
+            }
+        }
+    }
+
     private fun writeReport(thread: Thread, throwable: Throwable) {
         val dir = File(context.filesDir, CRASH_DIR).apply { mkdirs() }
         rotate(dir)

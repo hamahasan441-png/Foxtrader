@@ -1,6 +1,7 @@
 package com.foxtrader.app
 
 import android.app.Application
+import android.util.Log
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import com.foxtrader.app.data.alerts.ScanAlertScheduler
@@ -45,7 +46,12 @@ class FoxTraderApp : Application(), Configuration.Provider {
         super.onCreate()
         // Install the crash handler first so early-startup failures are captured
         // (only when the user has opted in; the handler re-checks the flag).
-        crashReporter.install()
+        // Wrapped in try-catch so a crash reporter failure never blocks app start.
+        try {
+            crashReporter.install()
+        } catch (e: Exception) {
+            Log.w("FoxTraderApp", "Crash reporter install failed", e)
+        }
         aiDecisionConfigSynchronizer.start()
         riskAlertConfigSynchronizer.start()
         scanAlertScheduler.start()

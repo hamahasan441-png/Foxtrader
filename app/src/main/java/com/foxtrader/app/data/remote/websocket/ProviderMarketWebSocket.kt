@@ -53,6 +53,8 @@ class ProviderMarketWebSocket @Inject constructor(
     @Volatile
     private var activeSocket: MarketWebSocket? = null
 
+    private val forwardJobs = mutableMapOf<MarketWebSocket, kotlinx.coroutines.Job>()
+
     init {
         forward(binanceWebSocket)
         forward(bybitWebSocket)
@@ -62,13 +64,11 @@ class ProviderMarketWebSocket @Inject constructor(
     override suspend fun subscribe(symbol: String, timeframe: Timeframe) {
         mutex.withLock {
             val pair = symbol to timeframe
-            val added = subscriptions.add(pair)
+            val alreadySubscribed = pair in subscriptions
             val provider = appPreferences.dataProvider.value
-            val previousSocket = activeSocket
-
             ensureProviderLocked(provider)
-
-            if (added && activeSocket != null && activeSocket === previousSocket) {
+            if (!alreadySubscribed) {
+                subscriptions.add(pair)
                 activeSocket?.subscribe(symbol, timeframe)
             }
         }
@@ -99,20 +99,25 @@ class ProviderMarketWebSocket @Inject constructor(
     }
 
     private fun forward(socket: MarketWebSocket) {
-        scope.launch {
+        val tickJob = scope.launch {
             socket.ticks.collect { tick ->
                 if (socket === activeSocket) {
                     _ticks.emit(tick)
                 }
             }
         }
-        scope.launch {
+        val stateJob = scope.launch {
             socket.connectionState.collect { state ->
                 if (socket === activeSocket) {
                     _connectionState.value = state
                 }
             }
         }
+        forwardJobs[socket] = kotlinx.coroutines.Job(tickJob + stateJob)
+    }
+
+    private fun cancelForward(socket: MarketWebSocket) {
+        forwardJobs.remove(socket)?.cancel()
     }
 
     private fun observeProviderChanges() {
@@ -137,6 +142,10 @@ class ProviderMarketWebSocket @Inject constructor(
 
     private suspend fun switchProviderLocked(provider: DataProvider) {
         val target = socketFor(provider)
+
+        // Cancel forward collectors for the old socket to avoid leaking
+        // coroutines that filter forever against a socket that is no longer active.
+        activeSocket?.let { cancelForward(it) }
 
         activeSocket?.disconnectAll()
         activeSocket = target

@@ -66,7 +66,7 @@ object SampleData {
             val high = maxOf(open, close) + wick
             val low = minOf(open, close) - wick
             val volume = rng.nextDouble() * 800 + 200
-            candles += Candle(startTimestamp + i * stepMs, open, high, low, close, abs(volume))
+            candles += Candle(startTimestamp + i * stepMs, open, high, low, close, abs(volume), source = com.foxtrader.app.domain.model.CandleSource.SYNTHETIC)
             price = close
         }
         return candles

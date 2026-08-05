@@ -32,7 +32,12 @@ android {
         // numbering, with safe local-dev fallbacks so a plain build still works.
         versionCode = (System.getenv("FOXTRADER_VERSION_CODE")
             ?: (project.findProperty("FOXTRADER_VERSION_CODE") as? String))
-            ?.toIntOrNull() ?: 1
+            ?.toIntOrNull() ?: run {
+                if (!BuildConfig.DEBUG) {
+                    println("WARNING: FOXTRADER_VERSION_CODE not set; falling back to 1")
+                }
+                1
+            }
         versionName = System.getenv("FOXTRADER_VERSION_NAME")
             ?: (project.findProperty("FOXTRADER_VERSION_NAME") as? String)
             ?: "0.1.0"

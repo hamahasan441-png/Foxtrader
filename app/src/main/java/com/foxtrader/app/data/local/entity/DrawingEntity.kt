@@ -1,6 +1,7 @@
 package com.foxtrader.app.data.local.entity
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
@@ -13,7 +14,7 @@ import androidx.room.PrimaryKey
  * Scoped to (symbol, timeframe) so drawings are shown on the correct chart.
  * `updatedAt` for cloud-sync conflict resolution.
  */
-@Entity(tableName = "chart_drawings")
+@Entity(tableName = "chart_drawings", indices = [Index(value = ["updatedAt"])])
 data class DrawingEntity(
     @PrimaryKey val id: String,
     val symbol: String,

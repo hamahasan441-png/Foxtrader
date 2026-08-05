@@ -203,7 +203,7 @@ private fun ViewModeToggle(
                 modifier = Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(6.dp))
-                    .background(if (isSelected) FoxAmber50 else FoxAmber50.copy(alpha = 0.12f))
+                    .background(if (isSelected) FoxAmber50 else FoxAmber50.copy(alpha = 0.25f))
                     .clickable { onSelect(mode) }
                     .padding(vertical = 6.dp),
                 textAlign = TextAlign.Center,

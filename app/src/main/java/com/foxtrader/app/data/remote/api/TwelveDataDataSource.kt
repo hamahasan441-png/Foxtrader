@@ -84,7 +84,7 @@ class TwelveDataDataSource @Inject constructor(
             val low = obj["low"]?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null
             val close = obj["close"]?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null
             val volume = obj["volume"]?.jsonPrimitive?.doubleOrNull ?: 0.0
-            Candle(timestamp = timestamp, open = open, high = high, low = low, close = close, volume = volume)
+            Candle(timestamp = timestamp, open = open, high = high, low = low, close = close, volume = volume, source = com.foxtrader.app.domain.model.CandleSource.CACHED)
         }.sortedBy { it.timestamp }
     }
 

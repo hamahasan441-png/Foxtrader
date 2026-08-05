@@ -60,13 +60,15 @@ class CloudSyncRepositoryImpl @Inject constructor(
 
         try {
             // 1. Push local changes.
+            var pushAccepted = 0
             if (localItems.isNotEmpty()) {
                 val pushRequest = SyncPushRequest(
                     items = localItems,
                     lastSyncTimestamp = syncEngine.getLastSyncTime(),
                     deviceId = deviceId,
                 )
-                syncApi.pushSync(pushRequest)
+                val pushResponse = syncApi.pushSync(pushRequest)
+                pushAccepted = pushResponse.accepted ?: localItems.size
             }
 
             // 2. Pull remote changes.
@@ -74,14 +76,14 @@ class CloudSyncRepositoryImpl @Inject constructor(
                 since = syncEngine.getLastSyncTime(),
             )
 
-            // 3. Update last-sync timestamp.
+            // 3. Update last-sync timestamp only after both push and pull succeed.
             syncEngine.updateLastSyncTime(pullResponse.serverTimestamp)
             syncEngine.setSyncStatus(SyncStatus.SUCCESS)
 
             CloudSyncEngine.SyncResult(
                 success = true,
                 mergedEntries = pullResponse.items.size,
-                conflicts = 0, // Conflict count would come from domain merge logic
+                conflicts = pullResponse.conflicts ?: 0,
                 timestamp = pullResponse.serverTimestamp,
             )
         } catch (e: Exception) {
@@ -100,7 +102,7 @@ class CloudSyncRepositoryImpl @Inject constructor(
         if (!tokenManager.isLoggedIn()) return@withContext null
         try {
             syncApi.pullSync(since = 0L) // Pull everything from the beginning
-        } catch (_: Exception) {
+        } catch (e: Exception) {
             null
         }
     }
@@ -109,4 +111,13 @@ class CloudSyncRepositoryImpl @Inject constructor(
      * Check if sync is available (user is authenticated).
      */
     fun isSyncAvailable(): Boolean = tokenManager.isLoggedIn()
+
+    /**
+     * Return the last sync error message, if any.
+     */
+    fun getLastSyncError(): String? = when (syncEngine.getSyncStatus()) {
+        SyncStatus.FAILED -> "Last sync failed. Pull-to-refresh to retry."
+        SyncStatus.SYNCING -> null
+        else -> null
+    }
 }

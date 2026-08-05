@@ -278,7 +278,13 @@ class RiskEngine @Inject constructor(
     // ========================================================================
 
     fun getDailyLoss(): Double {
-        val dayStart = (System.currentTimeMillis() / 86_400_000L) * 86_400_000L
+        // Use local timezone day boundary to match trader expectations.
+        val cal = java.util.Calendar.getInstance()
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        cal.set(java.util.Calendar.MINUTE, 0)
+        cal.set(java.util.Calendar.SECOND, 0)
+        cal.set(java.util.Calendar.MILLISECOND, 0)
+        val dayStart = cal.timeInMillis
         return tradeHistory
             .filter { it.timestamp >= dayStart && it.pnl < 0.0 }
             .sumOf { abs(it.pnl) }

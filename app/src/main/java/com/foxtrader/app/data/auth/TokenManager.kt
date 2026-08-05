@@ -54,7 +54,7 @@ class TokenManager @Inject constructor(
     fun isRefreshTokenExpired(): Boolean =
         System.currentTimeMillis() >= prefs.getLong(KEY_REFRESH_EXPIRES, 0L)
 
-    fun isLoggedIn(): Boolean = getRefreshToken() != null && !isRefreshTokenExpired()
+    fun isLoggedIn(): Boolean = getRefreshToken() != null && !isRefreshTokenExpired() && !isAccessTokenExpired()
 
     // ========================================================================
     // TOKEN STORAGE

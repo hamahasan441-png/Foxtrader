@@ -18,6 +18,7 @@ fun CandleEntity.toDomain(): Candle = Candle(
     low = low,
     close = close,
     volume = volume,
+    source = CandleSource.fromStorage(source),
 )
 
 fun Candle.toEntity(
@@ -40,11 +41,12 @@ fun Candle.toEntity(
 fun List<CandleEntity>.provenance(): CandleSource =
     CandleSource.worstOf(map { CandleSource.fromStorage(it.source) })
 
-fun CandleDto.toDomain(): Candle = Candle(
+fun CandleDto.toDomain(source: CandleSource = CandleSource.CACHED): Candle = Candle(
     timestamp = timestamp,
     open = open,
     high = high,
     low = low,
     close = close,
     volume = volume,
+    source = source,
 )

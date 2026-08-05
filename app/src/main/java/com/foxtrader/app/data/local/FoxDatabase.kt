@@ -119,22 +119,17 @@ abstract class FoxDatabase : RoomDatabase() {
         /**
          * v3 -> v4: add `candles.source` provenance.
          *
-         * The cached candles are DELETED rather than backfilled. Before v4,
-         * synthetic seed bars and real provider bars were written to the same
-         * table with nothing to tell them apart, so any backfill value would be
-         * a guess — and guessing "LIVE" would launder fabricated prices into
-         * the trustworthy set, which is precisely the bug this column exists to
-         * fix. Candles are a re-fetchable derived cache (the next refresh
-         * repopulates them); journal entries and drawings, which are NOT
-         * re-derivable, are untouched.
+         * Legacy rows cannot be reliably classified as LIVE or SYNTHETIC, so
+         * they are backfilled with CACHED rather than deleted. Cached bars
+         * are treated as untrusted by the decision engine until refreshed,
+         * which is the correct safety posture without losing the user's
+         * offline cache.
          */
         val MIGRATION_3_4 = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
-                    "ALTER TABLE candles ADD COLUMN source TEXT NOT NULL DEFAULT 'LIVE'"
+                    "ALTER TABLE candles ADD COLUMN source TEXT NOT NULL DEFAULT 'CACHED'"
                 )
-                // Unclassifiable legacy rows — drop rather than mislabel.
-                db.execSQL("DELETE FROM candles")
             }
         }
 

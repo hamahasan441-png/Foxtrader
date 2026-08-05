@@ -68,7 +68,7 @@ class AlphaVantageDataSource @Inject constructor(
             val low = item["3. low"]?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null
             val close = item["4. close"]?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null
             val volume = item["5. volume"]?.jsonPrimitive?.doubleOrNull ?: 0.0
-            Candle(timestamp = timestamp, open = open, high = high, low = low, close = close, volume = volume)
+            Candle(timestamp = timestamp, open = open, high = high, low = low, close = close, volume = volume, source = com.foxtrader.app.domain.model.CandleSource.CACHED)
         }.sortedBy { it.timestamp }
     }
 

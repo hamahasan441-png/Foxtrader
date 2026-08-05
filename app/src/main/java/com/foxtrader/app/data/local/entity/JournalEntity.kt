@@ -1,6 +1,7 @@
 package com.foxtrader.app.data.local.entity
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
@@ -13,7 +14,7 @@ import androidx.room.PrimaryKey
  *
  * `updatedAt` is added for cloud-sync conflict resolution (last-write-wins).
  */
-@Entity(tableName = "journal_entries")
+@Entity(tableName = "journal_entries", indices = [Index(value = ["updatedAt"])])
 data class JournalEntity(
     @PrimaryKey val id: String,
     val symbol: String,

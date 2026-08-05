@@ -18,4 +18,9 @@ interface CrashReporter {
      * setting takes effect without reinstalling.
      */
     fun install()
+
+    /**
+     * Report a caught/non-fatal exception for diagnostics.
+     */
+    fun report(throwable: Throwable)
 }

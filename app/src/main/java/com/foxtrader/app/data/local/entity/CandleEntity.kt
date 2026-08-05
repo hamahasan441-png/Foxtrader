@@ -11,7 +11,7 @@ import androidx.room.Index
 @Entity(
     tableName = "candles",
     primaryKeys = ["symbol", "timeframe", "timestamp"],
-    indices = [Index(value = ["symbol", "timeframe", "timestamp"])],
+    indices = [Index(value = ["symbol", "timeframe", "timestamp"]), Index(value = ["source"])],
 )
 data class CandleEntity(
     val symbol: String,

@@ -113,6 +113,7 @@ class BinanceDataSource @Inject constructor(
                 low = this[3].jsonPrimitive.content.toDouble(),
                 close = this[4].jsonPrimitive.content.toDouble(),
                 volume = this[5].jsonPrimitive.content.toDouble(),
+                source = com.foxtrader.app.domain.model.CandleSource.CACHED,
             )
         } catch (_: Exception) {
             null // Skip malformed entries; never crash the fetch.

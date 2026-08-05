@@ -90,8 +90,14 @@ class AuthInterceptor @Inject constructor(
                 val response = api.refresh(RefreshRequest(refreshToken))
                 tokenManager.saveTokens(response.tokens)
                 true
-            } catch (_: Exception) {
-                tokenManager.clearTokens()
+            } catch (e: Exception) {
+                // Only clear tokens on auth-specific failures (401/403).
+                // Preserve tokens on transient network errors so the user
+                // is not logged out during a temporary WiFi dropout.
+                val cause = e.cause ?: e
+                if (cause is okhttp3.HttpException && cause.code in listOf(401, 403)) {
+                    tokenManager.clearTokens()
+                }
                 false
             }
         }

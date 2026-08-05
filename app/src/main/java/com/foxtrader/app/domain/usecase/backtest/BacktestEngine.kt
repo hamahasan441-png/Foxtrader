@@ -216,6 +216,7 @@ class BacktestEngine @Inject constructor() {
 
     private fun getSpread(candle: Candle): Double {
         if (!config.variableSpread) return config.spread
+        if (config.spread <= 0.0) return 0.0
         val range = candle.high - candle.low
         val multiplier = min(3.0, 1.0 + range / (config.spread * 100))
         return config.spread * multiplier

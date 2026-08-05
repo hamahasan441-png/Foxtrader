@@ -36,13 +36,12 @@ interface AlertDao {
     /**
      * Retention: keep only the newest [keepCount] alerts.
      *
-     * The scan worker fires periodically and forever; without a cap the table
-     * grows without bound, which is the same leak that Sprint 6 closed on the
-     * candle cache.
+     * Uses a cutoff-timestamp approach instead of NOT IN for better performance
+     * on large tables.
      */
     @Query(
-        "DELETE FROM alerts WHERE id NOT IN (" +
-            "  SELECT id FROM alerts ORDER BY timestamp DESC LIMIT :keepCount" +
+        "DELETE FROM alerts WHERE timestamp < (" +
+            "  SELECT timestamp FROM alerts ORDER BY timestamp DESC LIMIT 1 OFFSET :keepCount" +
             ")"
     )
     suspend fun prune(keepCount: Int)

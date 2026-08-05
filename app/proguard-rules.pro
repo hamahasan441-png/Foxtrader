@@ -52,7 +52,7 @@
 }
 
 # Retrofit service interfaces (methods carry HTTP annotations; keep signatures).
--keep,allowobfuscation interface retrofit2.** { *; }
+-keep interface retrofit2.** { *; }
 -keepattributes RuntimeVisibleAnnotations, RuntimeVisibleParameterAnnotations
 
 # Room generated implementations.

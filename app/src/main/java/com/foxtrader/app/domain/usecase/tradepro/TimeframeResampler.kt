@@ -49,7 +49,7 @@ object TimeframeResampler {
             val index = Math.floorDiv(candle.timestamp, bucketMillis)
             if (!hasBucket || index != bucketIndex) {
                 if (hasBucket) {
-                    out += Candle(bucketIndex * bucketMillis, open, high, low, close, volume)
+                    out += Candle(bucketIndex * bucketMillis, open, high, low, close, volume, source = com.foxtrader.app.domain.model.CandleSource.CACHED)
                 }
                 hasBucket = true
                 bucketIndex = index
@@ -66,7 +66,7 @@ object TimeframeResampler {
             }
         }
         if (hasBucket) {
-            out += Candle(bucketIndex * bucketMillis, open, high, low, close, volume)
+            out += Candle(bucketIndex * bucketMillis, open, high, low, close, volume, source = com.foxtrader.app.domain.model.CandleSource.CACHED)
         }
         return out
     }

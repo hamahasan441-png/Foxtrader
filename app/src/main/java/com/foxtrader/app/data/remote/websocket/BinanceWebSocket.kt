@@ -62,11 +62,13 @@ class BinanceWebSocket @Inject constructor(
     private var webSocket: WebSocket? = null
     private var reconnectAttempt = 0
     private var shouldReconnect = true
+    private var heartbeatJob: kotlinx.coroutines.Job? = null
 
     companion object {
         private const val BASE_URL = "wss://stream.binance.com:9443/ws/"
         private const val MAX_RECONNECT_DELAY_MS = 30_000L
         private const val INITIAL_RECONNECT_DELAY_MS = 1_000L
+        private const val HEARTBEAT_INTERVAL_MS = 15_000L
     }
 
     // ========================================================================
@@ -91,6 +93,7 @@ class BinanceWebSocket @Inject constructor(
 
     override suspend fun disconnectAll() {
         shouldReconnect = false
+        stopHeartbeat()
         subscriptions.clear()
         webSocket?.close(1000, "Client disconnect")
         webSocket = null
@@ -126,6 +129,7 @@ class BinanceWebSocket @Inject constructor(
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 _connectionState.value = ConnectionState.CONNECTED
                 reconnectAttempt = 0
+                startHeartbeat()
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -133,17 +137,34 @@ class BinanceWebSocket @Inject constructor(
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                stopHeartbeat()
                 _connectionState.value = ConnectionState.ERROR
                 scheduleReconnect()
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                stopHeartbeat()
                 _connectionState.value = ConnectionState.DISCONNECTED
                 if (shouldReconnect && subscriptions.isNotEmpty()) {
                     scheduleReconnect()
                 }
             }
         })
+    }
+
+    private fun startHeartbeat() {
+        stopHeartbeat()
+        heartbeatJob = scope.launch {
+            while (shouldReconnect && webSocket != null) {
+                delay(HEARTBEAT_INTERVAL_MS)
+                webSocket?.send("{\"method\":\"ping\"}")
+            }
+        }
+    }
+
+    private fun stopHeartbeat() {
+        heartbeatJob?.cancel()
+        heartbeatJob = null
     }
 
     private fun scheduleReconnect() {
@@ -187,6 +208,7 @@ class BinanceWebSocket @Inject constructor(
                 low = kline["l"]?.jsonPrimitive?.content?.toDoubleOrNull() ?: return,
                 close = kline["c"]?.jsonPrimitive?.content?.toDoubleOrNull() ?: return,
                 volume = kline["v"]?.jsonPrimitive?.content?.toDoubleOrNull() ?: 0.0,
+                source = com.foxtrader.app.domain.model.CandleSource.LIVE,
             )
 
             val isBarClose = kline["x"]?.jsonPrimitive?.boolean ?: false

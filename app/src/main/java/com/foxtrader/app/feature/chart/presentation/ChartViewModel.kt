@@ -421,7 +421,17 @@ class ChartViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(drawingMode = s.drawingMode, activeTool = s.activeTool)
     }
 
-    fun clearAllDrawings() = drawingController.clearAllDrawings()
+    fun clearAllDrawings() {
+        val s = drawingController.clearAllDrawings()
+        _uiState.value = _uiState.value.copy(drawingMode = s.drawingMode, activeTool = s.activeTool, showDrawingToolbar = s.showDrawingToolbar)
+    }
+
+    fun confirmClearAllDrawings() {
+        // Guard against accidental tap: require the user to be in a neutral state.
+        if (_uiState.value.drawingMode == null) {
+            clearAllDrawings()
+        }
+    }
 
     fun toggleDrawingToolbar() {
         val s = drawingController.toggleDrawingToolbar(_uiState.value.showDrawingToolbar)
