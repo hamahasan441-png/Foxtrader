@@ -34,7 +34,6 @@ import com.foxtrader.app.domain.usecase.replay.ReplayEngine
 import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
 import com.foxtrader.app.feature.chart.presentation.components.ChartPerformanceMonitor
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -164,10 +163,21 @@ class ChartViewModel @Inject constructor(
         timeframeAccessor = { dataController.timeframeFlow.value },
     )
 
+    private val watchlistController = ChartWatchlistController(
+        watchlistRepository = watchlistRepository,
+        scope = viewModelScope,
+        onWatchlistChange = { symbols, activeId ->
+            _uiState.value = _uiState.value.copy(
+                availableSymbols = symbols.toPersistentList(),
+                activeWatchlistId = activeId,
+            )
+        },
+    )
+
     init {
         dataController.symbolFlow.value = _uiState.value.symbol
         dataController.timeframeFlow.value = _uiState.value.timeframe
-        observeWatchlist()
+        watchlistController.observe()
         dataController.observeMarket()
         observeDrawings()
         dataController.observeWebSocketTicks()
@@ -203,44 +213,15 @@ class ChartViewModel @Inject constructor(
             htfContextKey = htfKey
         }
 
-        _uiState.value = _uiState.value.copy(
-            candles = candles.asCandleSeries(), dataSource = source, bias = c.bias,
-            structureBreaks = if (ind.structure) c.structureBreaks.toPersistentList() else persistentListOf(),
-            emaShort = c.overlays.emaShort.asImmutableDoubleSeries(),
-            emaLong = c.overlays.emaLong.asImmutableDoubleSeries(),
-            bollingerUpper = c.overlays.bollingerUpper.asImmutableDoubleSeries(),
-            bollingerMiddle = c.overlays.bollingerMiddle.asImmutableDoubleSeries(),
-            bollingerLower = c.overlays.bollingerLower.asImmutableDoubleSeries(),
-            superTrendValues = c.overlays.superTrendValues.asImmutableDoubleSeries(),
-            superTrendDir = c.overlays.superTrendDir.asImmutableIntSeries(),
-            parabolicSar = c.overlays.parabolicSar.asImmutableDoubleSeries(),
-            vwap = c.overlays.vwap.asImmutableDoubleSeries(),
-            ichimokuTenkan = c.overlays.ichimokuTenkan.asImmutableDoubleSeries(),
-            ichimokuKijun = c.overlays.ichimokuKijun.asImmutableDoubleSeries(),
-            ichimokuSenkouA = c.overlays.ichimokuSenkouA.asImmutableDoubleSeries(),
-            ichimokuSenkouB = c.overlays.ichimokuSenkouB.asImmutableDoubleSeries(),
-            ichimokuChikou = c.overlays.ichimokuChikou.asImmutableDoubleSeries(),
-            rsiValues = c.overlays.rsi.asImmutableDoubleSeries(),
-            macdLine = c.overlays.macdLine.asImmutableDoubleSeries(),
-            macdSignal = c.overlays.macdSignal.asImmutableDoubleSeries(),
-            macdHistogram = c.overlays.macdHistogram.asImmutableDoubleSeries(),
-            orderBlocks = c.overlays.orderBlocks.toPersistentList(),
-            fairValueGaps = c.overlays.fairValueGaps.toPersistentList(),
-            liquidityPools = c.overlays.liquidityPools.toPersistentList(),
-            tradeProAnalysis = tradeProEngine.analyze(
-                symbol, candles, appPreferences.tradeProConfig.value, htfContextCache,
-            ),
-            volumeProfile = c.overlays.volumeProfile,
-            marketProfile = c.overlays.marketProfile,
-            supportResistanceZones = c.overlays.supportResistanceZones.toPersistentList(),
-            autoFibLevels = c.overlays.autoFibLevels.toPersistentList(),
-            autoFibDirection = c.overlays.autoFibDirection,
-            autoFibSwingHigh = c.overlays.autoFibSwingHigh,
-            autoFibSwingLow = c.overlays.autoFibSwingLow,
-            sessions = c.overlays.sessions.toPersistentList(),
-            marketExplanation = c.marketExplanation,
-            confluence = if (ind.confluence) _uiState.value.confluence else null,
-            isLoading = candles.isEmpty() && _uiState.value.error == null,
+        val tradeProAnalysis = tradeProEngine.analyze(
+            symbol, candles, appPreferences.tradeProConfig.value, htfContextCache,
+        )
+        _uiState.value = _uiState.value.withComputation(
+            candles = candles,
+            source = source,
+            computation = c,
+            toggles = ind,
+            tradeProAnalysis = tradeProAnalysis,
         )
 
         aiCoordinator.runAiDecision(
@@ -260,19 +241,6 @@ class ChartViewModel @Inject constructor(
     // ========================================================================
     // SIMPLE OBSERVATION / UI ACTIONS
     // ========================================================================
-    private fun observeWatchlist() {
-        viewModelScope.launch { watchlistRepository.ensureSeeded() }
-        watchlistRepository.observeWatchlists()
-            .onEach { lists ->
-                val active = lists.firstOrNull { it.isDefault } ?: lists.firstOrNull()
-                _uiState.value = _uiState.value.copy(
-                    availableSymbols = active?.symbolNames.orEmpty().toPersistentList(),
-                    activeWatchlistId = active?.id,
-                )
-            }
-            .launchIn(viewModelScope)
-    }
-
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private fun observeDrawings() {
         combine(dataController.symbolFlow, dataController.timeframeFlow) { s, tf -> s to tf }
@@ -284,15 +252,9 @@ class ChartViewModel @Inject constructor(
     fun openCalculator() { _uiState.value = _uiState.value.copy(showCalculator = true) }
     fun closeCalculator() { _uiState.value = _uiState.value.copy(showCalculator = false) }
 
-    fun addSymbolToWatchlist(symbol: String) {
-        val listId = _uiState.value.activeWatchlistId ?: return
-        viewModelScope.launch { watchlistRepository.addSymbol(listId, symbol) }
-    }
+    fun addSymbolToWatchlist(symbol: String) = watchlistController.addSymbol(symbol)
 
-    fun removeSymbolFromWatchlist(symbol: String) {
-        val listId = _uiState.value.activeWatchlistId ?: return
-        viewModelScope.launch { watchlistRepository.removeSymbol(listId, symbol) }
-    }
+    fun removeSymbolFromWatchlist(symbol: String) = watchlistController.removeSymbol(symbol)
 
     fun openSymbolPicker() { _uiState.value = _uiState.value.copy(showSymbolPicker = true) }
     fun closeSymbolPicker() { _uiState.value = _uiState.value.copy(showSymbolPicker = false) }
