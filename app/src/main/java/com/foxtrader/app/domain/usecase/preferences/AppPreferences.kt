@@ -99,6 +99,14 @@ class AppPreferences @Inject constructor(
     private val _crashReportingEnabled = MutableStateFlow(false)
     val crashReportingEnabled: StateFlow<Boolean> = _crashReportingEnabled.asStateFlow()
 
+    /**
+     * First-run educational-tool disclaimer gate. Defaults OFF (not acknowledged)
+     * so the disclaimer is surfaced before any analysis on first launch, and is
+     * persisted once the user acknowledges it so it is never shown again.
+     */
+    private val _disclaimerAcknowledged = MutableStateFlow(false)
+    val disclaimerAcknowledged: StateFlow<Boolean> = _disclaimerAcknowledged.asStateFlow()
+
     private val _tradeProConfig = MutableStateFlow(TradeProConfig())
     val tradeProConfig: StateFlow<TradeProConfig> = _tradeProConfig.asStateFlow()
 
@@ -154,6 +162,7 @@ class AppPreferences @Inject constructor(
                     ?.let(::decodeMultiChartState)
                     ?: PersistedMultiChartState()
                 _crashReportingEnabled.value = prefs[KEY_CRASH_REPORTING_ENABLED] ?: false
+                _disclaimerAcknowledged.value = prefs[KEY_DISCLAIMER_ACKNOWLEDGED] ?: false
                 _tradeProConfig.value = prefs[KEY_TRADEPRO_CONFIG]?.let { raw ->
                     runCatching { json.decodeFromString<TradeProConfig>(raw) }.getOrDefault(TradeProConfig())
                 } ?: TradeProConfig()
@@ -170,6 +179,12 @@ class AppPreferences @Inject constructor(
     fun setCrashReportingEnabled(enabled: Boolean) {
         _crashReportingEnabled.value = enabled
         scope.launch { context.dataStore.edit { it[KEY_CRASH_REPORTING_ENABLED] = enabled } }
+    }
+
+    /** Persist that the user has acknowledged the educational-tool disclaimer. */
+    fun setDisclaimerAcknowledged(acknowledged: Boolean) {
+        _disclaimerAcknowledged.value = acknowledged
+        scope.launch { context.dataStore.edit { it[KEY_DISCLAIMER_ACKNOWLEDGED] = acknowledged } }
     }
 
     fun setTradeProConfig(config: TradeProConfig) {
@@ -419,6 +434,7 @@ class AppPreferences @Inject constructor(
         val KEY_ALPHA_VANTAGE_API_KEY = stringPreferencesKey("alpha_vantage_api_key")
         val KEY_MULTI_CHART_STATE = stringPreferencesKey("multi_chart_state")
         val KEY_CRASH_REPORTING_ENABLED = booleanPreferencesKey("crash_reporting_enabled")
+        val KEY_DISCLAIMER_ACKNOWLEDGED = booleanPreferencesKey("disclaimer_acknowledged")
         val KEY_TRADEPRO_CONFIG = stringPreferencesKey("tradepro_config")
         val KEY_LITX_CONFIG = stringPreferencesKey("litx_config")
         val KEY_TRADEPRO_ALERT_RULES = stringPreferencesKey("tradepro_alert_rules")

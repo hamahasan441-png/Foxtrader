@@ -22,6 +22,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.foxtrader.app.data.auth.BiometricAuthManager
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.feature.auth.presentation.LockScreen
+import com.foxtrader.app.feature.onboarding.presentation.DisclaimerScreen
 import com.foxtrader.app.ui.navigation.FoxNavHost
 import com.foxtrader.app.ui.theme.FoxTraderTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -58,6 +59,11 @@ class MainActivity : FragmentActivity() {
             val darkMode by appPreferences.darkMode.collectAsStateWithLifecycle()
             val appLockEnabled by appPreferences.appLockEnabled.collectAsStateWithLifecycle()
 
+            // First-run educational-tool disclaimer must be acknowledged before
+            // any analysis is shown (ENTERPRISE_MASTER_PLAN T5.3).
+            val disclaimerAcknowledged by appPreferences.disclaimerAcknowledged
+                .collectAsStateWithLifecycle()
+
             // Lock the app on launch when App Lock is on; unlocked for the session
             // once biometric auth succeeds.
             var unlocked by remember { mutableStateOf(false) }
@@ -65,6 +71,8 @@ class MainActivity : FragmentActivity() {
 
             FoxTraderAppContent(
                 darkMode = darkMode,
+                showDisclaimer = !disclaimerAcknowledged,
+                onAcknowledgeDisclaimer = { appPreferences.setDisclaimerAcknowledged(true) },
                 locked = locked,
                 onAuthenticate = {
                     biometricAuthManager.authenticate(
@@ -97,6 +105,8 @@ class MainActivity : FragmentActivity() {
 @Composable
 private fun FoxTraderAppContent(
     darkMode: Boolean,
+    showDisclaimer: Boolean,
+    onAcknowledgeDisclaimer: () -> Unit,
     locked: Boolean,
     onAuthenticate: suspend () -> Boolean,
     onUnlock: () -> Unit,
@@ -106,10 +116,12 @@ private fun FoxTraderAppContent(
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background,
         ) {
-            if (locked) {
-                LockScreen(onAuthenticate = onAuthenticate, onUnlock = onUnlock)
-            } else {
-                FoxNavHost()
+            when {
+                // First-run gate: nothing else renders until the educational
+                // disclaimer is acknowledged.
+                showDisclaimer -> DisclaimerScreen(onAcknowledge = onAcknowledgeDisclaimer)
+                locked -> LockScreen(onAuthenticate = onAuthenticate, onUnlock = onUnlock)
+                else -> FoxNavHost()
             }
         }
     }

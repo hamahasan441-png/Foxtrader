@@ -24,7 +24,11 @@ import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ShowChart
@@ -67,19 +71,15 @@ import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.ui.theme.FoxWarning
 import com.foxtrader.app.feature.chart.presentation.components.CandleChart
-import com.foxtrader.app.feature.chart.presentation.components.ConfluenceRibbon
-import com.foxtrader.app.feature.chart.presentation.components.TradeProSetupCard
-import com.foxtrader.app.feature.chart.presentation.components.AiDecisionPanel
-import com.foxtrader.app.feature.chart.presentation.components.DrawingToolbar
+import com.foxtrader.app.feature.chart.presentation.components.ChartAnalysisSheet
+import com.foxtrader.app.feature.chart.presentation.components.DrawingPalette
 import com.foxtrader.app.feature.chart.presentation.components.IndicatorPanel
 import com.foxtrader.app.feature.chart.presentation.components.MultiChartSection
 import com.foxtrader.app.feature.chart.presentation.components.MultiChartToolbar
 import com.foxtrader.app.domain.usecase.performance.PerformanceSnapshot
-import com.foxtrader.app.feature.chart.presentation.components.MarketContextPanel
-import com.foxtrader.app.feature.chart.presentation.components.MacdSubChart
+import com.foxtrader.app.feature.chart.presentation.components.ChartPaneStack
 import com.foxtrader.app.feature.chart.presentation.components.PerformanceOverlay
 import com.foxtrader.app.feature.chart.presentation.components.ReplayControlBar
-import com.foxtrader.app.feature.chart.presentation.components.RsiSubChart
 import com.foxtrader.app.feature.calculator.presentation.PositionCalculatorSheet
 import com.foxtrader.app.feature.chart.presentation.components.SymbolPickerDialog
 import com.foxtrader.app.ui.theme.FoxAmber50
@@ -108,6 +108,8 @@ fun ChartScreen(
     onNavigateToAlerts: () -> Unit = {},
     onNavigateToTradeManagement: () -> Unit = {},
     onNavigateToLitX: (String, Timeframe) -> Unit = { _, _ -> },
+    immersive: Boolean = false,
+    onToggleImmersive: () -> Unit = {},
     viewModel: ChartViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -139,43 +141,74 @@ fun ChartScreen(
     // --- Track which dropdown menu is open (only one at a time) ---
     var activeMenu by remember { mutableStateOf(ChartMenu.NONE) }
 
+    // --- Bottom "Analysis" sheet expand/collapse (R2) ---
+    // Consolidates the AI decision, market context, MTF confluence and TRADEPRO
+    // setup that previously floated over the price action into one on-demand
+    // sheet, keeping the canvas clean (TradingView-style).
+    var analysisExpanded by remember { mutableStateOf(false) }
+
+    // --- Price-scale lock (R7): freezes the Y auto-fit during pan/zoom ---
+    var scaleLocked by remember { mutableStateOf(false) }
+
+    // The candle series shown right now (replay bars while replaying, else the
+    // live series), as a stable CandleSeries. Shared by the main chart and the
+    // volume pane so their bar indices stay aligned (R3/R5).
+    val displayCandles = remember(replayState.isActive, replayState.visibleCandles, state.candles) {
+        (if (replayState.isActive) replayState.visibleCandles else state.candles).asCandleSeries()
+    }
+
+    // `INSETS` The app-level Scaffold in FoxNavHost already applies the system-bar
+    // window insets (status bar on top, navigation bar on the bottom) to the
+    // NavHost that hosts this screen. The previous manual `padding(top = 24.dp)`
+    // was therefore redundant double-padding that stole ~24dp from the chart and
+    // rendered incorrectly on cutout/notch devices. It is intentionally removed
+    // so the chart reclaims that space and honours real insets.
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .padding(top = 24.dp),
+            .background(MaterialTheme.colorScheme.background),
     ) {
-        // --- Top bar with symbol, bias, price, and action buttons ---
-        ChartTopBar(
-            state = state,
-            connectionState = connectionState,
-            unreadAlerts = unreadAlerts,
-            onAlertsClick = onNavigateToAlerts,
-            onCalculatorClick = viewModel::openCalculator,
-            onSymbolClick = viewModel::openSymbolPicker,
-            onLiveToggle = viewModel::toggleLive,
-            onLitXClick = { onNavigateToLitX(state.symbol, state.timeframe) },
-        )
+        // --- Top bar (hidden in immersive/full-screen focus mode, R1) ---
+        if (!immersive) {
+            ChartTopBar(
+                state = state,
+                connectionState = connectionState,
+                unreadAlerts = unreadAlerts,
+                onAlertsClick = onNavigateToAlerts,
+                onCalculatorClick = viewModel::openCalculator,
+                onSymbolClick = viewModel::openSymbolPicker,
+                onLiveToggle = viewModel::toggleLive,
+                onLitXClick = { onNavigateToLitX(state.symbol, state.timeframe) },
+            )
+        }
 
-        // --- Synthetic-data warning (not dismissible while active) ---
+        // --- Synthetic-data warning ---
+        // Kept visible even in immersive mode: it is a safety-critical notice
+        // that the chart is rendering generated (not real) prices.
         SyntheticDataBanner(visible = state.isSyntheticData)
 
-        // --- Compact Chart Toolbar (TradingView-style) ---
-        // Single row of small buttons - each opens/closes a dropdown panel below
-        ChartToolbar(
-            activeMenu = activeMenu,
-            currentTimeframe = state.timeframe,
-            showDrawingActive = state.showDrawingToolbar,
-            onMenuToggle = { menu ->
-                activeMenu = if (activeMenu == menu) ChartMenu.NONE else menu
-            },
-            onReplayStart = { viewModel.startReplay() },
-        )
+        // --- Compact Chart Toolbar (TradingView-style, hidden in immersive) ---
+        if (!immersive) {
+            ChartToolbar(
+                activeMenu = activeMenu,
+                currentTimeframe = state.timeframe,
+                // Single source of truth (R4): the Draw chip lights up when a tool
+                // is actually armed, not from a duplicated showDrawingToolbar flag.
+                showDrawingActive = state.activeTool != null,
+                onMenuToggle = { menu ->
+                    activeMenu = if (activeMenu == menu) ChartMenu.NONE else menu
+                },
+                onReplayStart = { viewModel.startReplay() },
+                onToggleFullscreen = onToggleImmersive,
+                scaleLocked = scaleLocked,
+                onToggleScaleLock = { scaleLocked = !scaleLocked },
+            )
+        }
 
         // --- Expandable panels (only one visible at a time) ---
         // Timeframe dropdown
         AnimatedVisibility(
-            visible = activeMenu == ChartMenu.TIMEFRAME,
+            visible = !immersive && activeMenu == ChartMenu.TIMEFRAME,
             enter = expandVertically(),
             exit = shrinkVertically(),
         ) {
@@ -190,7 +223,7 @@ fun ChartScreen(
 
         // Indicators dropdown
         AnimatedVisibility(
-            visible = activeMenu == ChartMenu.INDICATORS,
+            visible = !immersive && activeMenu == ChartMenu.INDICATORS,
             enter = expandVertically(),
             exit = shrinkVertically(),
         ) {
@@ -201,25 +234,13 @@ fun ChartScreen(
             )
         }
 
-        // Drawing tools dropdown
-        AnimatedVisibility(
-            visible = activeMenu == ChartMenu.DRAWING,
-            enter = expandVertically(),
-            exit = shrinkVertically(),
-        ) {
-            DrawingToolbar(
-                visible = true,
-                activeMode = state.drawingMode,
-                activeTool = state.activeTool,
-                onToolSelect = viewModel::startDrawing,
-                onClearAll = viewModel::clearAllDrawings,
-                onClose = { activeMenu = ChartMenu.NONE },
-            )
-        }
+        // NOTE (R4): drawing tools are no longer an inline dropdown that pushes
+        // the chart down. They are a floating, auto-hiding DrawingPalette rail
+        // rendered as an overlay inside the chart Box below.
 
         // Multi-chart dropdown
         AnimatedVisibility(
-            visible = activeMenu == ChartMenu.MULTI_CHART,
+            visible = !immersive && activeMenu == ChartMenu.MULTI_CHART,
             enter = expandVertically(),
             exit = shrinkVertically(),
         ) {
@@ -277,7 +298,10 @@ fun ChartScreen(
                 ) {
                     when {
                         state.hasData -> CandleChart(
-                            candles = if (replayState.isActive) replayState.visibleCandles else state.candles,
+                            // `PERF` Stable CandleSeries so Compose can skip the
+                            // chart when inputs are unchanged (R5). Shared with the
+                            // volume pane for index alignment (R3).
+                            candles = displayCandles,
                             modifier = Modifier.fillMaxSize(),
                             structureBreaks = state.structureBreaks,
                             timeframe = state.timeframe,
@@ -317,6 +341,12 @@ fun ChartScreen(
                             syncedCrosshairTimestamp = state.syncedCrosshairTimestamp,
                             onCrosshairTimestampChange = viewModel::onPrimaryCrosshairTimestampChange,
                             performanceMonitor = monitor,
+                            autoScaleEnabled = !scaleLocked,
+                            chartContentDescription = stringResource(
+                                R.string.chart_canvas_cd,
+                                state.symbol,
+                                state.timeframe.label,
+                            ),
                         )
                         state.isLoading -> CircularProgressIndicator(color = FoxAmber50)
                         state.error != null -> Text(
@@ -333,36 +363,30 @@ fun ChartScreen(
                 }
             }
 
-            // --- AI Decision badge (top-left overlay) ---
-            AiDecisionPanel(
-                decision = state.aiDecision,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(start = 8.dp, top = 8.dp),
-            )
+            // NOTE (R2): the AI decision, market context, MTF confluence and
+            // TRADEPRO setup cards no longer float over the price action. They
+            // are consolidated into the collapsible ChartAnalysisSheet anchored
+            // at the bottom of this Box, so the canvas stays clean and the
+            // detail is available on demand (TradingView-style).
 
-            // --- Deterministic market context (top-right overlay) ---
-            MarketContextPanel(
-                explanation = state.marketExplanation,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(end = 8.dp, top = 8.dp),
-            )
-
-            ConfluenceRibbon(
-                result = if (state.indicators.confluence) state.confluence else null,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 8.dp),
-            )
-
-            // --- TRADEPRO setup + MTF-alignment badge (left-center overlay) ---
-            TradeProSetupCard(
-                analysis = state.tradeProAnalysis,
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .padding(start = 8.dp),
-            )
+            // --- Exit full-screen button (only in immersive focus mode, R1) ---
+            // The chrome + bottom nav are hidden in immersive mode, so this is
+            // the way back out. Top-end keeps it clear of the bottom overlays.
+            if (immersive) {
+                SmallFloatingActionButton(
+                    onClick = onToggleImmersive,
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = FoxAmber50,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 8.dp, end = 8.dp),
+                ) {
+                    Icon(
+                        Icons.Default.FullscreenExit,
+                        contentDescription = stringResource(R.string.chart_focus_exit),
+                    )
+                }
+            }
 
             // --- Debug FPS / frame-budget HUD (debug builds only) ---
             if (BuildConfig.DEBUG) {
@@ -374,6 +398,16 @@ fun ChartScreen(
                         .padding(start = 8.dp, bottom = 8.dp),
                 )
             }
+
+            // --- Floating drawing tool palette (left edge, auto-hiding, R4) ---
+            DrawingPalette(
+                visible = activeMenu == ChartMenu.DRAWING,
+                activeTool = state.activeTool,
+                onToolSelect = viewModel::startDrawing,
+                onClearAll = viewModel::clearAllDrawings,
+                onClose = { activeMenu = ChartMenu.NONE },
+                modifier = Modifier.align(Alignment.CenterStart),
+            )
 
             // --- Replay control bar (bottom overlay) ---
             ReplayControlBar(
@@ -402,14 +436,31 @@ fun ChartScreen(
                     )
                 }
             }
+
+            // --- Consolidated Analysis sheet (bottom overlay, R2) ---
+            // Hidden during replay so it never fights the replay control bar,
+            // which also anchors to the bottom-centre.
+            if (!replayState.isActive) {
+                ChartAnalysisSheet(
+                    expanded = analysisExpanded,
+                    onToggleExpanded = { analysisExpanded = !analysisExpanded },
+                    bias = state.bias,
+                    decision = state.aiDecision,
+                    explanation = state.marketExplanation,
+                    confluence = if (state.indicators.confluence) state.confluence else null,
+                    tradeProAnalysis = state.tradeProAnalysis,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                )
+            }
         }
 
-        // --- Oscillator sub-panels (RSI / MACD) below the chart ---
-        // Isolated composable that collects the reactive viewport so panels
-        // track main-chart pan/zoom in real time without recomposing the chart.
-        if (state.hasData) {
-            OscillatorPanels(
+        // --- Separate-pane indicators (RSI / MACD / Volume) below the chart ---
+        // Resizable pane stack (R3). Collects the reactive viewport internally so
+        // panes track main-chart pan/zoom without recomposing the chart itself.
+        if (state.hasData && !immersive) {
+            ChartPaneStack(
                 indicators = state.indicators,
+                candles = displayCandles,
                 rsiValues = state.rsiValues,
                 macdLine = state.macdLine,
                 macdSignal = state.macdSignal,
@@ -433,48 +484,6 @@ fun ChartScreen(
             onPanelCrosshairTimestampChange = viewModel::onMultiChartPanelCrosshairTimestampChange,
             onPanelViewportStateChange = viewModel::onMultiChartPanelViewportStateChange,
             panelViewportState = viewModel::currentMultiChartPanelViewportState,
-        )
-    }
-}
-
-/**
- * Oscillator sub-panels container (RSI / MACD).
- *
- * Collects the primary chart's viewport as reactive state so the panels redraw
- * in sync with main-chart pan/zoom/fling. Isolating the [collectAsStateWithLifecycle]
- * read here means only this container recomposes on viewport changes — the main
- * [CandleChart] keeps its full-FPS internal render loop untouched.
- */
-@Composable
-private fun OscillatorPanels(
-    indicators: IndicatorToggles,
-    rsiValues: ImmutableDoubleSeries?,
-    macdLine: ImmutableDoubleSeries?,
-    macdSignal: ImmutableDoubleSeries?,
-    macdHistogram: ImmutableDoubleSeries?,
-    viewportFlow: kotlinx.coroutines.flow.StateFlow<com.foxtrader.app.domain.usecase.chart.ChartViewportState?>,
-    fallbackViewport: com.foxtrader.app.domain.usecase.chart.ChartViewportState?,
-) {
-    val liveViewport by viewportFlow.collectAsStateWithLifecycle()
-    val vp = liveViewport ?: fallbackViewport
-    val startIndex = vp?.startIndex ?: 0f
-    val visibleBars = vp?.visibleBars ?: 120f
-
-    if (indicators.rsi && rsiValues != null) {
-        RsiSubChart(
-            rsiValues = rsiValues,
-            startIndex = startIndex,
-            visibleBars = visibleBars,
-        )
-    }
-
-    if (indicators.macd && macdLine != null && macdSignal != null && macdHistogram != null) {
-        MacdSubChart(
-            macdLine = macdLine,
-            macdSignal = macdSignal,
-            macdHistogram = macdHistogram,
-            startIndex = startIndex,
-            visibleBars = visibleBars,
         )
     }
 }
@@ -509,7 +518,10 @@ private fun ChartTopBar(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(
+                horizontal = ChartDimens.topBarHorizontalPadding,
+                vertical = ChartDimens.topBarVerticalPadding,
+            ),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -616,12 +628,18 @@ private fun ChartToolbar(
     showDrawingActive: Boolean,
     onMenuToggle: (ChartMenu) -> Unit,
     onReplayStart: () -> Unit,
+    onToggleFullscreen: () -> Unit,
+    scaleLocked: Boolean,
+    onToggleScaleLock: () -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(
+                horizontal = ChartDimens.toolbarHorizontalPadding,
+                vertical = ChartDimens.toolbarVerticalPadding,
+            ),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
@@ -667,6 +685,32 @@ private fun ChartToolbar(
             Icon(
                 Icons.Default.Refresh,
                 contentDescription = stringResource(R.string.chart_start_replay_mode),
+                tint = FoxNeutral60,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+
+        // Lock / unlock the price scale (R7).
+        IconButton(
+            onClick = onToggleScaleLock,
+            modifier = Modifier.size(32.dp),
+        ) {
+            Icon(
+                if (scaleLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                contentDescription = stringResource(R.string.chart_scale_toggle_lock),
+                tint = if (scaleLocked) FoxAmber50 else FoxNeutral60,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+
+        // Enter full-screen focus mode (R1) — hides the chrome + bottom nav.
+        IconButton(
+            onClick = onToggleFullscreen,
+            modifier = Modifier.size(32.dp),
+        ) {
+            Icon(
+                Icons.Default.Fullscreen,
+                contentDescription = stringResource(R.string.chart_focus_enter),
                 tint = FoxNeutral60,
                 modifier = Modifier.size(18.dp),
             )
