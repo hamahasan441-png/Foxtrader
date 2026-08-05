@@ -2,6 +2,7 @@ package com.foxtrader.app.domain.usecase.replay
 
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.ReplaySpeed
+import com.foxtrader.app.domain.usecase.tick.TickAggregator
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -22,7 +23,7 @@ class ReplayEngineTest {
 
     @Before
     fun setup() {
-        engine = ReplayEngine()
+        engine = ReplayEngine(TickAggregator())
         testCandles = (0 until 100).map { i ->
             Candle(
                 timestamp = 1_000_000L + i * 60_000L,

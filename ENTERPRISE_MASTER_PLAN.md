@@ -589,3 +589,51 @@ All guards fail fast in debug, are cheap in release (no allocations on the happy
 **Environment blocker (unchanged, confirmed this session).** This sandbox is `INTEGRATIONS_ONLY` with no Android SDK and no reachable Gradle/Maven, so `:app:assembleDebug` / `:app:testDebugUnitTest` cannot run here (the Gradle wrapper cannot even download its own distribution). All remaining roadmap items (T0.2 schema JSON, T4.1/T4.2 app-wide gates + baseline profile in CI, remote crash reporting, Play screenshots) require a build-capable machine/CI. This is a genuine human-action gate, not a code gap.
 
 *No code changed in this sprint. Audit only — the correctness core was found sound; the remaining work is build-environment-gated.*
+
+
+
+---
+
+### Sprint 3 & 4 Completion — Tick engine, Dukascopy `.bi5` decoder, tick replay, ICT kill zones *(status: implemented)*
+
+**Scope.** Closes the two remaining data/analysis gaps that the original Sprint 3 (market-data engine) and Sprint 4 (ICT/SMC concept coverage) left open at the *source-feasible* level: a pure-Kotlin tick ingestion + aggregation path, a Dukascopy `.bi5` binary decoder, tick-driven replay, and the previously-missing ICT Kill Zones. All new code is pure Kotlin (no `android.*` imports) and unit-testable; live HTTP/LZMA transport stays intentionally gated (no network / no LZMA dependency in this environment) behind the decoder.
+
+**Sprint 4 — SMC/ICT concept coverage: verified already-implemented.** A re-review confirms the 13 core institutional concepts are implemented and tested in the tree; this sprint adds the one true gap (kill zones). Verified concepts and their files:
+
+1. Order Blocks — `domain/usecase/smc/SmcDetector.kt` (`detectOrderBlocks`), model `domain/model/SmcConcepts.kt::OrderBlock`.
+2. Fair Value Gaps (imbalance) — `SmcDetector.detectFairValueGaps`, model `FairValueGap`.
+3. Liquidity pools (buy-side / sell-side) — `SmcDetector` liquidity detection, model `LiquidityPool`.
+4. Volume Profile (POC / VAH / VAL) — `SmcDetector`, models `VolumeProfileLevel` / `VolumeProfile`.
+5. Breaker Blocks — `SmcDetector.detectBreakers`, model `BreakerBlock`.
+6. Inversion FVG (IFVG) — `SmcDetector.detectIFVG`, model `InversionFVG`.
+7. Balanced Price Range (BPR) — `SmcDetector.detectBPR`, model `BalancedPriceRange`.
+8. AMD / Power of Three — `SmcDetector` AMD detection, model `AmdPattern` / `AmdPhase`.
+9. Market-structure breaks BOS / CHOCH / MSS / IDM — model `domain/model/MarketStructure.kt::StructureBreak`, use case `domain/usecase/AnalyzeMarketStructureUseCase.kt`.
+10. Swing points (fractal highs/lows) — `domain/model/MarketStructure.kt::SwingPoint`.
+11. SMT divergence — `domain/usecase/smt/SmtDivergenceDetector.kt`.
+12. Trading sessions (London / New York / Tokyo / Sydney) — `domain/usecase/sessions/SessionDetector.kt`, model `SessionRange` / `TradingSession`.
+13. **ICT Kill Zones — the gap, now closed this sprint** (see below).
+
+**ICT Kill Zone gap — closed.** Added `domain/model/KillZone.kt` (`KillZone` enum: Asian Range `[0,5)`, London Open `[7,10)`, New York Open `[12,15)`, London Close `[15,17)` UTC; plus `KillZoneRange`) and `domain/usecase/sessions/KillZoneDetector.kt` (`@Singleton`). `detect(candles, zones)` mirrors `SessionDetector.detectSessions` exactly — same hour-window membership test (with overnight-wrap handling), same high/low accumulation, same end-of-data flush, sorted by start index. `isInKillZone(timestampMs)` maps a UTC timestamp to its active zone via `java.util.Calendar` (main-source only, so `java.util` is fine). Tests: `KillZoneDetectorTest` (5 tests) mirror `SessionDetectorTest` — hourly UTC candles with index == hour.
+
+**Sprint 3 — tick engine (new, pure Kotlin).**
+- `domain/model/Tick.kt` — `Tick(timestampMs, bid, ask, bidVolume, askVolume)` value object with `mid` and `spread` derived properties.
+- `domain/usecase/tick/TickAggregator.kt` (`@Singleton`) — `aggregate(ticks, timeframe)` buckets ticks by `floor(ts / durationMs) * durationMs`, builds OHLC from the mid price (open = first tick's mid, close = last tick's mid, high/low = max/min mid), sums `bidVolume + askVolume` for candle volume, sorts ascending, non-repainting. Duration map covers M1..MN.
+- Tests: `TickAggregatorTest` (6 tests) — empty→empty, single-tick O=H=L=C=mid, hand-computed multi-tick OHLC, two-bucket split, volume sum, ascending order regardless of input order.
+
+**Sprint 3 — Dukascopy `.bi5` decoder (new, pure Kotlin / `java.nio`).**
+- `data/remote/dukascopy/DukascopyTickDecoder.kt` (`@Singleton`) — `decode(decompressed, hourStartMs, pointValue)` parses fixed 20-byte BIG_ENDIAN records (int32 msOffset, int32 askPoints, int32 bidPoints, float32 askVol, float32 bidVol) into `Tick`s: `timestampMs = hourStartMs + msOffset`, `bid = bidPoints / pointValue`, `ask = askPoints / pointValue`, volumes as-is. Trailing partial record (< 20 bytes) is ignored; empty → empty. Uses `java.nio.ByteBuffer` in BIG_ENDIAN.
+- Tests: `DukascopyTickDecoderTest` (6 tests) — empty→empty, sub-record→empty, one-record exact decode, trailing-partial ignored, `pointValue` scaling, multi-record order/offset.
+- **Transport gated:** the live Dukascopy HTTP fetch + LZMA decompression path is deliberately **not** implemented here (no network access and no LZMA dependency in this environment). The decoder is the pure, testable seam that a future transport feeds; `domain/sdk/provider/DukascopyAdapter.kt` remains a non-live stub until that transport lands.
+
+**Sprint 3 — tick-aware replay.**
+- `domain/usecase/replay/ReplayEngine.kt` — constructor changed from `@Inject constructor()` to `@Inject constructor(tickAggregator: TickAggregator)`. New `startTickReplay(ticks, aggregateTo, startAt = 50)` aggregates ticks to candles then reuses the existing `start(candles, startAt)` path, so every playback control behaves identically. Sole construction site (`ReplayEngineTest`) updated to `ReplayEngine(TickAggregator())`; no DI module constructs it manually (Hilt auto-provides the `@Singleton @Inject` `TickAggregator`).
+- Tests: `ReplayEngineTickTest` (2 tests) — tick-replay `totalBars` equals `TickAggregator.aggregate` size; `isActive` true after `startTickReplay`.
+
+**Definition of Done status:**
+- [x] All new classes are pure Kotlin — zero `android.*` imports in any new main or test file (kill zones / decoder / aggregator use only `java.*`).
+- [x] Tests use real instances with synthetic data (no mocks), asserting hand-computed exact values or invariants.
+- [x] `ReplayEngine` constructor change: all call sites updated (only `ReplayEngineTest`).
+- [x] All referenced `Timeframe` enum values (M1..MN) exist; `Candle` constructor order matches.
+- [x] No TODOs / placeholders / empty stubs; live Dukascopy transport gap documented, not faked.
+- [ ] **CI build + unit tests green** — cannot run in this offline/no-SDK sandbox. Must be confirmed by the GitHub Actions `android.yml` workflow on push.
