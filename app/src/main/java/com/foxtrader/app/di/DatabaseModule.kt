@@ -7,6 +7,7 @@ import com.foxtrader.app.data.local.dao.AlertDao
 import com.foxtrader.app.data.local.dao.CandleDao
 import com.foxtrader.app.data.local.dao.DrawingDao
 import com.foxtrader.app.data.local.dao.JournalDao
+import com.foxtrader.app.data.local.dao.LitXSignalDao
 import com.foxtrader.app.data.local.dao.WatchlistDao
 import dagger.Module
 import dagger.Provides
@@ -45,4 +46,7 @@ object DatabaseModule {
 
     @Provides
     fun provideWatchlistDao(db: FoxDatabase): WatchlistDao = db.watchlistDao()
+
+    @Provides
+    fun provideLitXSignalDao(db: FoxDatabase): LitXSignalDao = db.litXSignalDao()
 }

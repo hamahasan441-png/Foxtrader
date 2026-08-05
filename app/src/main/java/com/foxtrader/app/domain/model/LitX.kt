@@ -165,6 +165,46 @@ data class LitXAnalysis(
     }
 }
 
+/**
+ * A persisted, reviewable record of a validated LIT X signal (the durable
+ * subset of [LitXSignal] kept in the signal-history table). The full per-factor
+ * confidence breakdown is intentionally not persisted — only what a trader
+ * reviews later.
+ */
+data class LitXSignalRecord(
+    val id: String,
+    val symbol: String,
+    val timeframe: Timeframe,
+    val direction: Direction,
+    val grade: LitXGrade,
+    val score: Int,
+    val entry: Double,
+    val stopLoss: Double,
+    val takeProfit1: Double,
+    val takeProfit2: Double,
+    val riskReward: Double,
+    val rationale: String,
+    val createdAt: Long,
+) {
+    companion object {
+        fun from(signal: LitXSignal): LitXSignalRecord = LitXSignalRecord(
+            id = "${signal.symbol}:${signal.timeframe.label}:${signal.timestamp}",
+            symbol = signal.symbol,
+            timeframe = signal.timeframe,
+            direction = signal.direction,
+            grade = signal.confidence.grade,
+            score = signal.confidence.score,
+            entry = signal.entry,
+            stopLoss = signal.stopLoss,
+            takeProfit1 = signal.takeProfit1,
+            takeProfit2 = signal.takeProfit2,
+            riskReward = signal.riskReward,
+            rationale = signal.rationale,
+            createdAt = signal.timestamp,
+        )
+    }
+}
+
 // ============================================================================
 // LIT X CONFIGURATION (persisted via AppPreferences as JSON)
 // ============================================================================

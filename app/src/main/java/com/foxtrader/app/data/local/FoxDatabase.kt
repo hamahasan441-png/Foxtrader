@@ -8,11 +8,13 @@ import com.foxtrader.app.data.local.dao.AlertDao
 import com.foxtrader.app.data.local.dao.CandleDao
 import com.foxtrader.app.data.local.dao.DrawingDao
 import com.foxtrader.app.data.local.dao.JournalDao
+import com.foxtrader.app.data.local.dao.LitXSignalDao
 import com.foxtrader.app.data.local.dao.WatchlistDao
 import com.foxtrader.app.data.local.entity.AlertEntity
 import com.foxtrader.app.data.local.entity.CandleEntity
 import com.foxtrader.app.data.local.entity.DrawingEntity
 import com.foxtrader.app.data.local.entity.JournalEntity
+import com.foxtrader.app.data.local.entity.LitXSignalEntity
 import com.foxtrader.app.data.local.entity.WatchlistEntity
 import com.foxtrader.app.data.local.entity.WatchlistSymbolEntity
 
@@ -28,6 +30,7 @@ import com.foxtrader.app.data.local.entity.WatchlistSymbolEntity
  * - v4: adds candles.source (provenance — real vs synthetic bars).
  * - v5: adds alerts table (dispatched alert history + acknowledgement).
  * - v6: adds watchlists + watchlist_symbols (user-authored, must persist).
+ * - v7: adds litx_signals (validated LIT X institutional signal history).
  *
  * `exportSchema = true` writes the schema JSON to app/schemas/, which is what
  * makes MigrationTestHelper possible. Destructive fallback is deliberately NOT
@@ -43,8 +46,9 @@ import com.foxtrader.app.data.local.entity.WatchlistSymbolEntity
         AlertEntity::class,
         WatchlistEntity::class,
         WatchlistSymbolEntity::class,
+        LitXSignalEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class FoxDatabase : RoomDatabase() {
@@ -53,6 +57,7 @@ abstract class FoxDatabase : RoomDatabase() {
     abstract fun drawingDao(): DrawingDao
     abstract fun alertDao(): AlertDao
     abstract fun watchlistDao(): WatchlistDao
+    abstract fun litXSignalDao(): LitXSignalDao
 
     companion object {
         const val NAME = "foxtrader.db"
@@ -216,12 +221,51 @@ abstract class FoxDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v6 -> v7: create the litx_signals table.
+         *
+         * Additive — no existing table is touched, so user data is unaffected.
+         * The DDL must match [LitXSignalEntity] exactly (column names/types,
+         * NOT NULL, and the two indices) or Room's schema validation rejects
+         * the migrated database on open.
+         */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS litx_signals (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        symbol TEXT NOT NULL,
+                        timeframe TEXT NOT NULL,
+                        direction TEXT NOT NULL,
+                        grade TEXT NOT NULL,
+                        score INTEGER NOT NULL,
+                        entry REAL NOT NULL,
+                        stopLoss REAL NOT NULL,
+                        takeProfit1 REAL NOT NULL,
+                        takeProfit2 REAL NOT NULL,
+                        riskReward REAL NOT NULL,
+                        rationale TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_litx_signals_createdAt ON litx_signals (createdAt)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_litx_signals_symbol ON litx_signals (symbol)"
+                )
+            }
+        }
+
         val MIGRATIONS = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
             MIGRATION_3_4,
             MIGRATION_4_5,
             MIGRATION_5_6,
+            MIGRATION_6_7,
         )
     }
 }
