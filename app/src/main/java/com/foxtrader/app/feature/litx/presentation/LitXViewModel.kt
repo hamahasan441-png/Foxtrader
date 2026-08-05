@@ -11,7 +11,9 @@ import com.foxtrader.app.domain.usecase.litx.LitXEngine
 import com.foxtrader.app.domain.usecase.mtf.ConfluenceEngine
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -40,12 +42,17 @@ class LitXViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(LitXUiState())
     val uiState: StateFlow<LitXUiState> = _uiState.asStateFlow()
 
+    private var analyzeJob: Job? = null
+
     /** Analyze the given symbol/timeframe. Called by the screen on entry. */
     fun analyze(symbol: String, timeframe: Timeframe) {
+        // Cancel any in-flight analysis so a superseded symbol/timeframe can
+        // never apply a stale result over the newer request.
+        analyzeJob?.cancel()
         _uiState.update {
             it.copy(symbol = symbol, timeframe = timeframe, isLoading = true, error = null)
         }
-        viewModelScope.launch {
+        analyzeJob = viewModelScope.launch {
             try {
                 val sourced = marketRepository.getSourcedCandles(symbol, timeframe)
                 val candles = sourced.candles
@@ -92,6 +99,8 @@ class LitXViewModel @Inject constructor(
                         error = null,
                     )
                 }
+            } catch (e: CancellationException) {
+                throw e // never swallow cancellation (superseded by a newer request)
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(isLoading = false, error = e.message ?: "LIT X analysis failed.")

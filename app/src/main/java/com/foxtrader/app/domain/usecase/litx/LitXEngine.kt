@@ -18,7 +18,6 @@ import com.foxtrader.app.domain.model.SessionRange
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.model.TradingSession
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
-import com.foxtrader.app.domain.usecase.analysis.RiskRewardOptimizer
 import com.foxtrader.app.domain.usecase.sessions.SessionDetector
 import com.foxtrader.app.domain.usecase.smc.SmcDetector
 import javax.inject.Inject
@@ -31,8 +30,8 @@ import kotlin.math.roundToInt
  * Runs the requested pipeline — Market Context → HTF Bias → Structure →
  * Liquidity Mapping → Inducement/Sweep → Market Shift → POI → Entry Validation
  * → Confidence Scoring → Signal — by ORCHESTRATING the app's existing detectors
- * (`SmcDetector`, `AnalyzeMarketStructureUseCase`, `SessionDetector`,
- * `RiskRewardOptimizer`) and the new LIT X primitives. It never recomputes SMC
+ * (`SmcDetector`, `AnalyzeMarketStructureUseCase`, `SessionDetector`) and the
+ * new LIT X primitives. It never recomputes SMC
  * work the chart already did: pass [Precomputed] to reuse those results.
  *
  * Pure and synchronous (no coroutines, no repository) so it is fully unit
@@ -44,7 +43,6 @@ class LitXEngine @Inject constructor(
     private val smcDetector: SmcDetector,
     private val analyzeStructure: AnalyzeMarketStructureUseCase,
     private val sessionDetector: SessionDetector,
-    private val riskRewardOptimizer: RiskRewardOptimizer,
     private val displacementDetector: DisplacementDetector,
     private val mitigationDetector: MitigationBlockDetector,
     private val premiumDiscount: PremiumDiscountCalculator,
@@ -131,8 +129,11 @@ class LitXEngine @Inject constructor(
             }
         }
 
-        // --- Risk/reward via the existing optimizer ---
-        val setup = riskRewardOptimizer.optimize(candles, intended, config.minRiskReward)
+        // --- Risk/reward derived from the actual POI + dealing range ---
+        // NOTE: intentionally NOT RiskRewardOptimizer — it builds the target as
+        // exactly minRR*stop, so its ratio is a constant and could never gate a
+        // setup. LIT X measures real reward to the opposite side of the range.
+        val rr = buildRiskReward(bullish, price, poi, zone, vol, config.minRiskReward)
 
         // --- Score the 11 factors ---
         val inputs = LitXConfidenceScorer.Inputs(
@@ -146,15 +147,20 @@ class LitXEngine @Inject constructor(
             volumeConfirmation = volumeConfirmation(candles),
             volatilityCondition = volatilityCondition(candles, vol),
             sessionQuality = if (isKillZone(sessions, candles.lastIndex)) 90 else 55,
-            riskReward = (setup.riskRewardRatio / config.minRiskReward.coerceAtLeast(1e-9) * 70.0)
+            riskReward = (rr.riskReward / config.minRiskReward.coerceAtLeast(1e-9) * 70.0)
                 .roundToInt().coerceIn(0, 100),
         )
         val confidence = scorer.score(inputs)
 
         // --- Stage progression ---
         val poiTapped = poi != null && price in (poi.low - vol)..(poi.high + vol)
-        val validated = setup.valid && retestScore >= 70 &&
-            LitXConfidenceScorer.meets(confidence.grade, config.minGrade)
+        val shiftConfirmed = shift.present && shift.direction == intended
+        // A validated LIT X setup requires the full institutional sequence: a
+        // confirmed market shift in our direction, a real POI that price is
+        // retesting, an actual R:R at least the configured minimum, and a grade
+        // above the filter. (Previously it validated on bias alone — see audit.)
+        val validated = shiftConfirmed && rr.valid && rr.riskReward >= config.minRiskReward &&
+            retestScore >= 70 && LitXConfidenceScorer.meets(confidence.grade, config.minGrade)
         val stage = when {
             validated -> LitXStage.VALIDATED
             poiTapped -> LitXStage.POI_TAPPED
@@ -168,9 +174,9 @@ class LitXEngine @Inject constructor(
         val signal = if (validated) {
             LitXSignal(
                 symbol = symbol, timeframe = timeframe, direction = intended, stage = stage,
-                entry = setup.entry, stopLoss = setup.stopLoss,
-                takeProfit1 = setup.takeProfit1, takeProfit2 = setup.takeProfit2,
-                riskReward = setup.riskRewardRatio, confidence = confidence, zone = zone,
+                entry = rr.entry, stopLoss = rr.stopLoss,
+                takeProfit1 = rr.takeProfit1, takeProfit2 = rr.takeProfit2,
+                riskReward = rr.riskReward, confidence = confidence, zone = zone,
                 rationale = buildRationale(bullish, shift.isStrong, sweep != null, poi, zone?.currentZone),
                 timestamp = now,
             )
@@ -282,6 +288,48 @@ class LitXEngine @Inject constructor(
             return Poi(it.highPrice, it.lowPrice, 65, "Fair value gap")
         }
         return null
+    }
+
+    private data class Rr(
+        val entry: Double,
+        val stopLoss: Double,
+        val takeProfit1: Double,
+        val takeProfit2: Double,
+        val riskReward: Double,
+        val valid: Boolean,
+    )
+
+    /**
+     * Build entry/stop/targets from the selected POI and the dealing range.
+     * Long: stop below the POI, reward toward the range high; short mirrors it.
+     * Invalid (valid=false) when there is no POI or the geometry is degenerate
+     * (non-positive risk or reward), which prevents a signal being emitted.
+     */
+    private fun buildRiskReward(
+        bullish: Boolean,
+        price: Double,
+        poi: Poi?,
+        zone: com.foxtrader.app.domain.model.PremiumDiscountZone?,
+        vol: Double,
+        minRR: Double,
+    ): Rr {
+        if (poi == null) return Rr(price, price, price, price, 0.0, false)
+        val buffer = vol * 0.25
+        return if (bullish) {
+            val stop = poi.low - buffer
+            val risk = price - stop
+            val target = zone?.rangeHigh?.takeIf { it > price } ?: (price + risk.coerceAtLeast(0.0) * minRR)
+            val reward = target - price
+            val ratio = if (risk > 0.0) reward / risk else 0.0
+            Rr(price, stop, price + reward * 0.6, target, ratio, risk > 0.0 && reward > 0.0)
+        } else {
+            val stop = poi.high + buffer
+            val risk = stop - price
+            val target = zone?.rangeLow?.takeIf { it < price } ?: (price - risk.coerceAtLeast(0.0) * minRR)
+            val reward = price - target
+            val ratio = if (risk > 0.0) reward / risk else 0.0
+            Rr(price, stop, price - reward * 0.6, target, ratio, risk > 0.0 && reward > 0.0)
+        }
     }
 
     private fun buildRationale(

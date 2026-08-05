@@ -45,18 +45,19 @@ class DisplacementDetector @Inject constructor() {
                 else -> candles[i + 1].high < candles[i - 1].low
             }
 
-            if (best == null || atrMult > best.atrMultiple) {
-                best = Displacement(
-                    direction = direction,
-                    startIndex = i,
-                    endIndex = i,
-                    startPrice = c.open,
-                    endPrice = c.close,
-                    bodyToRangeRatio = bodyRatio,
-                    atrMultiple = atrMult,
-                    hasFairValueGap = hasFvg,
-                )
-            }
+            // Keep the MOST RECENT qualifying impulse (loop is ascending, so the
+            // last assignment wins). Selecting the strongest instead let a stale
+            // impulse wrongly corroborate a fresh CHOCH into an "MSS".
+            best = Displacement(
+                direction = direction,
+                startIndex = i,
+                endIndex = i,
+                startPrice = c.open,
+                endPrice = c.close,
+                bodyToRangeRatio = bodyRatio,
+                atrMultiple = atrMult,
+                hasFairValueGap = hasFvg,
+            )
         }
         return best
     }
