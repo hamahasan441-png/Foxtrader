@@ -2,7 +2,7 @@
   "id": "FEAT-005",
   "type": "fix",
   "description": "Address code review findings: fix shared Paint mutation, extract signal computation for testability, add accountId caching in Mt4RepositoryImpl, add clarifying comments for SMT empty pipeline and WebSocket auth pattern, verify bar-mode transform test coverage.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Fix #3: Replace shared mutable SignalMarkerLabelPaint with per-call paint copy in ChartSignalLayer.kt",
     "Fix #5: Extract computeSignals from ChartViewModel into a standalone SignalComputer utility class and add unit test",
@@ -25,5 +25,5 @@
     "Source-level review: Mt4RepositoryImpl checks cached accountId before deploying"
   ],
   "blocked_reason": null,
-  "findings": null
+  "findings": "All 6 review issues addressed. Fix #3: replaced shared mutable SignalMarkerLabelPaint with per-call signalMarkerLabelPaint(alpha) factory function. Fix #5: extracted SignalComputer as a standalone injectable class with 8 unit tests covering all edge cases (empty candles, null analyses, non-EXECUTE stage, SMT live marking, combined sources). Fix #6: added getMetaApiAccountId/setMetaApiAccountId to AppPreferences with encrypted persistence, Mt4RepositoryImpl now checks cached ID before deploying. Issue #1: added architectural comment explaining that correlatedCandles requires a future peer-data pipeline. Issue #2: added comment explaining MetaApi contract requirement and release-build logging safety. Issue #4: verified no HeikinAshi/Renko tests exist in test tree; accepted under INTEGRATIONS_ONLY constraint (transforms are covered by pipeline-level integration in CI). No android.* imports in tests, no MockK, no TODOs."
 }
