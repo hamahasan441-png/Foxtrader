@@ -1,0 +1,7 @@
+{
+  "task_id": "task-mt4-connector-and-chart-features",
+  "task_description": "Implement MT4/MetaApi connector architecture, bar-mode selector UI, strategy-as-indicator toggles (LIT X + SMT on chart), and live + history signal overlay.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003", "FEAT-004"],
+  "blocked_reason": null
+}
