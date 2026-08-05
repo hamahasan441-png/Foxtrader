@@ -15,6 +15,9 @@ interface LitXSignalRepository {
     /** Save (upsert by id) a validated signal. Idempotent for the same bar. */
     suspend fun save(record: LitXSignalRecord)
 
+    /** Atomically save a validated scanner batch and enforce retention once. */
+    suspend fun saveAll(records: List<LitXSignalRecord>)
+
     /** Clear the entire signal history. */
     suspend fun clear()
 }

@@ -55,4 +55,6 @@ data class ScreenerOutput(
     val bestLongTerm: ScreenerResult?,
     val scannedAt: Long,
     val totalSymbols: Int,
+    /** Validated LIT X signals returned separately for provenance-gated persistence. */
+    val validatedLitXSignals: List<LitXSignal> = emptyList(),
 )

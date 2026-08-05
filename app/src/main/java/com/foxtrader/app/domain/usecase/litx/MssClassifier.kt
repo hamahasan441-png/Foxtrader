@@ -5,6 +5,7 @@ import com.foxtrader.app.domain.model.Displacement
 import com.foxtrader.app.domain.model.StructureBreak
 import com.foxtrader.app.domain.model.StructureBreakType
 import javax.inject.Inject
+import kotlin.math.abs
 
 /**
  * Classifies the latest market shift from existing structure breaks (reuses
@@ -36,21 +37,32 @@ class MssClassifier @Inject constructor() {
         breaks: List<StructureBreak>,
         displacement: Displacement?,
         displacementAtrMultiple: Double = 1.2,
+        minBreakIndex: Int = Int.MIN_VALUE,
+        maxDisplacementGapBars: Int = DEFAULT_MAX_DISPLACEMENT_GAP_BARS,
     ): Result {
         val shift = breaks.lastOrNull {
-            it.type == StructureBreakType.CHOCH || it.type == StructureBreakType.MSS
+            it.confirmed &&
+                it.breakIndex >= minBreakIndex &&
+                (it.type == StructureBreakType.CHOCH || it.type == StructureBreakType.MSS)
         } ?: return Result.NONE
 
         val strong = displacement != null &&
             displacement.direction == shift.direction &&
-            displacement.atrMultiple >= displacementAtrMultiple
+            displacement.atrMultiple >= displacementAtrMultiple &&
+            abs(displacement.startIndex - shift.breakIndex) <= maxDisplacementGapBars
 
         return Result(
             present = true,
             direction = shift.direction,
-            type = if (strong) StructureBreakType.MSS else shift.type,
+            // An MSS is only a displacement-confirmed CHOCH. Do not trust an
+            // upstream MSS label when the corroborating impulse is stale.
+            type = if (strong) StructureBreakType.MSS else StructureBreakType.CHOCH,
             breakIndex = shift.breakIndex,
             isStrong = strong,
         )
+    }
+
+    private companion object {
+        const val DEFAULT_MAX_DISPLACEMENT_GAP_BARS = 5
     }
 }

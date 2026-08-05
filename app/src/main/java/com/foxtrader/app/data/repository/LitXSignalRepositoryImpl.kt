@@ -18,9 +18,10 @@ class LitXSignalRepositoryImpl @Inject constructor(
     override fun observeRecent(limit: Int): Flow<List<LitXSignalRecord>> =
         dao.observeRecent(limit).map { rows -> rows.map { it.toRecord() } }
 
-    override suspend fun save(record: LitXSignalRecord) {
-        dao.upsert(record.toEntity())
-        dao.prune(MAX_SIGNALS)
+    override suspend fun save(record: LitXSignalRecord) = saveAll(listOf(record))
+
+    override suspend fun saveAll(records: List<LitXSignalRecord>) {
+        dao.upsertAllAndPrune(records.map { it.toEntity() }, MAX_SIGNALS)
     }
 
     override suspend fun clear() = dao.clear()

@@ -148,13 +148,28 @@ fun ScannerScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text("No data available", color = FoxNeutral60)
+                        Text(
+                            text = if (state.selectedStrategy == StrategyType.LITX) {
+                                "No validated LIT X setups"
+                            } else {
+                                "No data available"
+                            },
+                            color = FoxNeutral60,
+                        )
                     }
                 }
                 else -> {
                     Column(Modifier.fillMaxSize()) {
                         if (state.isSyntheticData) {
                             SyntheticScanNotice()
+                        }
+                        state.historyWarning?.let { warning ->
+                            Text(
+                                text = warning,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                            )
                         }
                         when (state.viewMode) {
                             ScannerViewMode.LIST -> LazyColumn(

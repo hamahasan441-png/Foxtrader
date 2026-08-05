@@ -58,7 +58,15 @@ class LitXEngine @Inject constructor(
         val sessions: List<SessionRange>? = null,
     )
 
-    private data class Poi(val high: Double, val low: Double, val quality: Int, val kind: String)
+    private data class Poi(
+        val high: Double,
+        val low: Double,
+        val quality: Int,
+        val kind: String,
+        val originIndex: Int,
+        /** First bar on which the POI is fully observable (not a retest). */
+        val availableIndex: Int,
+    )
 
     fun analyze(
         symbol: String,
@@ -72,6 +80,7 @@ class LitXEngine @Inject constructor(
         if (candles.size < MIN_BARS) return LitXAnalysis.empty(symbol, timeframe)
 
         val now = candles.last().timestamp
+        val setupStartIndex = (candles.lastIndex - SETUP_LOOKBACK_BARS + 1).coerceAtLeast(0)
         val vol = candles.takeLast(VOL_WINDOW).map { it.range }.average().coerceAtLeast(1e-9)
         val price = candles.last().close
 
@@ -86,7 +95,12 @@ class LitXEngine @Inject constructor(
         val displacement = displacementDetector.detectLatest(candles, config.displacementAtrMultiple)
         val mitigationBlocks = mitigationDetector.detect(candles, orderBlocks)
         val zone = premiumDiscount.calculate(candles)
-        val shift = mssClassifier.classify(structure.breaks, displacement, config.displacementAtrMultiple)
+        val shift = mssClassifier.classify(
+            breaks = structure.breaks,
+            displacement = displacement,
+            displacementAtrMultiple = config.displacementAtrMultiple,
+            minBreakIndex = setupStartIndex,
+        )
 
         // --- Directional intent ---
         val intended: Direction? = shift.direction ?: when (structure.bias) {
@@ -109,15 +123,44 @@ class LitXEngine @Inject constructor(
         val bullish = intended == Direction.BULLISH
 
         // --- Liquidity sweep aligned with intent (bullish wants sell-side taken) ---
+        // Keep a recent sweep for stage reporting, but only an ordered sweep
+        // (sweep before the recent shift) may validate the institutional setup.
         val wantSide = if (bullish) LiquidityType.SELL_SIDE else LiquidityType.BUY_SIDE
-        val sweep = liquidity.filter { it.swept && it.type == wantSide }
+        val recentSweep = liquidity.asSequence()
+            .filter { it.swept && it.type == wantSide }
+            .filter { (it.sweepIndex ?: -1) in setupStartIndex..candles.lastIndex }
             .maxByOrNull { it.sweepIndex ?: -1 }
+        val sweep = if (shift.present) {
+            liquidity.asSequence()
+                .filter { it.swept && it.type == wantSide }
+                .filter { (it.sweepIndex ?: -1) in setupStartIndex..shift.breakIndex }
+                .maxByOrNull { it.sweepIndex ?: -1 }
+        } else {
+            null
+        }
+        val shiftConfirmed = shift.present && shift.direction == intended && sweep != null
 
         // --- Point of interest (mitigation block > fresh OB > unfilled FVG) ---
-        val poi = selectPoi(bullish, orderBlocks, fvgs, mitigationBlocks)
+        // A POI belongs to this setup only when it formed after the sweep. The
+        // final-bar retest must occur after the shift before progression can
+        // reach POI_TAPPED.
+        val poi = if (shiftConfirmed) {
+            selectPoi(
+                bullish = bullish,
+                orderBlocks = orderBlocks,
+                fvgs = fvgs,
+                mitigationBlocks = mitigationBlocks,
+                minOriginIndex = sweep?.sweepIndex ?: setupStartIndex,
+                shiftIndex = shift.breakIndex,
+            )
+        } else {
+            null
+        }
+        val retestAfterShift = shiftConfirmed && poi != null &&
+            candles.lastIndex > shift.breakIndex && candles.lastIndex > poi.availableIndex
 
-        // --- Entry validation: has price returned into the POI? ---
-        val retestScore = if (poi == null) {
+        // --- Entry validation: has price returned into the ordered POI? ---
+        val retestScore = if (poi == null || !retestAfterShift) {
             30
         } else {
             val inBand = price in poi.low..poi.high
@@ -133,7 +176,7 @@ class LitXEngine @Inject constructor(
         // NOTE: intentionally NOT RiskRewardOptimizer — it builds the target as
         // exactly minRR*stop, so its ratio is a constant and could never gate a
         // setup. LIT X measures real reward to the opposite side of the range.
-        val rr = buildRiskReward(bullish, price, poi, zone, vol, config.minRiskReward)
+        val rr = buildRiskReward(bullish, price, poi, zone, vol)
 
         // --- Score the 11 factors ---
         val inputs = LitXConfidenceScorer.Inputs(
@@ -153,19 +196,18 @@ class LitXEngine @Inject constructor(
         val confidence = scorer.score(inputs)
 
         // --- Stage progression ---
-        val poiTapped = poi != null && price in (poi.low - vol)..(poi.high + vol)
-        val shiftConfirmed = shift.present && shift.direction == intended
+        val poiTapped = retestAfterShift && poi != null && price in (poi.low - vol)..(poi.high + vol)
         // A validated LIT X setup requires the full institutional sequence: a
-        // confirmed market shift in our direction, a real POI that price is
-        // retesting, an actual R:R at least the configured minimum, and a grade
-        // above the filter. (Previously it validated on bias alone — see audit.)
-        val validated = shiftConfirmed && rr.valid && rr.riskReward >= config.minRiskReward &&
+        // recent liquidity sweep, a confirmed market shift in our direction,
+        // a post-shift POI retest, a real structural target meeting minimum
+        // R:R, and a grade above the filter.
+        val validated = shiftConfirmed && poiTapped && rr.valid && rr.riskReward >= config.minRiskReward &&
             retestScore >= 70 && LitXConfidenceScorer.meets(confidence.grade, config.minGrade)
         val stage = when {
             validated -> LitXStage.VALIDATED
             poiTapped -> LitXStage.POI_TAPPED
-            shift.present && shift.direction == intended -> LitXStage.SHIFT_CONFIRMED
-            sweep != null -> LitXStage.SWEEP_DETECTED
+            shiftConfirmed -> LitXStage.SHIFT_CONFIRMED
+            recentSweep != null -> LitXStage.SWEEP_DETECTED
             liquidity.isNotEmpty() -> LitXStage.LIQUIDITY_MAPPED
             else -> LitXStage.SCANNING
         }
@@ -274,19 +316,46 @@ class LitXEngine @Inject constructor(
         orderBlocks: List<OrderBlock>,
         fvgs: List<FairValueGap>,
         mitigationBlocks: List<com.foxtrader.app.domain.model.MitigationBlock>,
+        minOriginIndex: Int,
+        shiftIndex: Int,
     ): Poi? {
         val dir = if (bullish) Direction.BULLISH else Direction.BEARISH
-        mitigationBlocks.filter { it.direction == dir }.maxByOrNull { it.mitigationIndex }?.let {
-            return Poi(it.highPrice, it.lowPrice, 88, "Mitigation block")
-        }
+        mitigationBlocks
+            .filter {
+                it.direction == dir &&
+                    it.originIndex >= minOriginIndex &&
+                    it.mitigationIndex > shiftIndex
+            }
+            .maxByOrNull { it.mitigationIndex }
+            ?.let {
+                return Poi(
+                    it.highPrice, it.lowPrice, 88, "Mitigation block",
+                    originIndex = it.originIndex,
+                    availableIndex = it.confirmationIndex,
+                )
+            }
         val obType = if (bullish) OrderBlockType.BULLISH else OrderBlockType.BEARISH
-        orderBlocks.filter { it.type == obType && !it.mitigated }.maxByOrNull { it.startIndex }?.let {
-            return Poi(it.highPrice, it.lowPrice, 78, "Order block")
-        }
+        orderBlocks
+            .filter { it.type == obType && !it.mitigated && it.startIndex >= minOriginIndex }
+            .maxByOrNull { it.startIndex }
+            ?.let {
+                return Poi(
+                    it.highPrice, it.lowPrice, 78, "Order block",
+                    originIndex = it.startIndex,
+                    availableIndex = it.startIndex + 1,
+                )
+            }
         val fvgType = if (bullish) FvgType.BULLISH else FvgType.BEARISH
-        fvgs.filter { it.type == fvgType && !it.filled }.maxByOrNull { it.index }?.let {
-            return Poi(it.highPrice, it.lowPrice, 65, "Fair value gap")
-        }
+        fvgs
+            .filter { it.type == fvgType && !it.filled && it.index >= minOriginIndex }
+            .maxByOrNull { it.index }
+            ?.let {
+                return Poi(
+                    it.highPrice, it.lowPrice, 65, "Fair value gap",
+                    originIndex = it.index,
+                    availableIndex = it.index + 1,
+                )
+            }
         return null
     }
 
@@ -311,21 +380,21 @@ class LitXEngine @Inject constructor(
         poi: Poi?,
         zone: com.foxtrader.app.domain.model.PremiumDiscountZone?,
         vol: Double,
-        minRR: Double,
     ): Rr {
-        if (poi == null) return Rr(price, price, price, price, 0.0, false)
+        fun invalid() = Rr(price, price, price, price, 0.0, false)
+        if (poi == null) return invalid()
         val buffer = vol * 0.25
         return if (bullish) {
             val stop = poi.low - buffer
             val risk = price - stop
-            val target = zone?.rangeHigh?.takeIf { it > price } ?: (price + risk.coerceAtLeast(0.0) * minRR)
+            val target = zone?.rangeHigh?.takeIf { it > price } ?: return invalid()
             val reward = target - price
             val ratio = if (risk > 0.0) reward / risk else 0.0
             Rr(price, stop, price + reward * 0.6, target, ratio, risk > 0.0 && reward > 0.0)
         } else {
             val stop = poi.high + buffer
             val risk = stop - price
-            val target = zone?.rangeLow?.takeIf { it < price } ?: (price - risk.coerceAtLeast(0.0) * minRR)
+            val target = zone?.rangeLow?.takeIf { it < price } ?: return invalid()
             val reward = price - target
             val ratio = if (risk > 0.0) reward / risk else 0.0
             Rr(price, stop, price - reward * 0.6, target, ratio, risk > 0.0 && reward > 0.0)
@@ -349,6 +418,7 @@ class LitXEngine @Inject constructor(
 
     private companion object {
         const val MIN_BARS = 50
+        const val SETUP_LOOKBACK_BARS = 30
         const val VOL_WINDOW = 14
         const val LONG_VOL_WINDOW = 50
     }

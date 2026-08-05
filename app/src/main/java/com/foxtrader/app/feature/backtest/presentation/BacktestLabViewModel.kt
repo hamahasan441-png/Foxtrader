@@ -7,6 +7,7 @@ import com.foxtrader.app.domain.model.BacktestConfig
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.StrategySignal
+import com.foxtrader.app.domain.model.StrategyType
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.backtest.AiScoredBacktestEngine
@@ -17,6 +18,7 @@ import com.foxtrader.app.domain.usecase.calculator.InstrumentTypeResolver
 import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
+import com.foxtrader.app.domain.usecase.strategies.StrategyLibrary
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -41,6 +43,7 @@ class BacktestLabViewModel @Inject constructor(
     private val analyticsEngine: BacktestAnalyticsEngine,
     private val instrumentTypeResolver: InstrumentTypeResolver,
     private val tradeProEngine: TradeProSignalEngine,
+    private val strategyLibrary: StrategyLibrary,
     private val appPreferences: AppPreferences,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
@@ -143,6 +146,7 @@ class BacktestLabViewModel @Inject constructor(
         BacktestStrategyTemplate.EMA_TREND_PULLBACK -> ::emaTrendPullback
         BacktestStrategyTemplate.ATR_BREAKOUT -> ::atrBreakout
         BacktestStrategyTemplate.TRADEPRO -> ::tradePro
+        BacktestStrategyTemplate.LITX -> strategyLibrary.get(StrategyType.LITX).function
     }
 
     /**

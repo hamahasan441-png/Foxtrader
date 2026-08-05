@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import com.foxtrader.app.data.local.entity.LitXSignalEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -16,6 +17,16 @@ interface LitXSignalDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(signal: LitXSignalEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(signals: List<LitXSignalEntity>)
+
+    /** Upsert a scanner batch and enforce retention atomically. */
+    @Transaction
+    suspend fun upsertAllAndPrune(signals: List<LitXSignalEntity>, keepCount: Int) {
+        if (signals.isNotEmpty()) upsertAll(signals)
+        prune(keepCount)
+    }
 
     @Query("DELETE FROM litx_signals")
     suspend fun clear()
