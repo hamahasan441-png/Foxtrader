@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ShowChart
+import androidx.compose.material.icons.filled.StackedLineChart
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Warning
@@ -208,6 +209,8 @@ fun ChartScreen(
                 onToggleFullscreen = onToggleImmersive,
                 scaleLocked = scaleLocked,
                 onToggleScaleLock = { scaleLocked = !scaleLocked },
+                signalsActive = state.showSignalHistory,
+                onSignalsToggle = viewModel::toggleSignalHistory,
             )
         }
 
@@ -349,6 +352,7 @@ fun ChartScreen(
                             tradeProAnalysis = state.tradeProAnalysis,
                             litXAnalysis = state.litXAnalysis,
                             smtDivergences = state.smtDivergences,
+                            signals = state.signals,
                             indicators = state.indicators,
                             sessions = state.sessions,
                             drawings = state.drawings,
@@ -475,6 +479,19 @@ fun ChartScreen(
             // Hidden during replay so it never fights the replay control bar,
             // which also anchors to the bottom-centre.
             if (!replayState.isActive) {
+                // Signal history panel (toggleable, above the analysis sheet)
+                AnimatedVisibility(
+                    visible = state.showSignalHistory,
+                    enter = expandVertically(),
+                    exit = shrinkVertically(),
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                ) {
+                    ChartSignalHistory(
+                        signals = state.signals,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+
                 ChartAnalysisSheet(
                     expanded = analysisExpanded,
                     onToggleExpanded = { analysisExpanded = !analysisExpanded },
@@ -666,6 +683,8 @@ private fun ChartToolbar(
     onToggleFullscreen: () -> Unit,
     scaleLocked: Boolean,
     onToggleScaleLock: () -> Unit,
+    signalsActive: Boolean,
+    onSignalsToggle: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -729,6 +748,19 @@ private fun ChartToolbar(
                 Icons.Default.Refresh,
                 contentDescription = stringResource(R.string.chart_start_replay_mode),
                 tint = FoxNeutral60,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+
+        // Signals history toggle
+        IconButton(
+            onClick = onSignalsToggle,
+            modifier = Modifier.size(32.dp),
+        ) {
+            Icon(
+                Icons.Default.StackedLineChart,
+                contentDescription = "Toggle signal history",
+                tint = if (signalsActive) FoxAmber50 else FoxNeutral60,
                 modifier = Modifier.size(18.dp),
             )
         }

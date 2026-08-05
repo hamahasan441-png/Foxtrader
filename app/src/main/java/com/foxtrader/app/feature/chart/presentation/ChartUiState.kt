@@ -5,6 +5,7 @@ import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.model.ChartBarMode
+import com.foxtrader.app.domain.model.ChartSignal
 import com.foxtrader.app.domain.model.DecisionResult
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.ChartDrawing
@@ -104,6 +105,8 @@ data class ChartUiState(
     val tradeProAnalysis: TradeProAnalysis? = null,
     val litXAnalysis: LitXAnalysis? = null,
     val smtDivergences: List<SmtDivergenceDetector.SmtDivergence> = emptyList(),
+    val signals: List<ChartSignal> = emptyList(),
+    val showSignalHistory: Boolean = false,
     val volumeProfile: com.foxtrader.app.domain.model.VolumeProfile? = null,
     val marketProfile: MarketProfile.ProfileResult? = null,
     val supportResistanceZones: ImmutableList<SupportResistanceDetector.SRZone> = persistentListOf(),

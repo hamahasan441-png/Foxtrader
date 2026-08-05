@@ -31,6 +31,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.ChartSignal
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.LitXAnalysis
 import com.foxtrader.app.domain.model.StructureBreak
@@ -68,6 +69,7 @@ import com.foxtrader.app.feature.chart.presentation.components.layers.drawSuperT
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawTimeAxis
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawLitXSignals
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawSmtDivergences
+import com.foxtrader.app.feature.chart.presentation.components.layers.drawSignalMarkers
 import com.foxtrader.app.ui.theme.FoxNeutral0
 import kotlin.math.max
 
@@ -132,6 +134,7 @@ fun CandleChart(
     tradeProAnalysis: com.foxtrader.app.domain.model.tradepro.TradeProAnalysis? = null,
     litXAnalysis: LitXAnalysis? = null,
     smtDivergences: List<SmtDivergenceDetector.SmtDivergence> = emptyList(),
+    signals: List<ChartSignal> = emptyList(),
     indicators: IndicatorToggles = IndicatorToggles(),
     sessions: ImmutableList<com.foxtrader.app.domain.model.SessionRange> = persistentListOf(),
     drawings: ImmutableList<com.foxtrader.app.domain.model.ChartDrawing> = persistentListOf(),
@@ -572,6 +575,15 @@ fun CandleChart(
         if (smtDivergences.isNotEmpty() && indicators.smt) {
             clipRect(right = cw, bottom = ch) {
                 drawSmtDivergences(smtDivergences, viewport, cw, ch)
+            }
+        }
+
+        // ====================================================================
+        // LAYER 1.4.3: Unified signal markers (live + history)
+        // ====================================================================
+        if (signals.isNotEmpty()) {
+            clipRect(right = cw, bottom = ch) {
+                drawSignalMarkers(signals, viewport, cw, ch)
             }
         }
 

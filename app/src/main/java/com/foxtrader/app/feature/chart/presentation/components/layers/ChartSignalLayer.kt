@@ -1,12 +1,18 @@
 package com.foxtrader.app.feature.chart.presentation.components.layers
 
+import android.graphics.Paint
+import android.graphics.Typeface
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
+import com.foxtrader.app.domain.model.ChartSignal
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.LitXAnalysis
+import com.foxtrader.app.domain.model.SignalSource
 import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
 import com.foxtrader.app.feature.chart.presentation.components.ChartViewport
 import com.foxtrader.app.ui.theme.FoxBearish
@@ -143,6 +149,80 @@ internal fun DrawScope.drawSmtDivergences(
             color = color.copy(alpha = 0.6f),
             radius = 4f,
             center = Offset(peerX, peerY),
+        )
+    }
+}
+
+private val SignalMarkerLabelPaint = Paint().apply {
+    color = android.graphics.Color.WHITE
+    textSize = 18f
+    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+    isAntiAlias = true
+    textAlign = Paint.Align.CENTER
+}
+
+/**
+ * Draws unified signal markers on the chart for both live and history signals.
+ *
+ * - Live signals: filled circle at full opacity (alpha=0.9)
+ * - History signals: hollow circle at faded opacity (alpha=0.3)
+ * - Color based on direction (FoxBullish/FoxBearish)
+ * - Source letter drawn inside: L (LITX), T (TRADEPRO), S (SMT)
+ */
+internal fun DrawScope.drawSignalMarkers(
+    signals: List<ChartSignal>,
+    viewport: ChartViewport,
+    cw: Float,
+    ch: Float,
+) {
+    if (signals.isEmpty()) return
+
+    val startIdx = viewport.startIndex.toInt().coerceAtLeast(0)
+    val endIdx = (viewport.startIndex + viewport.visibleBars).toInt() + 1
+
+    for (signal in signals) {
+        // Viewport culling: skip signals outside the visible range
+        if (signal.barIndex < startIdx || signal.barIndex > endIdx) continue
+
+        val color = if (signal.direction == Direction.BULLISH) FoxBullish else FoxBearish
+        val alpha = if (signal.isLive) 0.9f else 0.3f
+        val radius = 10f
+
+        val x = viewport.xForIndex(signal.barIndex + 0.5f, cw)
+        val y = viewport.yForPrice(signal.entry, ch)
+        val center = Offset(x, y)
+
+        if (signal.isLive) {
+            // Filled circle for live signals
+            drawCircle(
+                color = color.copy(alpha = alpha),
+                radius = radius,
+                center = center,
+                style = Fill,
+            )
+        } else {
+            // Hollow circle for history signals
+            drawCircle(
+                color = color.copy(alpha = alpha),
+                radius = radius,
+                center = center,
+                style = Stroke(width = 2f),
+            )
+        }
+
+        // Draw source letter inside the marker
+        val letter = when (signal.source) {
+            SignalSource.LITX -> "L"
+            SignalSource.TRADEPRO -> "T"
+            SignalSource.SMT -> "S"
+        }
+        drawContext.canvas.nativeCanvas.drawText(
+            letter,
+            x,
+            y + SignalMarkerLabelPaint.textSize / 3f,
+            SignalMarkerLabelPaint.apply {
+                this.alpha = (alpha * 255).toInt()
+            },
         )
     }
 }

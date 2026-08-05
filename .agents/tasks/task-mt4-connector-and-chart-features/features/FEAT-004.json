@@ -2,7 +2,7 @@
   "id": "FEAT-004",
   "type": "feat",
   "description": "Live + History Signal Overlay - Add a unified ChartSignal model combining LIT X / TRADEPRO / SMT signals, a signal history composable panel, and draw live vs history signals on the chart with different opacities.",
-  "status": "pending",
+  "status": "in_progress",
   "steps": [
     "Create domain/model/ChartSignal.kt: data class ChartSignal(id: String, source: SignalSource, direction: Direction, entry: Double, sl: Double, tp: Double, barIndex: Int, timestamp: Long, confidence: Double, isLive: Boolean) and enum class SignalSource { LITX, TRADEPRO, SMT }",
     "Add signals: List<ChartSignal> = emptyList() to ChartUiState and showSignalHistory: Boolean = false",
