@@ -51,6 +51,13 @@ android {
             ?: System.getenv("FOXTRADER_BASE_URL")
             ?: ""
         buildConfigField("String", "FOXTRADER_BASE_URL", "\"$backendUrl\"")
+
+        // Remote crash-reporting DSN — override via local.properties or CI secrets.
+        // Left blank by default; the NoOpCrashBackend handles the empty-DSN case.
+        val crashDsn = (project.findProperty("CRASH_REPORTING_DSN") as? String)
+            ?: System.getenv("CRASH_REPORTING_DSN")
+            ?: ""
+        buildConfigField("String", "CRASH_REPORTING_DSN", "\"$crashDsn\"")
     }
 
     // Release signing is driven entirely by environment/secrets so no key
