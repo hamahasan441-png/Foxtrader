@@ -2,7 +2,7 @@
   "id": "FEAT-001",
   "type": "fix",
   "description": "Sprint 9 quality fixes and additional domain tests: Fix TwelveDataProviderAdapter CancellationException handling, BacktestEngineTest vacuous-pass guard, StrategyTesterTest zero-score reliability, plus new edge-case tests for MonteCarloRiskEngine, TradeProBacktestEngine, CorrelationEngine, and ENTERPRISE_MASTER_PLAN.md Sprint 9 log.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Fix TwelveDataProviderAdapter: add KDoc explaining startTime is intentionally not forwarded, rethrow CancellationException from catch block.",
     "Fix BacktestEngineTest: add assertTrue(metrics.totalTrades > 0) before conditional assertions in metrics test.",
