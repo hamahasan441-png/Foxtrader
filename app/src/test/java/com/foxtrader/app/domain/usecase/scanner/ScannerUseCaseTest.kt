@@ -76,6 +76,31 @@ class ScannerUseCaseTest {
         assertEquals(ScannerRiskLevel.HIGH, output.results.first().riskLevel)
     }
 
+    @Test
+    fun `LIT X omits symbols with no validated signal instead of coercing them bullish`() {
+        // A flat/directionless series never produces a validated LIT X setup.
+        // The scanner must therefore emit no row for it (and persist nothing),
+        // rather than falling back to a fabricated BULLISH opportunity.
+        val output = scanner(
+            dataMap = mapOf("EURUSD" to flatCandles()),
+            strategy = StrategyType.LITX,
+        )
+
+        assertTrue("a directionless LIT X scan must yield no rows", output.results.isEmpty())
+        assertTrue(output.validatedLitXSignals.isEmpty())
+    }
+
+    private fun flatCandles(): List<Candle> = (0 until 90).map { i ->
+        Candle(
+            timestamp = i * 60_000L,
+            open = 1.1000,
+            high = 1.1004,
+            low = 1.0996,
+            close = 1.1000,
+            volume = 100.0,
+        )
+    }
+
     private fun trendingCandles(): List<Candle> = (0 until 90).map { i ->
         val close = 1.1000 + i * 0.0008
         Candle(
