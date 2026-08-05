@@ -156,6 +156,9 @@
     <string name="settings_coming_soon">Coming soon: %1$s. These are not connected yet, so they are not selectable.</string>
     <string name="settings_live_routing_active">Live chart routing is active for %1$s crypto symbols.</string>
     <string name="settings_api_key_saved_note">Saved only on this device for the selected chart/data provider.</string>
+    <string name="settings_backend_url_label">FoxTrader backend URL</string>
+    <string name="settings_backend_url_placeholder">https://your-backend.example.com</string>
+    <string name="settings_backend_url_note">Where the app fetches non-crypto candles and syncs. Point only at a FoxTrader backend you trust — your sign-in token is sent to it. Enter an origin only (no path). Leave blank to use the built-in default. Release builds require https.</string>
 
     <!-- LIT X Institutional Framework -->
     <string name="chart_open_litx">Open LIT X institutional analysis</string>

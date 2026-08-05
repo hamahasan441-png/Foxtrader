@@ -41,6 +41,8 @@ data class SettingsUiState(
     val dataProvider: DataProvider = DataProvider.SAMPLE,
     val providerApiKeys: ImmutableMap<DataProvider, String> = persistentMapOf(),
     val darkMode: Boolean = true,
+    /** User override for the FoxTrader backend origin; blank = build default. */
+    val backendBaseUrl: String = "",
     val authState: AuthState = AuthState.UNAUTHENTICATED,
     val isSyncing: Boolean = false,
     val syncMessage: String? = null,

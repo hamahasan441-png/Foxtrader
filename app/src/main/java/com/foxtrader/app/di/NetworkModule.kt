@@ -3,6 +3,7 @@ package com.foxtrader.app.di
 import com.foxtrader.app.BuildConfig
 import com.foxtrader.app.data.remote.api.AlphaVantageApi
 import com.foxtrader.app.data.auth.AuthInterceptor
+import com.foxtrader.app.data.remote.DynamicBaseUrlInterceptor
 import com.foxtrader.app.data.remote.api.BinanceApi
 import com.foxtrader.app.data.remote.api.BybitApi
 import com.foxtrader.app.data.remote.api.MarketApi
@@ -93,7 +94,10 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideOkHttp(authInterceptor: AuthInterceptor): OkHttpClient {
+    fun provideOkHttp(
+        dynamicBaseUrlInterceptor: DynamicBaseUrlInterceptor,
+        authInterceptor: AuthInterceptor,
+    ): OkHttpClient {
         val logging = HttpLoggingInterceptor().apply {
             // In release builds, log nothing; tokens must never appear in logs.
             level = if (BuildConfig.DEBUG) {
@@ -103,6 +107,8 @@ object NetworkModule {
             }
         }
         return OkHttpClient.Builder()
+            // Rewrite host first so auth + logging see the real destination.
+            .addInterceptor(dynamicBaseUrlInterceptor)
             .addInterceptor(authInterceptor)
             .addInterceptor(logging)
             .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
