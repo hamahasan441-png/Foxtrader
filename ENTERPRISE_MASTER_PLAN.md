@@ -692,24 +692,58 @@ All guards fail fast in debug, are cheap in release (no allocations on the happy
 
 ---
 
-### Sprint 7 — Independent verification audit (fresh session, read-only core review)
+### Sprint 11 -- T5.2: Opt-in remote crash/ANR reporting architecture *(status: implemented)*
 
-**Scope.** An independent engineer re-reviewed `main` against the plan and read the correctness-critical core (`RiskEngine`, `BacktestEngine`) plus the two files flagged in the T0–T2 consolidation review (`ChartMultiChartController`, `ChartAiCoordinator`). Goal: confirm claimed fixes are real and hunt for latent bugs a compiler would not catch.
+**Scope.** Implements the full remote crash/ANR reporting infrastructure (T5.2) without adding external SDK dependencies. The architecture is compile-ready for Sentry/Crashlytics once the dependency is wired; until then, a `NoOpCrashBackend` keeps the build green.
 
-**Confirmed done (verified against the tree, not the log):**
-- **Risk math (T0.1):** no `100_000` literal remains in any sizing/P&L path; `RiskEngine.calculatePositionSize` resolves `contractSize` via `InstrumentTypeResolver` in all six branches. The only `100_000` occurrences are the legitimate FX contract-size *definitions* in `PositionCalculator.InstrumentType`.
-- **Consolidation review issue #1 (encapsulation):** `ChartMultiChartController._multiChartState` is now `private` and exposed read-only via `asStateFlow()`.
-- **Consolidation review issues #2 & #3 (AI race / no cancellation):** `ChartAiCoordinator` now holds an `inFlightJob`, cancels it at the top of every `runAiDecision` and in `cancelInFlight()`/`resetCooldowns()`, and keeps the stale-context guard before writing results.
-- **T0.3:** zero `TODO`/`FIXME` in `app/src/main`.
-- **T2.1:** `ChartViewModel` = 429 LOC (thin orchestrator). Above the aspirational <350 target; remainder is necessary public delegate API, as previously logged.
+**Changes:**
 
-**Core-logic review verdict.** `RiskEngine` and `BacktestEngine` are correct and well-structured. The backtester's no-look-ahead invariant holds: a signal at bar `i` is generated from `candles.subList(0, i+1)`, the position opens only *after* the same iteration's exit check, so a trade can never exit on its own entry bar; SL is checked before TP (conservative); metrics (Sharpe/Sortino/Calmar/PF/expectancy/streaks) are computed correctly.
+1. **CrashReporter interface expansion.**
+   - Added `recordException(throwable, context)`, `setEnabled(enabled)`, and `recordBreadcrumb(message, category)` with default no-op implementations so `LocalCrashReporter` remains unchanged.
 
-**Minor, non-urgent inconsistencies noted (not fixed here — behavioural change without a runnable build/test is a net risk to a green repo):**
-- `RiskEngine.checkAutoHalt` uses `dailyLoss > maxDailyLoss` (strict) while `canOpenTrade` uses `dailyLoss >= maxDaily`. Align to `>=` in a build-capable environment with a matching test update.
-- Daily/weekly loss gates use static `config.accountBalance` as the denominator while sizing uses `currentBalance` (the existing "R3" note). Decide on one basis and document it.
-- `updateConfig` does not re-seed `currentBalance`/`peakBalance` from the new config's `accountBalance` (intentional-looking config-vs-runtime split; `updateBalance` exists for that — worth a KDoc clarifying the contract).
+2. **RemoteCrashBackend interface + data models.**
+   - `RemoteCrashBackend`: abstract SDK boundary (`initialize`, `captureException`, `captureAnr`, `setEnabled`, `addBreadcrumb`).
+   - `SanitizedException` / `StackFrame`: PII-free data transfer objects carrying only type, frames, context map, and optional cause chain.
 
-**Environment blocker (unchanged, confirmed this session).** This sandbox is `INTEGRATIONS_ONLY` with no Android SDK and no reachable Gradle/Maven, so `:app:assembleDebug` / `:app:testDebugUnitTest` cannot run here (the Gradle wrapper cannot even download its own distribution). All remaining roadmap items (T0.2 schema JSON, T4.1/T4.2 app-wide gates + baseline profile in CI, remote crash reporting, Play screenshots) require a build-capable machine/CI. This is a genuine human-action gate, not a code gap.
+3. **NoOpCrashBackend.**
+   - Default implementation that logs operations at debug level. Ships until a real SDK dependency is added. Annotated `@Singleton` + `@Inject`.
 
-*No code changed in this sprint. Audit only — the correctness core was found sound; the remaining work is build-environment-gated.*
+4. **RemoteCrashReporter.**
+   - Sanitizes exceptions (strips messages, keeps only type + stack frames + non-PII context keys).
+   - Respects opt-in: checks `appPreferences.crashReportingEnabled` before any backend call.
+   - DSN sourced from `BuildConfig.CRASH_REPORTING_DSN` (env/CI-injectable, blank by default).
+   - Integrates `AnrWatchdog` lifecycle (start on enable, stop on disable).
+
+5. **AnrWatchdog.**
+   - Daemon thread posting to main handler every 5s; if the callback does not fire within 5s, captures main-thread stack dump and reports via `CrashReporter.recordException`.
+   - Clean start/stop lifecycle, interrupt-safe.
+
+6. **CompositeCrashReporter.**
+   - Wraps `LocalCrashReporter` + `RemoteCrashReporter`, dispatching all calls to both. This is the new `CrashReporter` binding.
+
+7. **CrashModule update.**
+   - Binds `CompositeCrashReporter` as `CrashReporter` and `NoOpCrashBackend` as `RemoteCrashBackend`.
+
+8. **BuildConfig field.**
+   - Added `CRASH_REPORTING_DSN` to `app/build.gradle.kts` (sourced from `local.properties` or `CRASH_REPORTING_DSN` env var, blank default).
+
+9. **Unit tests (9 tests in RemoteCrashReporterTest).**
+   - Opt-out suppresses all remote calls.
+   - Opt-in forwards exceptions to backend.
+   - PII is stripped (exception messages not in sanitized output).
+   - Context map is preserved.
+   - Cause chain traversal up to depth limit.
+   - setEnabled true/false starts/stops ANR watchdog.
+   - Breadcrumb gating (opt-in/opt-out).
+
+**Definition of Done status:**
+- [x] CrashReporter interface expanded with backward-compatible default methods.
+- [x] RemoteCrashBackend abstraction decouples reporter from specific SDK.
+- [x] NoOpCrashBackend compiles without any external dependency.
+- [x] RemoteCrashReporter never transmits PII (messages stripped, only type + frames + context keys).
+- [x] AnrWatchdog detects unresponsive main thread within 5s timeout.
+- [x] CompositeCrashReporter dispatches to both local and remote reporters.
+- [x] CrashModule binds the composite reporter and no-op backend.
+- [x] 9 unit tests covering opt-in gating, PII stripping, context preservation, ANR lifecycle.
+- [x] BuildConfig.CRASH_REPORTING_DSN injectable via env/CI; blank by default.
+- [ ] **CI build + unit tests green** -- cannot run in this offline/no-SDK sandbox. Must be confirmed by GitHub Actions on push.
