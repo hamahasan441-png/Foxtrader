@@ -31,6 +31,8 @@ enum class DataProvider(
     SAMPLE("Sample Data", supportsLive = false, requiresApiKey = false, implemented = true),
     BINANCE("Binance", supportsLive = true, requiresApiKey = false, implemented = true),
     BYBIT("Bybit", supportsLive = true, requiresApiKey = false, implemented = true),
+    OKX("OKX", supportsLive = false, requiresApiKey = false, implemented = true),
+    KUCOIN("KuCoin", supportsLive = false, requiresApiKey = false, implemented = true),
     // DukascopyAdapter is a stub — binary tick parsing is not implemented.
     DUKASCOPY("Dukascopy", supportsLive = false, requiresApiKey = false),
     ALPHA_VANTAGE(
