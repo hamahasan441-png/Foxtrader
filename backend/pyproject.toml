@@ -1,0 +1,19 @@
+[project]
+name = "foxtrader-backend"
+version = "0.1.0"
+description = "FoxTrader market-data backend (FastAPI) — serves the Android client's candles contract."
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+# Make `app` importable without an install step.
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+src = ["app", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
