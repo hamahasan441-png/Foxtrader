@@ -325,9 +325,13 @@ class RiskEngineTest {
 
     @Test
     fun `risk status reflects current engine state`() {
-        engine.recordTrade(-300.0, "EURUSD")
+        // Loss stays below the 3% daily limit (300 on a 10k account) so the engine
+        // remains active — this test verifies the status snapshot for a normal,
+        // non-halted state. (checkAutoHalt now halts at >= the limit, matching
+        // canOpenTrade, so a -300 loss would legitimately halt here.)
+        engine.recordTrade(-250.0, "EURUSD")
         val status = engine.getRiskStatus()
-        assertEquals(9_700.0, status.balance, 1e-6)
+        assertEquals(9_750.0, status.balance, 1e-6)
         assertTrue(status.drawdownPercent > 0)
         assertFalse(status.halted)
     }
