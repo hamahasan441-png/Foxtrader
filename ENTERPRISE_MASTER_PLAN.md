@@ -564,3 +564,33 @@ All guards fail fast in debug, are cheap in release (no allocations on the happy
 - [x] Two cohesive concerns extracted; ViewModel stays a thin orchestrator; behaviour identical (review-verified).
 - [x] No new TODOs/placeholders; no unused imports in touched files; single logical change.
 - [ ] **CI build + unit tests green** — cannot run in this offline/no-SDK sandbox; must be confirmed by the GitHub Actions `android.yml` workflow. Verified at source level: brace/paren balance, same-package helper resolution, no dangling references.
+
+---
+
+### Sprint 8 -- Engineering hardening: operator alignment, coverage extension, domain tests, string externalization, provider adapter *(status: implemented)*
+
+**Scope.** This sprint closes five open items from the remaining Phase 4/Phase 5 roadmap, all feasible without a build environment. It addresses the Sprint 7 audit's operator inconsistency finding, extends coverage gates, adds domain characterization tests, externalizes remaining feature-screen strings, and wires Twelve Data behind the `DataProviderAdapter` seam.
+
+**Changes:**
+
+1. **RiskEngine daily-loss operator alignment (Sprint 7 audit item).** `checkAutoHalt` changed from `dailyLoss > maxDailyLoss` (strict) to `dailyLoss >= maxDailyLoss` (inclusive), matching `canOpenTrade`'s existing `>=` semantics. Added KDoc to `updateConfig` and `updateBalance` clarifying the config-vs-runtime balance contract. New boundary-case test in `RiskEngineTest` verifies the alignment.
+
+2. **T4.1 partial: coverage gate extension.** Extended `domainCoverageIncludes` and `domainCoverageSourceDirs` in `app/build.gradle.kts` to include `SmtDivergenceDetector`, `StrategyTester`, and `StrategyLibrary`. The domain jacoco verification rule (40% floor) now covers smt and strategies packages in addition to the existing risk/smc/ai/backtest/calculator scope. `ignoreFailures = true` remains (non-breaking rollout).
+
+3. **Domain-layer characterization tests (3 new test files, 19 test methods):**
+   - `BacktestEngineTest` (7 tests): no-look-ahead invariant, SL-before-TP on same bar, end-of-data closure at last close, empty input, commission deduction, winRate/profitFactor computation, Sharpe ratio.
+   - `SmtDivergenceDetectorEdgeCaseTest` (6 tests): MIN_BARS guard, empty correlated map, correlation threshold gating, confidence bounding [62,86], non-repainting swing confirmation, peer-too-short guard.
+   - `StrategyTesterTest` (6 tests): single-strategy result, skip-when-insufficient-bars, ranking by score descending, contract-size resolution from symbol, zero-score with <3 trades, non-zero score formula.
+
+4. **T4.3 string externalization.** Moved 30 hardcoded UI strings from feature screens (auth, litx, trade management, tradepro risk dashboard, tradepro backtest report, journal) to `strings.xml`. Technical labels (`RSI(14)`, `MACD(12,26,9)`, FPS metrics) deliberately excluded per Sprint 4 audit rationale.
+
+5. **Twelve Data provider adapter.** Implemented `TwelveDataProviderAdapter` bridging `TwelveDataDataSource` to the `DataProviderAdapter` interface. Covers forex, stocks, indices, crypto, and ETFs behind the existing `DataProviderRegistry` seam. Error handling returns `emptyList()` per the adapter contract. New test file (5 tests) verifies delegation, error path, and `supports()` semantics.
+
+**Definition of Done status:**
+- [x] `checkAutoHalt` uses `>=` (matches `canOpenTrade`); boundary test proves it.
+- [x] Domain jacoco gate includes smt + strategies; existing `ignoreFailures` preserves non-breaking rollout.
+- [x] 19 new characterization tests across 3 domain classes; all use real instances, exercise production code paths.
+- [x] 30 strings externalized across 6 feature files; XML well-formed, no duplicates.
+- [x] `TwelveDataProviderAdapter` implements `DataProviderAdapter` fully (not a stub); 5 tests cover the adapter.
+- [x] No new TODOs/placeholders; no fully-qualified names in method bodies.
+- [ ] **CI build + unit tests green** -- cannot run in this offline/no-SDK sandbox. Must be confirmed by GitHub Actions on push.
