@@ -690,3 +690,26 @@ All guards fail fast in debug, are cheap in release (no allocations on the happy
 - [x] No new TODOs/placeholders; imports resolve to existing symbols; brace/paren balance verified.
 - [ ] **CI build + unit tests green** -- cannot run in this offline/no-SDK sandbox. Must be confirmed by GitHub Actions on push.
 
+---
+
+### Sprint 7 — Independent verification audit (fresh session, read-only core review)
+
+**Scope.** An independent engineer re-reviewed `main` against the plan and read the correctness-critical core (`RiskEngine`, `BacktestEngine`) plus the two files flagged in the T0–T2 consolidation review (`ChartMultiChartController`, `ChartAiCoordinator`). Goal: confirm claimed fixes are real and hunt for latent bugs a compiler would not catch.
+
+**Confirmed done (verified against the tree, not the log):**
+- **Risk math (T0.1):** no `100_000` literal remains in any sizing/P&L path; `RiskEngine.calculatePositionSize` resolves `contractSize` via `InstrumentTypeResolver` in all six branches. The only `100_000` occurrences are the legitimate FX contract-size *definitions* in `PositionCalculator.InstrumentType`.
+- **Consolidation review issue #1 (encapsulation):** `ChartMultiChartController._multiChartState` is now `private` and exposed read-only via `asStateFlow()`.
+- **Consolidation review issues #2 & #3 (AI race / no cancellation):** `ChartAiCoordinator` now holds an `inFlightJob`, cancels it at the top of every `runAiDecision` and in `cancelInFlight()`/`resetCooldowns()`, and keeps the stale-context guard before writing results.
+- **T0.3:** zero `TODO`/`FIXME` in `app/src/main`.
+- **T2.1:** `ChartViewModel` = 429 LOC (thin orchestrator). Above the aspirational <350 target; remainder is necessary public delegate API, as previously logged.
+
+**Core-logic review verdict.** `RiskEngine` and `BacktestEngine` are correct and well-structured. The backtester's no-look-ahead invariant holds: a signal at bar `i` is generated from `candles.subList(0, i+1)`, the position opens only *after* the same iteration's exit check, so a trade can never exit on its own entry bar; SL is checked before TP (conservative); metrics (Sharpe/Sortino/Calmar/PF/expectancy/streaks) are computed correctly.
+
+**Minor, non-urgent inconsistencies noted (not fixed here — behavioural change without a runnable build/test is a net risk to a green repo):**
+- `RiskEngine.checkAutoHalt` uses `dailyLoss > maxDailyLoss` (strict) while `canOpenTrade` uses `dailyLoss >= maxDaily`. Align to `>=` in a build-capable environment with a matching test update.
+- Daily/weekly loss gates use static `config.accountBalance` as the denominator while sizing uses `currentBalance` (the existing "R3" note). Decide on one basis and document it.
+- `updateConfig` does not re-seed `currentBalance`/`peakBalance` from the new config's `accountBalance` (intentional-looking config-vs-runtime split; `updateBalance` exists for that — worth a KDoc clarifying the contract).
+
+**Environment blocker (unchanged, confirmed this session).** This sandbox is `INTEGRATIONS_ONLY` with no Android SDK and no reachable Gradle/Maven, so `:app:assembleDebug` / `:app:testDebugUnitTest` cannot run here (the Gradle wrapper cannot even download its own distribution). All remaining roadmap items (T0.2 schema JSON, T4.1/T4.2 app-wide gates + baseline profile in CI, remote crash reporting, Play screenshots) require a build-capable machine/CI. This is a genuine human-action gate, not a code gap.
+
+*No code changed in this sprint. Audit only — the correctness core was found sound; the remaining work is build-environment-gated.*
