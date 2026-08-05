@@ -274,6 +274,9 @@ val domainCoverageIncludes = listOf(
     "com/foxtrader/app/domain/usecase/backtest/BacktestEngine*",
     "com/foxtrader/app/domain/usecase/calculator/PositionCalculator*",
     "com/foxtrader/app/domain/usecase/calculator/InstrumentTypeResolver*",
+    "com/foxtrader/app/domain/usecase/smt/SmtDivergenceDetector*",
+    "com/foxtrader/app/domain/usecase/strategies/StrategyTester*",
+    "com/foxtrader/app/domain/usecase/strategies/StrategyLibrary*",
 )
 
 val domainCoverageSourceDirs = files(
@@ -282,6 +285,8 @@ val domainCoverageSourceDirs = files(
     "src/main/java/com/foxtrader/app/domain/usecase/ai",
     "src/main/java/com/foxtrader/app/domain/usecase/backtest",
     "src/main/java/com/foxtrader/app/domain/usecase/calculator",
+    "src/main/java/com/foxtrader/app/domain/usecase/smt",
+    "src/main/java/com/foxtrader/app/domain/usecase/strategies",
 )
 
 val domainCoverageClassDirs = files(
