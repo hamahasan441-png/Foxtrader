@@ -333,7 +333,7 @@ class RiskEngine @Inject constructor(
         }
         val dailyLoss = getDailyLoss()
         val maxDailyLoss = config.accountBalance * (config.maxDailyLossPercent / 100.0)
-        if (dailyLoss > maxDailyLoss) {
+        if (dailyLoss >= maxDailyLoss) {
             haltTrading("Daily loss limit")
         }
     }
@@ -355,12 +355,22 @@ class RiskEngine @Inject constructor(
         haltReason = haltReason,
     )
 
+    /**
+     * Replaces the risk configuration without resetting runtime state (balance,
+     * peak, trade history). Call [updateBalance] separately to re-seed the live
+     * balance when the account changes.
+     */
     fun updateConfig(newConfig: RiskConfig) {
         config = newConfig
     }
 
     fun getConfig(): RiskConfig = config
 
+    /**
+     * Resets both [currentBalance] and [peakBalance] to [balance]. Use after an
+     * account change or when re-syncing with a live broker balance. Does not
+     * modify [config].
+     */
     fun updateBalance(balance: Double) {
         synchronized(lock) {
             currentBalance = balance

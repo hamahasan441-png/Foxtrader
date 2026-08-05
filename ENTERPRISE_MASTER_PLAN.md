@@ -565,6 +565,130 @@ All guards fail fast in debug, are cheap in release (no allocations on the happy
 - [x] No new TODOs/placeholders; no unused imports in touched files; single logical change.
 - [ ] **CI build + unit tests green** — cannot run in this offline/no-SDK sandbox; must be confirmed by the GitHub Actions `android.yml` workflow. Verified at source level: brace/paren balance, same-package helper resolution, no dangling references.
 
+---
+
+### Sprint 8 -- Engineering hardening: operator alignment, coverage extension, domain tests, string externalization, provider adapter *(status: implemented)*
+
+**Scope.** This sprint closes five open items from the remaining Phase 4/Phase 5 roadmap, all feasible without a build environment. It addresses the Sprint 7 audit's operator inconsistency finding, extends coverage gates, adds domain characterization tests, externalizes remaining feature-screen strings, and wires Twelve Data behind the `DataProviderAdapter` seam.
+
+**Changes:**
+
+1. **RiskEngine daily-loss operator alignment (Sprint 7 audit item).** `checkAutoHalt` changed from `dailyLoss > maxDailyLoss` (strict) to `dailyLoss >= maxDailyLoss` (inclusive), matching `canOpenTrade`'s existing `>=` semantics. Added KDoc to `updateConfig` and `updateBalance` clarifying the config-vs-runtime balance contract. New boundary-case test in `RiskEngineTest` verifies the alignment.
+
+2. **T4.1 partial: coverage gate extension.** Extended `domainCoverageIncludes` and `domainCoverageSourceDirs` in `app/build.gradle.kts` to include `SmtDivergenceDetector`, `StrategyTester`, and `StrategyLibrary`. The domain jacoco verification rule (40% floor) now covers smt and strategies packages in addition to the existing risk/smc/ai/backtest/calculator scope. `ignoreFailures = true` remains (non-breaking rollout).
+
+3. **Domain-layer characterization tests (3 new test files, 19 test methods):**
+   - `BacktestEngineTest` (7 tests): no-look-ahead invariant, SL-before-TP on same bar, end-of-data closure at last close, empty input, commission deduction, winRate/profitFactor computation, Sharpe ratio.
+   - `SmtDivergenceDetectorEdgeCaseTest` (6 tests): MIN_BARS guard, empty correlated map, correlation threshold gating, confidence bounding [62,86], non-repainting swing confirmation, peer-too-short guard.
+   - `StrategyTesterTest` (6 tests): single-strategy result, skip-when-insufficient-bars, ranking by score descending, contract-size resolution from symbol, zero-score with <3 trades, non-zero score formula.
+
+4. **T4.3 string externalization.** Moved 30 hardcoded UI strings from feature screens (auth, litx, trade management, tradepro risk dashboard, tradepro backtest report, journal) to `strings.xml`. Technical labels (`RSI(14)`, `MACD(12,26,9)`, FPS metrics) deliberately excluded per Sprint 4 audit rationale.
+
+5. **Twelve Data provider adapter.** Implemented `TwelveDataProviderAdapter` bridging `TwelveDataDataSource` to the `DataProviderAdapter` interface. Covers forex, stocks, indices, crypto, and ETFs behind the existing `DataProviderRegistry` seam. Error handling returns `emptyList()` per the adapter contract. New test file (5 tests) verifies delegation, error path, and `supports()` semantics.
+
+**Definition of Done status:**
+- [x] `checkAutoHalt` uses `>=` (matches `canOpenTrade`); boundary test proves it.
+- [x] Domain jacoco gate includes smt + strategies; existing `ignoreFailures` preserves non-breaking rollout.
+- [x] 19 new characterization tests across 3 domain classes; all use real instances, exercise production code paths.
+- [x] 30 strings externalized across 6 feature files; XML well-formed, no duplicates.
+- [x] `TwelveDataProviderAdapter` implements `DataProviderAdapter` fully (not a stub); 5 tests cover the adapter.
+- [x] No new TODOs/placeholders; no fully-qualified names in method bodies.
+- [ ] **CI build + unit tests green** -- cannot run in this offline/no-SDK sandbox. Must be confirmed by GitHub Actions on push.
+
+---
+
+### Sprint 9 -- Quality fixes and domain test hardening *(status: implemented)*
+
+**Scope.** Semantic review of Sprint 8 identified three non-blocking issues (vacuous conditional assertions, blanket exception swallowing, under-constrained test inputs). This sprint fixes all three and adds edge-case tests to MonteCarloRiskEngine, TradeProBacktestEngine, and CorrelationEngine.
+
+**Changes:**
+
+1. **TwelveDataProviderAdapter: CancellationException fix + startTime KDoc.**
+   - The blanket `catch (_: Exception)` now rethrows `CancellationException` before falling through to the empty-list fallback. This preserves structured concurrency -- callers that cancel a coroutine no longer silently swallow the cancellation.
+   - Added KDoc to `fetchHistory` explaining that `startTime` is intentionally not forwarded because Twelve Data's free tier does not support a start-date query parameter.
+
+2. **BacktestEngineTest: non-vacuous assertion guard.**
+   - The `metrics winRate and profitFactor are computed correctly from trades` test previously wrapped its assertions in `if (metrics.totalTrades > 0)`, which would pass vacuously if the strategy produced zero trades. Replaced with `assertTrue(metrics.totalTrades > 0, ...)` followed by unconditional assertions.
+
+3. **StrategyTesterTest: zero-score test reliability.**
+   - Reduced the candle count from 25 to 5 bars. With only 5 bars no strategy can produce 3+ trades, so the zero-score path is guaranteed to be exercised on every run. The conditional fallback branch is removed entirely.
+
+4. **MonteCarloRiskEngine edge-case tests (4 new tests):**
+   - `zero risk per trade keeps equity flat` -- verifies that 0% risk means no change.
+   - `single trade per run with a winning edge` -- verifies exact end-multiple calculation.
+   - `boundary input with winRate exactly 0 and avgLossR 0 keeps equity flat` -- zero-magnitude loss.
+   - `single run returns consistent percentiles` -- all percentile bands collapse to the same value.
+
+5. **TradeProBacktestEngine edge-case tests (4 new tests):**
+   - `single bar above MIN_BARS returns empty result` -- minimal input just past the guard.
+   - `narrative is never blank regardless of trade count` -- validates narrative generation path.
+   - `symbol is preserved in the result` -- verifies pass-through for different symbols.
+   - `equity curve length equals trade count` -- structural invariant on analytics arrays.
+
+6. **CorrelationEngine boundary tests (4 new tests):**
+   - `single-element series produces empty result` -- below MIN_BARS guard.
+   - `constant series produces zero correlation` -- zero-variance edge case.
+   - `exactly MIN_BARS plus one candle produces a valid result` -- threshold boundary.
+   - `empty input map returns empty result` -- fully degenerate input.
+
+**Definition of Done status:**
+- [x] `CancellationException` rethrown before fallback; KDoc documents `startTime` non-forwarding rationale.
+- [x] BacktestEngineTest metrics test guards against vacuous pass with unconditional `assertTrue`.
+- [x] StrategyTesterTest zero-score test uses 5 bars (guarantees < 3 trades); no conditional fallback.
+- [x] 12 new edge-case tests across 3 engines; all use real instances, no mocks.
+- [x] No new TODOs/placeholders; imports resolve to existing symbols; brace/paren balance verified.
+- [ ] **CI build + unit tests green** -- cannot run in this offline/no-SDK sandbox. Must be confirmed by GitHub Actions on push.
+
+---
+
+### Sprint 10 -- Domain coverage expansion (analysis, patterns, sessions, correlation) *(status: implemented)*
+
+**Scope.** Five domain packages had zero test coverage: `analysis/`, `patterns/`, `sessions/`, `correlation/`. All contain pure, stateless domain logic with no DI dependencies -- ideal for characterization tests. This sprint adds comprehensive test files and extends the jacoco coverage gate to include these packages.
+
+**Changes:**
+
+1. **SupportResistanceDetectorTest (4 tests):**
+   - `detect returns empty for insufficient data` -- fewer bars than 2*swingLookback+1 yields no zones.
+   - `detect identifies zones with repeated swing levels` -- validates clustering of swing points, touch count >= 2, bounds ordering.
+   - `zone strength is bounded 0 to 100` -- verifies coerceAtMost enforcement.
+   - `maxZones limits output size` -- confirms the take(maxZones) cap.
+
+2. **FibonacciEngineTest (4 tests):**
+   - `retracements bullish produces correct levels` -- verifies all 7 ratios with exact price math.
+   - `retracements bearish produces inverted levels` -- validates reversed direction calculation.
+   - `extensions bullish projects targets above swing high` -- confirms extension ratios and ordering.
+   - `projections compute ABC targets correctly` -- validates point-C-based projection formula.
+
+3. **CandlePatternDetectorTest (4 tests):**
+   - `detects hammer in downtrend` -- synthetic downtrend + hammer candle triggers detection.
+   - `detects bullish engulfing` -- validates two-candle reversal pattern.
+   - `detects three white soldiers` -- validates three-candle continuation pattern.
+   - `returns empty for insufficient candles` -- single candle yields no patterns.
+
+4. **SessionDetectorTest (4 tests):**
+   - `detectSessions returns empty for empty input` -- degenerate input guard.
+   - `detectSessions identifies London session hours 7 to 16 UTC` -- validates start/end index mapping.
+   - `detectSessions computes correct session high and low` -- verifies price extremes within session bars.
+   - `detectSessions handles overnight session (Sydney wraps midnight)` -- validates the hour >= open || hour < close logic.
+
+5. **CorrelationMatrixTest (5 tests):**
+   - `computeMatrix with identical series produces correlation of 1` -- perfect positive correlation.
+   - `computeMatrix with inversely correlated series produces negative correlation` -- validates STRONG_NEGATIVE classification.
+   - `computeMatrix self-correlation is always 1` -- diagonal invariant.
+   - `computeMatrix with insufficient data produces zero correlation` -- below 5-point Pearson minimum.
+   - `getHedgingPairs returns only strongly negative correlations` -- validates filter helper.
+
+6. **Jacoco coverage gate extension.**
+   - Added to `domainCoverageIncludes`: SupportResistanceDetector, FibonacciEngine, CandlePatternDetector, SessionDetector, CorrelationMatrix.
+   - Added to `domainCoverageSourceDirs`: analysis, patterns, sessions, correlation directories.
+   - Existing `ignoreFailures = true` preserves non-breaking rollout.
+
+**Definition of Done status:**
+- [x] 21 new characterization tests across 5 domain packages; all use real instances, synthetic data, no mocks.
+- [x] Every test exercises production code paths with concrete assertions (no vacuous conditionals).
+- [x] Domain jacoco gate extended to include analysis, patterns, sessions, correlation packages.
+- [x] No new TODOs/placeholders; imports resolve to existing symbols; brace/paren balance verified.
+- [ ] **CI build + unit tests green** -- cannot run in this offline/no-SDK sandbox. Must be confirmed by GitHub Actions on push.
 
 ---
 

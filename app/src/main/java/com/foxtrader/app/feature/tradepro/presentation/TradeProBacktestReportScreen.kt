@@ -39,11 +39,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.model.tradepro.TradeProBacktestResult
@@ -110,8 +112,7 @@ fun TradeProBacktestReportScreen(
             if (state.isSynthetic) {
                 LabCard {
                     Text(
-                        text = "SIMULATED DATA — no real feed for this symbol. This report is " +
-                            "illustrative of the framework's mechanics, not a live edge.",
+                        text = stringResource(R.string.tradepro_backtest_simulated_notice),
                         color = FoxAmber50,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -146,7 +147,7 @@ fun TradeProBacktestReportScreen(
 
                 else -> LabCard {
                     Text(
-                        text = "Select a symbol to replay the TRADEPRO framework over its history.",
+                        text = stringResource(R.string.tradepro_backtest_select_prompt),
                         color = FoxNeutral60,
                         style = MaterialTheme.typography.bodyMedium,
                     )

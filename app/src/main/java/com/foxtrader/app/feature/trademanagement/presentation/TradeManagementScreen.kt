@@ -25,10 +25,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.tradepro.ManagedTrade
 import com.foxtrader.app.domain.model.tradepro.ManagedTradeState
@@ -58,7 +60,7 @@ fun TradeManagementScreen(
             .padding(16.dp),
     ) {
         Text(
-            text = "Trade Management",
+            text = stringResource(R.string.trade_mgmt_title),
             style = MaterialTheme.typography.headlineSmall,
             color = MaterialTheme.colorScheme.onBackground,
         )
@@ -128,13 +130,13 @@ private fun EmptyState() {
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                text = "No Active Trades",
+                text = stringResource(R.string.trade_mgmt_no_active_trades),
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onBackground,
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Open a trade from an executable TRADEPRO setup to begin management.",
+                text = stringResource(R.string.trade_mgmt_empty_description),
                 style = MaterialTheme.typography.bodyMedium,
                 color = FoxNeutral60,
             )
@@ -273,7 +275,7 @@ private fun TradeDetailPanel(
         // Points summary
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Column {
-                Text(text = "Realized", style = MaterialTheme.typography.labelSmall, color = FoxNeutral60)
+                Text(text = stringResource(R.string.trade_mgmt_realized), style = MaterialTheme.typography.labelSmall, color = FoxNeutral60)
                 Text(
                     text = "%+.1f pts".format(trade.realizedPoints),
                     style = MaterialTheme.typography.bodyMedium,
@@ -281,7 +283,7 @@ private fun TradeDetailPanel(
                 )
             }
             Column {
-                Text(text = "Unrealized", style = MaterialTheme.typography.labelSmall, color = FoxNeutral60)
+                Text(text = stringResource(R.string.trade_mgmt_unrealized), style = MaterialTheme.typography.labelSmall, color = FoxNeutral60)
                 Text(
                     text = "%+.1f pts".format(trade.unrealizedPoints),
                     style = MaterialTheme.typography.bodyMedium,

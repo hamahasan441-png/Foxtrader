@@ -91,7 +91,7 @@ fun LoginScreen(
             OutlinedTextField(
                 value = state.displayName,
                 onValueChange = viewModel::onDisplayNameChange,
-                label = { Text("Display name") },
+                label = { Text(stringResource(R.string.auth_label_display_name)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
@@ -102,7 +102,7 @@ fun LoginScreen(
         OutlinedTextField(
             value = state.email,
             onValueChange = viewModel::onEmailChange,
-            label = { Text("Email") },
+            label = { Text(stringResource(R.string.auth_label_email)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
             keyboardOptions = KeyboardOptions(
@@ -116,7 +116,7 @@ fun LoginScreen(
         OutlinedTextField(
             value = state.password,
             onValueChange = viewModel::onPasswordChange,
-            label = { Text("Password") },
+            label = { Text(stringResource(R.string.auth_label_password)) },
             singleLine = true,
             visualTransformation = PasswordVisualTransformation(),
             modifier = Modifier.fillMaxWidth(),
@@ -153,7 +153,7 @@ fun LoginScreen(
                 )
             } else {
                 Text(
-                    text = if (state.mode == AuthMode.LOGIN) "Sign In" else "Create Account",
+                    text = if (state.mode == AuthMode.LOGIN) stringResource(R.string.auth_action_sign_in) else stringResource(R.string.auth_action_create_account),
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onPrimary,
                 )
@@ -165,16 +165,16 @@ fun LoginScreen(
         TextButton(onClick = viewModel::toggleMode) {
             Text(
                 text = if (state.mode == AuthMode.LOGIN) {
-                    "Don't have an account? Register"
+                    stringResource(R.string.auth_switch_to_register)
                 } else {
-                    "Already have an account? Sign in"
+                    stringResource(R.string.auth_switch_to_login)
                 },
                 color = FoxAmber50,
             )
         }
 
         TextButton(onClick = onDismiss) {
-            Text("Continue offline", color = FoxNeutral60)
+            Text(stringResource(R.string.auth_continue_offline), color = FoxNeutral60)
         }
     }
 }
