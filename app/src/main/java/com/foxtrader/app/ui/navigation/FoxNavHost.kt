@@ -80,8 +80,10 @@ object FoxRoutes {
     // from the Chart top bar — additive, not a bottom tab).
     const val LITX = "litx/{symbol}/{timeframe}"
 
-    /** Builds a concrete LIT X route for the given symbol/timeframe label. */
-    fun litx(symbol: String, timeframeLabel: String): String = "litx/$symbol/$timeframeLabel"
+    /** Builds a concrete LIT X route; the symbol is URL-encoded so values with
+     *  a '/' or space (e.g. "EUR/USD") don't break path-argument matching. */
+    fun litx(symbol: String, timeframeLabel: String): String =
+        "litx/${android.net.Uri.encode(symbol)}/${android.net.Uri.encode(timeframeLabel)}"
 }
 
 /** Bottom navigation tab definition. */

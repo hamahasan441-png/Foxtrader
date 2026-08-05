@@ -36,10 +36,16 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.foxtrader.app.domain.model.Bias
+import com.foxtrader.app.domain.model.Direction
+import com.foxtrader.app.domain.model.LitXSignalRecord
 import com.foxtrader.app.domain.model.LitXStage
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.feature.litx.presentation.components.GradeBadge
 import com.foxtrader.app.feature.litx.presentation.components.LitXConfidenceBars
 import com.foxtrader.app.feature.litx.presentation.components.LitXSignalCard
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxBearishText
 import com.foxtrader.app.ui.theme.FoxBullishText
@@ -61,6 +67,7 @@ fun LitXScreen(
     viewModel: LitXViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val recentSignals by viewModel.recentSignals.collectAsStateWithLifecycle()
 
     LaunchedEffect(symbol, timeframe) {
         viewModel.analyze(symbol, timeframe)
@@ -103,6 +110,16 @@ fun LitXScreen(
                 state.error != null -> InfoCard(state.error ?: "")
                 state.analysis != null -> AnalysisContent(state)
                 else -> InfoCard("Open a symbol to run LIT X analysis.")
+            }
+
+            if (recentSignals.isNotEmpty()) {
+                Text(
+                    "Recent signals",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = FoxAmber50,
+                )
+                recentSignals.forEach { record -> RecentSignalRow(record) }
             }
 
             Spacer(Modifier.height(16.dp))
@@ -213,6 +230,63 @@ private fun LoadingBlock() {
         contentAlignment = Alignment.Center,
     ) {
         CircularProgressIndicator(color = FoxAmber50)
+    }
+}
+
+@Composable
+private fun RecentSignalRow(record: LitXSignalRecord) {
+    val bullish = record.direction == Direction.BULLISH
+    val dirColor = if (bullish) FoxBullishText else FoxBearishText
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(FoxNeutral10)
+            .padding(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    "${record.symbol} ${record.timeframe.label}",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                GradeBadge(record.grade)
+            }
+            Text(
+                text = SimpleDateFormat("MMM dd HH:mm", Locale.US).format(Date(record.createdAt)),
+                style = MaterialTheme.typography.labelSmall,
+                color = FoxNeutral60,
+            )
+        }
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                if (bullish) "LONG" else "SHORT",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = dirColor,
+            )
+            Text(
+                "${record.score}",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = FoxAmber50,
+            )
+            Text(
+                "RR ${String.format(Locale.US, "%.1f", record.riskReward)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = FoxNeutral60,
+            )
+        }
     }
 }
 

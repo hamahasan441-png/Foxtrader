@@ -9,7 +9,14 @@ import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import com.foxtrader.app.domain.usecase.analysis.WyckoffDetector
 import com.foxtrader.app.domain.usecase.indicators.BollingerBands
 import com.foxtrader.app.domain.usecase.indicators.IchimokuCloud
+import com.foxtrader.app.domain.usecase.litx.DisplacementDetector
+import com.foxtrader.app.domain.usecase.litx.LitXConfidenceScorer
+import com.foxtrader.app.domain.usecase.litx.LitXEngine
+import com.foxtrader.app.domain.usecase.litx.MitigationBlockDetector
+import com.foxtrader.app.domain.usecase.litx.MssClassifier
+import com.foxtrader.app.domain.usecase.litx.PremiumDiscountCalculator
 import com.foxtrader.app.domain.usecase.patterns.CandlePatternDetector
+import com.foxtrader.app.domain.usecase.sessions.SessionDetector
 import com.foxtrader.app.domain.usecase.smc.SmcDetector
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -29,6 +36,16 @@ class ScannerUseCaseTest {
             bollingerBands = BollingerBands(),
             wyckoffDetector = WyckoffDetector(),
             analyzeStructure = AnalyzeMarketStructureUseCase(),
+            litXEngine = LitXEngine(
+                smcDetector = SmcDetector(),
+                analyzeStructure = AnalyzeMarketStructureUseCase(),
+                sessionDetector = SessionDetector(),
+                displacementDetector = DisplacementDetector(),
+                mitigationDetector = MitigationBlockDetector(),
+                premiumDiscount = PremiumDiscountCalculator(),
+                mssClassifier = MssClassifier(),
+                scorer = LitXConfidenceScorer(),
+            ),
         )
         scanner.setWatchlist(listOf(ScreenerSymbol("EURUSD", AssetClass.FOREX)))
     }

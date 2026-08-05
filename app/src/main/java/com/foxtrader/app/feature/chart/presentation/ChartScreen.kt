@@ -72,6 +72,7 @@ import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.ui.theme.FoxWarning
 import com.foxtrader.app.feature.chart.presentation.components.CandleChart
 import com.foxtrader.app.feature.chart.presentation.components.ChartAnalysisSheet
+import com.foxtrader.app.feature.chart.presentation.components.DrawingManagerDialog
 import com.foxtrader.app.feature.chart.presentation.components.DrawingPalette
 import com.foxtrader.app.feature.chart.presentation.components.IndicatorPanel
 import com.foxtrader.app.feature.chart.presentation.components.MultiChartSection
@@ -140,6 +141,9 @@ fun ChartScreen(
 
     // --- Track which dropdown menu is open (only one at a time) ---
     var activeMenu by remember { mutableStateOf(ChartMenu.NONE) }
+
+    // --- Per-object drawing manager sheet (list-based delete) ---
+    var showDrawingManager by remember { mutableStateOf(false) }
 
     // --- Bottom "Analysis" sheet expand/collapse (R2) ---
     // Consolidates the AI decision, market context, MTF confluence and TRADEPRO
@@ -405,9 +409,19 @@ fun ChartScreen(
                 activeTool = state.activeTool,
                 onToolSelect = viewModel::startDrawing,
                 onClearAll = viewModel::clearAllDrawings,
+                onManage = { showDrawingManager = true },
                 onClose = { activeMenu = ChartMenu.NONE },
                 modifier = Modifier.align(Alignment.CenterStart),
             )
+
+            // --- Per-object drawing manager (list-based delete) ---
+            if (showDrawingManager) {
+                DrawingManagerDialog(
+                    drawings = state.drawings,
+                    onDelete = viewModel::deleteDrawing,
+                    onDismiss = { showDrawingManager = false },
+                )
+            }
 
             // --- Replay control bar (bottom overlay) ---
             ReplayControlBar(

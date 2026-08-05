@@ -9,10 +9,12 @@ import com.foxtrader.app.domain.model.OrderBlockType
 import com.foxtrader.app.domain.model.StrategySignal
 import com.foxtrader.app.domain.model.StrategyType
 import com.foxtrader.app.domain.model.StructureBreakType
+import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import com.foxtrader.app.domain.usecase.backtest.StrategyFunction
 import com.foxtrader.app.domain.usecase.indicators.IchimokuCloud
 import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
+import com.foxtrader.app.domain.usecase.litx.LitXEngine
 import com.foxtrader.app.domain.usecase.smc.SmcDetector
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -37,6 +39,7 @@ class StrategyLibrary @Inject constructor(
     private val smcDetector: SmcDetector,
     private val analyzeStructure: AnalyzeMarketStructureUseCase,
     private val ichimokuCloud: IchimokuCloud,
+    private val litXEngine: LitXEngine,
 ) {
 
 
@@ -44,6 +47,7 @@ class StrategyLibrary @Inject constructor(
     fun all(): Map<StrategyType, StrategyDefinition> = mapOf(
         StrategyType.SMART_MONEY to smcOrderBlockStrategy(),
         StrategyType.LIT to litInstitutionalStrategy(),
+        StrategyType.LITX to litXStrategy(),
         StrategyType.TREND_FOLLOWING to emaCrossoverStrategy(),
         StrategyType.MEAN_REVERSION to rsiMeanReversionStrategy(),
         StrategyType.BREAKOUT to structureBreakoutStrategy(),
@@ -201,6 +205,39 @@ class StrategyLibrary @Inject constructor(
         )
     }
 
+
+    // =========================================================================
+    // STRATEGY 2b: LIT X Institutional Framework (engine-backed)
+    //
+    // Delegates to [LitXEngine], the full institutional pipeline (liquidity →
+    // sweep → market shift → POI → entry) gated by the 11-factor confidence
+    // model. Non-repainting: the engine only sees candles [0..i]. Fires on bars
+    // where a setup validates; the backtester opens on the non-null return.
+    // =========================================================================
+    private fun litXStrategy() = StrategyDefinition(
+        name = "LIT X Institutional",
+        type = StrategyType.LITX,
+        description = "LIT X engine: sweep → market shift (CHOCH/MSS) → POI retest, gated by an 11-factor score.",
+        minimumBars = 60,
+        function = litXFunction(),
+    )
+
+    private fun litXFunction(): StrategyFunction = fn@{ candles, i ->
+        if (i < 60) return@fn null
+        val slice = candles.subList(0, i + 1) // non-repainting
+        val analysis = litXEngine.analyze(symbol = "", timeframe = Timeframe.H1, candles = slice)
+        val signal = analysis.signal ?: return@fn null
+        StrategySignal(
+            index = i,
+            timestamp = candles[i].timestamp,
+            direction = signal.direction,
+            entry = signal.entry,
+            stopLoss = signal.stopLoss,
+            takeProfit = signal.takeProfit1,
+            confidence = signal.confidence.score.coerceIn(50, 95),
+            setupType = "LITX_${signal.confidence.grade.name}",
+        )
+    }
 
     // =========================================================================
     // STRATEGY 3: EMA Crossover Trend Following

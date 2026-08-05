@@ -4,7 +4,6 @@ import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.LitXStage
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
-import com.foxtrader.app.domain.usecase.analysis.RiskRewardOptimizer
 import com.foxtrader.app.domain.usecase.sessions.SessionDetector
 import com.foxtrader.app.domain.usecase.smc.SmcDetector
 import org.junit.Assert.assertEquals
@@ -23,7 +22,6 @@ class LitXEngineTest {
         smcDetector = SmcDetector(),
         analyzeStructure = AnalyzeMarketStructureUseCase(),
         sessionDetector = SessionDetector(),
-        riskRewardOptimizer = RiskRewardOptimizer(),
         displacementDetector = DisplacementDetector(),
         mitigationDetector = MitigationBlockDetector(),
         premiumDiscount = PremiumDiscountCalculator(),

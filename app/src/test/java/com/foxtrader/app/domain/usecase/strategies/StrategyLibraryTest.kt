@@ -4,6 +4,13 @@ import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.StrategyType
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import com.foxtrader.app.domain.usecase.indicators.IchimokuCloud
+import com.foxtrader.app.domain.usecase.litx.DisplacementDetector
+import com.foxtrader.app.domain.usecase.litx.LitXConfidenceScorer
+import com.foxtrader.app.domain.usecase.litx.LitXEngine
+import com.foxtrader.app.domain.usecase.litx.MitigationBlockDetector
+import com.foxtrader.app.domain.usecase.litx.MssClassifier
+import com.foxtrader.app.domain.usecase.litx.PremiumDiscountCalculator
+import com.foxtrader.app.domain.usecase.sessions.SessionDetector
 import com.foxtrader.app.domain.usecase.smc.SmcDetector
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -17,6 +24,16 @@ class StrategyLibraryTest {
         smcDetector = SmcDetector(),
         analyzeStructure = AnalyzeMarketStructureUseCase(),
         ichimokuCloud = IchimokuCloud(),
+        litXEngine = LitXEngine(
+            smcDetector = SmcDetector(),
+            analyzeStructure = AnalyzeMarketStructureUseCase(),
+            sessionDetector = SessionDetector(),
+            displacementDetector = DisplacementDetector(),
+            mitigationDetector = MitigationBlockDetector(),
+            premiumDiscount = PremiumDiscountCalculator(),
+            mssClassifier = MssClassifier(),
+            scorer = LitXConfidenceScorer(),
+        ),
     )
 
     /** A trending series with enough bars for all strategies. */
@@ -34,9 +51,9 @@ class StrategyLibraryTest {
     }
 
     @Test
-    fun `all 8 strategy types are registered`() {
+    fun `all strategy types are registered`() {
         val all = library.all()
-        assertTrue("Should have 8 strategies", all.size == 8)
+        assertTrue("Every StrategyType must have a definition", all.size == StrategyType.entries.size)
         for (type in StrategyType.entries) {
             assertNotNull("Missing strategy for $type", all[type])
         }
