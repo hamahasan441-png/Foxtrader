@@ -30,8 +30,12 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.foundation.clickable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -63,12 +67,27 @@ fun JournalScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
+    // Which entry (by id) is open in the post-trade review dialog, if any.
+    var reviewEntryId by remember { mutableStateOf<String?>(null) }
+
     if (state.showLogSheet) {
         LogTradeSheet(
             form = state.form,
             onFormChange = viewModel::updateForm,
             onSubmit = viewModel::submitLogTrade,
             onDismiss = viewModel::dismissLogSheet,
+        )
+    }
+
+    // Resolve against the live list so the dialog reflects persisted edits, and
+    // closes itself if the entry is deleted elsewhere.
+    val reviewEntry = reviewEntryId?.let { id -> state.entries.firstOrNull { it.id == id } }
+    if (reviewEntry != null) {
+        TradeReviewDialog(
+            entry = reviewEntry,
+            onSetRating = { viewModel.updateRating(reviewEntry.id, it) },
+            onSetEmotion = { viewModel.updateEmotion(reviewEntry.id, it) },
+            onDismiss = { reviewEntryId = null },
         )
     }
 
@@ -154,7 +173,7 @@ fun JournalScreen(
 
                     // Trade entries
                     items(state.entries, key = { it.id }) { entry ->
-                        JournalEntryCard(entry)
+                        JournalEntryCard(entry, onClick = { reviewEntryId = entry.id })
                     }
                 }
             }
@@ -308,11 +327,12 @@ private fun StatItem(label: String, value: String) {
 }
 
 @Composable
-private fun JournalEntryCard(entry: JournalEntry) {
+private fun JournalEntryCard(entry: JournalEntry, onClick: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 16.dp)
+            .clickable(onClick = onClick),
         colors = CardDefaults.cardColors(containerColor = FoxNeutral10),
         shape = RoundedCornerShape(12.dp),
     ) {

@@ -36,3 +36,7 @@ reference/**/dist/
 
 # OS
 Thumbs.db
+
+
+# Agent-generated review artifacts (never part of the app)
+semantic-review/
