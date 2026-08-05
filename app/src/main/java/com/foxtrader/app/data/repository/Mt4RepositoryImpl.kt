@@ -54,6 +54,7 @@ class Mt4RepositoryImpl @Inject constructor(
     override suspend fun disconnect() {
         quoteStream.disconnect()
         accountId = ""
+        appPreferences.setMetaApiAccountId(null)
     }
 
     override suspend fun getAccountInfo(): Result<Mt4AccountInfo> =
