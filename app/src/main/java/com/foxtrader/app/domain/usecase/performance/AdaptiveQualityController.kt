@@ -25,6 +25,14 @@ class AdaptiveQualityController @Inject constructor(
 
     private var currentLevel: QualityLevel = QualityLevel.ULTRA
 
+    /**
+     * Best quality the controller may auto-restore to (a user "performance
+     * mode" cap). Defaults to [QualityLevel.ULTRA] = no cap, so behaviour is
+     * unchanged unless a mode is chosen. Degradation *below* the ceiling under
+     * load is always permitted; only the upper bound is constrained.
+     */
+    private var qualityCeiling: QualityLevel = QualityLevel.ULTRA
+
     /** Consecutive DEGRADED frames — reset by any non-degraded frame. */
     private var consecutiveBadFrames = 0
 
@@ -83,9 +91,9 @@ class AdaptiveQualityController @Inject constructor(
         }
     }
 
-    /** Restore one quality level (no-op at ULTRA). */
+    /** Restore one quality level, never above the active ceiling. */
     private fun stepUp() {
-        if (currentLevel.ordinal > 0) {
+        if (currentLevel.ordinal > qualityCeiling.ordinal) {
             currentLevel = QualityLevel.entries[currentLevel.ordinal - 1]
         }
     }
@@ -122,12 +130,23 @@ class AdaptiveQualityController @Inject constructor(
     fun getCurrentLevel(): QualityLevel = synchronized(lock) { currentLevel }
 
     fun forceLevel(level: QualityLevel) = synchronized(lock) {
-        currentLevel = level
+        // Never allow a level better (lower ordinal) than the active ceiling.
+        currentLevel = if (level.ordinal < qualityCeiling.ordinal) qualityCeiling else level
         consecutiveBadFrames = 0
         consecutiveGoodFrames = 0
     }
 
-    /** Return to full quality — called when a chart session starts. */
+    /**
+     * Cap the best quality the controller may auto-restore to (user performance
+     * mode). Clamps the current level up to the ceiling immediately; does not
+     * prevent further degradation under load.
+     */
+    fun setQualityCeiling(ceiling: QualityLevel) = synchronized(lock) {
+        qualityCeiling = ceiling
+        if (currentLevel.ordinal < ceiling.ordinal) currentLevel = ceiling
+    }
+
+    /** Return to the best allowed quality — called when a chart session starts. */
     fun reset() = forceLevel(QualityLevel.ULTRA)
 
     companion object {
@@ -146,6 +165,18 @@ enum class QualityLevel {
     MEDIUM,   // No volume profile
     LOW,      // No sessions, no annotations
     MINIMAL,  // Candles only (emergency)
+}
+
+/**
+ * User-facing chart performance preference. Sets the *best* quality the
+ * adaptive controller may auto-restore to (a ceiling); the controller can still
+ * degrade below it under load. [SMOOTH] imposes no cap — the default, identical
+ * to prior always-adaptive behaviour.
+ */
+enum class PerformanceMode(val displayName: String, val ceiling: QualityLevel) {
+    SMOOTH("Smooth (full detail)", QualityLevel.ULTRA),
+    BALANCED("Balanced", QualityLevel.HIGH),
+    BATTERY_SAVER("Battery saver", QualityLevel.LOW),
 }
 
 /** What to render at the current quality level. */
