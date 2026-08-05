@@ -69,4 +69,20 @@ interface MarketRepository {
         beforeTimestamp: Long,
         limit: Int = 500,
     ): Result<SourcedCandles>
+
+    /**
+     * One-shot connectivity/credentials check for the **currently selected**
+     * data provider. Fetches a tiny sample for a canonical symbol and returns
+     * the candle count on success. Unlike [refreshCandles] it never writes to
+     * the cache and never falls back to synthetic data, so a bad key/symbol
+     * surfaces as a failed [Result] rather than being silently masked.
+     */
+    suspend fun testProviderConnection(): Result<Int>
+
+    /**
+     * One-shot reachability check for the FoxTrader backend, honouring the
+     * user-configured backend URL. Returns the candle count from a minimal
+     * request, or a failed [Result] if the backend is unreachable.
+     */
+    suspend fun testBackendConnection(): Result<Int>
 }

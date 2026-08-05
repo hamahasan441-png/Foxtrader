@@ -412,6 +412,10 @@ fun SettingsScreen(
                         color = FoxNeutral60,
                     )
                 }
+                TestConnectionRow(
+                    status = state.providerTest,
+                    onTest = viewModel::testProviderConnection,
+                )
             }
 
             // === Backend ===
@@ -429,6 +433,31 @@ fun SettingsScreen(
                 Spacer(Modifier.height(8.dp))
                 Text(
                     text = stringResource(R.string.settings_backend_url_note),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = FoxNeutral60,
+                )
+                TestConnectionRow(
+                    status = state.backendTest,
+                    onTest = viewModel::testBackendConnection,
+                )
+            }
+
+            // === Performance ===
+            SectionHeader("Performance")
+
+            SettingsCard {
+                DropdownSetting(
+                    label = "Cached candles per market",
+                    selected = formatBars(state.maxCachedBars),
+                    options = CACHE_SIZE_OPTIONS.map { formatBars(it) },
+                    onSelect = { label ->
+                        CACHE_SIZE_OPTIONS.firstOrNull { formatBars(it) == label }
+                            ?.let(viewModel::setMaxCachedBars)
+                    },
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = stringResource(R.string.settings_perf_cache_note),
                     style = MaterialTheme.typography.bodySmall,
                     color = FoxNeutral60,
                 )
@@ -555,6 +584,48 @@ fun SettingsScreen(
 // ============================================================================
 // REUSABLE SETTING COMPONENTS
 // ============================================================================
+
+private val CACHE_SIZE_OPTIONS = listOf(2_000, 5_000, 10_000, 20_000)
+
+private fun formatBars(bars: Int): String = "%,d".format(bars)
+
+/** A "Test connection" button plus its inline success/failure status. */
+@Composable
+private fun TestConnectionRow(status: ConnectionTest, onTest: () -> Unit) {
+    Spacer(Modifier.height(12.dp))
+    Button(
+        onClick = onTest,
+        enabled = status != ConnectionTest.Testing,
+        colors = ButtonDefaults.buttonColors(containerColor = FoxAmber50),
+    ) {
+        Text(
+            text = if (status == ConnectionTest.Testing) {
+                stringResource(R.string.settings_testing)
+            } else {
+                stringResource(R.string.settings_test_connection)
+            },
+        )
+    }
+    when (status) {
+        is ConnectionTest.Success -> {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = stringResource(R.string.settings_test_connected, status.candleCount),
+                style = MaterialTheme.typography.bodySmall,
+                color = FoxSuccess,
+            )
+        }
+        is ConnectionTest.Failure -> {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = status.message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+        else -> Unit
+    }
+}
 
 @Composable
 private fun SectionHeader(title: String) {
