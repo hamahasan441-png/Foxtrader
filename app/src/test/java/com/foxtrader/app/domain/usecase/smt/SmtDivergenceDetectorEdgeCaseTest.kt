@@ -64,8 +64,20 @@ class SmtDivergenceDetectorEdgeCaseTest {
     fun `returns empty when correlation is below threshold`() {
         // Primary: steady uptrend
         val primary = makeCorrelatedCandles(80, basePrice = 100.0, trend = 0.5)
-        // Peer: counter-trend (negative or near-zero correlation)
-        val peer = makeCounterTrendCandles(80, basePrice = 100.0, trendDown = 0.5)
+        // Peer: reciprocal of the primary closes. The detector correlates bar-to-bar
+        // RETURNS, so a reciprocal series has returns that are (near-)exact negatives of
+        // the primary's -> correlation ~ -1, deterministically below the 0.45 gate.
+        val peer = primary.map { c ->
+            val inv = 10_000.0 / c.close
+            Candle(
+                timestamp = c.timestamp,
+                open = inv,
+                high = inv + 0.25,
+                low = inv - 0.25,
+                close = inv,
+                volume = 100.0,
+            )
+        }
 
         val result = detector.detect(
             primarySymbol = "EURUSD",
@@ -213,19 +225,6 @@ class SmtDivergenceDetectorEdgeCaseTest {
             Candle(
                 timestamp = i * 60_000L,
                 open = close - 0.03,
-                high = close + 0.25,
-                low = close - 0.25,
-                close = close,
-                volume = 100.0,
-            )
-        }
-
-    private fun makeCounterTrendCandles(count: Int, basePrice: Double, trendDown: Double): List<Candle> =
-        (0 until count).map { i ->
-            val close = basePrice - i * trendDown + if (i % 3 == 0) 0.5 else -0.3
-            Candle(
-                timestamp = i * 60_000L,
-                open = close + 0.03,
                 high = close + 0.25,
                 low = close - 0.25,
                 close = close,

@@ -48,8 +48,11 @@ class CorrelationMatrixTest {
     @Test
     fun `computeMatrix with inversely correlated series produces negative correlation`() {
         val seriesA = buildTrendingSeries(100.0, 1.0, 50)
-        // Inversely correlated: descending
-        val seriesB = buildTrendingSeries(200.0, -1.0, 50)
+        // Inversely correlated RETURNS. Correlation is computed on log returns, not
+        // price direction, so a simple falling series is NOT return-anticorrelated with
+        // a rising one. Building B as the reciprocal of A makes ln(B[i+1]/B[i]) ==
+        // -ln(A[i+1]/A[i]) exactly, so the Pearson correlation of the returns is -1.
+        val seriesB = seriesA.map { candle(10_000.0 / it.close, timestamp = it.timestamp) }
         val dataMap = mapOf("EURUSD" to seriesA, "USDJPY" to seriesB)
         val result = matrix.computeMatrix(dataMap, period = 40)
 
@@ -86,12 +89,14 @@ class CorrelationMatrixTest {
     @Test
     fun `getHedgingPairs returns only strongly negative correlations`() {
         val seriesA = buildTrendingSeries(100.0, 1.0, 50)
-        val seriesB = buildTrendingSeries(200.0, -1.0, 50)
-        val seriesC = buildTrendingSeries(150.0, 1.0, 50) // same direction as A
+        // Reciprocal of A -> return series is the exact negative of A's -> correlation -1.
+        val seriesB = seriesA.map { candle(10_000.0 / it.close, timestamp = it.timestamp) }
+        val seriesC = buildTrendingSeries(150.0, 1.0, 50) // same return-direction as A
         val dataMap = mapOf("A" to seriesA, "B" to seriesB, "C" to seriesC)
         val result = matrix.computeMatrix(dataMap, period = 40)
         val hedging = matrix.getHedgingPairs(result)
 
+        assertTrue("A-B (reciprocal) must surface as a strongly-negative hedging pair", hedging.isNotEmpty())
         for (pair in hedging) {
             assertEquals("Hedging pair should be STRONG_NEGATIVE",
                 CorrelationMatrix.CorrelationStrength.STRONG_NEGATIVE, pair.strength)
