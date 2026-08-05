@@ -8,8 +8,12 @@ place instead of scattered conditionals.
 
 from __future__ import annotations
 
+import os
+
 from app.core.providers.base import MarketDataProvider
 from app.core.providers.sample import SampleProvider
+
+AVAILABLE = ("sample", "twelvedata")
 
 
 class UnknownProviderError(ValueError):
@@ -20,6 +24,11 @@ def build_provider(name: str) -> MarketDataProvider:
     key = (name or "sample").strip().lower()
     if key == "sample":
         return SampleProvider()
+    if key == "twelvedata":
+        # Imported here so the default path never depends on the real provider.
+        from app.core.providers.twelvedata import TwelveDataProvider
+
+        return TwelveDataProvider(api_key=os.environ.get("FOX_TWELVEDATA_API_KEY", ""))
     raise UnknownProviderError(
-        f"Unknown provider '{name}'. Available: sample"
+        f"Unknown provider '{name}'. Available: {', '.join(AVAILABLE)}"
     )

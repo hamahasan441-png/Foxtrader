@@ -14,6 +14,14 @@ from typing import Protocol, runtime_checkable
 from app.core.candles import Candle
 
 
+class ProviderError(RuntimeError):
+    """An upstream data source failed or returned an error payload.
+
+    The HTTP layer maps this to 502 Bad Gateway — the request was valid, but the
+    provider behind us could not satisfy it.
+    """
+
+
 @runtime_checkable
 class MarketDataProvider(Protocol):
     """Fetches candles for one symbol/timeframe window, oldest-first."""
