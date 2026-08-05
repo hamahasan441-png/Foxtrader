@@ -10,6 +10,7 @@ enum class StrategyType(val label: String) {
     BREAKOUT("Breakout"),
     SMART_MONEY("Smart Money"),
     LIT("LIT"),
+    LITX("LIT X"),
     ICHIMOKU("Ichimoku"),
     PATTERN("Pattern"),
 }

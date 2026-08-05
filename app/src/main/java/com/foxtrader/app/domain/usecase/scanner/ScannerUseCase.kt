@@ -41,6 +41,7 @@ class ScannerUseCase @Inject constructor(
     private val bollingerBands: BollingerBands,
     private val wyckoffDetector: WyckoffDetector,
     private val analyzeStructure: AnalyzeMarketStructureUseCase,
+    private val litXEngine: com.foxtrader.app.domain.usecase.litx.LitXEngine,
 ) {
     private var watchlist: MutableList<ScreenerSymbol> = DEFAULT_WATCHLIST.toMutableList()
 
@@ -167,6 +168,10 @@ class ScannerUseCase @Inject constructor(
                 candles = candles,
                 price = price,
                 atr = atr[last],
+            )
+            StrategyType.LITX -> litXSignal(
+                symbol = ws.symbol,
+                candles = candles,
             )
             StrategyType.ICHIMOKU -> ichimokuSignal(
                 candles = candles,
@@ -486,6 +491,43 @@ class ScannerUseCase @Inject constructor(
                 if (activeFvg != null) "MITIGATION_FVG" else null,
                 if (sweepMatchesBreak) "ENTRY_SIGNAL" else null,
             ),
+        )
+    }
+
+    /**
+     * LIT X strategy — delegates to the institutional [LitXEngine] and maps its
+     * analysis to a scanner snapshot. HTF context isn't fetched here (the
+     * scanner is a fast first pass), so a validated grade is rarer than on the
+     * dedicated LIT X screen; the pipeline stage drives a readiness score.
+     */
+    private fun litXSignal(
+        symbol: String,
+        candles: List<Candle>,
+    ): StrategySignalSnapshot {
+        val analysis = litXEngine.analyze(symbol, com.foxtrader.app.domain.model.Timeframe.H1, candles)
+        val signal = analysis.signal
+        val direction = signal?.direction ?: when (analysis.bias) {
+            Bias.BEARISH -> Direction.BEARISH
+            else -> Direction.BULLISH
+        }
+        val score = signal?.confidence?.score ?: when (analysis.stage) {
+            com.foxtrader.app.domain.model.LitXStage.POI_TAPPED -> 55
+            com.foxtrader.app.domain.model.LitXStage.SHIFT_CONFIRMED -> 50
+            com.foxtrader.app.domain.model.LitXStage.SWEEP_DETECTED -> 45
+            com.foxtrader.app.domain.model.LitXStage.LIQUIDITY_MAPPED -> 40
+            else -> 30
+        }
+        val tags = buildList {
+            add("LITX")
+            add(analysis.stage.name)
+            signal?.confidence?.grade?.let { add(it.name) }
+            if (analysis.displacement != null) add("DISPLACEMENT")
+        }
+        return StrategySignalSnapshot(
+            direction = direction,
+            score = score.coerceIn(0, 100),
+            setupQuality = score.toDouble(),
+            tags = tags,
         )
     }
 
