@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.filled.Timeline
@@ -61,6 +62,7 @@ fun DrawingPalette(
     activeTool: DrawingToolType?,
     onToolSelect: (DrawingToolType) -> Unit,
     onClearAll: () -> Unit,
+    onManage: () -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -130,6 +132,10 @@ fun DrawingPalette(
                 }
                 ToolIcon(Icons.Default.ShowChart, "Rectangle", activeTool == DrawingToolType.RECTANGLE) {
                     select(DrawingToolType.RECTANGLE)
+                }
+                ToolIcon(Icons.Default.FormatListBulleted, stringResource(R.string.chart_drawing_manage), isActive = false) {
+                    onManage()
+                    interactionTick++
                 }
                 ToolIcon(Icons.Default.Delete, "Delete all drawings", isActive = false) {
                     onClearAll()

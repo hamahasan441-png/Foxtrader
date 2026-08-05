@@ -174,6 +174,11 @@
     <!-- Floating drawing tool palette -->
     <string name="chart_drawing_palette_cd">Drawing tools</string>
     <string name="chart_drawing_palette_close">Close drawing tools</string>
+    <string name="chart_drawing_manage">Manage drawings</string>
+    <string name="chart_drawing_manage_title">Drawings</string>
+    <string name="chart_drawing_manage_empty">No drawings yet. Pick a tool and tap the chart to add one.</string>
+    <string name="chart_drawing_manage_delete">Delete drawing</string>
+    <string name="chart_drawing_manage_done">Done</string>
 
     <!-- Immersive / focus mode -->
     <string name="chart_focus_enter">Enter full-screen chart</string>

@@ -76,6 +76,13 @@ internal class ChartDrawingController(
         }
     }
 
+    /** Delete a single drawing by id (removes it from the engine + Room). */
+    fun deleteDrawing(id: String) {
+        drawingEngine.deleteDrawing(id)
+        scope.launch { drawingRepository.delete(id) }
+        // The reactive observeDrawings() flow updates the displayed list.
+    }
+
     fun toggleDrawingToolbar(currentlyShown: Boolean): DrawingState {
         val show = !currentlyShown
         return if (!show) {

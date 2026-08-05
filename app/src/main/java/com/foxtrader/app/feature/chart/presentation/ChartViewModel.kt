@@ -423,6 +423,9 @@ class ChartViewModel @Inject constructor(
 
     fun clearAllDrawings() = drawingController.clearAllDrawings()
 
+    /** Delete a single drawing by id (per-object management). */
+    fun deleteDrawing(id: String) = drawingController.deleteDrawing(id)
+
     fun toggleDrawingToolbar() {
         val s = drawingController.toggleDrawingToolbar(_uiState.value.showDrawingToolbar)
         _uiState.value = _uiState.value.copy(drawingMode = s.drawingMode, activeTool = s.activeTool, showDrawingToolbar = s.showDrawingToolbar)
