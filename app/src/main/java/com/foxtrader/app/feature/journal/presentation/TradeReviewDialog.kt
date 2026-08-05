@@ -41,19 +41,22 @@ import com.foxtrader.app.ui.theme.FoxNeutral60
 
 /**
  * Post-trade review dialog: lets the trader assign or change a 1..5 execution
- * rating and the emotion state for an existing journal entry. Changes persist
- * immediately through [onSetRating] / [onSetEmotion] (which route to the
- * repository), so the "Rating" stat and per-entry label stop being read-only.
+ * rating and the emotion state for an existing journal entry, or delete the
+ * entry entirely (with a confirm step). Rating/emotion changes persist
+ * immediately through [onSetRating] / [onSetEmotion]; [onDelete] removes the
+ * trade via the repository. This is the journal's per-entry edit surface.
  */
 @Composable
 fun TradeReviewDialog(
     entry: JournalEntry,
     onSetRating: (Int) -> Unit,
     onSetEmotion: (EmotionTag) -> Unit,
+    onDelete: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     var rating by remember(entry.id) { mutableIntStateOf(entry.rating) }
     var emotion by remember(entry.id) { mutableStateOf(entry.emotionTag) }
+    var confirmingDelete by remember(entry.id) { mutableStateOf(false) }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -130,12 +133,36 @@ fun TradeReviewDialog(
                 }
 
                 Spacer(Modifier.height(16.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("Done", fontWeight = FontWeight.SemiBold, color = FoxAmber50)
+                if (confirmingDelete) {
+                    Text(
+                        text = "Delete this trade permanently?",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        TextButton(onClick = { confirmingDelete = false }) {
+                            Text("Cancel", color = FoxNeutral60)
+                        }
+                        TextButton(onClick = onDelete) {
+                            Text("Delete", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        TextButton(onClick = { confirmingDelete = true }) {
+                            Text("Delete", color = MaterialTheme.colorScheme.error)
+                        }
+                        TextButton(onClick = onDismiss) {
+                            Text("Done", fontWeight = FontWeight.SemiBold, color = FoxAmber50)
+                        }
                     }
                 }
             }

@@ -245,7 +245,13 @@ class ChartViewModel @Inject constructor(
     private fun observeDrawings() {
         combine(dataController.symbolFlow, dataController.timeframeFlow) { s, tf -> s to tf }
             .flatMapLatest { (symbol, tf) -> drawingRepository.observe(symbol, tf) }
-            .onEach { drawings -> _uiState.value = _uiState.value.copy(drawings = drawings.toPersistentList()) }
+            .onEach { drawings ->
+                // Keep the in-memory engine in sync with the persisted set so a
+                // subsequent placement (or hit-test) sees the restored drawings
+                // instead of an empty engine after restart / symbol switch.
+                drawingEngine.restore(drawings)
+                _uiState.value = _uiState.value.copy(drawings = drawings.toPersistentList())
+            }
             .launchIn(viewModelScope)
     }
 
