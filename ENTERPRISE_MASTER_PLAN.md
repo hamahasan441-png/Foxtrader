@@ -542,3 +542,25 @@ All guards fail fast in debug, are cheap in release (no allocations on the happy
 - [ ] **CI build + unit tests green** — cannot run in this offline/no-SDK sandbox; must be confirmed by the GitHub Actions `android.yml` workflow on push. Verified locally at source level: XML well-formed, imports resolve to existing symbols, brace/paren balance intact.
 
 **Remaining Phase 5 roadmap (build-environment- or asset-dependent):** remote crash/ANR backend (opt-in), Play store screenshots (from screenshot tests), internal testing track release. T0.2 (commit Room schema JSON) and T4.1/T4.2 (app-wide gates + real baseline profile in CI) remain blocked on a Gradle/KSP-capable build environment as previously logged.
+
+
+
+---
+
+### Sprint 6 — T2.1 continuation: further `ChartViewModel` decomposition *(status: implemented)*
+
+**Context.** Success-metrics target for T2.1 is "largest ViewModel < 350 LOC." A re-measure of `main` found `ChartViewModel` had drifted back up to **457 LOC** (from the 430 logged in Sprint 4, after the chart drawing-management + LIT X integration work added delegates). Two cohesive concerns were still inlined in the ViewModel.
+
+**Changes (3 files, behaviour identical):**
+- **`ChartUiStateMapper.kt` (new):** extracted the ~50-line `_uiState.copy(...)` fan-out from `processCandles` into a pure `ChartUiState.withComputation(candles, source, computation, toggles, tradeProAnalysis)` extension. No I/O, reads no engines (TRADEPRO analysis is computed by the caller and passed in) — so the ViewModel's most complex method is now a single mapping call and the mapping is independently testable.
+- **`ChartWatchlistController.kt` (new):** extracted watchlist seeding/observation + add/remove into a plain controller matching the existing `ChartDataController`/`ChartDrawingController`/… pattern. It owns the active-list id internally, so mutations no longer thread it through UI state.
+- **`ChartViewModel.kt`:** calls `withComputation`, delegates watchlist actions, drops the inlined `observeWatchlist()` and the unused `persistentListOf` import.
+
+**Result.** `ChartViewModel` **457 → 419 LOC**, and its worst method (the state fan-out) is now a pure, testable function. Behaviour is verified identical by review (field-for-field mapping preserved, incl. `confluence` pass-through and `isLoading` logic; watchlist active-list resolution and mutation targeting unchanged).
+
+**Honest status vs the < 350 metric.** Not yet under 350. The remaining bulk is the **necessary public delegate API** the chart screen calls (multi-chart ~24 one-liner delegates, drawing/replay delegates) plus constructor DI and orchestration — removing those would either break call sites or add indirection without a real maintainability gain. Further reduction is deferred as low-value; the god-object's *complexity* (not just line count) is what this sprint reduced.
+
+**Definition of Done status:**
+- [x] Two cohesive concerns extracted; ViewModel stays a thin orchestrator; behaviour identical (review-verified).
+- [x] No new TODOs/placeholders; no unused imports in touched files; single logical change.
+- [ ] **CI build + unit tests green** — cannot run in this offline/no-SDK sandbox; must be confirmed by the GitHub Actions `android.yml` workflow. Verified at source level: brace/paren balance, same-package helper resolution, no dangling references.

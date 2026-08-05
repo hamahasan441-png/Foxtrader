@@ -1,0 +1,62 @@
+package com.foxtrader.app.feature.chart.presentation
+
+import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.CandleSource
+import com.foxtrader.app.domain.model.tradepro.TradeProAnalysis
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toPersistentList
+
+/**
+ * Pure mapping from a completed [ChartComputation] onto [ChartUiState].
+ *
+ * Extracted from `ChartViewModel.processCandles` so the ViewModel stays a thin
+ * orchestrator: this function owns the (large but mechanical) fan-out of the
+ * indicator/SMC/overlay results into immutable UI-state fields, and nothing
+ * else. It performs no I/O and reads no engines — [tradeProAnalysis] is
+ * computed by the caller and passed in — which keeps it trivially testable.
+ */
+internal fun ChartUiState.withComputation(
+    candles: List<Candle>,
+    source: CandleSource,
+    computation: ChartComputation,
+    toggles: IndicatorToggles,
+    tradeProAnalysis: TradeProAnalysis?,
+): ChartUiState = copy(
+    candles = candles.asCandleSeries(),
+    dataSource = source,
+    bias = computation.bias,
+    structureBreaks = if (toggles.structure) computation.structureBreaks.toPersistentList() else persistentListOf(),
+    emaShort = computation.overlays.emaShort.asImmutableDoubleSeries(),
+    emaLong = computation.overlays.emaLong.asImmutableDoubleSeries(),
+    bollingerUpper = computation.overlays.bollingerUpper.asImmutableDoubleSeries(),
+    bollingerMiddle = computation.overlays.bollingerMiddle.asImmutableDoubleSeries(),
+    bollingerLower = computation.overlays.bollingerLower.asImmutableDoubleSeries(),
+    superTrendValues = computation.overlays.superTrendValues.asImmutableDoubleSeries(),
+    superTrendDir = computation.overlays.superTrendDir.asImmutableIntSeries(),
+    parabolicSar = computation.overlays.parabolicSar.asImmutableDoubleSeries(),
+    vwap = computation.overlays.vwap.asImmutableDoubleSeries(),
+    ichimokuTenkan = computation.overlays.ichimokuTenkan.asImmutableDoubleSeries(),
+    ichimokuKijun = computation.overlays.ichimokuKijun.asImmutableDoubleSeries(),
+    ichimokuSenkouA = computation.overlays.ichimokuSenkouA.asImmutableDoubleSeries(),
+    ichimokuSenkouB = computation.overlays.ichimokuSenkouB.asImmutableDoubleSeries(),
+    ichimokuChikou = computation.overlays.ichimokuChikou.asImmutableDoubleSeries(),
+    rsiValues = computation.overlays.rsi.asImmutableDoubleSeries(),
+    macdLine = computation.overlays.macdLine.asImmutableDoubleSeries(),
+    macdSignal = computation.overlays.macdSignal.asImmutableDoubleSeries(),
+    macdHistogram = computation.overlays.macdHistogram.asImmutableDoubleSeries(),
+    orderBlocks = computation.overlays.orderBlocks.toPersistentList(),
+    fairValueGaps = computation.overlays.fairValueGaps.toPersistentList(),
+    liquidityPools = computation.overlays.liquidityPools.toPersistentList(),
+    tradeProAnalysis = tradeProAnalysis,
+    volumeProfile = computation.overlays.volumeProfile,
+    marketProfile = computation.overlays.marketProfile,
+    supportResistanceZones = computation.overlays.supportResistanceZones.toPersistentList(),
+    autoFibLevels = computation.overlays.autoFibLevels.toPersistentList(),
+    autoFibDirection = computation.overlays.autoFibDirection,
+    autoFibSwingHigh = computation.overlays.autoFibSwingHigh,
+    autoFibSwingLow = computation.overlays.autoFibSwingLow,
+    sessions = computation.overlays.sessions.toPersistentList(),
+    marketExplanation = computation.marketExplanation,
+    confluence = if (toggles.confluence) confluence else null,
+    isLoading = candles.isEmpty() && error == null,
+)
