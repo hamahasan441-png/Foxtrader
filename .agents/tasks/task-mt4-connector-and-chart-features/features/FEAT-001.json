@@ -2,7 +2,7 @@
   "id": "FEAT-001",
   "type": "feat",
   "description": "MT4/MetaApi Connector Architecture - Full client-side MT4 integration targeting MetaApi.cloud's REST+WebSocket contract using raw Retrofit+OkHttp (no MetaApi SDK). Includes domain models, API service, data source, WebSocket quote stream, repository, UI screens (login + account), ViewModel, DI module, DataProvider enum entry, wiring into MarketRepositoryImpl, and unit test.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Create domain/model/Mt4Account.kt with data classes: Mt4Credentials(login: Int, password: String, server: String, platform: String = 'mt4'), Mt4AccountInfo(login, balance, equity, margin, freeMargin, leverage, currency, name, server), Mt4Position(ticket, symbol, type: Mt4OrderType, lots, openPrice, openTime, sl, tp, profit, swap, commission), Mt4OrderType enum (BUY, SELL, BUY_LIMIT, SELL_LIMIT, BUY_STOP, SELL_STOP)",
     "Create domain/model/Mt4Quote.kt with data class Mt4Quote(symbol, bid, ask, timestamp, spread = ask - bid)",
@@ -37,5 +37,5 @@
     "Verify unit test follows the FakeXxxApi pattern from BybitDataSourceTest and asserts domain model mapping"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "All 15 files created successfully. Added closePosition method to MetaApiDataSource (sends POSITION_CLOSE_ID action). MetaApiTradeRequest includes optional positionId field for close operations. DataProvider.MT4 added after INTERACTIVE_BROKERS. AppPreferences uses SECURE_KEY_META_API_TOKEN in encrypted SharedPreferences (same approach as provider API keys). Unit test has 5 test cases covering deploy, account info mapping, positions mapping, trade execution, and error handling."
 }
