@@ -2,7 +2,7 @@
   "id": "FEAT-004",
   "type": "feat",
   "description": "Live + History Signal Overlay - Add a unified ChartSignal model combining LIT X / TRADEPRO / SMT signals, a signal history composable panel, and draw live vs history signals on the chart with different opacities.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Create domain/model/ChartSignal.kt: data class ChartSignal(id: String, source: SignalSource, direction: Direction, entry: Double, sl: Double, tp: Double, barIndex: Int, timestamp: Long, confidence: Double, isLive: Boolean) and enum class SignalSource { LITX, TRADEPRO, SMT }",
     "Add signals: List<ChartSignal> = emptyList() to ChartUiState and showSignalHistory: Boolean = false",
@@ -23,5 +23,5 @@
     "Source-level verification: confirm ChartSignal model, signals computation in ViewModel, ChartSignalHistory composable, and opacity differentiation in ChartSignalLayer"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "All acceptance criteria met. ChartSignal model uses existing Direction enum from domain/model/Candle.kt. computeSignals() chains .copy() after withComputation() to keep the signals update atomic with the rest of the state. The StackedLineChart icon from material-icons-extended is used for the toolbar toggle. No unit tests required per environment constraints (INTEGRATIONS_ONLY, no Gradle)."
 }
