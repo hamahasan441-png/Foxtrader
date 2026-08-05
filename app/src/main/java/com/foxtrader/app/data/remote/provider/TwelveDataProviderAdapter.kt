@@ -4,6 +4,7 @@ import com.foxtrader.app.data.remote.api.TwelveDataDataSource
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.sdk.provider.DataProviderAdapter
+import kotlinx.coroutines.CancellationException
 
 /**
  * [DataProviderAdapter] backed by the Twelve Data REST API.
@@ -23,6 +24,14 @@ class TwelveDataProviderAdapter(
     override val supportedTimeframes: List<Timeframe> = Timeframe.entries
     override val supportedSymbols: List<String> = emptyList() // supports all symbols
 
+    /**
+     * Fetches historical candles from Twelve Data.
+     *
+     * [startTime] is intentionally not forwarded to the upstream API because Twelve Data's free
+     * tier does not support a start-date filter; only [endTime] (via `end_date`) and [limit] are
+     * honoured. Callers that need a start-bounded window should post-filter or paginate using
+     * [endTime] + [limit].
+     */
     override suspend fun fetchHistory(
         symbol: String,
         timeframe: Timeframe,
@@ -46,6 +55,8 @@ class TwelveDataProviderAdapter(
                 apiKey = apiKeyProvider(),
             )
         }
+    } catch (e: CancellationException) {
+        throw e
     } catch (_: Exception) {
         emptyList()
     }

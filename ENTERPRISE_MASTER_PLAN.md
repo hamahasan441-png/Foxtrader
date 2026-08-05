@@ -594,3 +594,48 @@ All guards fail fast in debug, are cheap in release (no allocations on the happy
 - [x] `TwelveDataProviderAdapter` implements `DataProviderAdapter` fully (not a stub); 5 tests cover the adapter.
 - [x] No new TODOs/placeholders; no fully-qualified names in method bodies.
 - [ ] **CI build + unit tests green** -- cannot run in this offline/no-SDK sandbox. Must be confirmed by GitHub Actions on push.
+
+---
+
+### Sprint 9 -- Quality fixes and domain test hardening *(status: implemented)*
+
+**Scope.** Semantic review of Sprint 8 identified three non-blocking issues (vacuous conditional assertions, blanket exception swallowing, under-constrained test inputs). This sprint fixes all three and adds edge-case tests to MonteCarloRiskEngine, TradeProBacktestEngine, and CorrelationEngine.
+
+**Changes:**
+
+1. **TwelveDataProviderAdapter: CancellationException fix + startTime KDoc.**
+   - The blanket `catch (_: Exception)` now rethrows `CancellationException` before falling through to the empty-list fallback. This preserves structured concurrency -- callers that cancel a coroutine no longer silently swallow the cancellation.
+   - Added KDoc to `fetchHistory` explaining that `startTime` is intentionally not forwarded because Twelve Data's free tier does not support a start-date query parameter.
+
+2. **BacktestEngineTest: non-vacuous assertion guard.**
+   - The `metrics winRate and profitFactor are computed correctly from trades` test previously wrapped its assertions in `if (metrics.totalTrades > 0)`, which would pass vacuously if the strategy produced zero trades. Replaced with `assertTrue(metrics.totalTrades > 0, ...)` followed by unconditional assertions.
+
+3. **StrategyTesterTest: zero-score test reliability.**
+   - Reduced the candle count from 25 to 5 bars. With only 5 bars no strategy can produce 3+ trades, so the zero-score path is guaranteed to be exercised on every run. The conditional fallback branch is removed entirely.
+
+4. **MonteCarloRiskEngine edge-case tests (4 new tests):**
+   - `zero risk per trade keeps equity flat` -- verifies that 0% risk means no change.
+   - `single trade per run with a winning edge` -- verifies exact end-multiple calculation.
+   - `boundary input with winRate exactly 0 and avgLossR 0 keeps equity flat` -- zero-magnitude loss.
+   - `single run returns consistent percentiles` -- all percentile bands collapse to the same value.
+
+5. **TradeProBacktestEngine edge-case tests (4 new tests):**
+   - `single bar above MIN_BARS returns empty result` -- minimal input just past the guard.
+   - `narrative is never blank regardless of trade count` -- validates narrative generation path.
+   - `symbol is preserved in the result` -- verifies pass-through for different symbols.
+   - `equity curve length equals trade count` -- structural invariant on analytics arrays.
+
+6. **CorrelationEngine boundary tests (4 new tests):**
+   - `single-element series produces empty result` -- below MIN_BARS guard.
+   - `constant series produces zero correlation` -- zero-variance edge case.
+   - `exactly MIN_BARS plus one candle produces a valid result` -- threshold boundary.
+   - `empty input map returns empty result` -- fully degenerate input.
+
+**Definition of Done status:**
+- [x] `CancellationException` rethrown before fallback; KDoc documents `startTime` non-forwarding rationale.
+- [x] BacktestEngineTest metrics test guards against vacuous pass with unconditional `assertTrue`.
+- [x] StrategyTesterTest zero-score test uses 5 bars (guarantees < 3 trades); no conditional fallback.
+- [x] 12 new edge-case tests across 3 engines; all use real instances, no mocks.
+- [x] No new TODOs/placeholders; imports resolve to existing symbols; brace/paren balance verified.
+- [ ] **CI build + unit tests green** -- cannot run in this offline/no-SDK sandbox. Must be confirmed by GitHub Actions on push.
+

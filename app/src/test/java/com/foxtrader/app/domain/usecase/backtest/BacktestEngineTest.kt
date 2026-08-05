@@ -237,10 +237,10 @@ class BacktestEngineTest {
         val result = engine(candles, strategy, "EURUSD", Timeframe.M15)
         val metrics = result.metrics
 
-        if (metrics.totalTrades > 0) {
-            val expectedWinRate = (metrics.winningTrades.toDouble() / metrics.totalTrades) * 100.0
-            assertEquals(expectedWinRate, metrics.winRate, 1e-6)
-        }
+        assertTrue("Strategy must produce trades to validate metrics", metrics.totalTrades > 0)
+
+        val expectedWinRate = (metrics.winningTrades.toDouble() / metrics.totalTrades) * 100.0
+        assertEquals(expectedWinRate, metrics.winRate, 1e-6)
 
         if (metrics.grossLoss > 0) {
             val expectedPf = metrics.grossProfit / metrics.grossLoss

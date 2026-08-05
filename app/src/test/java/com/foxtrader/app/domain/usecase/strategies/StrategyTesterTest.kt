@@ -179,9 +179,9 @@ class StrategyTesterTest {
 
     @Test
     fun `score is zero when fewer than 3 trades`() {
-        // Use very short candle series with a strategy that produces few signals.
-        // With only 20 bars and a trend-following strategy, likely 0-2 trades.
-        val shortCandles = trendingSeries(25)
+        // Use only 5 bars -- guaranteed to produce fewer than 3 trades for any strategy,
+        // ensuring the zero-score path is always exercised (no conditional assertion needed).
+        val shortCandles = trendingSeries(5)
         val result = tester.test(
             type = StrategyType.TREND_FOLLOWING,
             candles = shortCandles,
@@ -189,24 +189,16 @@ class StrategyTesterTest {
             timeframe = Timeframe.H1,
         )
 
-        if (result.backtest.metrics.totalTrades < 3) {
-            assertEquals(
-                "Score must be 0.0 when totalTrades < 3",
-                0.0,
-                result.score,
-                1e-10,
-            )
-        } else {
-            // If somehow there are 3+ trades, the score formula applies --
-            // verify it matches expected calculation.
-            val m = result.backtest.metrics
-            val pfScore = m.profitFactor.coerceIn(0.0, 5.0) / 5.0 * 40.0
-            val sharpeScore = m.sharpeRatio.coerceIn(-2.0, 4.0).let { (it + 2.0) / 6.0 } * 30.0
-            val wrScore = m.winRate * 20.0
-            val rfScore = m.recoveryFactor.coerceIn(0.0, 10.0) / 10.0 * 10.0
-            val expected = pfScore + sharpeScore + wrScore + rfScore
-            assertEquals(expected, result.score, 1e-6)
-        }
+        assertTrue(
+            "With only 5 bars, fewer than 3 trades must be produced",
+            result.backtest.metrics.totalTrades < 3,
+        )
+        assertEquals(
+            "Score must be 0.0 when totalTrades < 3",
+            0.0,
+            result.score,
+            1e-10,
+        )
     }
 
     @Test

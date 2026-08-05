@@ -229,4 +229,47 @@ class TradeProBacktestEngineTest {
         }
         assertTrue(runningMax <= result.maxDrawdownPoints + 1e-9)
     }
+
+    // -------------------------------------------------------------------------
+    // EDGE CASES
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `single bar above MIN_BARS returns empty result`() {
+        // MIN_BARS + 1 is technically above the guard but unlikely to produce any setups
+        // because the signal engine needs market structure that cannot form in that few bars.
+        val minRequired = TradeProSignalEngine.MIN_BARS + 1
+        val candles = flat(minRequired)
+        val result = engine.run("MESUSD", candles)
+        // With flat prices no structure forms, so no trades should trigger.
+        assertEquals(0, result.totalTrades)
+        assertTrue(result.trades.isEmpty())
+        assertEquals(0.0, result.netPoints, 0.0)
+    }
+
+    @Test
+    fun `narrative is never blank regardless of trade count`() {
+        val noTradesResult = engine.run("MESUSD", flat(200))
+        assertTrue("Narrative must be populated even with 0 trades", noTradesResult.narrative.isNotBlank())
+
+        val withTradesResult = engine.run("MESUSD", uptrend())
+        assertTrue("Narrative must be populated with trades", withTradesResult.narrative.isNotBlank())
+    }
+
+    @Test
+    fun `symbol is preserved in the result`() {
+        val result1 = engine.run("EURUSD", uptrend())
+        assertEquals("EURUSD", result1.symbol)
+
+        val result2 = engine.run("BTCUSD", uptrend())
+        assertEquals("BTCUSD", result2.symbol)
+    }
+
+    @Test
+    fun `equity curve length equals trade count`() {
+        val result = engine.run("MESUSD", uptrend())
+        assertEquals(result.totalTrades, result.equityCurve.size)
+        assertEquals(result.totalTrades, result.drawdownCurve.size)
+        assertEquals(result.totalTrades, result.rMultiples.size)
+    }
 }
