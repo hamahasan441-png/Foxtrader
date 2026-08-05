@@ -639,3 +639,54 @@ All guards fail fast in debug, are cheap in release (no allocations on the happy
 - [x] No new TODOs/placeholders; imports resolve to existing symbols; brace/paren balance verified.
 - [ ] **CI build + unit tests green** -- cannot run in this offline/no-SDK sandbox. Must be confirmed by GitHub Actions on push.
 
+---
+
+### Sprint 10 -- Domain coverage expansion (analysis, patterns, sessions, correlation) *(status: implemented)*
+
+**Scope.** Five domain packages had zero test coverage: `analysis/`, `patterns/`, `sessions/`, `correlation/`. All contain pure, stateless domain logic with no DI dependencies -- ideal for characterization tests. This sprint adds comprehensive test files and extends the jacoco coverage gate to include these packages.
+
+**Changes:**
+
+1. **SupportResistanceDetectorTest (4 tests):**
+   - `detect returns empty for insufficient data` -- fewer bars than 2*swingLookback+1 yields no zones.
+   - `detect identifies zones with repeated swing levels` -- validates clustering of swing points, touch count >= 2, bounds ordering.
+   - `zone strength is bounded 0 to 100` -- verifies coerceAtMost enforcement.
+   - `maxZones limits output size` -- confirms the take(maxZones) cap.
+
+2. **FibonacciEngineTest (4 tests):**
+   - `retracements bullish produces correct levels` -- verifies all 7 ratios with exact price math.
+   - `retracements bearish produces inverted levels` -- validates reversed direction calculation.
+   - `extensions bullish projects targets above swing high` -- confirms extension ratios and ordering.
+   - `projections compute ABC targets correctly` -- validates point-C-based projection formula.
+
+3. **CandlePatternDetectorTest (4 tests):**
+   - `detects hammer in downtrend` -- synthetic downtrend + hammer candle triggers detection.
+   - `detects bullish engulfing` -- validates two-candle reversal pattern.
+   - `detects three white soldiers` -- validates three-candle continuation pattern.
+   - `returns empty for insufficient candles` -- single candle yields no patterns.
+
+4. **SessionDetectorTest (4 tests):**
+   - `detectSessions returns empty for empty input` -- degenerate input guard.
+   - `detectSessions identifies London session hours 7 to 16 UTC` -- validates start/end index mapping.
+   - `detectSessions computes correct session high and low` -- verifies price extremes within session bars.
+   - `detectSessions handles overnight session (Sydney wraps midnight)` -- validates the hour >= open || hour < close logic.
+
+5. **CorrelationMatrixTest (5 tests):**
+   - `computeMatrix with identical series produces correlation of 1` -- perfect positive correlation.
+   - `computeMatrix with inversely correlated series produces negative correlation` -- validates STRONG_NEGATIVE classification.
+   - `computeMatrix self-correlation is always 1` -- diagonal invariant.
+   - `computeMatrix with insufficient data produces zero correlation` -- below 5-point Pearson minimum.
+   - `getHedgingPairs returns only strongly negative correlations` -- validates filter helper.
+
+6. **Jacoco coverage gate extension.**
+   - Added to `domainCoverageIncludes`: SupportResistanceDetector, FibonacciEngine, CandlePatternDetector, SessionDetector, CorrelationMatrix.
+   - Added to `domainCoverageSourceDirs`: analysis, patterns, sessions, correlation directories.
+   - Existing `ignoreFailures = true` preserves non-breaking rollout.
+
+**Definition of Done status:**
+- [x] 21 new characterization tests across 5 domain packages; all use real instances, synthetic data, no mocks.
+- [x] Every test exercises production code paths with concrete assertions (no vacuous conditionals).
+- [x] Domain jacoco gate extended to include analysis, patterns, sessions, correlation packages.
+- [x] No new TODOs/placeholders; imports resolve to existing symbols; brace/paren balance verified.
+- [ ] **CI build + unit tests green** -- cannot run in this offline/no-SDK sandbox. Must be confirmed by GitHub Actions on push.
+
