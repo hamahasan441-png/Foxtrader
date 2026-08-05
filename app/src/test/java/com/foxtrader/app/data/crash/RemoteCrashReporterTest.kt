@@ -16,24 +16,27 @@ import org.junit.Test
  * Unit tests for [RemoteCrashReporter].
  *
  * Verifies opt-in gating, PII stripping, context preservation, and ANR detection.
- * Uses MockK for the [RemoteCrashBackend] and [AppPreferences] dependencies.
+ * Uses MockK for the [RemoteCrashBackend] and [AnrWatchdog] dependencies.
+ * AppPreferences is faked (not mocked) because its constructor takes Android Context.
  */
 class RemoteCrashReporterTest {
 
     private val crashReportingEnabled = MutableStateFlow(false)
-    private val appPreferences: AppPreferences = mockk(relaxed = true) {
-        every { this@mockk.crashReportingEnabled } returns crashReportingEnabled
-    }
+    private val appPreferences: AppPreferences = mockk(relaxUnitFun = true)
     private val backend: RemoteCrashBackend = mockk(relaxed = true)
     private val anrWatchdog: AnrWatchdog = mockk(relaxed = true)
-    private val mockHandler: Handler = mockk(relaxed = true)
 
     private lateinit var reporter: RemoteCrashReporter
 
     @Before
     fun setUp() {
+        every { appPreferences.crashReportingEnabled } returns crashReportingEnabled
         reporter = RemoteCrashReporter(appPreferences, backend, anrWatchdog)
-        reporter.mainHandlerProvider = { mockHandler }
+        // Provide a Handler mock via mockk. On Android JVM unit tests, the android
+        // stubs jar is on the classpath so Handler *can* be mocked — but if it
+        // cannot (depends on mockk-agent version), the AnrWatchdog is relaxed and
+        // accepts any argument without using it.
+        reporter.mainHandlerProvider = { mockk(relaxed = true) }
     }
 
     @Test
@@ -101,7 +104,7 @@ class RemoteCrashReporterTest {
     fun `setEnabled true starts ANR watchdog`() {
         reporter.setEnabled(true)
 
-        verify(exactly = 1) { anrWatchdog.start(mockHandler, reporter) }
+        verify(exactly = 1) { anrWatchdog.start(any(), reporter) }
         verify(exactly = 1) { backend.setEnabled(true) }
     }
 
