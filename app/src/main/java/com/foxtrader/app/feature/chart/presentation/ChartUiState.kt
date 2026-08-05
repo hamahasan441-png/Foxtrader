@@ -12,6 +12,7 @@ import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.DrawingMode
 import com.foxtrader.app.domain.model.DrawingToolType
 import com.foxtrader.app.domain.model.FairValueGap
+import com.foxtrader.app.domain.model.LitXAnalysis
 import com.foxtrader.app.domain.model.LiquidityPool
 import com.foxtrader.app.domain.model.OrderBlock
 import com.foxtrader.app.domain.model.SessionRange
@@ -23,6 +24,7 @@ import com.foxtrader.app.domain.usecase.analysis.FibonacciEngine
 import com.foxtrader.app.domain.usecase.analysis.MarketProfile
 import com.foxtrader.app.domain.usecase.analysis.SupportResistanceDetector
 import com.foxtrader.app.domain.usecase.mtf.ConfluenceEngine
+import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 
@@ -48,6 +50,10 @@ data class IndicatorToggles(
     val liquidity: Boolean = true,
     val sessions: Boolean = false,
     val structure: Boolean = true,
+    // --- Strategy-as-Indicator overlays (gated independently of their engines) ---
+    val litX: Boolean = false,
+    val smt: Boolean = false,
+    val tradePro: Boolean = true,
     // --- Separate-pane ("study") indicators, rendered in the resizable pane
     // stack below the price chart rather than as overlays (R3). ---
     val rsi: Boolean = false,
@@ -96,6 +102,8 @@ data class ChartUiState(
     val fairValueGaps: ImmutableList<FairValueGap> = persistentListOf(),
     val liquidityPools: ImmutableList<LiquidityPool> = persistentListOf(),
     val tradeProAnalysis: TradeProAnalysis? = null,
+    val litXAnalysis: LitXAnalysis? = null,
+    val smtDivergences: List<SmtDivergenceDetector.SmtDivergence> = emptyList(),
     val volumeProfile: com.foxtrader.app.domain.model.VolumeProfile? = null,
     val marketProfile: MarketProfile.ProfileResult? = null,
     val supportResistanceZones: ImmutableList<SupportResistanceDetector.SRZone> = persistentListOf(),

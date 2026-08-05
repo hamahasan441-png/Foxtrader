@@ -35,6 +35,8 @@ import com.foxtrader.app.domain.usecase.performance.PerformanceProfiler
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.domain.usecase.replay.ReplayEngine
 import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
+import com.foxtrader.app.domain.usecase.litx.LitXEngine
+import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
 import com.foxtrader.app.feature.chart.presentation.components.ChartPerformanceMonitor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.toPersistentList
@@ -75,6 +77,8 @@ class ChartViewModel @Inject constructor(
     private val drawingRepository: DrawingRepository,
     private val appPreferences: AppPreferences,
     private val tradeProEngine: TradeProSignalEngine,
+    private val litXEngine: LitXEngine,
+    private val smtDivergenceDetector: SmtDivergenceDetector,
     private val heikinAshiTransformer: HeikinAshiTransformer,
     private val candleRenkoBuilder: CandleRenkoBuilder,
     profiler: PerformanceProfiler,
@@ -234,12 +238,23 @@ class ChartViewModel @Inject constructor(
         val tradeProAnalysis = tradeProEngine.analyze(
             symbol, displayCandles, appPreferences.tradeProConfig.value, htfContextCache,
         )
+
+        val litXAnalysis = if (ind.litX) {
+            litXEngine.analyze(symbol, timeframe, displayCandles, appPreferences.litXConfig.value)
+        } else null
+
+        val smtDivergences = if (ind.smt) {
+            smtDivergenceDetector.detect(symbol, displayCandles, emptyMap())
+        } else emptyList()
+
         _uiState.value = _uiState.value.withComputation(
             candles = displayCandles,
             source = source,
             computation = c,
             toggles = ind,
             tradeProAnalysis = tradeProAnalysis,
+            litXAnalysis = litXAnalysis,
+            smtDivergences = smtDivergences,
             barMode = barMode,
         )
 

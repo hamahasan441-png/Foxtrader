@@ -3,7 +3,9 @@ package com.foxtrader.app.feature.chart.presentation
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.model.ChartBarMode
+import com.foxtrader.app.domain.model.LitXAnalysis
 import com.foxtrader.app.domain.model.tradepro.TradeProAnalysis
+import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toPersistentList
 
@@ -22,6 +24,8 @@ internal fun ChartUiState.withComputation(
     computation: ChartComputation,
     toggles: IndicatorToggles,
     tradeProAnalysis: TradeProAnalysis?,
+    litXAnalysis: LitXAnalysis? = null,
+    smtDivergences: List<SmtDivergenceDetector.SmtDivergence> = emptyList(),
     barMode: ChartBarMode = ChartBarMode.TIME,
 ): ChartUiState {
     // When the bar mode does not preserve the time axis (e.g. Renko), SMC
@@ -59,6 +63,8 @@ internal fun ChartUiState.withComputation(
         fairValueGaps = if (gateSmcOverlays) persistentListOf() else computation.overlays.fairValueGaps.toPersistentList(),
         liquidityPools = if (gateSmcOverlays) persistentListOf() else computation.overlays.liquidityPools.toPersistentList(),
         tradeProAnalysis = tradeProAnalysis,
+        litXAnalysis = litXAnalysis,
+        smtDivergences = smtDivergences,
         volumeProfile = computation.overlays.volumeProfile,
         marketProfile = computation.overlays.marketProfile,
         supportResistanceZones = computation.overlays.supportResistanceZones.toPersistentList(),

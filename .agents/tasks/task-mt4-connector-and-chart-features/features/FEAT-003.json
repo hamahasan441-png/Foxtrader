@@ -2,7 +2,7 @@
   "id": "FEAT-003",
   "type": "feat",
   "description": "Strategy-as-Indicator Toggles (LIT X + SMT on chart) - Add litX, smt, tradePro toggles to IndicatorToggles, add chips in IndicatorPanel, compute LitX/SMT in ChartViewModel when toggled, create ChartSignalLayer with DrawScope.drawLitXSignals and DrawScope.drawSmtDivergences, gate all strategy overlays on their respective toggles.",
-  "status": "pending",
+  "status": "in_progress",
   "steps": [
     "Add fields to IndicatorToggles: litX: Boolean = false, smt: Boolean = false, tradePro: Boolean = true",
     "Add 'LIT X', 'SMT', 'TradePro' Chip entries in IndicatorPanel.kt with toggle callbacks",
