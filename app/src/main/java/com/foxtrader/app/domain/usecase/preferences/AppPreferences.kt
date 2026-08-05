@@ -68,6 +68,15 @@ class AppPreferences @Inject constructor(
     private val _appLockEnabled = MutableStateFlow(false)
     val appLockEnabled: StateFlow<Boolean> = _appLockEnabled.asStateFlow()
 
+    /**
+     * Optional user override for the FoxTrader backend origin (scheme/host/port).
+     * Blank means "use the build-time default" ([NetworkModule]'s BASE_URL). Read
+     * per-request by the dynamic base-URL interceptor so it can be changed at
+     * runtime without rebuilding.
+     */
+    private val _backendBaseUrl = MutableStateFlow("")
+    val backendBaseUrl: StateFlow<String> = _backendBaseUrl.asStateFlow()
+
     private val _backgroundScanEnabled = MutableStateFlow(true)
     val backgroundScanEnabled: StateFlow<Boolean> = _backgroundScanEnabled.asStateFlow()
 
@@ -123,6 +132,7 @@ class AppPreferences @Inject constructor(
             context.dataStore.data.collect { prefs ->
                 _darkMode.value = prefs[KEY_DARK_MODE] ?: true
                 _appLockEnabled.value = prefs[KEY_APP_LOCK] ?: false
+                _backendBaseUrl.value = prefs[KEY_BACKEND_BASE_URL].orEmpty()
                 _backgroundScanEnabled.value = prefs[KEY_BACKGROUND_SCAN_ENABLED] ?: true
                 _backgroundScanIntervalMinutes.value = (
                     prefs[KEY_BACKGROUND_SCAN_INTERVAL_MINUTES]
@@ -220,6 +230,13 @@ class AppPreferences @Inject constructor(
     fun setAppLockEnabled(enabled: Boolean) {
         _appLockEnabled.value = enabled
         scope.launch { context.dataStore.edit { it[KEY_APP_LOCK] = enabled } }
+    }
+
+    /** Persist the backend origin override. Blank clears it (revert to default). */
+    fun setBackendBaseUrl(url: String) {
+        val normalized = url.trim()
+        _backendBaseUrl.value = normalized
+        scope.launch { context.dataStore.edit { it[KEY_BACKEND_BASE_URL] = normalized } }
     }
 
     fun setBackgroundScanEnabled(enabled: Boolean) {
@@ -414,6 +431,7 @@ class AppPreferences @Inject constructor(
 
         val KEY_DARK_MODE = booleanPreferencesKey("dark_mode")
         val KEY_APP_LOCK = booleanPreferencesKey("app_lock_enabled")
+        val KEY_BACKEND_BASE_URL = stringPreferencesKey("backend_base_url")
         val KEY_BACKGROUND_SCAN_ENABLED = booleanPreferencesKey("background_scan_enabled")
         val KEY_BACKGROUND_SCAN_INTERVAL_MINUTES = intPreferencesKey("background_scan_interval_minutes")
         val KEY_AI_MIN_CONFLUENCES = intPreferencesKey("ai_min_confluences")

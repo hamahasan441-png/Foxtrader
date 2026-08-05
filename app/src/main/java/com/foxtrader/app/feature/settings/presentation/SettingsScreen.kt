@@ -414,6 +414,26 @@ fun SettingsScreen(
                 }
             }
 
+            // === Backend ===
+            SectionHeader("Backend")
+
+            SettingsCard {
+                OutlinedTextField(
+                    value = state.backendBaseUrl,
+                    onValueChange = viewModel::setBackendBaseUrl,
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text(stringResource(R.string.settings_backend_url_label)) },
+                    placeholder = { Text(stringResource(R.string.settings_backend_url_placeholder)) },
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = stringResource(R.string.settings_backend_url_note),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = FoxNeutral60,
+                )
+            }
+
             // === TRADEPRO ===
             SectionHeader("TRADEPRO")
 

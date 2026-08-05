@@ -58,6 +58,7 @@ class SettingsViewModel @Inject constructor(
             dataProvider = appPreferences.dataProvider.value,
             providerApiKeys = appPreferences.apiKeys.value.toPersistentMap(),
             darkMode = appPreferences.darkMode.value,
+            backendBaseUrl = appPreferences.backendBaseUrl.value,
             authState = authRepository.authState.value,
             appLockEnabled = appPreferences.appLockEnabled.value,
             biometricAvailable = biometricAuthManager.canAuthenticate(),
@@ -86,6 +87,9 @@ class SettingsViewModel @Inject constructor(
             .launchIn(viewModelScope)
         appPreferences.crashReportingEnabled
             .onEach { enabled -> _uiState.update { it.copy(crashReportingEnabled = enabled) } }
+            .launchIn(viewModelScope)
+        appPreferences.backendBaseUrl
+            .onEach { url -> _uiState.update { it.copy(backendBaseUrl = url) } }
             .launchIn(viewModelScope)
         appPreferences.litXConfig
             .onEach { cfg -> _uiState.update { it.copy(litXConfig = cfg) } }
@@ -135,6 +139,11 @@ class SettingsViewModel @Inject constructor(
     fun setDataProvider(provider: DataProvider) {
         appPreferences.setDataProvider(provider)
         _uiState.update { it.copy(dataProvider = provider, saved = false) }
+    }
+
+    /** Backend origin override — persisted on Save (like the other text fields). */
+    fun setBackendBaseUrl(value: String) {
+        _uiState.update { it.copy(backendBaseUrl = value, saved = false) }
     }
 
     fun setProviderApiKey(value: String) {
@@ -332,6 +341,7 @@ class SettingsViewModel @Inject constructor(
         state.providerApiKeys.forEach { (provider, key) ->
             appPreferences.setApiKey(provider, key)
         }
+        appPreferences.setBackendBaseUrl(state.backendBaseUrl)
 
         _uiState.update { it.copy(saved = true) }
     }
