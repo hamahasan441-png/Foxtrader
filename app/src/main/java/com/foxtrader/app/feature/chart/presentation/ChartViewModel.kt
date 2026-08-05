@@ -7,6 +7,7 @@ import com.foxtrader.app.data.alerts.AlertDispatcher
 import com.foxtrader.app.di.DefaultDispatcher
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.CandleSource
+import com.foxtrader.app.domain.model.ChartBarMode
 import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.DrawingToolType
 import com.foxtrader.app.domain.model.ReplayState
@@ -24,6 +25,8 @@ import com.foxtrader.app.domain.usecase.ai.MtfContextProvider
 import com.foxtrader.app.domain.usecase.chart.ChartLayout
 import com.foxtrader.app.domain.usecase.chart.ChartViewportState
 import com.foxtrader.app.domain.usecase.chart.ComputeIndicatorsUseCase
+import com.foxtrader.app.domain.usecase.chart.HeikinAshiTransformer
+import com.foxtrader.app.domain.usecase.chart.CandleRenkoBuilder
 import com.foxtrader.app.domain.usecase.chart.MultiChartManager
 import com.foxtrader.app.domain.usecase.drawing.DrawingEngine
 import com.foxtrader.app.domain.usecase.mtf.ConfluenceEngine
@@ -72,6 +75,8 @@ class ChartViewModel @Inject constructor(
     private val drawingRepository: DrawingRepository,
     private val appPreferences: AppPreferences,
     private val tradeProEngine: TradeProSignalEngine,
+    private val heikinAshiTransformer: HeikinAshiTransformer,
+    private val candleRenkoBuilder: CandleRenkoBuilder,
     profiler: PerformanceProfiler,
     qualityController: AdaptiveQualityController,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
@@ -203,8 +208,17 @@ class ChartViewModel @Inject constructor(
         val symbol = dataController.symbolFlow.value
         val timeframe = dataController.timeframeFlow.value
 
+        // Apply bar-mode transform BEFORE passing to indicators.
+        val barMode = _uiState.value.barMode
+        val displayCandles = when (barMode) {
+            ChartBarMode.TIME -> candles
+            ChartBarMode.HEIKIN_ASHI -> heikinAshiTransformer.transform(candles)
+            ChartBarMode.RENKO -> candleRenkoBuilder.build(candles, _uiState.value.renkoSize)
+        }
+        if (displayCandles.isEmpty()) return
+
         val c = indicatorCoordinator.processCandles(
-            candles = candles, source = source, toggles = ind,
+            candles = displayCandles, source = source, toggles = ind,
             symbol = symbol, timeframe = timeframe, preferIncremental = preferIncremental,
         )
 
@@ -218,18 +232,19 @@ class ChartViewModel @Inject constructor(
         }
 
         val tradeProAnalysis = tradeProEngine.analyze(
-            symbol, candles, appPreferences.tradeProConfig.value, htfContextCache,
+            symbol, displayCandles, appPreferences.tradeProConfig.value, htfContextCache,
         )
         _uiState.value = _uiState.value.withComputation(
-            candles = candles,
+            candles = displayCandles,
             source = source,
             computation = c,
             toggles = ind,
             tradeProAnalysis = tradeProAnalysis,
+            barMode = barMode,
         )
 
         aiCoordinator.runAiDecision(
-            candles = candles, dataSource = source, symbol = symbol, timeframe = timeframe,
+            candles = displayCandles, dataSource = source, symbol = symbol, timeframe = timeframe,
             confluenceEnabled = ind.confluence,
             symbolFlow = { dataController.symbolFlow.value },
             timeframeFlow = { dataController.timeframeFlow.value },
@@ -349,6 +364,31 @@ class ChartViewModel @Inject constructor(
         val enabled = !_uiState.value.liveEnabled
         _uiState.value = _uiState.value.copy(liveEnabled = enabled)
         dataController.toggleLive(!enabled)
+    }
+
+    fun onBarModeChange(barMode: ChartBarMode) {
+        _uiState.value = _uiState.value.copy(barMode = barMode)
+        viewModelScope.launch {
+            try {
+                dataController.processMergedCandles(preferIncremental = false)
+            } catch (_: Exception) {
+                // Swallow concurrent modification exceptions during bar-mode change.
+                // The next data emission will trigger a successful recompute.
+            }
+        }
+    }
+
+    fun onRenkoSizeChange(size: Double) {
+        _uiState.value = _uiState.value.copy(renkoSize = size)
+        if (_uiState.value.barMode == ChartBarMode.RENKO) {
+            viewModelScope.launch {
+                try {
+                    dataController.processMergedCandles(preferIncremental = false)
+                } catch (_: Exception) {
+                    // Swallow concurrent modification exceptions during renko size change.
+                }
+            }
+        }
     }
 
     fun connectLive() = dataController.connectLive()

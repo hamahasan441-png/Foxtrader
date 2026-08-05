@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.CandleSource
+import com.foxtrader.app.domain.model.ChartBarMode
 import com.foxtrader.app.domain.model.DecisionResult
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.ChartDrawing
@@ -63,6 +64,8 @@ data class ChartUiState(
     // --- Core market data ---
     val symbol: String = "EURUSD",
     val timeframe: Timeframe = Timeframe.M15,
+    val barMode: ChartBarMode = ChartBarMode.TIME,
+    val renkoSize: Double = 10.0,
     val candles: CandleSeries = CandleSeries.EMPTY,
     /**
      * Provenance of [candles]. Drives the SIMULATED DATA banner and the

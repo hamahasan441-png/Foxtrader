@@ -2,7 +2,7 @@
   "id": "FEAT-002",
   "type": "feat",
   "description": "Bar-Mode Selector UI - Wire ChartBarMode into the chart with a dropdown/chip in the toolbar, apply HeikinAshi/Renko transforms before indicators, and hide SMC overlays when preservesTimeAxis is false.",
-  "status": "pending",
+  "status": "in_progress",
   "steps": [
     "Add barMode: ChartBarMode = ChartBarMode.TIME and renkoSize: Double = 10.0 to ChartUiState data class",
     "Add a bar-mode dropdown/chip in ChartScreen toolbar (next to the timeframe selector in ChartToolbar) showing Time/Heikin-Ashi/Renko options",
