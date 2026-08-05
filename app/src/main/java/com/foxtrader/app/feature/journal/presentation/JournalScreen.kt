@@ -87,6 +87,10 @@ fun JournalScreen(
             entry = reviewEntry,
             onSetRating = { viewModel.updateRating(reviewEntry.id, it) },
             onSetEmotion = { viewModel.updateEmotion(reviewEntry.id, it) },
+            onDelete = {
+                viewModel.deleteEntry(reviewEntry.id)
+                reviewEntryId = null
+            },
             onDismiss = { reviewEntryId = null },
         )
     }

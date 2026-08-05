@@ -103,6 +103,19 @@ class DrawingEngine @Inject constructor() {
     // DRAWING MANAGEMENT
     // ========================================================================
 
+    /**
+     * Replace the in-memory drawings with the persisted set for the current
+     * chart (symbol/timeframe). Called when the Room-backed flow emits so the
+     * engine mirrors what is displayed — otherwise, after process death or a
+     * symbol switch, the engine starts empty and the next placement would
+     * momentarily drop the restored drawings from the chart. Placement state
+     * (mode/active tool/pending point) is intentionally left untouched.
+     */
+    fun restore(persisted: List<ChartDrawing>) {
+        drawings.clear()
+        drawings.addAll(persisted)
+    }
+
     /** Get all drawings (visible only). */
     fun getVisibleDrawings(): List<ChartDrawing> = drawings.filter { it.isVisible }
 
