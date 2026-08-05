@@ -1,0 +1,15 @@
+# Local one-command run of the FoxTrader market-data backend.
+#   docker compose up --build
+# Serves on :8000 to match the Android client's default base URL.
+services:
+  backend:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      # Default to the offline sample provider; override to use a real upstream:
+      #   FOX_PROVIDER=twelvedata FOX_TWELVEDATA_API_KEY=xxxx docker compose up
+      FOX_PROVIDER: ${FOX_PROVIDER:-sample}
+      FOX_TWELVEDATA_API_KEY: ${FOX_TWELVEDATA_API_KEY:-}
+      FOX_CORS_ORIGINS: ${FOX_CORS_ORIGINS:-*}
+    restart: unless-stopped

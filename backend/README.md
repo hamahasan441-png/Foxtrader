@@ -82,6 +82,19 @@ docker build -t foxtrader-backend backend/
 docker run -p 8000:8000 foxtrader-backend
 ```
 
+Or Docker Compose (from `backend/`):
+
+```bash
+docker compose up --build
+# real data: FOX_PROVIDER=twelvedata FOX_TWELVEDATA_API_KEY=xxxx docker compose up --build
+```
+
+## CI
+
+`.github/workflows/backend.yml` runs `ruff` + the full `pytest` suite (including
+the FastAPI `TestClient` HTTP-contract tests) on every push/PR that touches
+`backend/`. It is independent of the Android Gradle workflow.
+
 ## Test
 
 ```bash
