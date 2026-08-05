@@ -1,0 +1,25 @@
+{
+  "id": "FEAT-002",
+  "type": "chore",
+  "description": "Extend detekt source coverage to data/, domain/, and feature/ packages (T4.1 partial). The existing ignoreFailures = true ensures this is non-breaking. Also extend the detekt source.setFrom to include the full src/main/java tree instead of just the chart subset.",
+  "status": "completed",
+  "steps": [
+    "In app/build.gradle.kts, in the detekt { } block, change `source.setFrom(files(\"src/main/java\", \"src/test/java\"))` -- verify this already covers all packages (it does -- the existing detekt source is already src/main/java and src/test/java which covers everything). If it already does, no detekt source change needed.",
+    "NOTE: after re-reading the build.gradle.kts, detekt.source is ALREADY set to `files('src/main/java', 'src/test/java')` which covers all packages. The actual gap flagged in the plan (W9) was that the jacoco coverage GATE (verification rule) only covers chart classes. The domain coverage gate was already added (see jacocoDomainCoverageVerification). The remaining gap is: add SMT, strategies, and feature packages to either an existing or new coverage gate.",
+    "Add a new 'feature layer coverage gate' section in build.gradle.kts that includes smt/strategies/feature packages in the domainCoverageIncludes list -- specifically add: 'com/foxtrader/app/domain/usecase/smt/SmtDivergenceDetector*', 'com/foxtrader/app/domain/usecase/strategies/StrategyTester*', 'com/foxtrader/app/domain/usecase/strategies/StrategyLibrary*'.",
+    "Also add the corresponding source dirs to domainCoverageSourceDirs: 'src/main/java/com/foxtrader/app/domain/usecase/smt', 'src/main/java/com/foxtrader/app/domain/usecase/strategies'."
+  ],
+  "acceptance_criteria": [
+    "domainCoverageIncludes list contains SmtDivergenceDetector, StrategyTester, and StrategyLibrary class patterns",
+    "domainCoverageSourceDirs includes the smt and strategies directories",
+    "ignoreFailures remains true for detekt (non-breaking)",
+    "No syntax errors in the build.gradle.kts (balanced parens/braces)"
+  ],
+  "verification": [
+    "Source-level review: the new includes are present in the domainCoverageIncludes list",
+    "Source-level review: the new source dirs are in domainCoverageSourceDirs",
+    "Source-level review: build.gradle.kts has balanced parentheses and braces"
+  ],
+  "blocked_reason": null,
+  "findings": "Added SmtDivergenceDetector, StrategyTester, StrategyLibrary to domainCoverageIncludes and smt/strategies dirs to domainCoverageSourceDirs. File balance verified (parens, braces, brackets all balanced). ignoreFailures remains true. Cannot run gradle due to INTEGRATIONS_ONLY network mode."
+}
