@@ -7,7 +7,9 @@ import com.foxtrader.app.data.mapper.toEntity
 import com.foxtrader.app.data.remote.api.AlphaVantageDataSource
 import com.foxtrader.app.data.remote.api.BinanceDataSource
 import com.foxtrader.app.data.remote.api.BybitDataSource
+import com.foxtrader.app.data.remote.api.KuCoinDataSource
 import com.foxtrader.app.data.remote.api.MarketApi
+import com.foxtrader.app.data.remote.api.OkxDataSource
 import com.foxtrader.app.data.remote.api.TwelveDataDataSource
 import com.foxtrader.app.di.IoDispatcher
 import com.foxtrader.app.domain.model.Candle
@@ -40,6 +42,8 @@ class MarketRepositoryImpl @Inject constructor(
     private val api: MarketApi,
     private val binance: BinanceDataSource,
     private val bybit: BybitDataSource,
+    private val okx: OkxDataSource,
+    private val kucoin: KuCoinDataSource,
     private val alphaVantage: AlphaVantageDataSource,
     private val twelveData: TwelveDataDataSource,
     private val appPreferences: AppPreferences,
@@ -98,6 +102,12 @@ class MarketRepositoryImpl @Inject constructor(
                                 "Check that the spot symbol is supported by Bybit."
                         )
                     }
+                }
+                selectedProvider == DataProvider.OKX -> okx.fetchCandles(symbol, timeframe, limit).ifEmpty {
+                    throw IllegalStateException("OKX returned no candle data for $symbol ${timeframe.label}.")
+                }
+                selectedProvider == DataProvider.KUCOIN -> kucoin.fetchCandles(symbol, timeframe, limit).ifEmpty {
+                    throw IllegalStateException("KuCoin returned no candle data for $symbol ${timeframe.label}.")
                 }
                 selectedProvider == DataProvider.TWELVE_DATA -> {
                     val tdKey = appPreferences.getApiKey(DataProvider.TWELVE_DATA).orEmpty()
@@ -160,6 +170,10 @@ class MarketRepositoryImpl @Inject constructor(
                     binance.fetchCandles(CRYPTO_TEST_SYMBOL, Timeframe.H1, TEST_LIMIT).size
                 DataProvider.BYBIT ->
                     bybit.fetchCandles(CRYPTO_TEST_SYMBOL, Timeframe.H1, TEST_LIMIT).size
+                DataProvider.OKX ->
+                    okx.fetchCandles(CRYPTO_TEST_SYMBOL, Timeframe.H1, TEST_LIMIT).size
+                DataProvider.KUCOIN ->
+                    kucoin.fetchCandles(CRYPTO_TEST_SYMBOL, Timeframe.H1, TEST_LIMIT).size
                 else -> throw ProviderNotImplementedException(provider.displayName)
             }
         }
