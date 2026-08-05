@@ -2,7 +2,7 @@
   "id": "FEAT-003",
   "type": "feat",
   "description": "Strategy-as-Indicator Toggles (LIT X + SMT on chart) - Add litX, smt, tradePro toggles to IndicatorToggles, add chips in IndicatorPanel, compute LitX/SMT in ChartViewModel when toggled, create ChartSignalLayer with DrawScope.drawLitXSignals and DrawScope.drawSmtDivergences, gate all strategy overlays on their respective toggles.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Add fields to IndicatorToggles: litX: Boolean = false, smt: Boolean = false, tradePro: Boolean = true",
     "Add 'LIT X', 'SMT', 'TradePro' Chip entries in IndicatorPanel.kt with toggle callbacks",
@@ -26,5 +26,5 @@
     "Source-level verification: confirm new toggle fields, chip entries, computation logic, layer file existence and invocation in CandleChart"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "All acceptance criteria met. tradePro toggle defaults to true (existing behavior preserved since drawTradeProOverlays was previously always called unconditionally). litX and smt default to false (opt-in). No existing tests were affected. The withComputation mapper uses default parameters for the new fields so existing call sites (if any exist in multi-chart controllers) remain compatible."
 }
