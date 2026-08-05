@@ -63,6 +63,7 @@ class SettingsViewModel @Inject constructor(
             biometricAvailable = biometricAuthManager.canAuthenticate(),
             crashReportingEnabled = appPreferences.crashReportingEnabled.value,
             tradeProConfig = appPreferences.tradeProConfig.value,
+            litXConfig = appPreferences.litXConfig.value,
         )
     )
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
@@ -85,6 +86,9 @@ class SettingsViewModel @Inject constructor(
             .launchIn(viewModelScope)
         appPreferences.crashReportingEnabled
             .onEach { enabled -> _uiState.update { it.copy(crashReportingEnabled = enabled) } }
+            .launchIn(viewModelScope)
+        appPreferences.litXConfig
+            .onEach { cfg -> _uiState.update { it.copy(litXConfig = cfg) } }
             .launchIn(viewModelScope)
         combine(
             appPreferences.aiMinConfluences,
@@ -216,6 +220,26 @@ class SettingsViewModel @Inject constructor(
     }
 
     // --- TRADEPRO ---
+
+    // --- LIT X (persisted immediately so the toggle applies at once) ---
+
+    fun setLitXEnabled(enabled: Boolean) {
+        val cfg = _uiState.value.litXConfig.copy(enabled = enabled)
+        appPreferences.setLitXConfig(cfg)
+        _uiState.update { it.copy(litXConfig = cfg) }
+    }
+
+    fun setLitXRequireHtf(enabled: Boolean) {
+        val cfg = _uiState.value.litXConfig.copy(requireHtfAlignment = enabled)
+        appPreferences.setLitXConfig(cfg)
+        _uiState.update { it.copy(litXConfig = cfg) }
+    }
+
+    fun setLitXMinRiskReward(value: Double) {
+        val cfg = _uiState.value.litXConfig.copy(minRiskReward = value.coerceIn(1.0, 5.0))
+        appPreferences.setLitXConfig(cfg)
+        _uiState.update { it.copy(litXConfig = cfg) }
+    }
 
     fun setTradeProStopPoints(value: Double) {
         _uiState.update { it.copy(tradeProConfig = it.tradeProConfig.copy(stopPoints = value.coerceIn(1.0, 10.0)), saved = false) }

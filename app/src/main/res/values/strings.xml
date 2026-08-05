@@ -157,6 +157,13 @@
     <string name="settings_live_routing_active">Live chart routing is active for %1$s crypto symbols.</string>
     <string name="settings_api_key_saved_note">Saved only on this device for the selected chart/data provider.</string>
 
+    <!-- LIT X Institutional Framework -->
+    <string name="chart_open_litx">Open LIT X institutional analysis</string>
+    <string name="settings_litx_title">LIT X Institutional Framework</string>
+    <string name="settings_litx_enable">Enable LIT X</string>
+    <string name="settings_litx_require_htf">Require higher-timeframe alignment</string>
+    <string name="settings_litx_min_rr">Minimum risk : reward</string>
+
     <!-- Chart analysis bottom sheet (consolidates AI / context / confluence / setup) -->
     <string name="chart_analysis_sheet_title">Analysis</string>
     <string name="chart_analysis_expand">Show analysis details</string>

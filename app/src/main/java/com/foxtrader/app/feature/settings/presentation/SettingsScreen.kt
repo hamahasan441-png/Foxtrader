@@ -465,6 +465,31 @@ fun SettingsScreen(
                 )
             }
 
+            // === LIT X ===
+            SectionHeader(stringResource(R.string.settings_litx_title))
+
+            SettingsCard {
+                SwitchSetting(
+                    label = stringResource(R.string.settings_litx_enable),
+                    checked = state.litXConfig.enabled,
+                    onCheckedChange = viewModel::setLitXEnabled,
+                )
+                Spacer(Modifier.height(12.dp))
+                SwitchSetting(
+                    label = stringResource(R.string.settings_litx_require_htf),
+                    checked = state.litXConfig.requireHtfAlignment,
+                    onCheckedChange = viewModel::setLitXRequireHtf,
+                )
+                Spacer(Modifier.height(8.dp))
+                SliderSetting(
+                    label = stringResource(R.string.settings_litx_min_rr),
+                    value = state.litXConfig.minRiskReward.toFloat(),
+                    range = 1f..5f,
+                    suffix = "R",
+                    onValueChange = { viewModel.setLitXMinRiskReward(it.toDouble()) },
+                )
+            }
+
             // === GENERAL ===
             SectionHeader("General")
 

@@ -5,6 +5,7 @@ import com.foxtrader.app.domain.model.AlertConfig
 import com.foxtrader.app.domain.model.AuthState
 import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.PositionSizingMethod
+import com.foxtrader.app.domain.model.LitXConfig
 import com.foxtrader.app.domain.model.RiskConfig
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.model.tradepro.TradeProConfig
@@ -50,6 +51,7 @@ data class SettingsUiState(
     val crashReportingEnabled: Boolean = false,
     // --- TRADEPRO ---
     val tradeProConfig: TradeProConfig = TradeProConfig(),
+    val litXConfig: LitXConfig = LitXConfig(),
     val saved: Boolean = false,
 ) {
     val isLoggedIn: Boolean get() = authState == AuthState.AUTHENTICATED
