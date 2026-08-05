@@ -274,6 +274,14 @@ class RiskEngineTest {
     }
 
     @Test
+    fun `daily loss auto-halt triggers at exact limit boundary`() {
+        // 3% of 10_000 = 300 exactly at the daily loss limit
+        engine.recordTrade(-150.0, "EURUSD")
+        engine.recordTrade(-150.0, "GBPUSD")
+        assertTrue("Should halt when daily loss equals the limit (>= semantics)", engine.isTradingHalted())
+    }
+
+    @Test
     fun `winning trade resets consecutive loss counter`() {
         engine.recordTrade(-50.0, "EURUSD")
         engine.recordTrade(-50.0, "EURUSD")
