@@ -216,4 +216,45 @@
     <string name="disclaimer_point_local">Your journal, drawings, and settings stay on this device. Nothing is uploaded by default.</string>
     <string name="disclaimer_acknowledge">I understand and agree</string>
     <string name="disclaimer_settings_note">You can review this any time in Settings → Privacy.</string>
+
+    <!-- Auth Screen -->
+    <string name="auth_label_display_name">Display name</string>
+    <string name="auth_label_email">Email</string>
+    <string name="auth_label_password">Password</string>
+    <string name="auth_action_sign_in">Sign In</string>
+    <string name="auth_action_create_account">Create Account</string>
+    <string name="auth_switch_to_register">Don\'t have an account? Register</string>
+    <string name="auth_switch_to_login">Already have an account? Sign in</string>
+    <string name="auth_continue_offline">Continue offline</string>
+
+    <!-- LIT X Signal Card -->
+    <string name="litx_direction_long">LONG</string>
+    <string name="litx_direction_short">SHORT</string>
+    <string name="litx_metric_entry">Entry</string>
+    <string name="litx_metric_stop">Stop</string>
+    <string name="litx_metric_target_1">Target 1</string>
+    <string name="litx_metric_target_2">Target 2</string>
+    <string name="litx_metric_risk_reward">Risk : Reward</string>
+
+    <!-- Trade Management -->
+    <string name="trade_mgmt_title">Trade Management</string>
+    <string name="trade_mgmt_no_active_trades">No Active Trades</string>
+    <string name="trade_mgmt_empty_description">Open a trade from an executable TRADEPRO setup to begin management.</string>
+    <string name="trade_mgmt_realized">Realized</string>
+    <string name="trade_mgmt_unrealized">Unrealized</string>
+
+    <!-- TradePro Risk Dashboard -->
+    <string name="tradepro_risk_of_budget">of budget</string>
+    <string name="tradepro_risk_no_positions">No open positions.</string>
+    <string name="tradepro_risk_all_clear">All clear - no active risk alerts.</string>
+    <string name="tradepro_risk_no_correlated">No correlated positions detected.</string>
+    <string name="tradepro_risk_select_symbol">Select symbol and direction to calculate size.</string>
+
+    <!-- TradePro Backtest Report -->
+    <string name="tradepro_backtest_simulated_notice">SIMULATED DATA \u2014 no real feed for this symbol. This report is illustrative of the framework\'s mechanics, not a live edge.</string>
+    <string name="tradepro_backtest_select_prompt">Select a symbol to replay the TRADEPRO framework over its history.</string>
+
+    <!-- Journal -->
+    <string name="journal_review_title">Review %1$s</string>
+    <string name="journal_delete_confirm">Delete this trade permanently?</string>
 </resources>
