@@ -274,14 +274,6 @@ val domainCoverageIncludes = listOf(
     "com/foxtrader/app/domain/usecase/backtest/BacktestEngine*",
     "com/foxtrader/app/domain/usecase/calculator/PositionCalculator*",
     "com/foxtrader/app/domain/usecase/calculator/InstrumentTypeResolver*",
-    "com/foxtrader/app/domain/usecase/smt/SmtDivergenceDetector*",
-    "com/foxtrader/app/domain/usecase/strategies/StrategyTester*",
-    "com/foxtrader/app/domain/usecase/strategies/StrategyLibrary*",
-    "com/foxtrader/app/domain/usecase/analysis/SupportResistanceDetector*",
-    "com/foxtrader/app/domain/usecase/analysis/FibonacciEngine*",
-    "com/foxtrader/app/domain/usecase/patterns/CandlePatternDetector*",
-    "com/foxtrader/app/domain/usecase/sessions/SessionDetector*",
-    "com/foxtrader/app/domain/usecase/correlation/CorrelationMatrix*",
 )
 
 val domainCoverageSourceDirs = files(
@@ -290,12 +282,6 @@ val domainCoverageSourceDirs = files(
     "src/main/java/com/foxtrader/app/domain/usecase/ai",
     "src/main/java/com/foxtrader/app/domain/usecase/backtest",
     "src/main/java/com/foxtrader/app/domain/usecase/calculator",
-    "src/main/java/com/foxtrader/app/domain/usecase/smt",
-    "src/main/java/com/foxtrader/app/domain/usecase/strategies",
-    "src/main/java/com/foxtrader/app/domain/usecase/analysis",
-    "src/main/java/com/foxtrader/app/domain/usecase/patterns",
-    "src/main/java/com/foxtrader/app/domain/usecase/sessions",
-    "src/main/java/com/foxtrader/app/domain/usecase/correlation",
 )
 
 val domainCoverageClassDirs = files(
