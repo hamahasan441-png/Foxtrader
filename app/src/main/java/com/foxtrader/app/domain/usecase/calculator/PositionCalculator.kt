@@ -71,7 +71,11 @@ class PositionCalculator @Inject constructor() {
         val positionSize = if (stopPips > 0 && pipValue > 0) {
             riskAmount / (stopPips * pipValue)
         } else 0.01
-        val roundedSize = (positionSize * 100).roundToInt() / 100.0 // Round to 0.01
+        // Round to 0.01 lots and never below the 0.01 minimum tradable size.
+        // This matches the size we actually report AND prevents division-by-zero
+        // (Infinity/NaN) in the break-even / max-loss math when a tiny raw size
+        // rounds down to 0.0.
+        val roundedSize = ((positionSize * 100).roundToInt() / 100.0).coerceAtLeast(0.01)
 
         // Reward calculations
         val tpDistance = input.takeProfitPrice?.let { abs(it - input.entryPrice) }
@@ -91,7 +95,7 @@ class PositionCalculator @Inject constructor() {
         }
 
         // Max loss price (entire account)
-        val maxLossPips = input.accountBalance / (pipValue * roundedSize)
+        val maxLossPips = if (pipValue > 0) input.accountBalance / (pipValue * roundedSize) else 0.0
         val maxLossPrice = when (input.direction) {
             Direction.BULLISH -> input.entryPrice - maxLossPips * input.instrumentType.pipSize
             Direction.BEARISH -> input.entryPrice + maxLossPips * input.instrumentType.pipSize

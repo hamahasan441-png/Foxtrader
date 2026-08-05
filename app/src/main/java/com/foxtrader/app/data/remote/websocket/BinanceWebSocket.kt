@@ -39,7 +39,9 @@ import javax.inject.Singleton
  * - Auto-reconnect with exponential backoff (1s → 2s → 4s → ... max 30s)
  * - Multiple simultaneous subscriptions (combined stream)
  * - Parses forming candle updates + bar close confirmations
- * - Thread-safe via SupervisorJob scope
+ * - Thread-safe: all connection state is guarded by an internal lock, and a
+ *   generation counter prevents an intentional close from triggering a
+ *   duplicate reconnect (see [generation]).
  *
  * Symbol mapping: FoxTrader uses "EURUSD" format; Binance uses "eurusd" lowercase.
  * Crypto pairs use Binance native format (BTCUSDT → btcusdt).
@@ -58,10 +60,21 @@ class BinanceWebSocket @Inject constructor(
     private val _ticks = MutableSharedFlow<TickUpdate>(extraBufferCapacity = 64)
     override val ticks: Flow<TickUpdate> = _ticks.asSharedFlow()
 
+    // `THREAD-SAFETY` The state below is touched from BOTH coroutine threads
+    // (subscribe/unsubscribe/disconnect) and OkHttp callback threads
+    // (onOpen/onClosed/onFailure). Every access is guarded by [lock].
+    private val lock = Any()
     private val subscriptions = mutableSetOf<Pair<String, Timeframe>>()
     private var webSocket: WebSocket? = null
     private var reconnectAttempt = 0
     private var shouldReconnect = true
+
+    // Bumped on every intentional (re)connect / disconnect. Each socket's
+    // listener captures the generation it was created under; once a newer
+    // intentional action supersedes it, that listener's onClosed/onFailure
+    // become no-ops — so an intentional close can never masquerade as a dropped
+    // connection and spawn a second, parallel socket.
+    private var generation = 0
 
     companion object {
         private const val BASE_URL = "wss://stream.binance.com:9443/ws/"
@@ -74,44 +87,48 @@ class BinanceWebSocket @Inject constructor(
     // ========================================================================
 
     override suspend fun subscribe(symbol: String, timeframe: Timeframe) {
-        val pair = symbol to timeframe
-        if (subscriptions.add(pair)) {
-            reconnectWithAllSubscriptions()
+        synchronized(lock) {
+            if (subscriptions.add(symbol to timeframe)) reconnectLocked()
         }
     }
 
     override suspend fun unsubscribe(symbol: String, timeframe: Timeframe) {
-        subscriptions.remove(symbol to timeframe)
-        if (subscriptions.isEmpty()) {
-            disconnectAll()
-        } else {
-            reconnectWithAllSubscriptions()
+        synchronized(lock) {
+            subscriptions.remove(symbol to timeframe)
+            if (subscriptions.isEmpty()) disconnectLocked() else reconnectLocked()
         }
     }
 
     override suspend fun disconnectAll() {
+        synchronized(lock) { disconnectLocked() }
+    }
+
+    // ========================================================================
+    // CONNECTION MANAGEMENT (all callers hold [lock])
+    // ========================================================================
+
+    private fun disconnectLocked() {
         shouldReconnect = false
+        generation++ // invalidate any in-flight/old listeners
         subscriptions.clear()
         webSocket?.close(1000, "Client disconnect")
         webSocket = null
         _connectionState.value = ConnectionState.DISCONNECTED
     }
 
-    // ========================================================================
-    // CONNECTION MANAGEMENT
-    // ========================================================================
-
-    private fun reconnectWithAllSubscriptions() {
+    private fun reconnectLocked() {
+        generation++ // supersede the old socket so its onClosed won't reconnect
         webSocket?.close(1000, "Reconnecting with new subscriptions")
         webSocket = null
         shouldReconnect = true
         reconnectAttempt = 0
-        connect()
+        connectLocked()
     }
 
-    private fun connect() {
+    private fun connectLocked() {
         if (subscriptions.isEmpty()) return
         _connectionState.value = ConnectionState.CONNECTING
+        val myGeneration = generation
 
         // Build combined stream URL
         val streams = subscriptions.joinToString("/") { (symbol, tf) ->
@@ -124,8 +141,11 @@ class BinanceWebSocket @Inject constructor(
         webSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
 
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                _connectionState.value = ConnectionState.CONNECTED
-                reconnectAttempt = 0
+                synchronized(lock) {
+                    if (generation != myGeneration) return
+                    _connectionState.value = ConnectionState.CONNECTED
+                    reconnectAttempt = 0
+                }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -133,20 +153,25 @@ class BinanceWebSocket @Inject constructor(
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                _connectionState.value = ConnectionState.ERROR
-                scheduleReconnect()
+                synchronized(lock) {
+                    if (generation != myGeneration) return
+                    _connectionState.value = ConnectionState.ERROR
+                    scheduleReconnectLocked()
+                }
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                _connectionState.value = ConnectionState.DISCONNECTED
-                if (shouldReconnect && subscriptions.isNotEmpty()) {
-                    scheduleReconnect()
+                synchronized(lock) {
+                    // A superseded (intentionally closed) socket must NOT reconnect.
+                    if (generation != myGeneration) return
+                    _connectionState.value = ConnectionState.DISCONNECTED
+                    if (shouldReconnect && subscriptions.isNotEmpty()) scheduleReconnectLocked()
                 }
             }
         })
     }
 
-    private fun scheduleReconnect() {
+    private fun scheduleReconnectLocked() {
         if (!shouldReconnect || subscriptions.isEmpty()) return
         _connectionState.value = ConnectionState.RECONNECTING
 
@@ -155,11 +180,14 @@ class BinanceWebSocket @Inject constructor(
             MAX_RECONNECT_DELAY_MS,
         )
         reconnectAttempt++
+        val myGeneration = generation
 
         scope.launch {
             delay(delay)
-            if (shouldReconnect && subscriptions.isNotEmpty()) {
-                connect()
+            synchronized(lock) {
+                if (shouldReconnect && subscriptions.isNotEmpty() && generation == myGeneration) {
+                    connectLocked()
+                }
             }
         }
     }

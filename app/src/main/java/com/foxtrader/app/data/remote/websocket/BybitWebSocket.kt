@@ -61,35 +61,48 @@ class BybitWebSocket @Inject constructor(
     private val _ticks = MutableSharedFlow<TickUpdate>(extraBufferCapacity = 64)
     override val ticks: Flow<TickUpdate> = _ticks.asSharedFlow()
 
+    // `THREAD-SAFETY` All state below is accessed from coroutine threads AND
+    // OkHttp callback threads; every access is guarded by [lock]. [generation]
+    // is bumped on each intentional (re)connect/disconnect so a superseded
+    // socket's onClosed can't spawn a duplicate reconnect, and the heartbeat
+    // loop for an old socket stops itself.
+    private val lock = Any()
     private val subscriptions = mutableSetOf<Pair<String, Timeframe>>()
     private var webSocket: WebSocket? = null
     private var heartbeatJob: Job? = null
     private var reconnectAttempt = 0
     private var shouldReconnect = true
+    private var generation = 0
 
     override suspend fun subscribe(symbol: String, timeframe: Timeframe) {
         val pair = normalizeSymbol(symbol) to timeframe
-        val added = subscriptions.add(pair)
-        when {
-            webSocket == null -> reconnectWithAllSubscriptions()
-            added && connectionState.value == ConnectionState.CONNECTED -> sendSubscribe(listOf(pair))
-            added -> reconnectWithAllSubscriptions()
+        synchronized(lock) {
+            val added = subscriptions.add(pair)
+            when {
+                webSocket == null -> reconnectLocked()
+                added && connectionState.value == ConnectionState.CONNECTED -> sendSubscribe(listOf(pair))
+                added -> reconnectLocked()
+            }
         }
     }
 
     override suspend fun unsubscribe(symbol: String, timeframe: Timeframe) {
         val pair = normalizeSymbol(symbol) to timeframe
-        if (!subscriptions.remove(pair)) return
-
-        if (subscriptions.isEmpty()) {
-            disconnectAll()
-        } else {
-            sendUnsubscribe(listOf(pair))
+        synchronized(lock) {
+            if (!subscriptions.remove(pair)) return
+            if (subscriptions.isEmpty()) disconnectLocked() else sendUnsubscribe(listOf(pair))
         }
     }
 
     override suspend fun disconnectAll() {
+        synchronized(lock) { disconnectLocked() }
+    }
+
+    // --- Connection management (all callers hold [lock]) ---
+
+    private fun disconnectLocked() {
         shouldReconnect = false
+        generation++
         subscriptions.clear()
         stopHeartbeat()
         webSocket?.close(1000, "Client disconnect")
@@ -97,27 +110,32 @@ class BybitWebSocket @Inject constructor(
         _connectionState.value = ConnectionState.DISCONNECTED
     }
 
-    private fun reconnectWithAllSubscriptions() {
+    private fun reconnectLocked() {
         if (subscriptions.isEmpty()) return
+        generation++
         stopHeartbeat()
         webSocket?.close(1000, "Reconnecting with subscriptions")
         webSocket = null
         shouldReconnect = true
         reconnectAttempt = 0
-        connect()
+        connectLocked()
     }
 
-    private fun connect() {
+    private fun connectLocked() {
         if (subscriptions.isEmpty()) return
         _connectionState.value = ConnectionState.CONNECTING
+        val myGeneration = generation
 
         val request = Request.Builder().url(SPOT_PUBLIC_URL).build()
         webSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                _connectionState.value = ConnectionState.CONNECTED
-                reconnectAttempt = 0
-                sendSubscribe(subscriptions.toList())
-                startHeartbeat()
+                synchronized(lock) {
+                    if (generation != myGeneration) return
+                    _connectionState.value = ConnectionState.CONNECTED
+                    reconnectAttempt = 0
+                    sendSubscribe(subscriptions.toList())
+                    startHeartbeat()
+                }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -125,22 +143,26 @@ class BybitWebSocket @Inject constructor(
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                stopHeartbeat()
-                _connectionState.value = ConnectionState.ERROR
-                scheduleReconnect()
+                synchronized(lock) {
+                    if (generation != myGeneration) return
+                    stopHeartbeat()
+                    _connectionState.value = ConnectionState.ERROR
+                    scheduleReconnectLocked()
+                }
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                stopHeartbeat()
-                _connectionState.value = ConnectionState.DISCONNECTED
-                if (shouldReconnect && subscriptions.isNotEmpty()) {
-                    scheduleReconnect()
+                synchronized(lock) {
+                    if (generation != myGeneration) return
+                    stopHeartbeat()
+                    _connectionState.value = ConnectionState.DISCONNECTED
+                    if (shouldReconnect && subscriptions.isNotEmpty()) scheduleReconnectLocked()
                 }
             }
         })
     }
 
-    private fun scheduleReconnect() {
+    private fun scheduleReconnectLocked() {
         if (!shouldReconnect || subscriptions.isEmpty()) return
         _connectionState.value = ConnectionState.RECONNECTING
 
@@ -149,10 +171,15 @@ class BybitWebSocket @Inject constructor(
             MAX_RECONNECT_DELAY_MS,
         )
         reconnectAttempt++
+        val myGeneration = generation
 
         scope.launch {
             delay(delayMs)
-            if (shouldReconnect && subscriptions.isNotEmpty()) connect()
+            synchronized(lock) {
+                if (shouldReconnect && subscriptions.isNotEmpty() && generation == myGeneration) {
+                    connectLocked()
+                }
+            }
         }
     }
 
@@ -176,12 +203,19 @@ class BybitWebSocket @Inject constructor(
         webSocket?.send(payload)
     }
 
+    // Callers hold [lock]. The loop is pinned to the socket + generation it was
+    // started for, so a superseded socket's heartbeat stops itself and never
+    // pings a stale connection.
     private fun startHeartbeat() {
         heartbeatJob?.cancel()
+        val ws = webSocket
+        val myGeneration = generation
         heartbeatJob = scope.launch {
-            while (shouldReconnect && webSocket != null) {
+            while (true) {
                 delay(HEARTBEAT_INTERVAL_MS)
-                webSocket?.send(PING_PAYLOAD)
+                val active = synchronized(lock) { generation == myGeneration && shouldReconnect }
+                if (!active) break
+                ws?.send(PING_PAYLOAD)
             }
         }
     }
