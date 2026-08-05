@@ -2,7 +2,7 @@
   "id": "FEAT-002",
   "type": "feat",
   "description": "Bar-Mode Selector UI - Wire ChartBarMode into the chart with a dropdown/chip in the toolbar, apply HeikinAshi/Renko transforms before indicators, and hide SMC overlays when preservesTimeAxis is false.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Add barMode: ChartBarMode = ChartBarMode.TIME and renkoSize: Double = 10.0 to ChartUiState data class",
     "Add a bar-mode dropdown/chip in ChartScreen toolbar (next to the timeframe selector in ChartToolbar) showing Time/Heikin-Ashi/Renko options",
@@ -24,5 +24,5 @@
     "Source-level verification: confirm transform logic is in processCandles pipeline, overlays gated by preservesTimeAxis, and new UI element exists in ChartScreen"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "ChartBarMode enum, HeikinAshiTransformer, and CandleRenkoBuilder were not pre-existing and had to be created as part of this feature. They live at domain/model/ChartBarMode.kt and domain/usecase/chart/{HeikinAshiTransformer,CandleRenkoBuilder}.kt. Both transformers are @Singleton @Inject for Hilt constructor injection. The BarModeDropdown uses the same FlowRow chip pattern as TimeframeDropdown. SMC gating in ChartUiStateMapper uses a barMode parameter with default TIME for backward compatibility. The toolbar now has a bar-mode chip that shows the current mode label between Timeframe and Indicators chips."
 }
