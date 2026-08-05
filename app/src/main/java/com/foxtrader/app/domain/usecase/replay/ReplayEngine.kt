@@ -11,6 +11,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -35,12 +36,18 @@ import javax.inject.Singleton
 class ReplayEngine @Inject constructor() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    // Guards [playbackJob] + [allCandles], which are touched from both the
+    // Default-dispatcher playback loop and UI-thread control calls.
+    private val lock = Any()
     private var playbackJob: Job? = null
+    private var allCandles: List<Candle> = emptyList()
 
     private val _state = MutableStateFlow(ReplayState())
     val state: StateFlow<ReplayState> = _state.asStateFlow()
 
-    private var allCandles: List<Candle> = emptyList()
+    /** Consistent snapshot of the current dataset under [lock]. */
+    private fun candlesSnapshot(): List<Candle> = synchronized(lock) { allCandles }
 
     // ========================================================================
     // LIFECYCLE
@@ -57,25 +64,29 @@ class ReplayEngine @Inject constructor() {
             _state.value = ReplayState()
             return
         }
-        allCandles = candles
+        synchronized(lock) { allCandles = candles }
         // Guard: coerceIn requires min <= max. With >=2 candles, size-1 >= 1.
         val clamped = startAt.coerceIn(1, candles.size - 1)
-        _state.value = ReplayState(
-            isActive = true,
-            isPaused = true,  // Start paused so user can see the initial state
-            speed = _state.value.speed,
-            currentIndex = clamped,
-            totalBars = candles.size,
-            startIndex = clamped,
-            visibleCandles = candles.subList(0, clamped),
-        )
+        _state.update { old ->
+            ReplayState(
+                isActive = true,
+                isPaused = true,  // Start paused so user can see the initial state
+                speed = old.speed,
+                currentIndex = clamped,
+                totalBars = candles.size,
+                startIndex = clamped,
+                visibleCandles = candles.subList(0, clamped),
+            )
+        }
     }
 
     /** Stop replay and return to normal chart mode. */
     fun stop() {
-        playbackJob?.cancel()
-        playbackJob = null
-        allCandles = emptyList()
+        synchronized(lock) {
+            playbackJob?.cancel()
+            playbackJob = null
+            allCandles = emptyList()
+        }
         _state.value = ReplayState()
     }
 
@@ -86,15 +97,17 @@ class ReplayEngine @Inject constructor() {
     /** Start/resume auto-play. */
     fun play() {
         if (!_state.value.isActive) return
-        _state.value = _state.value.copy(isPaused = false)
+        _state.update { it.copy(isPaused = false) }
         startPlaybackLoop()
     }
 
     /** Pause auto-play. */
     fun pause() {
-        playbackJob?.cancel()
-        playbackJob = null
-        _state.value = _state.value.copy(isPaused = true)
+        synchronized(lock) {
+            playbackJob?.cancel()
+            playbackJob = null
+        }
+        _state.update { it.copy(isPaused = true) }
     }
 
     /** Toggle play/pause. */
@@ -105,7 +118,7 @@ class ReplayEngine @Inject constructor() {
     /** Advance one bar forward. */
     fun stepForward() {
         if (!_state.value.isActive) return
-        val next = (_state.value.currentIndex + 1).coerceAtMost(allCandles.size)
+        val next = (_state.value.currentIndex + 1).coerceAtMost(candlesSnapshot().size)
         updateIndex(next)
     }
 
@@ -119,16 +132,16 @@ class ReplayEngine @Inject constructor() {
     /** Jump to a specific bar index. */
     fun jumpTo(index: Int) {
         if (!_state.value.isActive) return
-        val clamped = index.coerceIn(1, allCandles.size)
+        val clamped = index.coerceIn(1, candlesSnapshot().size)
         updateIndex(clamped)
     }
 
     /** Change playback speed. */
     fun setSpeed(speed: ReplaySpeed) {
-        _state.value = _state.value.copy(speed = speed)
-        // Restart playback loop with new speed if playing
+        _state.update { it.copy(speed = speed) }
+        // Restart playback loop with the new speed if playing.
+        // (startPlaybackLoop cancels the previous job under the lock.)
         if (_state.value.isPlaying) {
-            playbackJob?.cancel()
             startPlaybackLoop()
         }
     }
@@ -146,27 +159,33 @@ class ReplayEngine @Inject constructor() {
     // ========================================================================
 
     private fun startPlaybackLoop() {
-        playbackJob?.cancel()
-        playbackJob = scope.launch {
-            while (isActive && _state.value.isActive && !_state.value.isPaused) {
-                delay(_state.value.speed.delayMs)
-                val next = _state.value.currentIndex + 1
-                if (next > allCandles.size) {
-                    // Reached end — pause
-                    _state.value = _state.value.copy(isPaused = true)
-                    break
+        synchronized(lock) {
+            playbackJob?.cancel()
+            playbackJob = scope.launch {
+                while (isActive && _state.value.isActive && !_state.value.isPaused) {
+                    delay(_state.value.speed.delayMs)
+                    val total = candlesSnapshot().size
+                    val next = _state.value.currentIndex + 1
+                    if (next > total) {
+                        // Reached end — pause
+                        _state.update { it.copy(isPaused = true) }
+                        break
+                    }
+                    updateIndex(next)
                 }
-                updateIndex(next)
             }
         }
     }
 
     private fun updateIndex(newIndex: Int) {
-        if (allCandles.isEmpty()) return
-        val clamped = newIndex.coerceIn(1, allCandles.size)
-        _state.value = _state.value.copy(
-            currentIndex = clamped,
-            visibleCandles = allCandles.subList(0, clamped),
-        )
+        val candles = candlesSnapshot()
+        if (candles.isEmpty()) return
+        val clamped = newIndex.coerceIn(1, candles.size)
+        _state.update {
+            it.copy(
+                currentIndex = clamped,
+                visibleCandles = candles.subList(0, clamped),
+            )
+        }
     }
 }
