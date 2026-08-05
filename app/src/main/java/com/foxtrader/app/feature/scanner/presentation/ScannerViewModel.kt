@@ -6,8 +6,10 @@ import com.foxtrader.app.di.DefaultDispatcher
 import com.foxtrader.app.domain.model.AssetClass
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.CandleSource
+import com.foxtrader.app.domain.model.LitXSignalRecord
 import com.foxtrader.app.domain.model.ScannerRiskLevel
 import com.foxtrader.app.domain.model.StrategyType
+import com.foxtrader.app.domain.repository.LitXSignalRepository
 import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.heatmap.MarketHeatmap
 import com.foxtrader.app.domain.usecase.scanner.ScannerUseCase
@@ -17,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -26,6 +29,7 @@ import javax.inject.Inject
 class ScannerViewModel @Inject constructor(
     private val scannerUseCase: ScannerUseCase,
     private val marketRepository: MarketRepository,
+    private val litXSignalRepository: LitXSignalRepository,
     private val marketHeatmap: MarketHeatmap,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
@@ -39,7 +43,7 @@ class ScannerViewModel @Inject constructor(
 
     fun scan() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
+            _uiState.update { it.copy(isLoading = true, error = null, historyWarning = null) }
             try {
                 // Gather candle data for all watchlist symbols.
                 //
@@ -48,6 +52,7 @@ class ScannerViewModel @Inject constructor(
                 // reading real prices or generated seed bars.
                 val watchlist = scannerUseCase.getWatchlist()
                 val dataMap = mutableMapOf<String, List<Candle>>()
+                val sourceBySymbol = mutableMapOf<String, CandleSource>()
                 val heatmapInput = mutableMapOf<String, Pair<AssetClass, List<Candle>>>()
                 var worstSource = CandleSource.LIVE
 
@@ -56,11 +61,28 @@ class ScannerViewModel @Inject constructor(
                     val sourced = marketRepository.getSourcedCandles(ws.symbol)
                     if (sourced.candles.isEmpty()) continue
                     dataMap[ws.symbol] = sourced.candles
+                    sourceBySymbol[ws.symbol] = sourced.source
                     heatmapInput[ws.symbol] = ws.assetClass to sourced.candles
                     worstSource = CandleSource.worstOf(listOf(worstSource, sourced.source))
                 }
 
                 val output = scannerUseCase(dataMap, _uiState.value.selectedStrategy)
+
+                // Persist only validated signals whose exact candle series is
+                // trustworthy. Per-symbol provenance is required here: one
+                // synthetic symbol must neither authorise nor suppress another
+                // symbol's durable history.
+                val historyRecords = output.validatedLitXSignals
+                    .filter { sourceBySymbol[it.symbol]?.isTrustworthy == true }
+                    .map { LitXSignalRecord.from(it) }
+                val historyWarning = try {
+                    if (historyRecords.isNotEmpty()) litXSignalRepository.saveAll(historyRecords)
+                    null
+                } catch (cancel: CancellationException) {
+                    throw cancel
+                } catch (_: Exception) {
+                    "Scan completed, but LIT X history could not be saved."
+                }
 
                 // Scoring and heatmap aggregation are CPU-bound across every
                 // watchlist symbol; keep them off the main thread.
@@ -75,8 +97,11 @@ class ScannerViewModel @Inject constructor(
                         dataSource = if (dataMap.isEmpty()) CandleSource.CACHED else worstSource,
                         isLoading = false,
                         lastScanTime = output.scannedAt,
+                        historyWarning = historyWarning,
                     )
                 }
+            } catch (cancel: CancellationException) {
+                throw cancel
             } catch (e: Exception) {
                 _uiState.update { it.copy(isLoading = false, error = e.message) }
             }

@@ -49,9 +49,11 @@ data class MitigationBlock(
     val lowPrice: Double,
     /** Index of the originating order block. */
     val originIndex: Int,
-    /** Bar index at which price returned into and reacted from the block. */
+    /** Bar index at which price first returned into the block. */
     val mitigationIndex: Int,
     val strength: Double,
+    /** First bar on which the post-mitigation reaction is confirmed. */
+    val confirmationIndex: Int = mitigationIndex,
 )
 
 /** Which third of the dealing range price currently occupies. */

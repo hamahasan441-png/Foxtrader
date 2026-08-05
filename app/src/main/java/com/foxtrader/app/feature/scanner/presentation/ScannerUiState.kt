@@ -42,6 +42,8 @@ data class ScannerUiState(
     val isLoading: Boolean = true,
     val lastScanTime: Long = 0L,
     val error: String? = null,
+    /** Non-fatal warning: fresh scan results remain usable if history storage fails. */
+    val historyWarning: String? = null,
 ) {
     val isSyntheticData: Boolean get() = hasData && dataSource == CandleSource.SYNTHETIC
 

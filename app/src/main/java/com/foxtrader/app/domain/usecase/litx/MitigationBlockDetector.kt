@@ -52,6 +52,7 @@ class MitigationBlockDetector @Inject constructor() {
                 originIndex = ob.startIndex,
                 mitigationIndex = mitigationIndex,
                 strength = ob.strength,
+                confirmationIndex = reactionEnd,
             )
         }
         return result

@@ -6,12 +6,15 @@ import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.FvgType
 import com.foxtrader.app.domain.model.LiquidityType
+import com.foxtrader.app.domain.model.LitXSignal
+import com.foxtrader.app.domain.model.LitXStage
 import com.foxtrader.app.domain.model.OrderBlockType
 import com.foxtrader.app.domain.model.ScannerRiskLevel
 import com.foxtrader.app.domain.model.ScreenerOutput
 import com.foxtrader.app.domain.model.ScreenerResult
 import com.foxtrader.app.domain.model.ScreenerSymbol
 import com.foxtrader.app.domain.model.StrategyType
+import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.model.WatchlistCategory
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import com.foxtrader.app.domain.usecase.analysis.WyckoffDetector
@@ -54,12 +57,16 @@ class ScannerUseCase @Inject constructor(
         strategy: StrategyType = StrategyType.CONFLUENCE,
     ): ScreenerOutput {
         val results = mutableListOf<ScreenerResult>()
+        val validatedLitXSignals = mutableListOf<LitXSignal>()
 
         for (ws in watchlist) {
             if (!ws.enabled) continue
             val candles = dataMap[ws.symbol] ?: continue
             if (candles.size < 50) continue
-            results += analyzeSymbol(ws, candles, strategy)
+            analyzeSymbol(ws, candles, strategy)?.let { candidate ->
+                results += candidate.result
+                candidate.validatedLitXSignal?.let(validatedLitXSignals::add)
+            }
         }
 
         // Sort by score descending
@@ -96,6 +103,7 @@ class ScannerUseCase @Inject constructor(
             bestLongTerm = longterm.firstOrNull(),
             scannedAt = System.currentTimeMillis(),
             totalSymbols = categorized.size,
+            validatedLitXSignals = validatedLitXSignals,
         )
     }
 
@@ -107,7 +115,7 @@ class ScannerUseCase @Inject constructor(
         ws: ScreenerSymbol,
         candles: List<Candle>,
         strategy: StrategyType,
-    ): ScreenerResult {
+    ): AnalyzedCandidate? {
         val last = candles.lastIndex
         val price = candles[last].close
         val start = (last - 20).coerceAtLeast(0)
@@ -172,7 +180,7 @@ class ScannerUseCase @Inject constructor(
             StrategyType.LITX -> litXSignal(
                 symbol = ws.symbol,
                 candles = candles,
-            )
+            ) ?: return null
             StrategyType.ICHIMOKU -> ichimokuSignal(
                 candles = candles,
                 changePercent = changePercent,
@@ -189,40 +197,49 @@ class ScannerUseCase @Inject constructor(
             trendStrength = trendStrength,
             volatility = volatility,
         )
-        return ScreenerResult(
-            symbol = ws.symbol,
-            assetClass = ws.assetClass,
-            strategy = strategy,
-            direction = signal.direction,
-            score = signal.score,
-            bias = if (signal.direction == Direction.BULLISH) Bias.BULLISH else Bias.BEARISH,
-            trendStrength = trendStrength,
-            momentum = momentum,
-            volatility = volatility,
-            setupQuality = signal.setupQuality,
-            categories = emptyList(),
-            tags = signal.tags,
-            lastPrice = price,
-            changePercent = changePercent,
-            riskLevel = riskLevel,
-            rationale = buildRationale(
+        return AnalyzedCandidate(
+            result = ScreenerResult(
                 symbol = ws.symbol,
+                assetClass = ws.assetClass,
                 strategy = strategy,
-                signal = signal,
+                direction = signal.direction,
+                score = signal.score,
+                bias = if (signal.direction == Direction.BULLISH) Bias.BULLISH else Bias.BEARISH,
                 trendStrength = trendStrength,
                 momentum = momentum,
                 volatility = volatility,
+                setupQuality = signal.setupQuality,
+                categories = emptyList(),
+                tags = signal.tags,
+                lastPrice = price,
                 changePercent = changePercent,
                 riskLevel = riskLevel,
+                rationale = buildRationale(
+                    symbol = ws.symbol,
+                    strategy = strategy,
+                    signal = signal,
+                    trendStrength = trendStrength,
+                    momentum = momentum,
+                    volatility = volatility,
+                    changePercent = changePercent,
+                    riskLevel = riskLevel,
+                ),
             ),
+            validatedLitXSignal = signal.validatedLitXSignal,
         )
     }
+
+    private data class AnalyzedCandidate(
+        val result: ScreenerResult,
+        val validatedLitXSignal: LitXSignal? = null,
+    )
 
     private data class StrategySignalSnapshot(
         val direction: Direction,
         val score: Int,
         val setupQuality: Double,
         val tags: List<String>,
+        val validatedLitXSignal: LitXSignal? = null,
     )
 
     private fun riskLevelFor(
@@ -503,32 +520,32 @@ class ScannerUseCase @Inject constructor(
     private fun litXSignal(
         symbol: String,
         candles: List<Candle>,
-    ): StrategySignalSnapshot {
-        val analysis = litXEngine.analyze(symbol, com.foxtrader.app.domain.model.Timeframe.H1, candles)
-        val signal = analysis.signal
-        val direction = signal?.direction ?: when (analysis.bias) {
-            Bias.BEARISH -> Direction.BEARISH
-            else -> Direction.BULLISH
-        }
-        val score = signal?.confidence?.score ?: when (analysis.stage) {
-            com.foxtrader.app.domain.model.LitXStage.POI_TAPPED -> 55
-            com.foxtrader.app.domain.model.LitXStage.SHIFT_CONFIRMED -> 50
-            com.foxtrader.app.domain.model.LitXStage.SWEEP_DETECTED -> 45
-            com.foxtrader.app.domain.model.LitXStage.LIQUIDITY_MAPPED -> 40
-            else -> 30
-        }
+    ): StrategySignalSnapshot? {
+        val analysis = litXEngine.analyze(symbol, Timeframe.H1, candles)
+        val signal = analysis.signal ?: return null
+        val score = maxOf(signal.confidence.score, analysis.stage.readinessScore()).coerceIn(0, 100)
         val tags = buildList {
             add("LITX")
             add(analysis.stage.name)
-            signal?.confidence?.grade?.let { add(it.name) }
+            add(signal.confidence.grade.name)
             if (analysis.displacement != null) add("DISPLACEMENT")
         }
         return StrategySignalSnapshot(
-            direction = direction,
-            score = score.coerceIn(0, 100),
+            direction = signal.direction,
+            score = score,
             setupQuality = score.toDouble(),
             tags = tags,
+            validatedLitXSignal = signal,
         )
+    }
+
+    private fun LitXStage.readinessScore(): Int = when (this) {
+        LitXStage.SCANNING -> 30
+        LitXStage.LIQUIDITY_MAPPED -> 40
+        LitXStage.SWEEP_DETECTED -> 45
+        LitXStage.SHIFT_CONFIRMED -> 50
+        LitXStage.POI_TAPPED -> 55
+        LitXStage.VALIDATED -> 60
     }
 
     private fun patternSignal(

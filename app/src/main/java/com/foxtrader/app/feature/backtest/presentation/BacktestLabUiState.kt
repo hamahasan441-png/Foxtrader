@@ -29,6 +29,10 @@ enum class BacktestStrategyTemplate(
         description = "Order-flow/auction: Flip-Zone bias, Buy/Sell-Hold pullback + confirmation, " +
             "structural stop, trend-filtered.",
     ),
+    LITX(
+        displayName = "LIT X Institutional",
+        description = "Sweep → market shift (CHOCH/MSS) → POI retest, gated by an 11-factor score.",
+    ),
 }
 
 /** Immutable UI state for the Backtesting Lab screen. */
