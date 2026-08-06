@@ -31,6 +31,7 @@ import com.foxtrader.app.domain.usecase.chart.MultiChartManager
 import com.foxtrader.app.domain.usecase.chart.SignalComputer
 import com.foxtrader.app.domain.usecase.drawing.DrawingEngine
 import com.foxtrader.app.domain.usecase.mtf.ConfluenceEngine
+import com.foxtrader.app.domain.usecase.orders.PaperTradingSession
 import com.foxtrader.app.domain.usecase.performance.AdaptiveQualityController
 import com.foxtrader.app.domain.usecase.performance.PerformanceProfiler
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
@@ -83,6 +84,7 @@ class ChartViewModel @Inject constructor(
     private val heikinAshiTransformer: HeikinAshiTransformer,
     private val candleRenkoBuilder: CandleRenkoBuilder,
     private val signalComputer: SignalComputer,
+    private val paperTradingSession: PaperTradingSession,
     profiler: PerformanceProfiler,
     qualityController: AdaptiveQualityController,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
@@ -222,6 +224,12 @@ class ChartViewModel @Inject constructor(
             ChartBarMode.RENKO -> candleRenkoBuilder.build(candles, _uiState.value.renkoSize)
         }
         if (displayCandles.isEmpty()) return
+
+        // Feed the latest price to the shared paper-trading account so the Paper
+        // Trading screen can open one-tap orders at the live charted price and
+        // mark open positions to market. (onPrice only marks — it deliberately
+        // does NOT replay historical candles through stop/target logic.)
+        paperTradingSession.onPrice(symbol, displayCandles.last().close)
 
         val c = indicatorCoordinator.processCandles(
             candles = displayCandles, source = source, toggles = ind,
