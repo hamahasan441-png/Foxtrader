@@ -1,0 +1,25 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "AI Strategy Generator - A rule-based engine that analyzes market data characteristics and generates optimized strategy configurations. Given a set of candles, it determines which strategy types are most suitable, generates parameter combinations, and backtests them to produce ranked recommendations. Uses statistical analysis of price behavior (trend strength, volatility regime, mean-reversion tendency) to select appropriate strategy families.",
+  "status": "in_progress",
+  "steps": [
+    "Create app/src/main/java/com/foxtrader/app/domain/usecase/ai/AiStrategyGenerator.kt - a @Singleton class with @Inject constructor taking StrategyTester and BacktestAnalyticsEngine. It should: (1) analyze candle data to detect market regime (trending, ranging, volatile) using ADX, ATR percentile, and Hurst exponent approximation; (2) map regimes to suitable StrategyType subsets; (3) run StrategyTester.testAll on the data; (4) run BacktestAnalyticsEngine.analyze on each result; (5) produce a ranked report with regime analysis, strategy recommendations, and walk-forward validation status.",
+    "Create data classes in the same file: MarketRegime (enum: TRENDING, RANGING, VOLATILE, MIXED), RegimeAnalysis (regime, trendStrength, volatilityPercentile, meanReversionScore, suitableStrategies), GeneratedStrategy (strategyType, backtestResult, analyticsReport, regimeAlignment score 0-100, recommendation narrative), and AiStrategyGeneratorReport (symbol, timeframe, regimeAnalysis, generatedStrategies sorted by composite score, topRecommendation, narrative).",
+    "Implement regime detection: ADX > 25 = trending, ADX < 20 and bollinger bandwidth narrow = ranging, ATR percentile > 75th = volatile. Use TechnicalIndicators.calculateADX and calculateATR directly.",
+    "Implement strategy-regime alignment scoring: TREND_FOLLOWING gets +30 alignment in trending regime, MEAN_REVERSION gets +30 in ranging, BREAKOUT gets +20 in volatile, SMART_MONEY/LIT/LITX/CONFLUENCE are regime-agnostic (+10 always). Final score = backtest composite score * (1 + alignment/100).",
+    "Create app/src/test/java/com/foxtrader/app/domain/usecase/ai/AiStrategyGeneratorTest.kt - JUnit4 tests covering: trending market produces TREND_FOLLOWING as top recommendation, ranging market produces MEAN_REVERSION highly ranked, report contains valid regime analysis, empty/short candle input produces empty report gracefully, all generated strategies have non-null analytics."
+  ],
+  "acceptance_criteria": [
+    "AiStrategyGenerator compiles with no android.* imports",
+    "Tests cover trending regime detection, ranging regime detection, strategy-regime alignment scoring, and graceful handling of insufficient data",
+    "The generator produces actionable ranked strategy recommendations backed by real backtest data",
+    "Report includes walk-forward validation status from BacktestAnalyticsEngine for each strategy"
+  ],
+  "verification": [
+    "CI runs ./gradlew testDebugUnitTest and all new tests in AiStrategyGeneratorTest pass",
+    "CI runs ./gradlew compileDebugKotlin and new source compiles without errors"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}
