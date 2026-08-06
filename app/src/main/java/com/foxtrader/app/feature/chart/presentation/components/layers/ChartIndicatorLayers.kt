@@ -117,6 +117,62 @@ internal fun DrawScope.drawLineSeries(
     }
 }
 
+/**
+ * NaN-safe single-line series renderer. Segments across NaN gaps are skipped, so
+ * a partially-defined series (e.g. anchored VWAP before its anchor bar) renders
+ * only where it is valid. Viewport-culled.
+ */
+internal fun DrawScope.drawNaNSafeLineSeries(
+    viewport: ChartViewport,
+    cw: Float,
+    ch: Float,
+    values: ImmutableDoubleSeries,
+    color: Color,
+    strokeWidth: Float,
+) {
+    val start = max(0, viewport.startIndex.toInt())
+    val end = min(values.size, (viewport.startIndex + viewport.visibleBars).toInt() + 1)
+    if (end - start < 2) return
+    var hasPrev = false
+    var prevX = 0f
+    var prevY = 0f
+    for (i in start until end) {
+        val v = values[i]
+        if (v.isNaN()) {
+            hasPrev = false
+            continue
+        }
+        val x = viewport.xForIndex(i + 0.5f, cw)
+        val y = viewport.yForPrice(v, ch)
+        if (hasPrev) {
+            drawLine(color, Offset(prevX, prevY), Offset(x, y), strokeWidth = strokeWidth, cap = StrokeCap.Round)
+        }
+        prevX = x
+        prevY = y
+        hasPrev = true
+    }
+}
+
+/**
+ * Anchored VWAP: a cyan mid line plus symmetric standard-deviation bands. Drawn
+ * NaN-safe so nothing renders before the anchor bar. Distinct cyan hue keeps it
+ * readable alongside the purple session VWAP.
+ */
+internal fun DrawScope.drawAnchoredVwap(
+    viewport: ChartViewport,
+    cw: Float,
+    ch: Float,
+    vwap: ImmutableDoubleSeries,
+    upper: ImmutableDoubleSeries?,
+    lower: ImmutableDoubleSeries?,
+) {
+    val lineColor = Color(0xFF00BCD4)
+    val bandColor = Color(0x8000BCD4)
+    drawNaNSafeLineSeries(viewport, cw, ch, vwap, lineColor, 1.8f)
+    if (upper != null) drawNaNSafeLineSeries(viewport, cw, ch, upper, bandColor, 1f)
+    if (lower != null) drawNaNSafeLineSeries(viewport, cw, ch, lower, bandColor, 1f)
+}
+
 /** Bollinger Bands: upper/lower channel + middle line. */
 internal fun DrawScope.drawBollinger(
     viewport: ChartViewport,

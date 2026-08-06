@@ -55,6 +55,7 @@ fun IndicatorPanel(
             Chip(stringResource(R.string.chart_indicator_supertrend), toggles.superTrend) { onToggle { it.copy(superTrend = !it.superTrend) } }
             Chip(stringResource(R.string.chart_indicator_psar), toggles.parabolicSar) { onToggle { it.copy(parabolicSar = !it.parabolicSar) } }
             Chip(stringResource(R.string.chart_indicator_vwap), toggles.vwap) { onToggle { it.copy(vwap = !it.vwap) } }
+            Chip("Anchored VWAP", toggles.anchoredVwap) { onToggle { it.copy(anchoredVwap = !it.anchoredVwap) } }
             Chip("RSI", toggles.rsi) { onToggle { it.copy(rsi = !it.rsi) } }
             Chip("MACD", toggles.macd) { onToggle { it.copy(macd = !it.macd) } }
             Chip(stringResource(R.string.chart_pane_volume_title), toggles.volume) { onToggle { it.copy(volume = !it.volume) } }

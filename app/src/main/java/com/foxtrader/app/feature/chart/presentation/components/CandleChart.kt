@@ -50,6 +50,7 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import com.foxtrader.app.domain.usecase.performance.QualitySettings
 import com.foxtrader.app.feature.chart.presentation.components.layers.autoScaleToVisibleContent
+import com.foxtrader.app.feature.chart.presentation.components.layers.drawAnchoredVwap
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawAutoFibonacciLevels
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawBollinger
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawCandleLayer
@@ -123,6 +124,9 @@ fun CandleChart(
     superTrendDir: ImmutableIntSeries? = null,
     parabolicSar: ImmutableDoubleSeries? = null,
     vwap: ImmutableDoubleSeries? = null,
+    anchoredVwap: ImmutableDoubleSeries? = null,
+    anchoredVwapUpper: ImmutableDoubleSeries? = null,
+    anchoredVwapLower: ImmutableDoubleSeries? = null,
     ichimokuTenkan: ImmutableDoubleSeries? = null,
     ichimokuKijun: ImmutableDoubleSeries? = null,
     ichimokuSenkouA: ImmutableDoubleSeries? = null,
@@ -617,6 +621,9 @@ fun CandleChart(
             }
             if (vwap != null) {
                 drawLineSeries(viewport, cw, ch, vwap, Color(0xFF9C27B0), 1.5f)
+            }
+            if (anchoredVwap != null) {
+                drawAnchoredVwap(viewport, cw, ch, anchoredVwap, anchoredVwapUpper, anchoredVwapLower)
             }
             if (superTrendValues != null && superTrendDir != null) {
                 drawSuperTrend(viewport, cw, ch, superTrendValues, superTrendDir)
