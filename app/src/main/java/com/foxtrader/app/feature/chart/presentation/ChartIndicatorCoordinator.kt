@@ -163,6 +163,7 @@ internal class ChartIndicatorCoordinator(
             superTrendFinalLower = visuals.superTrendFinalLower,
             parabolicSar = visuals.parabolicSar,
             vwap = visuals.vwap,
+            anchoredVwap = visuals.anchoredVwap,
             rsi = visuals.rsi,
             macdLine = visuals.macdLine,
             macdSignal = visuals.macdSignal,
