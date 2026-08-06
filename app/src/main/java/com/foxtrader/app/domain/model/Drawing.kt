@@ -10,6 +10,11 @@ enum class DrawingToolType {
     FIBONACCI_RETRACEMENT,
     RECTANGLE,
     RAY,
+    // --- Advanced (professional) tools ---
+    FIBONACCI_EXTENSION,
+    LONG_POSITION,
+    SHORT_POSITION,
+    MEASURED_MOVE,
 }
 
 /**
@@ -46,6 +51,50 @@ data class ChartDrawing(
                 high - range * level
             }
         } else emptyList()
+
+    /**
+     * Fibonacci extension price levels projected *along* the signed 2-point move
+     * (points[0] → points[1]). Unlike a retracement (which divides the move),
+     * an extension projects it forward (127.2%, 161.8%, 200%, 261.8%) to locate
+     * profit targets beyond the initial swing.
+     */
+    val fibExtensionLevels: List<Double>
+        get() = if (type == DrawingToolType.FIBONACCI_EXTENSION && points.size == 2) {
+            val anchor = points[0].price
+            val move = points[1].price - points[0].price
+            FIB_EXTENSION_RATIOS.map { anchor + move * it }
+        } else emptyList()
+
+    /**
+     * Position-tool geometry as (entry, stop, target). points[0] is the entry,
+     * points[1] is the stop; the target is projected at [POSITION_RR] reward:risk
+     * in the tool's direction (up for long, down for short). Null unless this is
+     * a position tool with both anchors placed.
+     */
+    val positionLevels: Triple<Double, Double, Double>?
+        get() = if (points.size == 2 &&
+            (type == DrawingToolType.LONG_POSITION || type == DrawingToolType.SHORT_POSITION)
+        ) {
+            val entry = points[0].price
+            val stop = points[1].price
+            val risk = kotlin.math.abs(entry - stop)
+            val target = if (type == DrawingToolType.LONG_POSITION) {
+                entry + POSITION_RR * risk
+            } else {
+                entry - POSITION_RR * risk
+            }
+            Triple(entry, stop, target)
+        } else {
+            null
+        }
+
+    companion object {
+        /** Default reward:risk projected by the long/short position tools. */
+        const val POSITION_RR = 2.0
+
+        /** Ratios projected by the Fibonacci extension tool along the move. */
+        val FIB_EXTENSION_RATIOS = listOf(0.0, 0.618, 1.0, 1.272, 1.618, 2.0, 2.618)
+    }
 }
 
 /**

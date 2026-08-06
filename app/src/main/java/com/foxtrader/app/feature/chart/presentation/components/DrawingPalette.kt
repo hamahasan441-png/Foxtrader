@@ -20,7 +20,9 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.ShowChart
+import androidx.compose.material.icons.filled.StackedLineChart
 import androidx.compose.material.icons.filled.Timeline
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -132,6 +134,18 @@ fun DrawingPalette(
                 }
                 ToolIcon(Icons.Default.ShowChart, "Rectangle", activeTool == DrawingToolType.RECTANGLE) {
                     select(DrawingToolType.RECTANGLE)
+                }
+                ToolIcon(Icons.Default.Timeline, "Fibonacci extension", activeTool == DrawingToolType.FIBONACCI_EXTENSION) {
+                    select(DrawingToolType.FIBONACCI_EXTENSION)
+                }
+                ToolIcon(Icons.Default.TrendingUp, "Long position", activeTool == DrawingToolType.LONG_POSITION) {
+                    select(DrawingToolType.LONG_POSITION)
+                }
+                ToolIcon(Icons.Default.StackedLineChart, "Short position", activeTool == DrawingToolType.SHORT_POSITION) {
+                    select(DrawingToolType.SHORT_POSITION)
+                }
+                ToolIcon(Icons.Default.StackedLineChart, "Measured move", activeTool == DrawingToolType.MEASURED_MOVE) {
+                    select(DrawingToolType.MEASURED_MOVE)
                 }
                 ToolIcon(Icons.Default.FormatListBulleted, stringResource(R.string.chart_drawing_manage), isActive = false) {
                     onManage()
