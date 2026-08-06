@@ -3,128 +3,77 @@ package com.foxtrader.app.domain.usecase.chart
 import com.foxtrader.app.domain.model.Candle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
+/**
+ * Unit tests for [HeikinAshiTransformer]. Real instance, hand-computed HA values.
+ */
 class HeikinAshiTransformerTest {
 
-    private val transformer = HeikinAshiTransformer()
+    private lateinit var transformer: HeikinAshiTransformer
+
+    @Before
+    fun setup() {
+        transformer = HeikinAshiTransformer()
+    }
+
+    private fun candle(ts: Long, o: Double, h: Double, l: Double, c: Double, v: Double = 0.0) =
+        Candle(timestamp = ts, open = o, high = h, low = l, close = c, volume = v)
 
     @Test
-    fun `empty input returns empty output`() {
-        val result = transformer.transform(emptyList())
-        assertTrue(result.isEmpty())
+    fun `empty input yields empty output`() {
+        assertTrue(transformer.transform(emptyList()).isEmpty())
     }
 
     @Test
-    fun `single candle produces correct HA values`() {
-        val candle = Candle(
-            timestamp = 1700000000000L,
-            open = 100.0,
-            high = 110.0,
-            low = 90.0,
-            close = 105.0,
-            volume = 500.0,
+    fun `preserves size timestamps and volume`() {
+        val src = listOf(
+            candle(1L, 10.0, 12.0, 8.0, 11.0, v = 100.0),
+            candle(2L, 11.0, 15.0, 10.0, 14.0, v = 200.0),
         )
+        val ha = transformer.transform(src)
 
-        val result = transformer.transform(listOf(candle))
-
-        assertEquals(1, result.size)
-        val ha = result[0]
-        // HA Open for first bar = candle open
-        assertEquals(100.0, ha.open, 0.0001)
-        // HA Close = (O + H + L + C) / 4 = (100 + 110 + 90 + 105) / 4 = 101.25
-        assertEquals(101.25, ha.close, 0.0001)
-        // HA High = max(high, haOpen, haClose) = max(110, 100, 101.25) = 110
-        assertEquals(110.0, ha.high, 0.0001)
-        // HA Low = min(low, haOpen, haClose) = min(90, 100, 101.25) = 90
-        assertEquals(90.0, ha.low, 0.0001)
-        // Volume preserved
-        assertEquals(500.0, ha.volume, 0.0001)
+        assertEquals(2, ha.size)
+        assertEquals(listOf(1L, 2L), ha.map { it.timestamp })
+        assertEquals(listOf(100.0, 200.0), ha.map { it.volume })
     }
 
     @Test
-    fun `multiple candles chain HA open from previous bar`() {
-        val candles = listOf(
-            Candle(
-                timestamp = 1700000000000L,
-                open = 100.0,
-                high = 110.0,
-                low = 90.0,
-                close = 105.0,
-                volume = 500.0,
-            ),
-            Candle(
-                timestamp = 1700000060000L,
-                open = 106.0,
-                high = 115.0,
-                low = 102.0,
-                close = 112.0,
-                volume = 600.0,
-            ),
+    fun `computes Heikin-Ashi values from the standard formulas`() {
+        val src = listOf(
+            candle(1L, 10.0, 12.0, 8.0, 11.0),
+            candle(2L, 11.0, 15.0, 10.0, 14.0),
         )
+        val ha = transformer.transform(src)
 
-        val result = transformer.transform(candles)
+        // Bar 0: haClose = (10+12+8+11)/4 = 10.25 ; haOpen = (10+11)/2 = 10.5
+        //        haHigh = max(12,10.5,10.25) = 12 ; haLow = min(8,10.5,10.25) = 8
+        assertEquals(10.25, ha[0].close, 1e-9)
+        assertEquals(10.5, ha[0].open, 1e-9)
+        assertEquals(12.0, ha[0].high, 1e-9)
+        assertEquals(8.0, ha[0].low, 1e-9)
 
-        assertEquals(2, result.size)
-
-        // First bar HA values
-        val ha0 = result[0]
-        val expectedHaClose0 = (100.0 + 110.0 + 90.0 + 105.0) / 4.0 // 101.25
-        assertEquals(100.0, ha0.open, 0.0001)
-        assertEquals(expectedHaClose0, ha0.close, 0.0001)
-
-        // Second bar HA values
-        val ha1 = result[1]
-        // HA Open = (prevHaOpen + prevHaClose) / 2 = (100.0 + 101.25) / 2 = 100.625
-        val expectedHaOpen1 = (100.0 + expectedHaClose0) / 2.0
-        assertEquals(100.625, expectedHaOpen1, 0.0001)
-        assertEquals(expectedHaOpen1, ha1.open, 0.0001)
-
-        // HA Close = (O + H + L + C) / 4 = (106 + 115 + 102 + 112) / 4 = 108.75
-        val expectedHaClose1 = (106.0 + 115.0 + 102.0 + 112.0) / 4.0
-        assertEquals(108.75, expectedHaClose1, 0.0001)
-        assertEquals(expectedHaClose1, ha1.close, 0.0001)
-
-        // HA High = max(high, haOpen, haClose) = max(115, 100.625, 108.75) = 115
-        assertEquals(115.0, ha1.high, 0.0001)
-        // HA Low = min(low, haOpen, haClose) = min(102, 100.625, 108.75) = 100.625
-        assertEquals(expectedHaOpen1, ha1.low, 0.0001)
+        // Bar 1: haClose = (11+15+10+14)/4 = 12.5
+        //        haOpen = (prevHaOpen 10.5 + prevHaClose 10.25)/2 = 10.375
+        //        haHigh = max(15,10.375,12.5) = 15 ; haLow = min(10,10.375,12.5) = 10
+        assertEquals(12.5, ha[1].close, 1e-9)
+        assertEquals(10.375, ha[1].open, 1e-9)
+        assertEquals(15.0, ha[1].high, 1e-9)
+        assertEquals(10.0, ha[1].low, 1e-9)
     }
 
     @Test
-    fun `timestamp is preserved for each bar`() {
-        val candles = listOf(
-            Candle(
-                timestamp = 1700000000000L,
-                open = 50.0,
-                high = 55.0,
-                low = 48.0,
-                close = 53.0,
-                volume = 200.0,
-            ),
-            Candle(
-                timestamp = 1700000060000L,
-                open = 54.0,
-                high = 58.0,
-                low = 52.0,
-                close = 57.0,
-                volume = 300.0,
-            ),
-            Candle(
-                timestamp = 1700000120000L,
-                open = 57.0,
-                high = 60.0,
-                low = 55.0,
-                close = 59.0,
-                volume = 150.0,
-            ),
+    fun `high is always at least max of open and close and low at most min`() {
+        val src = listOf(
+            candle(1L, 10.0, 12.0, 8.0, 11.0),
+            candle(2L, 11.0, 15.0, 10.0, 14.0),
+            candle(3L, 14.0, 14.5, 9.0, 9.5),
         )
-
-        val result = transformer.transform(candles)
-
-        assertEquals(3, result.size)
-        assertEquals(1700000000000L, result[0].timestamp)
-        assertEquals(1700000060000L, result[1].timestamp)
-        assertEquals(1700000120000L, result[2].timestamp)
+        val ha = transformer.transform(src)
+        for (c in ha) {
+            assertTrue(c.high >= c.open && c.high >= c.close)
+            assertTrue(c.low <= c.open && c.low <= c.close)
+        }
     }
 }

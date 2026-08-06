@@ -65,7 +65,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.foxtrader.app.BuildConfig
 import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.model.ChartSignal
@@ -80,9 +79,7 @@ import com.foxtrader.app.feature.chart.presentation.components.DrawingPalette
 import com.foxtrader.app.feature.chart.presentation.components.IndicatorPanel
 import com.foxtrader.app.feature.chart.presentation.components.MultiChartSection
 import com.foxtrader.app.feature.chart.presentation.components.MultiChartToolbar
-import com.foxtrader.app.domain.usecase.performance.PerformanceSnapshot
 import com.foxtrader.app.feature.chart.presentation.components.ChartPaneStack
-import com.foxtrader.app.feature.chart.presentation.components.PerformanceOverlay
 import com.foxtrader.app.feature.chart.presentation.components.ReplayControlBar
 import com.foxtrader.app.feature.calculator.presentation.PositionCalculatorSheet
 import com.foxtrader.app.feature.chart.presentation.components.SymbolPickerDialog
@@ -122,10 +119,11 @@ fun ChartScreen(
     val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
     val unreadAlerts by viewModel.unreadAlertCount.collectAsStateWithLifecycle()
 
-    // --- Render performance instrumentation (DEVELOPMENT.md §4.14) ---
+    // --- Render performance instrumentation (drives adaptive quality only) ---
+    // The monitor still runs to feed the adaptive-quality controller, but the
+    // on-chart FPS/frame-budget HUD has been removed — it is not user-facing.
     val monitor = viewModel.performanceMonitor
     val view = LocalView.current
-    var perfSnapshot by remember { mutableStateOf<PerformanceSnapshot?>(null) }
 
     DisposableEffect(view) {
         // Profile against the *actual* refresh rate of this display: a 120 Hz
@@ -133,11 +131,7 @@ fun ChartScreen(
         // target would either under-report jank or over-degrade quality.
         val refreshHz = view.display?.refreshRate?.toInt()?.coerceAtLeast(60) ?: 60
         monitor.start(refreshHz)
-        if (BuildConfig.DEBUG) {
-            monitor.onSnapshot = { perfSnapshot = it }
-        }
         onDispose {
-            monitor.onSnapshot = null
             monitor.stop()
         }
     }
@@ -415,17 +409,6 @@ fun ChartScreen(
                         contentDescription = stringResource(R.string.chart_focus_exit),
                     )
                 }
-            }
-
-            // --- Debug FPS / frame-budget HUD (debug builds only) ---
-            if (BuildConfig.DEBUG) {
-                PerformanceOverlay(
-                    snapshot = perfSnapshot,
-                    qualityLevel = monitor.qualityLevel,
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(start = 8.dp, bottom = 8.dp),
-                )
             }
 
             // --- Floating drawing tool palette (left edge, auto-hiding, R4) ---

@@ -6,7 +6,9 @@ import com.foxtrader.app.data.auth.AuthInterceptor
 import com.foxtrader.app.data.remote.DynamicBaseUrlInterceptor
 import com.foxtrader.app.data.remote.api.BinanceApi
 import com.foxtrader.app.data.remote.api.BybitApi
+import com.foxtrader.app.data.remote.api.KuCoinApi
 import com.foxtrader.app.data.remote.api.MarketApi
+import com.foxtrader.app.data.remote.api.OkxApi
 import com.foxtrader.app.data.remote.api.SyncApi
 import com.foxtrader.app.data.remote.api.TwelveDataApi
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
@@ -37,6 +39,16 @@ annotation class BinanceRetrofit
 @Qualifier
 @Retention(AnnotationRetention.BINARY)
 annotation class BybitRetrofit
+
+/** Qualifier for the OKX-specific Retrofit instance. */
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class OkxRetrofit
+
+/** Qualifier for the KuCoin-specific Retrofit instance. */
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class KuCoinRetrofit
 
 /** Qualifier for the Alpha Vantage Retrofit instance. */
 @Qualifier
@@ -73,6 +85,10 @@ object NetworkModule {
     private const val BINANCE_BASE_URL = "https://api.binance.com/"
     /** Bybit public API base URL. */
     private const val BYBIT_BASE_URL = "https://api.bybit.com/"
+    /** OKX public API base URL. */
+    private const val OKX_BASE_URL = "https://www.okx.com/"
+    /** KuCoin public API base URL. */
+    private const val KUCOIN_BASE_URL = "https://api.kucoin.com/"
     /** Alpha Vantage public API base URL. */
     private const val ALPHA_VANTAGE_BASE_URL = "https://www.alphavantage.co/"
     /** Twelve Data public API base URL. */
@@ -226,6 +242,72 @@ object NetworkModule {
     @Singleton
     fun provideBybitApi(@BybitRetrofit retrofit: Retrofit): BybitApi =
         retrofit.create(BybitApi::class.java)
+
+    // ========================================================================
+    // OKX PUBLIC API (separate base URL, no auth interceptor needed)
+    // ========================================================================
+
+    @Provides
+    @Singleton
+    @OkxRetrofit
+    fun provideOkxRetrofit(json: Json): Retrofit {
+        val logging = HttpLoggingInterceptor().apply {
+            level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC
+            else HttpLoggingInterceptor.Level.NONE
+        }
+        val client = OkHttpClient.Builder()
+            .addInterceptor(logging)
+            .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
+            .readTimeout(READ_TIMEOUT, TimeUnit.SECONDS)
+            .writeTimeout(WRITE_TIMEOUT, TimeUnit.SECONDS)
+            .callTimeout(CALL_TIMEOUT, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(false)
+            .build()
+        val contentType = "application/json".toMediaType()
+        return Retrofit.Builder()
+            .baseUrl(OKX_BASE_URL)
+            .client(client)
+            .addConverterFactory(json.asConverterFactory(contentType))
+            .build()
+    }
+
+    @Provides
+    @Singleton
+    fun provideOkxApi(@OkxRetrofit retrofit: Retrofit): OkxApi =
+        retrofit.create(OkxApi::class.java)
+
+    // ========================================================================
+    // KUCOIN PUBLIC API (separate base URL, no auth interceptor needed)
+    // ========================================================================
+
+    @Provides
+    @Singleton
+    @KuCoinRetrofit
+    fun provideKuCoinRetrofit(json: Json): Retrofit {
+        val logging = HttpLoggingInterceptor().apply {
+            level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC
+            else HttpLoggingInterceptor.Level.NONE
+        }
+        val client = OkHttpClient.Builder()
+            .addInterceptor(logging)
+            .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
+            .readTimeout(READ_TIMEOUT, TimeUnit.SECONDS)
+            .writeTimeout(WRITE_TIMEOUT, TimeUnit.SECONDS)
+            .callTimeout(CALL_TIMEOUT, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(false)
+            .build()
+        val contentType = "application/json".toMediaType()
+        return Retrofit.Builder()
+            .baseUrl(KUCOIN_BASE_URL)
+            .client(client)
+            .addConverterFactory(json.asConverterFactory(contentType))
+            .build()
+    }
+
+    @Provides
+    @Singleton
+    fun provideKuCoinApi(@KuCoinRetrofit retrofit: Retrofit): KuCoinApi =
+        retrofit.create(KuCoinApi::class.java)
 
     @Provides
     @Singleton

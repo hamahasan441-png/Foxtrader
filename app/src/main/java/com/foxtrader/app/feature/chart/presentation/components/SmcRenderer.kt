@@ -37,7 +37,17 @@ private val OB_BULLISH_COLOR = Color(0x2600C873)   // Semi-transparent green
 private val OB_BEARISH_COLOR = Color(0x26E8364F)   // Semi-transparent red
 private val OB_BULLISH_BORDER = Color(0x6600C873)
 private val OB_BEARISH_BORDER = Color(0x66E8364F)
-private val OB_MITIGATED_ALPHA = 0.3f
+
+// Target absolute opacities for order-block zones (fill is a faint tint so the
+// candles remain the visual focus; borders are more visible to mark the level).
+private const val OB_FILL_ALPHA = 0.14f
+private const val OB_FILL_ALPHA_MITIGATED = 0.05f
+private const val OB_BORDER_ALPHA = 0.45f
+private const val OB_BORDER_ALPHA_MITIGATED = 0.18f
+
+// How many bars an un-filled order block / FVG projects to the right. Keeping
+// this bounded stops old zones from stretching across the entire viewport.
+private const val ZONE_PROJECT_BARS = 60
 
 /**
  * Draw order blocks as filled rectangles with border.
@@ -61,15 +71,20 @@ fun DrawScope.drawOrderBlocks(
         val yHigh = viewport.yForPrice(ob.highPrice, ch)
         val yLow = viewport.yForPrice(ob.lowPrice, ch)
 
-        val alpha = if (ob.mitigated) OB_MITIGATED_ALPHA else 1f
+        // Keep zones subtle so price action stays readable. Un-mitigated blocks
+        // are a faint tint; mitigated blocks fade further. (Previously this
+        // overrode the baked-in ~15% alpha with 1f, painting solid opaque boxes
+        // that swamped the chart.)
+        val fillAlpha = if (ob.mitigated) OB_FILL_ALPHA_MITIGATED else OB_FILL_ALPHA
+        val borderAlpha = if (ob.mitigated) OB_BORDER_ALPHA_MITIGATED else OB_BORDER_ALPHA
         val fillColor = when (ob.type) {
             OrderBlockType.BULLISH -> OB_BULLISH_COLOR
             OrderBlockType.BEARISH -> OB_BEARISH_COLOR
-        }.copy(alpha = alpha)
+        }.copy(alpha = fillAlpha)
         val borderColor = when (ob.type) {
             OrderBlockType.BULLISH -> OB_BULLISH_BORDER
             OrderBlockType.BEARISH -> OB_BEARISH_BORDER
-        }.copy(alpha = alpha)
+        }.copy(alpha = borderAlpha)
 
         // Fill
         drawRect(
@@ -124,7 +139,9 @@ fun DrawScope.drawFairValueGaps(
         if (gap.index < startIdx - 50 || gap.index > endIdx) continue
 
         val x1 = viewport.xForIndex(gap.index.toFloat(), cw)
-        val x2 = cw // Extend to right edge (gaps persist until filled)
+        // Project a bounded distance to the right instead of the full chart width,
+        // so an old un-filled gap doesn't paint a band across the whole viewport.
+        val x2 = viewport.xForIndex((gap.index + ZONE_PROJECT_BARS).toFloat(), cw).coerceAtMost(cw)
         val yHigh = viewport.yForPrice(gap.highPrice, ch)
         val yLow = viewport.yForPrice(gap.lowPrice, ch)
 
@@ -229,6 +246,8 @@ fun DrawScope.drawLiquidityPools(
 // SESSION BACKGROUNDS
 // ============================================================================
 
+private const val SESSION_BAND_ALPHA = 0.05f
+
 /**
  * Draw trading session backgrounds as colored vertical bands.
  */
@@ -246,7 +265,9 @@ fun DrawScope.drawSessionBackgrounds(
 
         val x1 = viewport.xForIndex(session.startIndex.toFloat(), cw).coerceAtLeast(0f)
         val x2 = viewport.xForIndex(session.endIndex.toFloat(), cw).coerceAtMost(cw)
-        val color = Color(session.session.color)
+        // Clamp to a very faint tint regardless of the session colour's own alpha,
+        // so the band highlights the window without washing out the candles.
+        val color = Color(session.session.color).copy(alpha = SESSION_BAND_ALPHA)
 
         drawRect(
             color = color,

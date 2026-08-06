@@ -1,38 +1,46 @@
 package com.foxtrader.app.domain.usecase.chart
 
 import com.foxtrader.app.domain.model.Candle
+import kotlin.math.max
+import kotlin.math.min
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Transforms standard OHLCV candles into Heikin-Ashi candles.
+ * Transforms a time-candle series into Heikin-Ashi ("average bar") candles.
  *
- * Heikin-Ashi formulas:
- * - HA Close = (Open + High + Low + Close) / 4
- * - HA Open  = (prev HA Open + prev HA Close) / 2  (first bar uses standard open)
- * - HA High  = max(High, HA Open, HA Close)
- * - HA Low   = min(Low, HA Open, HA Close)
+ * Heikin-Ashi smooths price to make trends and reversals easier to read while
+ * keeping one output candle per input candle — same timestamp, same index, same
+ * volume — so every index-based overlay (order blocks, FVG, structure, sessions)
+ * remains perfectly aligned.
  *
- * Volume and timestamp are preserved unchanged.
+ * Formulas (standard):
+ * - haClose = (open + high + low + close) / 4
+ * - haOpen  = first bar: (open + close) / 2; thereafter: (prevHaOpen + prevHaClose) / 2
+ * - haHigh  = max(high, haOpen, haClose)
+ * - haLow   = min(low,  haOpen, haClose)
+ *
+ * Pure domain logic — no Android dependencies; deterministic and unit-testable.
  */
 @Singleton
 class HeikinAshiTransformer @Inject constructor() {
 
+    /** @return Heikin-Ashi candles (same size/timestamps as [candles]); empty in, empty out. */
     fun transform(candles: List<Candle>): List<Candle> {
         if (candles.isEmpty()) return emptyList()
 
-        val result = ArrayList<Candle>(candles.size)
-        var prevHaOpen = candles[0].open
-        var prevHaClose = (candles[0].open + candles[0].high + candles[0].low + candles[0].close) / 4.0
+        val out = ArrayList<Candle>(candles.size)
+        var prevHaOpen = 0.0
+        var prevHaClose = 0.0
 
         for (i in candles.indices) {
             val c = candles[i]
             val haClose = (c.open + c.high + c.low + c.close) / 4.0
-            val haOpen = if (i == 0) c.open else (prevHaOpen + prevHaClose) / 2.0
-            val haHigh = maxOf(c.high, haOpen, haClose)
-            val haLow = minOf(c.low, haOpen, haClose)
+            val haOpen = if (i == 0) (c.open + c.close) / 2.0 else (prevHaOpen + prevHaClose) / 2.0
+            val haHigh = max(c.high, max(haOpen, haClose))
+            val haLow = min(c.low, min(haOpen, haClose))
 
-            result.add(
+            out.add(
                 Candle(
                     timestamp = c.timestamp,
                     open = haOpen,
@@ -42,11 +50,10 @@ class HeikinAshiTransformer @Inject constructor() {
                     volume = c.volume,
                 )
             )
-
             prevHaOpen = haOpen
             prevHaClose = haClose
         }
 
-        return result
+        return out
     }
 }

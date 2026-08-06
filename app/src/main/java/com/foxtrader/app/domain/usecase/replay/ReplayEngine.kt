@@ -3,6 +3,9 @@ package com.foxtrader.app.domain.usecase.replay
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.ReplaySpeed
 import com.foxtrader.app.domain.model.ReplayState
+import com.foxtrader.app.domain.model.Tick
+import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.usecase.tick.TickAggregator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -32,7 +35,9 @@ import javax.inject.Singleton
  * Pure domain logic — no Android dependencies.
  */
 @Singleton
-class ReplayEngine @Inject constructor() {
+class ReplayEngine @Inject constructor(
+    private val tickAggregator: TickAggregator,
+) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var playbackJob: Job? = null
@@ -69,6 +74,22 @@ class ReplayEngine @Inject constructor() {
             startIndex = clamped,
             visibleCandles = candles.subList(0, clamped),
         )
+    }
+
+    /**
+     * Start a replay session from raw ticks, aggregating them into candles first.
+     *
+     * The ticks are converted to [aggregateTo] candles via [TickAggregator] and then
+     * fed through the existing [start] path — so all playback controls behave
+     * identically to a candle-based replay.
+     *
+     * @param ticks Raw tick stream to aggregate and replay.
+     * @param aggregateTo Target candle timeframe for aggregation.
+     * @param startAt The bar index to begin replay (candles before this are visible).
+     */
+    fun startTickReplay(ticks: List<Tick>, aggregateTo: Timeframe, startAt: Int = 50) {
+        val candles = tickAggregator.aggregate(ticks, aggregateTo)
+        start(candles, startAt)
     }
 
     /** Stop replay and return to normal chart mode. */
