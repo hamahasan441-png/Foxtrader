@@ -69,6 +69,9 @@ fun IndicatorPanel(
             Chip(stringResource(R.string.chart_indicator_liquidity), toggles.liquidity) { onToggle { it.copy(liquidity = !it.liquidity) } }
             Chip(stringResource(R.string.chart_indicator_sessions), toggles.sessions) { onToggle { it.copy(sessions = !it.sessions) } }
             Chip(stringResource(R.string.chart_indicator_structure), toggles.structure) { onToggle { it.copy(structure = !it.structure) } }
+            Chip("LIT X", toggles.litX) { onToggle { it.copy(litX = !it.litX) } }
+            Chip("SMT", toggles.smt) { onToggle { it.copy(smt = !it.smt) } }
+            Chip("TradePro", toggles.tradePro) { onToggle { it.copy(tradePro = !it.tradePro) } }
         }
     }
 }

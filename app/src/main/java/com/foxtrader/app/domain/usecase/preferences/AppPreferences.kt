@@ -142,6 +142,12 @@ class AppPreferences @Inject constructor(
     private val _tradeProAlertRules = MutableStateFlow<List<AlertRule>>(emptyList())
     val tradeProAlertRules: StateFlow<List<AlertRule>> = _tradeProAlertRules.asStateFlow()
 
+    private val _metaApiToken = MutableStateFlow<String?>(null)
+    val metaApiToken: StateFlow<String?> = _metaApiToken.asStateFlow()
+
+    private val _metaApiAccountId = MutableStateFlow<String?>(null)
+    val metaApiAccountId: StateFlow<String?> = _metaApiAccountId.asStateFlow()
+
     init {
         // Load persisted values into StateFlows on init.
         scope.launch {
@@ -202,6 +208,12 @@ class AppPreferences @Inject constructor(
                 _tradeProAlertRules.value = prefs[KEY_TRADEPRO_ALERT_RULES]?.let { raw ->
                     runCatching { json.decodeFromString<List<AlertRule>>(raw) }.getOrDefault(emptyList())
                 } ?: emptyList()
+                _metaApiToken.value = securePrefs.getString(SECURE_KEY_META_API_TOKEN, null)
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+                _metaApiAccountId.value = securePrefs.getString(SECURE_KEY_META_API_ACCOUNT_ID, null)
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
             }
         }
     }
@@ -231,6 +243,42 @@ class AppPreferences @Inject constructor(
         _tradeProAlertRules.value = rules
         scope.launch { context.dataStore.edit { it[KEY_TRADEPRO_ALERT_RULES] = json.encodeToString(rules) } }
     }
+
+    /**
+     * Persist the MetaApi auth token to encrypted shared preferences.
+     * This token is used to authenticate REST and WebSocket calls to MetaApi.
+     */
+    fun setMetaApiToken(token: String) {
+        val normalized = token.trim()
+        if (normalized.isBlank()) {
+            _metaApiToken.value = null
+            securePrefs.edit().remove(SECURE_KEY_META_API_TOKEN).apply()
+        } else {
+            _metaApiToken.value = normalized
+            securePrefs.edit().putString(SECURE_KEY_META_API_TOKEN, normalized).apply()
+        }
+    }
+
+    /** Retrieve the currently stored MetaApi token (null if not set). */
+    fun getMetaApiToken(): String? = _metaApiToken.value
+
+    /**
+     * Persist the MetaApi account ID to encrypted shared preferences.
+     * This allows reconnects to skip the deploy step when the account
+     * has already been provisioned for the current login/server.
+     */
+    fun setMetaApiAccountId(accountId: String?) {
+        val normalized = accountId?.trim()?.takeIf { it.isNotBlank() }
+        _metaApiAccountId.value = normalized
+        if (normalized == null) {
+            securePrefs.edit().remove(SECURE_KEY_META_API_ACCOUNT_ID).apply()
+        } else {
+            securePrefs.edit().putString(SECURE_KEY_META_API_ACCOUNT_ID, normalized).apply()
+        }
+    }
+
+    /** Retrieve the currently cached MetaApi account ID (null if none). */
+    fun getMetaApiAccountId(): String? = _metaApiAccountId.value
 
     fun setDataProvider(provider: DataProvider) {
         _dataProvider.value = provider
@@ -447,6 +495,8 @@ class AppPreferences @Inject constructor(
 
     private companion object {
         const val SECURE_PREFS_FILE_NAME = "fox_provider_keys"
+        const val SECURE_KEY_META_API_TOKEN = "meta_api_token"
+        const val SECURE_KEY_META_API_ACCOUNT_ID = "meta_api_account_id"
         const val MIN_BACKGROUND_SCAN_INTERVAL_MINUTES = 15
         const val MAX_BACKGROUND_SCAN_INTERVAL_MINUTES = 240
         const val DEFAULT_BACKGROUND_SCAN_INTERVAL_MINUTES = 15

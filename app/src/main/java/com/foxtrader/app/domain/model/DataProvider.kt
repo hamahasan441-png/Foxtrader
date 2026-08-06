@@ -73,6 +73,13 @@ enum class DataProvider(
         requiresApiKey = true,
         apiKeyLabel = "Interactive Brokers Gateway Key",
     ),
+    MT4(
+        "MT4 (MetaApi)",
+        supportsLive = true,
+        requiresApiKey = true,
+        apiKeyLabel = "MetaApi Token",
+        implemented = true,
+    ),
     ;
 
     companion object {

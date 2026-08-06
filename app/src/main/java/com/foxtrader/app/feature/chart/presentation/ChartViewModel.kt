@@ -7,6 +7,7 @@ import com.foxtrader.app.data.alerts.AlertDispatcher
 import com.foxtrader.app.di.DefaultDispatcher
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.CandleSource
+import com.foxtrader.app.domain.model.ChartBarMode
 import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.DrawingToolType
 import com.foxtrader.app.domain.model.ReplayState
@@ -24,7 +25,10 @@ import com.foxtrader.app.domain.usecase.ai.MtfContextProvider
 import com.foxtrader.app.domain.usecase.chart.ChartLayout
 import com.foxtrader.app.domain.usecase.chart.ChartViewportState
 import com.foxtrader.app.domain.usecase.chart.ComputeIndicatorsUseCase
+import com.foxtrader.app.domain.usecase.chart.HeikinAshiTransformer
+import com.foxtrader.app.domain.usecase.chart.CandleRenkoBuilder
 import com.foxtrader.app.domain.usecase.chart.MultiChartManager
+import com.foxtrader.app.domain.usecase.chart.SignalComputer
 import com.foxtrader.app.domain.usecase.drawing.DrawingEngine
 import com.foxtrader.app.domain.usecase.mtf.ConfluenceEngine
 import com.foxtrader.app.domain.usecase.performance.AdaptiveQualityController
@@ -32,6 +36,8 @@ import com.foxtrader.app.domain.usecase.performance.PerformanceProfiler
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.domain.usecase.replay.ReplayEngine
 import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
+import com.foxtrader.app.domain.usecase.litx.LitXEngine
+import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
 import com.foxtrader.app.feature.chart.presentation.components.ChartPerformanceMonitor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.toPersistentList
@@ -72,6 +78,11 @@ class ChartViewModel @Inject constructor(
     private val drawingRepository: DrawingRepository,
     private val appPreferences: AppPreferences,
     private val tradeProEngine: TradeProSignalEngine,
+    private val litXEngine: LitXEngine,
+    private val smtDivergenceDetector: SmtDivergenceDetector,
+    private val heikinAshiTransformer: HeikinAshiTransformer,
+    private val candleRenkoBuilder: CandleRenkoBuilder,
+    private val signalComputer: SignalComputer,
     profiler: PerformanceProfiler,
     qualityController: AdaptiveQualityController,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
@@ -203,8 +214,17 @@ class ChartViewModel @Inject constructor(
         val symbol = dataController.symbolFlow.value
         val timeframe = dataController.timeframeFlow.value
 
+        // Apply bar-mode transform BEFORE passing to indicators.
+        val barMode = _uiState.value.barMode
+        val displayCandles = when (barMode) {
+            ChartBarMode.TIME -> candles
+            ChartBarMode.HEIKIN_ASHI -> heikinAshiTransformer.transform(candles)
+            ChartBarMode.RENKO -> candleRenkoBuilder.build(candles, _uiState.value.renkoSize)
+        }
+        if (displayCandles.isEmpty()) return
+
         val c = indicatorCoordinator.processCandles(
-            candles = candles, source = source, toggles = ind,
+            candles = displayCandles, source = source, toggles = ind,
             symbol = symbol, timeframe = timeframe, preferIncremental = preferIncremental,
         )
 
@@ -218,18 +238,40 @@ class ChartViewModel @Inject constructor(
         }
 
         val tradeProAnalysis = tradeProEngine.analyze(
-            symbol, candles, appPreferences.tradeProConfig.value, htfContextCache,
+            symbol, displayCandles, appPreferences.tradeProConfig.value, htfContextCache,
         )
+
+        val litXAnalysis = if (ind.litX) {
+            litXEngine.analyze(symbol, timeframe, displayCandles, appPreferences.litXConfig.value)
+        } else null
+
+        val smtDivergences = if (ind.smt) {
+            // The correlatedCandles map is currently empty because peer-symbol candle
+            // data (e.g. DXY for EURUSD, or GBPUSD for EURUSD) is not yet fetched by
+            // MarketRepository for the current chart symbol. When a peer-data pipeline
+            // is implemented in the data layer (fetching correlated instruments alongside
+            // the primary symbol), that map should be populated here. Until then, the SMT
+            // detector returns an empty list because it early-returns on an empty map.
+            // The toggle remains wired so the UI and layer rendering are ready for when
+            // peer data becomes available.
+            smtDivergenceDetector.detect(symbol, displayCandles, emptyMap())
+        } else emptyList()
+
         _uiState.value = _uiState.value.withComputation(
-            candles = candles,
+            candles = displayCandles,
             source = source,
             computation = c,
             toggles = ind,
             tradeProAnalysis = tradeProAnalysis,
+            litXAnalysis = litXAnalysis,
+            smtDivergences = smtDivergences,
+            barMode = barMode,
+        ).copy(
+            signals = signalComputer.computeSignals(litXAnalysis, tradeProAnalysis, smtDivergences, displayCandles),
         )
 
         aiCoordinator.runAiDecision(
-            candles = candles, dataSource = source, symbol = symbol, timeframe = timeframe,
+            candles = displayCandles, dataSource = source, symbol = symbol, timeframe = timeframe,
             confluenceEnabled = ind.confluence,
             symbolFlow = { dataController.symbolFlow.value },
             timeframeFlow = { dataController.timeframeFlow.value },
@@ -271,6 +313,10 @@ class ChartViewModel @Inject constructor(
 
     fun toggleIndicatorPanel() {
         _uiState.value = _uiState.value.copy(showIndicatorPanel = !_uiState.value.showIndicatorPanel)
+    }
+
+    fun toggleSignalHistory() {
+        _uiState.value = _uiState.value.copy(showSignalHistory = !_uiState.value.showSignalHistory)
     }
 
     fun updateIndicators(transform: (IndicatorToggles) -> IndicatorToggles) {
@@ -349,6 +395,31 @@ class ChartViewModel @Inject constructor(
         val enabled = !_uiState.value.liveEnabled
         _uiState.value = _uiState.value.copy(liveEnabled = enabled)
         dataController.toggleLive(!enabled)
+    }
+
+    fun onBarModeChange(barMode: ChartBarMode) {
+        _uiState.value = _uiState.value.copy(barMode = barMode)
+        viewModelScope.launch {
+            try {
+                dataController.processMergedCandles(preferIncremental = false)
+            } catch (_: Exception) {
+                // Swallow concurrent modification exceptions during bar-mode change.
+                // The next data emission will trigger a successful recompute.
+            }
+        }
+    }
+
+    fun onRenkoSizeChange(size: Double) {
+        _uiState.value = _uiState.value.copy(renkoSize = size)
+        if (_uiState.value.barMode == ChartBarMode.RENKO) {
+            viewModelScope.launch {
+                try {
+                    dataController.processMergedCandles(preferIncremental = false)
+                } catch (_: Exception) {
+                    // Swallow concurrent modification exceptions during renko size change.
+                }
+            }
+        }
     }
 
     fun connectLive() = dataController.connectLive()

@@ -31,17 +31,21 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.ChartSignal
 import com.foxtrader.app.domain.model.Direction
+import com.foxtrader.app.domain.model.LitXAnalysis
 import com.foxtrader.app.domain.model.StructureBreak
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.analysis.FibonacciEngine
 import com.foxtrader.app.domain.usecase.analysis.MarketProfile
 import com.foxtrader.app.domain.usecase.analysis.SupportResistanceDetector
 import com.foxtrader.app.domain.usecase.chart.ChartViewportState
+import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
 import com.foxtrader.app.feature.chart.presentation.CandleSeries
 import com.foxtrader.app.feature.chart.presentation.ChartDimens
 import com.foxtrader.app.feature.chart.presentation.ImmutableDoubleSeries
 import com.foxtrader.app.feature.chart.presentation.ImmutableIntSeries
+import com.foxtrader.app.feature.chart.presentation.IndicatorToggles
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import com.foxtrader.app.domain.usecase.performance.QualitySettings
@@ -63,6 +67,9 @@ import com.foxtrader.app.feature.chart.presentation.components.layers.drawStruct
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawSupportResistanceZones
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawSuperTrend
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawTimeAxis
+import com.foxtrader.app.feature.chart.presentation.components.layers.drawLitXSignals
+import com.foxtrader.app.feature.chart.presentation.components.layers.drawSmtDivergences
+import com.foxtrader.app.feature.chart.presentation.components.layers.drawSignalMarkers
 import com.foxtrader.app.ui.theme.FoxNeutral0
 import kotlin.math.max
 
@@ -125,6 +132,10 @@ fun CandleChart(
     fairValueGaps: ImmutableList<com.foxtrader.app.domain.model.FairValueGap> = persistentListOf(),
     liquidityPools: ImmutableList<com.foxtrader.app.domain.model.LiquidityPool> = persistentListOf(),
     tradeProAnalysis: com.foxtrader.app.domain.model.tradepro.TradeProAnalysis? = null,
+    litXAnalysis: LitXAnalysis? = null,
+    smtDivergences: List<SmtDivergenceDetector.SmtDivergence> = emptyList(),
+    signals: List<ChartSignal> = emptyList(),
+    indicators: IndicatorToggles = IndicatorToggles(),
     sessions: ImmutableList<com.foxtrader.app.domain.model.SessionRange> = persistentListOf(),
     drawings: ImmutableList<com.foxtrader.app.domain.model.ChartDrawing> = persistentListOf(),
     volumeProfile: com.foxtrader.app.domain.model.VolumeProfile? = null,
@@ -543,8 +554,37 @@ fun CandleChart(
         // ====================================================================
         // LAYER 1.4: TRADEPRO overlays (Flip Zone, Buy/Sell-Hold, setup, absorption)
         // ====================================================================
-        clipRect(right = cw, bottom = ch) {
-            tradeProAnalysis?.let { drawTradeProOverlays(it, viewport, cw, ch) }
+        if (tradeProAnalysis != null && indicators.tradePro) {
+            clipRect(right = cw, bottom = ch) {
+                drawTradeProOverlays(tradeProAnalysis, viewport, cw, ch)
+            }
+        }
+
+        // ====================================================================
+        // LAYER 1.4.1: LIT X signal overlays (entry/SL/TP + direction arrow)
+        // ====================================================================
+        if (litXAnalysis != null && indicators.litX) {
+            clipRect(right = cw, bottom = ch) {
+                drawLitXSignals(litXAnalysis, viewport, cw, ch)
+            }
+        }
+
+        // ====================================================================
+        // LAYER 1.4.2: SMT divergence markers
+        // ====================================================================
+        if (smtDivergences.isNotEmpty() && indicators.smt) {
+            clipRect(right = cw, bottom = ch) {
+                drawSmtDivergences(smtDivergences, viewport, cw, ch)
+            }
+        }
+
+        // ====================================================================
+        // LAYER 1.4.3: Unified signal markers (live + history)
+        // ====================================================================
+        if (signals.isNotEmpty()) {
+            clipRect(right = cw, bottom = ch) {
+                drawSignalMarkers(signals, viewport, cw, ch)
+            }
         }
 
         // ====================================================================

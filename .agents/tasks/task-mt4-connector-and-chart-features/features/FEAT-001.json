@@ -1,0 +1,41 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "MT4/MetaApi Connector Architecture - Full client-side MT4 integration targeting MetaApi.cloud's REST+WebSocket contract using raw Retrofit+OkHttp (no MetaApi SDK). Includes domain models, API service, data source, WebSocket quote stream, repository, UI screens (login + account), ViewModel, DI module, DataProvider enum entry, wiring into MarketRepositoryImpl, and unit test.",
+  "status": "completed",
+  "steps": [
+    "Create domain/model/Mt4Account.kt with data classes: Mt4Credentials(login: Int, password: String, server: String, platform: String = 'mt4'), Mt4AccountInfo(login, balance, equity, margin, freeMargin, leverage, currency, name, server), Mt4Position(ticket, symbol, type: Mt4OrderType, lots, openPrice, openTime, sl, tp, profit, swap, commission), Mt4OrderType enum (BUY, SELL, BUY_LIMIT, SELL_LIMIT, BUY_STOP, SELL_STOP)",
+    "Create domain/model/Mt4Quote.kt with data class Mt4Quote(symbol, bid, ask, timestamp, spread = ask - bid)",
+    "Create data/remote/api/MetaApiService.kt - Retrofit interface targeting MetaApi REST endpoints: POST /users/current/accounts (deploy), GET /users/current/accounts/{id}/account-information, GET /users/current/accounts/{id}/positions, POST /users/current/accounts/{id}/trade. Use placeholder base URL from BuildConfig (METAAPI_BASE_URL). Auth via Bearer token header from AppPreferences.metaApiToken.",
+    "Create data/remote/api/MetaApiDataSource.kt - wraps the Retrofit calls, maps DTOs to domain models, handles errors. Follow BinanceDataSource pattern exactly.",
+    "Create data/remote/websocket/Mt4QuoteStream.kt - models a live-quote WebSocket connection (OkHttp WebSocket to MetaApi streaming endpoint). Exposes Flow<Mt4Quote> for subscribed symbols. Start/stop lifecycle. Uses existing OkHttpClient from DI via @PublicMarketDataClient.",
+    "Create domain/repository/Mt4Repository.kt - interface: connect(credentials), disconnect(), getAccountInfo(), getPositions(), streamQuotes(symbols): Flow<Mt4Quote>, placeTrade(symbol, type, lots, sl?, tp?), closeTrade(ticket)",
+    "Create data/repository/Mt4RepositoryImpl.kt - implements Mt4Repository using MetaApiDataSource + Mt4QuoteStream. @Singleton @Inject constructor.",
+    "Create feature/mt4/presentation/Mt4UiState.kt with sealed states (Disconnected, Connecting, Connected) and data fields for account info and positions.",
+    "Create feature/mt4/presentation/Mt4ViewModel.kt - @HiltViewModel, standard MVVM pattern following AuthViewModel.",
+    "Create feature/mt4/presentation/Mt4LoginScreen.kt - Compose screen: login(Int), password, server fields + connect button + error state. Follow LoginScreen.kt pattern exactly.",
+    "Create feature/mt4/presentation/Mt4AccountScreen.kt - shows account info (balance/equity/margin) + open positions list.",
+    "Create di/Mt4Module.kt - Hilt module providing MetaApiService (via @MetaApiRetrofit qualifier) + Mt4Repository binding. Follow NetworkModule pattern for the Retrofit instance.",
+    "Add MT4 entry to DataProvider enum: MT4('MT4 (MetaApi)', supportsLive = true, requiresApiKey = true, apiKeyLabel = 'MetaApi Token', implemented = true)",
+    "Add metaApiToken field to AppPreferences (following the same pattern as apiKeys for other providers).",
+    "Create unit test: app/src/test/java/com/foxtrader/app/data/remote/api/MetaApiDataSourceTest.kt - fake the Retrofit interface, verify mapping of account info and positions DTOs to domain models. Follow BybitDataSourceTest pattern."
+  ],
+  "acceptance_criteria": [
+    "Mt4Account.kt, Mt4Quote.kt domain models compile with correct fields and types",
+    "MetaApiService.kt is a valid Retrofit interface with correct HTTP method annotations and paths",
+    "MetaApiDataSource.kt maps DTOs to domain models correctly (verified by unit test)",
+    "Mt4QuoteStream.kt exposes Flow<Mt4Quote> and manages OkHttp WebSocket lifecycle",
+    "Mt4Repository interface and implementation follow existing repository patterns",
+    "Mt4LoginScreen follows LoginScreen.kt composition pattern (OutlinedTextField, Button, error state)",
+    "Mt4AccountScreen shows account info and positions in a scrollable layout",
+    "Mt4Module properly provides MetaApiService via a qualified Retrofit and binds Mt4Repository",
+    "DataProvider.MT4 entry exists with correct metadata",
+    "MetaApiDataSourceTest uses FakeMetaApiService (no MockK), asserts real computed values"
+  ],
+  "verification": [
+    "Source-level validation: verify all class signatures, imports, and DI annotations are consistent with the project patterns",
+    "Verify unit test follows the FakeXxxApi pattern from BybitDataSourceTest and asserts domain model mapping"
+  ],
+  "blocked_reason": null,
+  "findings": "All 15 files created successfully. Added closePosition method to MetaApiDataSource (sends POSITION_CLOSE_ID action). MetaApiTradeRequest includes optional positionId field for close operations. DataProvider.MT4 added after INTERACTIVE_BROKERS. AppPreferences uses SECURE_KEY_META_API_TOKEN in encrypted SharedPreferences (same approach as provider API keys). Unit test has 5 test cases covering deploy, account info mapping, positions mapping, trade execution, and error handling."
+}

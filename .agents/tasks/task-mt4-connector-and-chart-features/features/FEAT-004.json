@@ -1,0 +1,27 @@
+{
+  "id": "FEAT-004",
+  "type": "feat",
+  "description": "Live + History Signal Overlay - Add a unified ChartSignal model combining LIT X / TRADEPRO / SMT signals, a signal history composable panel, and draw live vs history signals on the chart with different opacities.",
+  "status": "completed",
+  "steps": [
+    "Create domain/model/ChartSignal.kt: data class ChartSignal(id: String, source: SignalSource, direction: Direction, entry: Double, sl: Double, tp: Double, barIndex: Int, timestamp: Long, confidence: Double, isLive: Boolean) and enum class SignalSource { LITX, TRADEPRO, SMT }",
+    "Add signals: List<ChartSignal> = emptyList() to ChartUiState and showSignalHistory: Boolean = false",
+    "In ChartViewModel, maintain computed signals list from the latest litXAnalysis + tradeProAnalysis + smtDivergences. Mark the most recent of each source as isLive=true, older as isLive=false. Add functions: toggleSignalHistory(), computeSignals()",
+    "Create feature/chart/presentation/ChartSignalHistory.kt - a composable showing a scrollable list of past signals (reuse the LitXSignalCard pattern from feature/litx/presentation/components/LitXSignalCard.kt), toggled via a button/expandable panel at the bottom of ChartScreen",
+    "Update ChartSignalLayer.kt (from FEAT-003) to draw live signals with full opacity (alpha=0.9) and history signals as faded markers (alpha=0.3)",
+    "Add a signal-history toggle button to ChartScreen (e.g. a small FAB or toolbar icon) that shows/hides the ChartSignalHistory panel"
+  ],
+  "acceptance_criteria": [
+    "ChartSignal.kt and SignalSource enum exist in domain/model/ with correct fields",
+    "ChartUiState has signals and showSignalHistory fields",
+    "ChartViewModel computes a unified signal list from LitX, TradePro, and SMT analyses",
+    "ChartSignalHistory composable displays signals in a scrollable list with signal source badge and direction color",
+    "ChartSignalLayer draws live signals at full opacity and history signals faded",
+    "Signal history panel is toggleable from ChartScreen"
+  ],
+  "verification": [
+    "Source-level verification: confirm ChartSignal model, signals computation in ViewModel, ChartSignalHistory composable, and opacity differentiation in ChartSignalLayer"
+  ],
+  "blocked_reason": null,
+  "findings": "All acceptance criteria met. ChartSignal model uses existing Direction enum from domain/model/Candle.kt. computeSignals() chains .copy() after withComputation() to keep the signals update atomic with the rest of the state. The StackedLineChart icon from material-icons-extended is used for the toolbar toggle. No unit tests required per environment constraints (INTEGRATIONS_ONLY, no Gradle)."
+}

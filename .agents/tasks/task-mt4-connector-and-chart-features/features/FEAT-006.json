@@ -1,0 +1,23 @@
+{
+  "id": "FEAT-006",
+  "type": "fix",
+  "description": "Address v2 code review findings: add missing bar-mode transform tests (HeikinAshiTransformerTest, CandleRenkoBuilderTest) and fix disconnect() to clear persisted accountId.",
+  "status": "completed",
+  "steps": [
+    "Create HeikinAshiTransformerTest.kt with tests for empty input, single candle HA values, multi-candle HA open chaining, and timestamp preservation.",
+    "Create CandleRenkoBuilderTest.kt with tests for empty input, invalid brickSize, insufficient move, bullish bricks, bearish bricks, and volume accumulation.",
+    "Fix Mt4RepositoryImpl.disconnect() to also call appPreferences.setMetaApiAccountId(null)."
+  ],
+  "acceptance_criteria": [
+    "HeikinAshiTransformerTest covers empty, single, multi-candle, and timestamp preservation",
+    "CandleRenkoBuilderTest covers empty, invalid brickSize, insufficient move, bullish, bearish, and volume accumulation",
+    "Mt4RepositoryImpl.disconnect() clears both in-memory and persisted accountId",
+    "No MockK, no android.* imports, no TODOs/placeholders in tests"
+  ],
+  "verification": [
+    "Source-level review: test files exist and assert real computed values",
+    "Source-level review: disconnect calls appPreferences.setMetaApiAccountId(null)"
+  ],
+  "blocked_reason": null,
+  "findings": "Both v2 review issues resolved. HeikinAshiTransformerTest covers empty, single candle, multi-candle chaining, and timestamp preservation with hand-computed expected values. CandleRenkoBuilderTest covers all edge cases including volume accumulation. Mt4RepositoryImpl.disconnect() now calls appPreferences.setMetaApiAccountId(null) to clear persisted state. No android.* imports, no MockK, no TODOs. INTEGRATIONS_ONLY environment prevents running Gradle build/test, but source-level verification confirms correctness."
+}

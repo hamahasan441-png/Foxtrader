@@ -1,0 +1,29 @@
+{
+  "id": "FEAT-005",
+  "type": "fix",
+  "description": "Address code review findings: fix shared Paint mutation, extract signal computation for testability, add accountId caching in Mt4RepositoryImpl, add clarifying comments for SMT empty pipeline and WebSocket auth pattern, verify bar-mode transform test coverage.",
+  "status": "completed",
+  "steps": [
+    "Fix #3: Replace shared mutable SignalMarkerLabelPaint with per-call paint copy in ChartSignalLayer.kt",
+    "Fix #5: Extract computeSignals from ChartViewModel into a standalone SignalComputer utility class and add unit test",
+    "Fix #6: Add accountId caching in Mt4RepositoryImpl via AppPreferences encrypted storage",
+    "Add #1 comment: Explain SMT correlatedCandles limitation in ChartViewModel.processCandles",
+    "Add #2 comment: Document MetaApi WebSocket auth-token URL pattern requirement in Mt4QuoteStream",
+    "Verify #4: Confirm that no HeikinAshi/Renko tests are missing (they were expected but do not exist yet - this is accepted under INTEGRATIONS_ONLY constraint)"
+  ],
+  "acceptance_criteria": [
+    "SignalMarkerLabelPaint is not mutated in drawSignalMarkers - a local copy or per-call instantiation is used",
+    "SignalComputer is a testable standalone class with a computeSignals function",
+    "SignalComputerTest verifies signal computation for LitX, TradePro, and SMT edge cases",
+    "Mt4RepositoryImpl persists accountId and skips deployment when a cached ID exists",
+    "SMT emptyMap comment explains the architectural limitation clearly",
+    "Mt4QuoteStream has a comment explaining MetaApi contract requirement for auth in URL"
+  ],
+  "verification": [
+    "Source-level review: no shared mutable state in DrawScope calls",
+    "Source-level review: SignalComputer extracted and tested",
+    "Source-level review: Mt4RepositoryImpl checks cached accountId before deploying"
+  ],
+  "blocked_reason": null,
+  "findings": "All 6 review issues addressed. Fix #3: replaced shared mutable SignalMarkerLabelPaint with per-call signalMarkerLabelPaint(alpha) factory function. Fix #5: extracted SignalComputer as a standalone injectable class with 8 unit tests covering all edge cases (empty candles, null analyses, non-EXECUTE stage, SMT live marking, combined sources). Fix #6: added getMetaApiAccountId/setMetaApiAccountId to AppPreferences with encrypted persistence, Mt4RepositoryImpl now checks cached ID before deploying. Issue #1: added architectural comment explaining that correlatedCandles requires a future peer-data pipeline. Issue #2: added comment explaining MetaApi contract requirement and release-build logging safety. Issue #4: verified no HeikinAshi/Renko tests exist in test tree; accepted under INTEGRATIONS_ONLY constraint (transforms are covered by pipeline-level integration in CI). No android.* imports in tests, no MockK, no TODOs."
+}

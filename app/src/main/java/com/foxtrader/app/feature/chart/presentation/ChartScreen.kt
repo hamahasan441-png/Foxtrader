@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ShowChart
+import androidx.compose.material.icons.filled.StackedLineChart
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Warning
@@ -66,6 +67,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.Bias
+import com.foxtrader.app.domain.model.ChartSignal
+import com.foxtrader.app.domain.model.ChartBarMode
 import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.ui.theme.FoxWarning
@@ -190,6 +193,7 @@ fun ChartScreen(
             ChartToolbar(
                 activeMenu = activeMenu,
                 currentTimeframe = state.timeframe,
+                currentBarMode = state.barMode,
                 // Single source of truth (R4): the Draw chip lights up when a tool
                 // is actually armed, not from a duplicated showDrawingToolbar flag.
                 showDrawingActive = state.activeTool != null,
@@ -200,6 +204,8 @@ fun ChartScreen(
                 onToggleFullscreen = onToggleImmersive,
                 scaleLocked = scaleLocked,
                 onToggleScaleLock = { scaleLocked = !scaleLocked },
+                signalsActive = state.showSignalHistory,
+                onSignalsToggle = viewModel::toggleSignalHistory,
             )
         }
 
@@ -214,6 +220,21 @@ fun ChartScreen(
                 selected = state.timeframe,
                 onSelect = { tf ->
                     viewModel.onTimeframeChange(tf)
+                    activeMenu = ChartMenu.NONE
+                },
+            )
+        }
+
+        // Bar-mode dropdown
+        AnimatedVisibility(
+            visible = !immersive && activeMenu == ChartMenu.BAR_MODE,
+            enter = expandVertically(),
+            exit = shrinkVertically(),
+        ) {
+            BarModeDropdown(
+                selected = state.barMode,
+                onSelect = { mode ->
+                    viewModel.onBarModeChange(mode)
                     activeMenu = ChartMenu.NONE
                 },
             )
@@ -324,6 +345,10 @@ fun ChartScreen(
                             fairValueGaps = state.fairValueGaps,
                             liquidityPools = state.liquidityPools,
                             tradeProAnalysis = state.tradeProAnalysis,
+                            litXAnalysis = state.litXAnalysis,
+                            smtDivergences = state.smtDivergences,
+                            signals = state.signals,
+                            indicators = state.indicators,
                             sessions = state.sessions,
                             drawings = state.drawings,
                             volumeProfile = state.volumeProfile,
@@ -438,6 +463,16 @@ fun ChartScreen(
             // Hidden during replay so it never fights the replay control bar,
             // which also anchors to the bottom-centre.
             if (!replayState.isActive) {
+                // Signal history panel (toggleable, above the analysis sheet).
+                // Extracted into a scope-free helper so overload resolution binds
+                // to the top-level AnimatedVisibility rather than the ColumnScope
+                // overload leaking in from the outer Column.
+                SignalHistoryOverlay(
+                    visible = state.showSignalHistory,
+                    signals = state.signals,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                )
+
                 ChartAnalysisSheet(
                     expanded = analysisExpanded,
                     onToggleExpanded = { analysisExpanded = !analysisExpanded },
@@ -481,6 +516,36 @@ fun ChartScreen(
             onPanelCrosshairTimestampChange = viewModel::onMultiChartPanelCrosshairTimestampChange,
             onPanelViewportStateChange = viewModel::onMultiChartPanelViewportStateChange,
             panelViewportState = viewModel::currentMultiChartPanelViewportState,
+        )
+    }
+}
+
+/**
+ * Toggleable signal-history overlay.
+ *
+ * Extracted into its own composable that carries no layout-scope receiver so the
+ * `AnimatedVisibility` call binds unambiguously to the top-level overload. Calling
+ * it inline inside the chart's [androidx.compose.foundation.layout.Box] (which is
+ * itself nested in a [androidx.compose.foundation.layout.Column]) made both the
+ * `BoxScope` and `ColumnScope` `AnimatedVisibility` overloads candidates, and the
+ * compiler bound to the `ColumnScope` one via the outer receiver — which is illegal
+ * across the `Box` boundary. The caller supplies the alignment modifier.
+ */
+@Composable
+private fun SignalHistoryOverlay(
+    visible: Boolean,
+    signals: List<ChartSignal>,
+    modifier: Modifier = Modifier,
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = expandVertically(),
+        exit = shrinkVertically(),
+        modifier = modifier,
+    ) {
+        ChartSignalHistory(
+            signals = signals,
+            modifier = Modifier.fillMaxWidth(),
         )
     }
 }
@@ -611,7 +676,7 @@ private fun ChartTopBar(
  * Only one menu can be open at a time (TradingView behavior).
  */
 private enum class ChartMenu {
-    NONE, TIMEFRAME, INDICATORS, DRAWING, MULTI_CHART
+    NONE, TIMEFRAME, BAR_MODE, INDICATORS, DRAWING, MULTI_CHART
 }
 
 /**
@@ -622,12 +687,15 @@ private enum class ChartMenu {
 private fun ChartToolbar(
     activeMenu: ChartMenu,
     currentTimeframe: Timeframe,
+    currentBarMode: ChartBarMode,
     showDrawingActive: Boolean,
     onMenuToggle: (ChartMenu) -> Unit,
     onReplayStart: () -> Unit,
     onToggleFullscreen: () -> Unit,
     scaleLocked: Boolean,
     onToggleScaleLock: () -> Unit,
+    signalsActive: Boolean,
+    onSignalsToggle: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -646,6 +714,14 @@ private fun ChartToolbar(
             icon = Icons.Default.Timer,
             isActive = activeMenu == ChartMenu.TIMEFRAME,
             onClick = { onMenuToggle(ChartMenu.TIMEFRAME) },
+        )
+
+        // Bar-mode button - shows current mode label
+        ToolbarChipButton(
+            label = currentBarMode.label,
+            icon = Icons.Default.ShowChart,
+            isActive = activeMenu == ChartMenu.BAR_MODE,
+            onClick = { onMenuToggle(ChartMenu.BAR_MODE) },
         )
 
         // Indicators button
@@ -683,6 +759,19 @@ private fun ChartToolbar(
                 Icons.Default.Refresh,
                 contentDescription = stringResource(R.string.chart_start_replay_mode),
                 tint = FoxNeutral60,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+
+        // Signals history toggle
+        IconButton(
+            onClick = onSignalsToggle,
+            modifier = Modifier.size(32.dp),
+        ) {
+            Icon(
+                Icons.Default.StackedLineChart,
+                contentDescription = "Toggle signal history",
+                tint = if (signalsActive) FoxAmber50 else FoxNeutral60,
                 modifier = Modifier.size(18.dp),
             )
         }
@@ -790,6 +879,44 @@ private fun TimeframeDropdown(
                         else MaterialTheme.colorScheme.surfaceVariant
                     )
                     .clickable { onSelect(tf) }
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+            )
+        }
+    }
+}
+
+/**
+ * Bar-mode dropdown panel - a compact row of bar-mode chips.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun BarModeDropdown(
+    selected: ChartBarMode,
+    onSelect: (ChartBarMode) -> Unit,
+) {
+    FlowRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        ChartBarMode.entries.forEach { mode ->
+            val isSelected = mode == selected
+            Text(
+                text = mode.label,
+                color = if (isSelected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(
+                        if (isSelected) MaterialTheme.colorScheme.primaryContainer
+                        else MaterialTheme.colorScheme.surfaceVariant
+                    )
+                    .clickable { onSelect(mode) }
                     .padding(horizontal = 14.dp, vertical = 8.dp),
             )
         }
