@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Hub
+import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -65,6 +66,7 @@ import kotlin.math.abs
 @Composable
 fun PortfolioScreen(
     onNavigateToCorrelation: () -> Unit = {},
+    onNavigateToPaperTrading: () -> Unit = {},
     viewModel: PortfolioViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -74,6 +76,13 @@ fun PortfolioScreen(
             TopAppBar(
                 title = { Text("Portfolio", fontWeight = FontWeight.Bold, fontSize = 20.sp) },
                 actions = {
+                    IconButton(onClick = onNavigateToPaperTrading) {
+                        Icon(
+                            Icons.Default.ShowChart,
+                            contentDescription = "Paper trading",
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                     IconButton(onClick = onNavigateToCorrelation) {
                         Icon(
                             Icons.Default.Hub,

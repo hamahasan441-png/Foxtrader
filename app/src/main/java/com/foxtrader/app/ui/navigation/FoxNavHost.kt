@@ -43,6 +43,7 @@ import com.foxtrader.app.feature.tradepro.presentation.CorrelationScreen
 import com.foxtrader.app.feature.tradepro.presentation.DailyPlanScreen
 import com.foxtrader.app.feature.tradepro.presentation.RiskSimulatorScreen
 import com.foxtrader.app.feature.tradepro.presentation.TraderProfileScreen
+import com.foxtrader.app.feature.papertrading.presentation.PaperTradingScreen
 import com.foxtrader.app.feature.portfolio.presentation.PortfolioScreen
 import com.foxtrader.app.feature.scanner.presentation.ScannerScreen
 import com.foxtrader.app.feature.settings.presentation.SettingsScreen
@@ -75,6 +76,7 @@ object FoxRoutes {
     const val ALERT_RULES = "alert_rules"
     const val OPPORTUNITY_BOARD = "opportunity_board"
     const val CORRELATION = "correlation"
+    const val PAPER_TRADING = "paper_trading"
 
     // LIT X institutional analysis for a specific symbol/timeframe (reached
     // from the Chart top bar — additive, not a bottom tab).
@@ -230,6 +232,15 @@ fun FoxNavHost(
             composable(FoxRoutes.PORTFOLIO) {
                 PortfolioScreen(
                     onNavigateToCorrelation = { navController.navigate(FoxRoutes.CORRELATION) },
+                    onNavigateToPaperTrading = { navController.navigate(FoxRoutes.PAPER_TRADING) },
+                )
+            }
+            // Paper Trading — simulated execution reached from Portfolio (open
+            // exposure and the paper account are the same concern). Prices are
+            // fed by the chart via the shared PaperTradingSession singleton.
+            composable(FoxRoutes.PAPER_TRADING) {
+                PaperTradingScreen(
+                    onNavigateBack = { navController.popBackStack() },
                 )
             }
             // Correlation matrix \u2014 data-driven concentration risk, under Portfolio.
