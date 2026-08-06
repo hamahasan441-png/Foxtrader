@@ -1,0 +1,25 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "AI Strategy Optimizer - A parameter optimization engine for the general StrategyLibrary strategies. Unlike TradeProOptimizer which optimizes TradePro-specific configs, this engine optimizes the backtest execution parameters (risk percent, stop multiplier, take-profit ratio) and identifies the optimal timeframe/symbol combinations for each strategy. Uses grid search with walk-forward validation to prevent overfitting.",
+  "status": "in_progress",
+  "steps": [
+    "Create app/src/main/java/com/foxtrader/app/domain/usecase/ai/AiStrategyOptimizer.kt - a @Singleton class with @Inject constructor taking BacktestEngine and BacktestAnalyticsEngine. Optimizes BacktestConfig parameters (riskPercent grid: 0.5, 1.0, 1.5, 2.0; spread variants; slippage variants) for a given StrategyFunction against candle data.",
+    "Create data classes: OptimizationGrid (riskPercentValues, spreadValues, slippageValues), OptimizationCandidate (config: BacktestConfig, backtestResult, analyticsReport, compositeScore, qualified boolean based on minimum trade count), AiOptimizationReport (symbol, timeframe, strategyName, candidates ranked by score, bestCandidate, bestOutOfSample BacktestResult?, trainBars, testBars, narrative, overfitWarning boolean).",
+    "Implement in-sample/out-of-sample split (70/30 default). Train on in-sample, validate winner on out-of-sample. Flag overfitting if out-of-sample profit factor < 0.5 * in-sample profit factor.",
+    "Composite scoring: 40% profit factor (capped at 5.0), 25% Sharpe ratio, 20% win rate, 15% max drawdown (inverted - lower is better). Minimum 5 trades to qualify.",
+    "Create app/src/test/java/com/foxtrader/app/domain/usecase/ai/AiStrategyOptimizerTest.kt - JUnit4 tests: optimizer produces ranked candidates, best candidate has highest score, overfitting is flagged when out-of-sample degrades significantly, insufficient data returns empty report, minimum trade count filter works correctly."
+  ],
+  "acceptance_criteria": [
+    "AiStrategyOptimizer compiles with no android.* imports",
+    "Tests validate scoring, ranking, overfitting detection, and graceful degradation",
+    "Optimizer uses walk-forward split to honestly validate parameters",
+    "Report includes clear overfit warning when out-of-sample performance degrades"
+  ],
+  "verification": [
+    "CI runs ./gradlew testDebugUnitTest and all new tests in AiStrategyOptimizerTest pass",
+    "CI runs ./gradlew compileDebugKotlin and new source compiles without errors"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}
