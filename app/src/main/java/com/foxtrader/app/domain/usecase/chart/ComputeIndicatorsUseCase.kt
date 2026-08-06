@@ -8,6 +8,8 @@ import com.foxtrader.app.domain.usecase.analysis.SupportResistanceDetector
 import com.foxtrader.app.domain.usecase.indicators.BollingerBands
 import com.foxtrader.app.domain.usecase.indicators.IchimokuCloud
 import com.foxtrader.app.domain.usecase.indicators.ParabolicSar
+import com.foxtrader.app.domain.usecase.indicators.AnchoredVwap
+import com.foxtrader.app.domain.usecase.indicators.AnchoredVwapResult
 import com.foxtrader.app.domain.usecase.indicators.SuperTrend
 import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
 import com.foxtrader.app.domain.usecase.sessions.SessionDetector
@@ -60,6 +62,7 @@ class ComputeIndicatorsUseCase @Inject constructor(
         val superTrendFinalLower: DoubleArray?,
         val parabolicSar: DoubleArray?,
         val vwap: DoubleArray?,
+        val anchoredVwap: AnchoredVwapResult?,
         val ichimokuTenkan: DoubleArray?,
         val ichimokuKijun: DoubleArray?,
         val ichimokuSenkouA: DoubleArray?,
@@ -95,6 +98,7 @@ class ComputeIndicatorsUseCase @Inject constructor(
                 superTrendFinalLower.contentEquals(other.superTrendFinalLower) &&
                 parabolicSar.contentEquals(other.parabolicSar) &&
                 vwap.contentEquals(other.vwap) &&
+                anchoredVwap == other.anchoredVwap &&
                 ichimokuTenkan.contentEquals(other.ichimokuTenkan) &&
                 ichimokuKijun.contentEquals(other.ichimokuKijun) &&
                 ichimokuSenkouA.contentEquals(other.ichimokuSenkouA) &&
@@ -129,6 +133,7 @@ class ComputeIndicatorsUseCase @Inject constructor(
             h = 31 * h + superTrendFinalLower.contentHashCode()
             h = 31 * h + parabolicSar.contentHashCode()
             h = 31 * h + vwap.contentHashCode()
+            h = 31 * h + (anchoredVwap?.hashCode() ?: 0)
             h = 31 * h + ichimokuTenkan.contentHashCode()
             h = 31 * h + ichimokuKijun.contentHashCode()
             h = 31 * h + ichimokuSenkouA.contentHashCode()
@@ -164,6 +169,8 @@ class ComputeIndicatorsUseCase @Inject constructor(
             TechnicalIndicators.calculateEMA(candles, 50) else null
         val vwap = if (toggles.vwap && candles.isNotEmpty())
             TechnicalIndicators.calculateVWAP(candles) else null
+        val anchoredVwap = if (toggles.anchoredVwap && candles.size >= ANCHORED_VWAP_MIN_BARS)
+            AnchoredVwap.calculate(candles, AnchoredVwap.autoAnchorIndex(candles)) else null
         val rsi = if (toggles.rsi && candles.size >= 15)
             TechnicalIndicators.calculateRSI(candles, 14) else null
         val macd = if (toggles.macd && candles.size >= 35)
@@ -220,6 +227,7 @@ class ComputeIndicatorsUseCase @Inject constructor(
             superTrendFinalLower = st?.finalLowerBands,
             parabolicSar = psar,
             vwap = vwap,
+            anchoredVwap = anchoredVwap,
             rsi = rsi,
             macdLine = macd?.macd,
             macdSignal = macd?.signal,
@@ -255,6 +263,10 @@ class ComputeIndicatorsUseCase @Inject constructor(
             TechnicalIndicators.calculateEMAIncremental(candles, 50, previous.emaLong, recomputeFrom) else null
         val vwap = if (toggles.vwap && candles.isNotEmpty())
             TechnicalIndicators.calculateVWAPIncremental(candles, previous.vwap, recomputeFrom) else null
+        // Anchored VWAP is cheap and its auto-anchor may shift as bars arrive,
+        // so it is recomputed in full rather than incrementally patched.
+        val anchoredVwap = if (toggles.anchoredVwap && candles.size >= ANCHORED_VWAP_MIN_BARS)
+            AnchoredVwap.calculate(candles, AnchoredVwap.autoAnchorIndex(candles)) else null
         val ichimoku = if (toggles.ichimoku && candles.size >= 52)
             ichimokuCloud.calculateIncremental(candles, previous.toIchimokuResult(), recomputeFrom) else null
         val boll = if (toggles.bollinger && candles.size >= 20)
@@ -280,6 +292,7 @@ class ComputeIndicatorsUseCase @Inject constructor(
             superTrendFinalLower = st?.finalLowerBands,
             parabolicSar = psar,
             vwap = vwap,
+            anchoredVwap = anchoredVwap,
             rsi = rsi,
             macdLine = macd?.macd,
             macdSignal = macd?.signal,
@@ -366,5 +379,6 @@ class ComputeIndicatorsUseCase @Inject constructor(
         const val AUTO_FIB_LOOKBACK = 120
         const val AUTO_FIB_MIN_BARS = 30
         const val AUTO_FIB_MIN_SWING_BARS = 6
+        const val ANCHORED_VWAP_MIN_BARS = 20
     }
 }
