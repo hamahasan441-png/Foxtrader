@@ -68,6 +68,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.foxtrader.app.BuildConfig
 import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.Bias
+import com.foxtrader.app.domain.model.ChartSignal
 import com.foxtrader.app.domain.model.ChartBarMode
 import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.Timeframe
@@ -479,18 +480,15 @@ fun ChartScreen(
             // Hidden during replay so it never fights the replay control bar,
             // which also anchors to the bottom-centre.
             if (!replayState.isActive) {
-                // Signal history panel (toggleable, above the analysis sheet)
-                AnimatedVisibility(
+                // Signal history panel (toggleable, above the analysis sheet).
+                // Extracted into a scope-free helper so overload resolution binds
+                // to the top-level AnimatedVisibility rather than the ColumnScope
+                // overload leaking in from the outer Column.
+                SignalHistoryOverlay(
                     visible = state.showSignalHistory,
-                    enter = expandVertically(),
-                    exit = shrinkVertically(),
+                    signals = state.signals,
                     modifier = Modifier.align(Alignment.BottomCenter),
-                ) {
-                    ChartSignalHistory(
-                        signals = state.signals,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
+                )
 
                 ChartAnalysisSheet(
                     expanded = analysisExpanded,
@@ -535,6 +533,36 @@ fun ChartScreen(
             onPanelCrosshairTimestampChange = viewModel::onMultiChartPanelCrosshairTimestampChange,
             onPanelViewportStateChange = viewModel::onMultiChartPanelViewportStateChange,
             panelViewportState = viewModel::currentMultiChartPanelViewportState,
+        )
+    }
+}
+
+/**
+ * Toggleable signal-history overlay.
+ *
+ * Extracted into its own composable that carries no layout-scope receiver so the
+ * `AnimatedVisibility` call binds unambiguously to the top-level overload. Calling
+ * it inline inside the chart's [androidx.compose.foundation.layout.Box] (which is
+ * itself nested in a [androidx.compose.foundation.layout.Column]) made both the
+ * `BoxScope` and `ColumnScope` `AnimatedVisibility` overloads candidates, and the
+ * compiler bound to the `ColumnScope` one via the outer receiver — which is illegal
+ * across the `Box` boundary. The caller supplies the alignment modifier.
+ */
+@Composable
+private fun SignalHistoryOverlay(
+    visible: Boolean,
+    signals: List<ChartSignal>,
+    modifier: Modifier = Modifier,
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = expandVertically(),
+        exit = shrinkVertically(),
+        modifier = modifier,
+    ) {
+        ChartSignalHistory(
+            signals = signals,
+            modifier = Modifier.fillMaxWidth(),
         )
     }
 }
