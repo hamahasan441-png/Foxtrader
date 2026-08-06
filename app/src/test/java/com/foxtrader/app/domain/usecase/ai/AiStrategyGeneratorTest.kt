@@ -304,21 +304,26 @@ class AiStrategyGeneratorTest {
     }
 
     /**
-     * Generates a ranging/sideways series oscillating around a mean with ADX < 20.
-     * Price oscillates in a tight band without establishing directional momentum.
+     * Generates a ranging/sideways series with ADX < 20.
+     * A seeded mean-reverting random walk ensures no sustained directional move.
      */
-    private fun rangingSeries(size: Int): List<Candle> = (0 until size).map { i ->
+    private fun rangingSeries(size: Int): List<Candle> {
+        val rng = java.util.Random(42)
         val mean = 1.10000
-        val oscillation = sin(i / 5.0) * 0.00100
-        val open = mean + oscillation
-        val close = mean + sin((i + 1) / 5.0) * 0.00100
-        Candle(
-            timestamp = 1_000L + i * 3_600_000L,
-            open = open,
-            high = maxOf(open, close) + 0.00015,
-            low = minOf(open, close) - 0.00015,
-            close = close,
-            volume = 800.0 + (i % 5) * 100.0,
-        )
+        var price = mean
+        return (0 until size).map { i ->
+            price = price + (mean - price) * 0.3 + (rng.nextGaussian() * 0.00020)
+            val range = 0.00020 + rng.nextDouble() * 0.00010
+            val open = price
+            val close = price + (rng.nextGaussian() * 0.00008)
+            Candle(
+                timestamp = 1_000L + i * 3_600_000L,
+                open = open,
+                high = maxOf(open, close) + range,
+                low = minOf(open, close) - range,
+                close = close,
+                volume = 800.0 + (i % 5) * 100.0,
+            )
+        }
     }
 }
