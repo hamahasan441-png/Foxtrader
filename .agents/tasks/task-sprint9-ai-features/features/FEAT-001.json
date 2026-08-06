@@ -2,7 +2,7 @@
   "id": "FEAT-001",
   "type": "feat",
   "description": "AI Strategy Generator - A rule-based engine that analyzes market data characteristics and generates optimized strategy configurations. Given a set of candles, it determines which strategy types are most suitable, generates parameter combinations, and backtests them to produce ranked recommendations. Uses statistical analysis of price behavior (trend strength, volatility regime, mean-reversion tendency) to select appropriate strategy families.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Create app/src/main/java/com/foxtrader/app/domain/usecase/ai/AiStrategyGenerator.kt - a @Singleton class with @Inject constructor taking StrategyTester and BacktestAnalyticsEngine. It should: (1) analyze candle data to detect market regime (trending, ranging, volatile) using ADX, ATR percentile, and Hurst exponent approximation; (2) map regimes to suitable StrategyType subsets; (3) run StrategyTester.testAll on the data; (4) run BacktestAnalyticsEngine.analyze on each result; (5) produce a ranked report with regime analysis, strategy recommendations, and walk-forward validation status.",
     "Create data classes in the same file: MarketRegime (enum: TRENDING, RANGING, VOLATILE, MIXED), RegimeAnalysis (regime, trendStrength, volatilityPercentile, meanReversionScore, suitableStrategies), GeneratedStrategy (strategyType, backtestResult, analyticsReport, regimeAlignment score 0-100, recommendation narrative), and AiStrategyGeneratorReport (symbol, timeframe, regimeAnalysis, generatedStrategies sorted by composite score, topRecommendation, narrative).",
@@ -21,5 +21,5 @@
     "CI runs ./gradlew compileDebugKotlin and new source compiles without errors"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "Implementation uses TechnicalIndicators.calculateADX and calculateATR for regime detection. ADX>25=trending, ADX<20+lowVol=ranging, ATR>75th percentile=volatile. Strategy-regime alignment adds bonus to composite score (backtest score * (1 + alignment/100)). Cannot run tests locally due to INTEGRATIONS_ONLY network mode - CI must verify."
 }
