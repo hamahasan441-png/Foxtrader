@@ -303,6 +303,124 @@ class SignalComputerTest {
     }
 
     // ========================================================================
+    // CROSS-SOURCE CONFLUENCE
+    // ========================================================================
+
+    @Test
+    fun `boosts confidence when LitX and TradePro agree on direction`() {
+        val litX = buildLitXAnalysis(
+            direction = Direction.BULLISH,
+            entry = 1.0850, stopLoss = 1.0800, tp1 = 1.0900, tp2 = 1.0950,
+            score = 80, timestamp = 1700005000000L,
+        )
+        val analysis = TradeProAnalysis(
+            symbol = "EURUSD", flipZone = null, holdZones = emptyList(),
+            imbalances = emptyList(), absorptions = emptyList(),
+            setup = buildTradeProSetup(
+                stage = SetupStage.EXECUTE, direction = Direction.BULLISH,
+                entry = 1.0855, stopLoss = 1.0810, target1 = 1.0920, confidence = 75,
+            ),
+            stage = SetupStage.EXECUTE, narrative = "Buy setup confirmed",
+        )
+
+        val result = computer.computeSignals(litX, analysis, emptyList(), sampleCandles, 1700009000000L)
+
+        // Each source has exactly one *other* distinct source agreeing → +0.04.
+        assertEquals(0.84, result.first { it.source == SignalSource.LITX }.confidence, 1e-4)
+        assertEquals(0.79, result.first { it.source == SignalSource.TRADEPRO }.confidence, 1e-4)
+    }
+
+    @Test
+    fun `confluence boost scales and caps with three agreeing sources`() {
+        val litX = buildLitXAnalysis(
+            direction = Direction.BULLISH,
+            entry = 1.0850, stopLoss = 1.0800, tp1 = 1.0900, tp2 = 1.0950,
+            score = 80, timestamp = 1700005000000L,
+        )
+        val analysis = TradeProAnalysis(
+            symbol = "EURUSD", flipZone = null, holdZones = emptyList(),
+            imbalances = emptyList(), absorptions = emptyList(),
+            setup = buildTradeProSetup(
+                stage = SetupStage.EXECUTE, direction = Direction.BULLISH,
+                entry = 1.0855, stopLoss = 1.0810, target1 = 1.0920, confidence = 75,
+            ),
+            stage = SetupStage.EXECUTE, narrative = "Buy setup confirmed",
+        )
+        val divergences = listOf(
+            buildSmtDivergence(primaryIndex = 5, primaryPrice = 1.0790, direction = Direction.BULLISH, confidence = 0.65),
+        )
+
+        val result = computer.computeSignals(litX, analysis, divergences, sampleCandles, 1700009000000L)
+
+        // Two other distinct sources each → +0.08 (the cap).
+        assertEquals(0.88, result.first { it.source == SignalSource.LITX }.confidence, 1e-4)
+        assertEquals(0.83, result.first { it.source == SignalSource.TRADEPRO }.confidence, 1e-4)
+        assertEquals(0.73, result.first { it.source == SignalSource.SMT }.confidence, 1e-4)
+    }
+
+    @Test
+    fun `no confluence boost when sources disagree in direction`() {
+        val litX = buildLitXAnalysis(
+            direction = Direction.BULLISH,
+            entry = 1.0850, stopLoss = 1.0800, tp1 = 1.0900, tp2 = 1.0950,
+            score = 80, timestamp = 1700005000000L,
+        )
+        val analysis = TradeProAnalysis(
+            symbol = "GBPUSD", flipZone = null, holdZones = emptyList(),
+            imbalances = emptyList(), absorptions = emptyList(),
+            setup = buildTradeProSetup(
+                stage = SetupStage.EXECUTE, direction = Direction.BEARISH,
+                entry = 1.2650, stopLoss = 1.2700, target1 = 1.2600, confidence = 75,
+            ),
+            stage = SetupStage.EXECUTE, narrative = "Sell setup confirmed",
+        )
+
+        val result = computer.computeSignals(litX, analysis, emptyList(), sampleCandles, 1700009000000L)
+
+        assertEquals(0.80, result.first { it.source == SignalSource.LITX }.confidence, 1e-4)
+        assertEquals(0.75, result.first { it.source == SignalSource.TRADEPRO }.confidence, 1e-4)
+    }
+
+    @Test
+    fun `multiple SMT divergences from the same source do not self-boost`() {
+        val divergences = listOf(
+            buildSmtDivergence(primaryIndex = 3, primaryPrice = 1.0800, direction = Direction.BULLISH, confidence = 0.72),
+            buildSmtDivergence(primaryIndex = 7, primaryPrice = 1.0820, direction = Direction.BULLISH, confidence = 0.78),
+        )
+
+        val result = computer.computeSignals(null, null, divergences, sampleCandles, 1700009000000L)
+
+        // Same source → no other distinct source → confidences unchanged.
+        assertEquals(0.72, result[0].confidence, 1e-4)
+        assertEquals(0.78, result[1].confidence, 1e-4)
+    }
+
+    @Test
+    fun `confluence never pushes confidence above one`() {
+        val litX = buildLitXAnalysis(
+            direction = Direction.BULLISH,
+            entry = 1.0850, stopLoss = 1.0800, tp1 = 1.0900, tp2 = 1.0950,
+            score = 99, timestamp = 1700005000000L,
+        )
+        val analysis = TradeProAnalysis(
+            symbol = "EURUSD", flipZone = null, holdZones = emptyList(),
+            imbalances = emptyList(), absorptions = emptyList(),
+            setup = buildTradeProSetup(
+                stage = SetupStage.EXECUTE, direction = Direction.BULLISH,
+                entry = 1.0855, stopLoss = 1.0810, target1 = 1.0920, confidence = 98,
+            ),
+            stage = SetupStage.EXECUTE, narrative = "Buy setup confirmed",
+        )
+        val divergences = listOf(
+            buildSmtDivergence(primaryIndex = 5, primaryPrice = 1.0790, direction = Direction.BULLISH, confidence = 0.97),
+        )
+
+        val result = computer.computeSignals(litX, analysis, divergences, sampleCandles, 1700009000000L)
+
+        assertEquals(1.0, result.first { it.source == SignalSource.LITX }.confidence, 1e-4)
+    }
+
+    // ========================================================================
     // HELPER BUILDERS
     // ========================================================================
 

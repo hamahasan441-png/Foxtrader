@@ -2,6 +2,7 @@ package com.foxtrader.app.domain.usecase.chart
 
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.ChartSignal
+import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.LitXAnalysis
 import com.foxtrader.app.domain.model.SignalSource
 import com.foxtrader.app.domain.model.tradepro.SetupStage
@@ -100,6 +101,45 @@ class SignalComputer @Inject constructor() {
             )
         }
 
-        return signals
+        return applyConfluence(signals)
+    }
+
+    /**
+     * Reinforce confidence when independent methodologies agree.
+     *
+     * LIT X, TradePro and SMT are derived from different logic, so when two or
+     * more of them point the same direction the combined signal is empirically
+     * stronger than any one alone. Each signal gets a bounded boost of
+     * [CONFLUENCE_BOOST_PER_SOURCE] per *other distinct source* confirming its
+     * direction, capped at [CONFLUENCE_BOOST_MAX] and never exceeding 1.0.
+     *
+     * A single source (or multiple entries from the same source, e.g. several
+     * SMT divergences) receives no boost, so single-source output is unchanged.
+     */
+    private fun applyConfluence(signals: List<ChartSignal>): List<ChartSignal> {
+        if (signals.size < 2) return signals
+
+        val distinctSourcesByDirection: Map<Direction, Set<SignalSource>> =
+            signals.groupBy { it.direction }
+                .mapValues { (_, group) -> group.map { it.source }.toSet() }
+
+        return signals.map { signal ->
+            val agreeing = distinctSourcesByDirection[signal.direction].orEmpty()
+            val otherSources = (agreeing - signal.source).size
+            if (otherSources <= 0) {
+                signal
+            } else {
+                val boost = (otherSources * CONFLUENCE_BOOST_PER_SOURCE)
+                    .coerceAtMost(CONFLUENCE_BOOST_MAX)
+                signal.copy(confidence = (signal.confidence + boost).coerceAtMost(1.0))
+            }
+        }
+    }
+
+    private companion object {
+        /** Confidence added per additional distinct source confirming a direction. */
+        const val CONFLUENCE_BOOST_PER_SOURCE = 0.04
+        /** Maximum total confluence boost applied to any single signal. */
+        const val CONFLUENCE_BOOST_MAX = 0.08
     }
 }

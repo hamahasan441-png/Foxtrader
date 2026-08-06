@@ -69,7 +69,7 @@ class LitAgent @Inject constructor(
                 agentName = name,
                 type = "INSTITUTIONAL_ENTRY_SIGNAL",
                 direction = lastSweep.direction,
-                confidence = 80.0,
+                confidence = institutionalEntryConfidence(lastSweep.confidence, lastBreak.confidence),
                 timestamp = System.currentTimeMillis(),
                 barIndex = candles.lastIndex,
                 detail = "Sweep + ${lastBreak.type} confirmation → institutional entry ${lastSweep.direction}",
@@ -299,6 +299,19 @@ class LitAgent @Inject constructor(
         }
     }
 
+    /**
+     * Confidence for a sweep + structure-break confluence, weighted toward the
+     * stronger of the two pieces of evidence. Replaces a flat 80 so the signal
+     * reflects the actual quality of the underlying sweep and break rather than
+     * a constant, and stays within a sane institutional-entry band.
+     */
+    private fun institutionalEntryConfidence(sweepConfidence: Double, breakConfidence: Double): Double {
+        val stronger = maxOf(sweepConfidence, breakConfidence)
+        val weaker = minOf(sweepConfidence, breakConfidence)
+        return (ENTRY_STRONGER_WEIGHT * stronger + ENTRY_WEAKER_WEIGHT * weaker)
+            .coerceIn(ENTRY_MIN_CONFIDENCE, ENTRY_MAX_CONFIDENCE)
+    }
+
     private fun Double.fmt(): String = String.format(Locale.US, "%.5f", this)
 
     private companion object {
@@ -313,6 +326,13 @@ class LitAgent @Inject constructor(
         const val POOL_TOLERANCE_MULTIPLIER = 0.25
         const val SWEEP_THRESHOLD_MULTIPLIER = 0.05
         const val DISPLACEMENT_BODY_MULTIPLIER = 0.60
+
+        // Institutional-entry confidence blend (sweep + break confluence).
+        const val ENTRY_STRONGER_WEIGHT = 0.6
+        const val ENTRY_WEAKER_WEIGHT = 0.4
+        const val ENTRY_MIN_CONFIDENCE = 60.0
+        const val ENTRY_MAX_CONFIDENCE = 92.0
+
         val STRUCT_TYPES = setOf("BOS", "CHOCH", "MSS", "IDM")
     }
 }

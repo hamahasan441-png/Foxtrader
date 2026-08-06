@@ -122,6 +122,17 @@ class LitXEngine @Inject constructor(
         }
         val bullish = intended == Direction.BULLISH
 
+        // --- Higher-timeframe context ---
+        // When the caller supplies no HTF read (the chart path calls analyze()
+        // without htfBias, so it defaults to NEUTRAL), derive a coarse HTF trend
+        // proxy from a longer window of the same series. This keeps the highest
+        // weighted factor (Trend Alignment) meaningful instead of pinned neutral.
+        val (effHtfBias, effHtfScore) = if (htfBias == Bias.NEUTRAL) {
+            deriveHtfProxy(candles)
+        } else {
+            htfBias to htfAlignmentScore
+        }
+
         // --- Liquidity sweep aligned with intent (bullish wants sell-side taken) ---
         // Keep a recent sweep for stage reporting, but only an ordered sweep
         // (sweep before the recent shift) may validate the institutional setup.
@@ -163,13 +174,18 @@ class LitXEngine @Inject constructor(
         val retestScore = if (poi == null || !retestAfterShift) {
             30
         } else {
-            val inBand = price in poi.low..poi.high
-            val inWide = price in (poi.low - vol)..(poi.high + vol)
-            when {
-                inBand -> 90
-                inWide -> 70
-                else -> 40
+            // Continuous score based on how far price sits from the POI band,
+            // normalised by volatility, instead of three hard buckets. Inside
+            // the band scores highest and decays smoothly with distance. The
+            // decay is tuned so ~1 volatility unit away still yields 70 (the
+            // validation gate), preserving the prior in-band / near-band cutoff.
+            val distance = when {
+                price in poi.low..poi.high -> 0.0
+                price < poi.low -> poi.low - price
+                else -> price - poi.high
             }
+            val norm = (distance / vol).coerceAtLeast(0.0)
+            (RETEST_MAX_SCORE - norm * RETEST_DECAY_PER_VOL).roundToInt().coerceIn(40, RETEST_MAX_SCORE)
         }
 
         // --- Risk/reward derived from the actual POI + dealing range ---
@@ -180,7 +196,7 @@ class LitXEngine @Inject constructor(
 
         // --- Score the 11 factors ---
         val inputs = LitXConfidenceScorer.Inputs(
-            trendAlignment = trendAlignment(bullish, htfBias, htfAlignmentScore, config),
+            trendAlignment = trendAlignment(bullish, effHtfBias, effHtfScore, config),
             liquidityQuality = if (sweep != null) 85 else if (liquidity.any { it.type == wantSide }) 55 else 35,
             structureQuality = structureQuality(intended, shift, structure.bias),
             sweepStrength = sweepStrength(sweep, candles, vol),
@@ -242,6 +258,30 @@ class LitXEngine @Inject constructor(
     // Factor helpers (each returns 0..100)
     // ------------------------------------------------------------------------
 
+    /**
+     * Coarse higher-timeframe trend proxy derived from a longer window of the
+     * same series, used only when the caller provides no external HTF read.
+     * Net directional move over the window is expressed in average-range units;
+     * the magnitude maps to a 50..80 alignment score (kept below a true HTF
+     * read's ceiling because a same-series proxy is weaker evidence). Uses only
+     * past/current closes, so it never repaints.
+     */
+    private fun deriveHtfProxy(candles: List<Candle>): Pair<Bias, Int> {
+        val window = candles.takeLast(HTF_PROXY_WINDOW)
+        if (window.size < HTF_PROXY_MIN_BARS) return Bias.NEUTRAL to 50
+        val netMove = window.last().close - window.first().close
+        val avgRange = window.map { it.range }.average().coerceAtLeast(1e-9)
+        val strength = netMove / avgRange
+        val magnitude = kotlin.math.abs(strength)
+        val score = (50.0 + (magnitude / HTF_PROXY_FULL_STRENGTH).coerceAtMost(1.0) * 30.0)
+            .roundToInt().coerceIn(50, 80)
+        return when {
+            strength >= HTF_PROXY_TREND_MIN -> Bias.BULLISH to score
+            strength <= -HTF_PROXY_TREND_MIN -> Bias.BEARISH to score
+            else -> Bias.NEUTRAL to 50
+        }
+    }
+
     private fun trendAlignment(bullish: Boolean, htfBias: Bias, htfScore: Int, config: LitXConfig): Int {
         val matches = (bullish && htfBias == Bias.BULLISH) || (!bullish && htfBias == Bias.BEARISH)
         val opposes = (bullish && htfBias == Bias.BEARISH) || (!bullish && htfBias == Bias.BULLISH)
@@ -284,13 +324,29 @@ class LitXEngine @Inject constructor(
 
     private fun volumeConfirmation(candles: List<Candle>): Int {
         val recent = candles.takeLast(VOL_WINDOW + 1)
-        val avg = recent.dropLast(1).map { it.volume }.average()
-        val last = candles.last().volume
-        if (avg <= 0.0 || last <= 0.0) return 50 // provider without real volume
-        val ratio = last / avg
+        val avgVol = recent.dropLast(1).map { it.volume }.average()
+        val lastVol = candles.last().volume
+        if (avgVol > 0.0 && lastVol > 0.0) {
+            val ratio = lastVol / avgVol
+            return when {
+                ratio >= 1.3 -> 85
+                ratio >= 1.0 -> 65
+                else -> 45
+            }
+        }
+        // Provider without real volume (common on spot FX / some crypto feeds).
+        // Fall back to a range-based participation proxy: an expansion bar
+        // (range well above the recent average) reflects the same "increased
+        // participation" that a volume spike would, so a whole weighted factor
+        // is no longer silently neutralised at a flat 50.
+        val avgRange = recent.dropLast(1).map { it.range }.average()
+        val lastRange = candles.last().range
+        if (avgRange <= 0.0 || lastRange <= 0.0) return 50
+        val ratio = lastRange / avgRange
         return when {
-            ratio >= 1.3 -> 85
-            ratio >= 1.0 -> 65
+            ratio >= 1.5 -> 82
+            ratio >= 1.1 -> 66
+            ratio >= 0.8 -> 55
             else -> 45
         }
     }
@@ -421,5 +477,18 @@ class LitXEngine @Inject constructor(
         const val SETUP_LOOKBACK_BARS = 30
         const val VOL_WINDOW = 14
         const val LONG_VOL_WINDOW = 50
+
+        // Continuous retest scoring: in-band max, decaying per volatility unit.
+        // 92 - 22*1.0 = 70 keeps the ~1-vol near-band cutoff at the validation gate.
+        const val RETEST_MAX_SCORE = 92
+        const val RETEST_DECAY_PER_VOL = 22.0
+
+        // Higher-timeframe trend proxy (same-series fallback when no HTF supplied).
+        const val HTF_PROXY_WINDOW = 60
+        const val HTF_PROXY_MIN_BARS = 30
+        // Net move (in avg-range units) at/above which the window is "trending".
+        const val HTF_PROXY_TREND_MIN = 1.5
+        // Net move (in avg-range units) mapped to the full proxy score ceiling.
+        const val HTF_PROXY_FULL_STRENGTH = 12.0
     }
 }
