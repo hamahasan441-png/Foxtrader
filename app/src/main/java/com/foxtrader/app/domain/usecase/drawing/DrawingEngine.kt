@@ -190,6 +190,24 @@ class DrawingEngine @Inject constructor() {
                 val inY = point.price in minOf(p1.price, p2.price)..maxOf(p1.price, p2.price)
                 if (inX && inY) 0.0 else Double.MAX_VALUE
             }
+            DrawingToolType.FIBONACCI_EXTENSION -> {
+                if (drawing.points.size < 2) return Double.MAX_VALUE
+                drawing.fibExtensionLevels.minOfOrNull { kotlin.math.abs(it - point.price) }
+                    ?: Double.MAX_VALUE
+            }
+            DrawingToolType.MEASURED_MOVE -> {
+                if (drawing.points.size < 2) return Double.MAX_VALUE
+                pointToLineDistance(drawing.points[0], drawing.points[1], point)
+            }
+            DrawingToolType.LONG_POSITION, DrawingToolType.SHORT_POSITION -> {
+                val levels = drawing.positionLevels ?: return Double.MAX_VALUE
+                val (entry, stop, target) = levels
+                val p1 = drawing.points[0]
+                val p2 = drawing.points[1]
+                val inX = point.index in minOf(p1.index, p2.index)..maxOf(p1.index, p2.index)
+                val inY = point.price in minOf(entry, stop, target)..maxOf(entry, stop, target)
+                if (inX && inY) 0.0 else Double.MAX_VALUE
+            }
         }
     }
 

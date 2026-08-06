@@ -208,4 +208,75 @@ class DrawingEngineTest {
         val outside = engine.hitTest(ChartPoint(index = 30f, price = 120.0), threshold = 1.0)
         assertNull("Point outside rectangle should not hit", outside)
     }
+
+    // ========================================================================
+    // ADVANCED TOOLS (Sprint 7)
+    // ========================================================================
+
+    @Test
+    fun `fibonacci extension requires two points and projects levels along the move`() {
+        engine.startPlacing(DrawingToolType.FIBONACCI_EXTENSION)
+        assertNull(engine.placePoint(ChartPoint(index = 0f, price = 100.0)))
+        assertEquals(DrawingMode.PLACING_SECOND, engine.mode)
+
+        val drawing = engine.placePoint(ChartPoint(index = 40f, price = 110.0))
+        assertNotNull(drawing)
+        assertEquals(DrawingToolType.FIBONACCI_EXTENSION, drawing!!.type)
+
+        // move = +10 from an anchor of 100 → levels at anchor + move*ratio.
+        val levels = drawing.fibExtensionLevels
+        assertEquals(7, levels.size)
+        assertEquals(100.0, levels[0], 1e-9)      // 0%
+        assertEquals(110.0, levels[2], 1e-9)      // 100%
+        assertEquals(112.72, levels[3], 1e-9)     // 127.2%
+        assertEquals(126.18, levels[6], 1e-9)     // 261.8%
+    }
+
+    @Test
+    fun `long position projects target at 2R above entry`() {
+        engine.startPlacing(DrawingToolType.LONG_POSITION)
+        engine.placePoint(ChartPoint(index = 5f, price = 100.0))  // entry
+        val drawing = engine.placePoint(ChartPoint(index = 15f, price = 98.0)) // stop
+        assertNotNull(drawing)
+
+        val (entry, stop, target) = drawing!!.positionLevels!!
+        assertEquals(100.0, entry, 1e-9)
+        assertEquals(98.0, stop, 1e-9)
+        assertEquals(104.0, target, 1e-9) // entry + 2 * risk(2) = 104
+    }
+
+    @Test
+    fun `short position projects target at 2R below entry`() {
+        engine.startPlacing(DrawingToolType.SHORT_POSITION)
+        engine.placePoint(ChartPoint(index = 5f, price = 100.0))  // entry
+        val drawing = engine.placePoint(ChartPoint(index = 15f, price = 102.0)) // stop
+        assertNotNull(drawing)
+
+        val (_, _, target) = drawing!!.positionLevels!!
+        assertEquals(96.0, target, 1e-9) // entry - 2 * risk(2) = 96
+    }
+
+    @Test
+    fun `measured move requires two points`() {
+        engine.startPlacing(DrawingToolType.MEASURED_MOVE)
+        assertNull(engine.placePoint(ChartPoint(index = 0f, price = 100.0)))
+        val drawing = engine.placePoint(ChartPoint(index = 10f, price = 108.0))
+        assertNotNull(drawing)
+        assertEquals(DrawingToolType.MEASURED_MOVE, drawing!!.type)
+        assertEquals(2, drawing.points.size)
+    }
+
+    @Test
+    fun `hitTest detects point inside a long position box`() {
+        engine.startPlacing(DrawingToolType.LONG_POSITION)
+        engine.placePoint(ChartPoint(index = 10f, price = 100.0))
+        engine.placePoint(ChartPoint(index = 20f, price = 98.0)) // target derived at 104
+
+        // Inside the [98, 104] price span and [10, 20] index span.
+        val inside = engine.hitTest(ChartPoint(index = 15f, price = 103.0), threshold = 1.0)
+        assertNotNull("Point inside position box should hit", inside)
+
+        val outside = engine.hitTest(ChartPoint(index = 15f, price = 120.0), threshold = 1.0)
+        assertNull("Point above the target should not hit", outside)
+    }
 }

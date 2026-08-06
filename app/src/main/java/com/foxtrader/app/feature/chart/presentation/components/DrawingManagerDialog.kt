@@ -140,4 +140,8 @@ private fun DrawingToolType.displayLabel(): String = when (this) {
     DrawingToolType.FIBONACCI_RETRACEMENT -> "Fibonacci retracement"
     DrawingToolType.RECTANGLE -> "Rectangle"
     DrawingToolType.RAY -> "Ray"
+    DrawingToolType.FIBONACCI_EXTENSION -> "Fibonacci extension"
+    DrawingToolType.LONG_POSITION -> "Long position"
+    DrawingToolType.SHORT_POSITION -> "Short position"
+    DrawingToolType.MEASURED_MOVE -> "Measured move"
 }
