@@ -305,24 +305,24 @@ class AiStrategyGeneratorTest {
 
     /**
      * Generates a ranging/sideways series with ADX < 20.
-     * A seeded mean-reverting random walk ensures no sustained directional move.
+     * Practically flat data: tiny random jitter around a constant price ensures
+     * directional movement indicators converge toward zero.
      */
     private fun rangingSeries(size: Int): List<Candle> {
         val rng = java.util.Random(42)
         val mean = 1.10000
-        var price = mean
         return (0 until size).map { i ->
-            price = price + (mean - price) * 0.3 + (rng.nextGaussian() * 0.00020)
-            val range = 0.00020 + rng.nextDouble() * 0.00010
-            val open = price
-            val close = price + (rng.nextGaussian() * 0.00008)
+            // Tiny jitter: +-0.00005 body, +-0.00010 wicks — essentially flat.
+            val body = rng.nextGaussian() * 0.00005
+            val open = mean + body
+            val close = mean - body
             Candle(
                 timestamp = 1_000L + i * 3_600_000L,
                 open = open,
-                high = maxOf(open, close) + range,
-                low = minOf(open, close) - range,
+                high = maxOf(open, close) + 0.00010,
+                low = minOf(open, close) - 0.00010,
                 close = close,
-                volume = 800.0 + (i % 5) * 100.0,
+                volume = 1000.0,
             )
         }
     }
