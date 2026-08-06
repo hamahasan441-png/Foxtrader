@@ -1,0 +1,27 @@
+{
+  "id": "FEAT-003",
+  "type": "feat",
+  "description": "Trade Journal AI - An algorithmic trade review and analytics engine that analyzes JournalEntry history to produce actionable insights about trading behavior patterns, emotional correlations, setup-type performance, and personalized improvement recommendations. Pure rule-based analysis with no external AI dependencies.",
+  "status": "completed",
+  "steps": [
+    "Create app/src/main/java/com/foxtrader/app/domain/usecase/ai/TradeJournalAi.kt - a class with @Inject constructor (no repository dependency - receives entries as parameter for testability). Core method: analyze(entries: List<JournalEntry>): JournalAiReport.",
+    "Create data classes in the same file: JournalAiReport (stats: JournalStats, behaviorPatterns: List<BehaviorPattern>, emotionAnalysis: EmotionAnalysis, setupRankings: List<SetupRanking>, streakAnalysis: StreakAnalysis, recommendations: List<String>, tradeReviews: List<TradeReview>). BehaviorPattern (type: PatternType enum [REVENGE_TRADING, OVERTRADING, FEAR_OF_MISSING_OUT, CONSISTENT_WINNER, IMPROVING_TREND, DECLINING_TREND], confidence: Int 0-100, evidence: String, suggestion: String). EmotionAnalysis (emotionWinRates: Map<EmotionTag, Double>, worstEmotion: EmotionTag?, bestEmotion: EmotionTag?, emotionPnlCorrelation: Map<EmotionTag, Double>). SetupRanking (setupType: String, tradeCount: Int, winRate: Double, avgR: Double, totalPnl: Double, grade: String). StreakAnalysis (currentStreak: Int, isWinStreak: Boolean, longestWinStreak: Int, longestLossStreak: Int, streakImpactOnBehavior: String). TradeReview (entryId: String, verdict: String [EXCELLENT, GOOD, ACCEPTABLE, POOR, TERRIBLE], reasons: List<String>, improvementTips: List<String>).",
+    "Implement behavior pattern detection: REVENGE_TRADING = loss followed by same-session entry with REVENGE/FOMO emotion tag; OVERTRADING = more than 5 trades in a single day with declining R-multiples; FEAR_OF_MISSING_OUT = entries with FOMO tag having worse win rate than average; IMPROVING_TREND = last 10 trades have higher average R than previous 10; DECLINING_TREND = opposite.",
+    "Implement trade review scoring: EXCELLENT = R >= 3.0 with PATIENT/CONFIDENT emotion; GOOD = R >= 1.5; ACCEPTABLE = R >= 0; POOR = loss with NEUTRAL emotion (missed management); TERRIBLE = loss with REVENGE/FOMO emotion.",
+    "Implement recommendations engine: aggregate patterns and emit personalized strings like 'Your FOMO trades lose X% more than average - consider a mandatory 10-minute cooling period' or 'Your best setup is X with Y% win rate - focus on this pattern'.",
+    "Create app/src/test/java/com/foxtrader/app/domain/usecase/ai/TradeJournalAiTest.kt - JUnit4 tests: detects revenge trading pattern, detects overtrading pattern, emotion analysis identifies worst emotion, setup rankings are sorted by average R, trade review grades correctly, empty input produces empty report, improving trend detected when recent trades are better."
+  ],
+  "acceptance_criteria": [
+    "TradeJournalAi compiles with no android.* imports",
+    "Tests validate all behavior pattern detection algorithms",
+    "Emotion correlation analysis produces meaningful insights from JournalEntry data",
+    "Recommendations are personalized based on actual trading data patterns",
+    "Individual trade reviews provide actionable grading with improvement tips"
+  ],
+  "verification": [
+    "CI runs ./gradlew testDebugUnitTest and all new tests in TradeJournalAiTest pass",
+    "CI runs ./gradlew compileDebugKotlin and new source compiles without errors"
+  ],
+  "blocked_reason": null,
+  "findings": "Implemented successfully. Pure Kotlin with no android.* imports. All data classes and enums in the same file as the engine. Used javax.inject.Inject and javax.inject.Singleton consistent with project patterns. Cannot verify locally due to INTEGRATIONS_ONLY network - CI will validate on push."
+}
