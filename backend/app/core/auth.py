@@ -6,13 +6,14 @@ JWT — the Android client (`AuthRepositoryImpl` / `AuthInterceptor`) treats the
 access/refresh tokens as opaque and only relies on the returned expiry
 timestamps, so this faithfully implements the wire contract.
 
+Persistence is delegated to an [AuthStore] (see `app.core.persistence`): the
+default SQLite backend is durable across restarts; an in-memory backend is used
+for tests and stateless deployments.
+
 SECURITY NOTES:
 - Passwords are hashed with PBKDF2-HMAC-SHA256 and a per-user random salt.
 - Access tokens are short-lived (15 min); refresh tokens last 7 days and are
   rotated on every refresh.
-- State is held in memory and is **not** durable across process restarts.
-  Persistence (PostgreSQL/Redis) is the documented roadmap item; the in-memory
-  store exists so the client contract works end-to-end and is fully testable.
 """
 
 from __future__ import annotations
@@ -22,6 +23,8 @@ import hmac
 import secrets
 import time
 from dataclasses import dataclass
+
+from app.core.persistence import AuthStore, MemoryStore, StoredUser
 
 #: Access-token lifetime in seconds (mirrors the client's 15-minute default).
 ACCESS_TOKEN_TTL_SECONDS = 15 * 60
@@ -83,15 +86,35 @@ def _derive(password: str, salt: str) -> str:
     return digest.hex()
 
 
-class AuthService:
-    """In-memory user store + token issuance/validation."""
+def _to_domain_user(stored: StoredUser) -> User:
+    return User(
+        id=stored.id,
+        email=stored.email,
+        password_hash=stored.password_hash,
+        password_salt=stored.password_salt,
+        display_name=stored.display_name,
+        created_at=stored.created_at,
+        device_id=stored.device_id,
+    )
 
-    def __init__(self) -> None:
-        self._users_by_email: dict[str, User] = {}
-        self._users_by_id: dict[str, User] = {}
-        # token -> (user_id, expires_at_ms)
-        self._access_tokens: dict[str, tuple[str, int]] = {}
-        self._refresh_tokens: dict[str, tuple[str, int]] = {}
+
+def _to_stored_user(user: User) -> StoredUser:
+    return StoredUser(
+        id=user.id,
+        email=user.email,
+        password_hash=user.password_hash,
+        password_salt=user.password_salt,
+        display_name=user.display_name,
+        created_at=user.created_at,
+        device_id=user.device_id,
+    )
+
+
+class AuthService:
+    """User + token lifecycle backed by an [AuthStore]."""
+
+    def __init__(self, store: AuthStore | None = None) -> None:
+        self._store: AuthStore = store or MemoryStore()
 
     # ------------------------------------------------------------------
     # Registration & login
@@ -101,7 +124,7 @@ class AuthService:
         email = email.strip().lower()
         if not email or not password or not display_name:
             raise InvalidCredentialsError("Email, password and display name are required")
-        if email in self._users_by_email:
+        if self._store.user_by_email(email) is not None:
             raise DuplicateEmailError(email)
 
         password_hash, salt = hash_password(password)
@@ -113,15 +136,16 @@ class AuthService:
             display_name=display_name.strip(),
             created_at=_now_ms(),
         )
-        self._users_by_email[email] = user
-        self._users_by_id[user.id] = user
+        self._store.save_user(_to_stored_user(user))
         return user
 
     def login(self, email: str, password: str) -> User:
-        user = self._users_by_email.get(email.strip().lower())
-        if user is None or not verify_password(password, user.password_hash, user.password_salt):
+        stored = self._store.user_by_email(email.strip().lower())
+        if stored is None or not verify_password(
+            password, stored.password_hash, stored.password_salt
+        ):
             raise InvalidCredentialsError("Invalid email or password")
-        return user
+        return _to_domain_user(stored)
 
     # ------------------------------------------------------------------
     # Token lifecycle
@@ -134,8 +158,8 @@ class AuthService:
         now = _now_ms()
         access_exp = now + ACCESS_TOKEN_TTL_SECONDS * 1000
         refresh_exp = now + REFRESH_TOKEN_TTL_SECONDS * 1000
-        self._access_tokens[access] = (user_id, access_exp)
-        self._refresh_tokens[refresh] = (user_id, refresh_exp)
+        self._store.save_access(access, user_id, access_exp)
+        self._store.save_refresh(refresh, user_id, refresh_exp)
         return {
             "access_token": access,
             "refresh_token": refresh,
@@ -148,39 +172,34 @@ class AuthService:
 
         Returns (user, new token dict). The consumed refresh token is revoked.
         """
-        entry = self._refresh_tokens.get(refresh_token)
+        entry = self._store.refresh_entry(refresh_token)
         if entry is None:
             raise InvalidTokenError("Invalid or expired refresh token")
         user_id, expires_at = entry
         if expires_at <= _now_ms():
-            self._revoke_refresh(refresh_token)
+            self._store.delete_refresh(refresh_token)
             raise InvalidTokenError("Refresh token has expired")
-        self._revoke_refresh(refresh_token)
+        self._store.delete_refresh(refresh_token)
 
-        user = self._users_by_id.get(user_id)
-        if user is None:
+        stored = self._store.user_by_id(user_id)
+        if stored is None:
             raise InvalidTokenError("User no longer exists")
-        return user, self.issue_tokens(user_id)
+        return _to_domain_user(stored), self.issue_tokens(user_id)
 
     def authenticate_access(self, access_token: str) -> User | None:
         """Resolve an access token to a user, or None if invalid/expired."""
-        entry = self._access_tokens.get(access_token)
+        entry = self._store.access_entry(access_token)
         if entry is None:
             return None
         user_id, expires_at = entry
         if expires_at <= _now_ms():
-            self._revoke_access(access_token)
+            self._store.delete_access(access_token)
             return None
-        return self._users_by_id.get(user_id)
+        stored = self._store.user_by_id(user_id)
+        return _to_domain_user(stored) if stored else None
 
     def revoke_access(self, access_token: str) -> None:
-        self._revoke_access(access_token)
-
-    def _revoke_access(self, token: str) -> None:
-        self._access_tokens.pop(token, None)
-
-    def _revoke_refresh(self, token: str) -> None:
-        self._refresh_tokens.pop(token, None)
+        self._store.delete_access(access_token)
 
 
 def _now_ms() -> int:

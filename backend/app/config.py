@@ -35,6 +35,12 @@ class Settings:
     #: explicit non-wildcard allow-list; a wildcard origin can never carry
     #: credentials, so [create_app] force-disables it and logs a hard warning.
     allow_credentials: bool = True
+    #: Auth/sync persistence backend: "memory" (stateless) or "sqlite" (durable).
+    #: Defaults to "memory" for direct construction (tests); `from_env` defaults
+    #: to "sqlite" for real deployments.
+    store_backend: str = "memory"
+    #: SQLite database file path (only used when [store_backend] is "sqlite").
+    db_path: str = "foxtrader.db"
     app_name: str = "FoxTrader Market Data API"
     version: str = "0.1.0"
 
@@ -44,6 +50,9 @@ class Settings:
             provider=os.environ.get("FOX_PROVIDER", "sample").strip() or "sample",
             cors_origins=_split_csv(os.environ.get("FOX_CORS_ORIGINS", "*")) or ["*"],
             allow_credentials=_env_bool("FOX_ALLOW_CREDENTIALS", True),
+            # Real deployments default to the durable SQLite backend.
+            store_backend=(os.environ.get("FOX_STORE", "sqlite").strip() or "sqlite").lower(),
+            db_path=os.environ.get("FOX_DB_PATH", "foxtrader.db").strip() or "foxtrader.db",
             app_name=os.environ.get("FOX_APP_NAME", "FoxTrader Market Data API"),
             version=os.environ.get("FOX_VERSION", "0.1.0"),
         )

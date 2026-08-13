@@ -326,11 +326,12 @@ market-data backend):
 
 The FastAPI backend (`backend/`) implements all of the above against the
 client's exact camelCase contract, alongside the market-data endpoints
-(`/api/v1/market/candles/*` and `/health`). **Storage is in-memory only** —
-accounts, tokens, and synced items are lost when the server restarts, and
-durable persistence (PostgreSQL/Redis) is still on the roadmap. The app must
-reach a running backend for login/sync to work; the default emulator URL is
-`http://10.0.2.2:8000/`.
+(`/api/v1/market/candles/*` and `/health`). Accounts, tokens, and synced items
+persist to **SQLite by default** (`FOX_STORE=sqlite`) so they survive server
+restarts; set `FOX_STORE=memory` for a stateless deploy. Persistence sits
+behind a pluggable store interface, so PostgreSQL/Redis can be dropped in
+later. The app must reach a running backend for login/sync to work; the default
+emulator URL is `http://10.0.2.2:8000/`.
 
 ---
 
@@ -361,8 +362,8 @@ reach a running backend for login/sync to work; the default emulator URL is
 - [x] Bar-snapped crosshair with OHLC readout panel
 - [x] Adaptive quality control wired into the render pass (120fps budget enforcement)
 - [x] Debug render-performance HUD
-- [x] FastAPI backend — market-data + auth + cloud sync (in-memory store)
-- [ ] FastAPI backend durable persistence (PostgreSQL + Redis)
+- [x] FastAPI backend — market-data + auth + cloud sync (SQLite-persisted store)
+- [ ] FastAPI backend — PostgreSQL + Redis production store
 - [ ] Social / copy-trading features
 - [ ] Release on Google Play Store
 

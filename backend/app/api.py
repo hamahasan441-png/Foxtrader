@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import Settings
 from app.core.auth import AuthService
+from app.core.persistence import build_stores
 from app.core.providers.registry import build_provider
 from app.core.sync_store import SyncStore
 
@@ -28,11 +29,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.provider = provider
 
-    # Auth + cloud-sync stores. In-memory (not durable across restarts) — the
-    # FastAPI layer and the client contract work end-to-end; durable persistence
-    # (PostgreSQL/Redis) is the documented roadmap item.
-    app.state.auth = AuthService()
-    app.state.sync_store = SyncStore()
+    # Auth + cloud-sync stores. Default (from_env) is the durable SQLite
+    # backend; direct construction / tests default to in-memory. Both backends
+    # share the same store interface, so this is a one-line swap for a future
+    # PostgreSQL/Redis implementation.
+    auth_store, sync_persist = build_stores(settings.store_backend, settings.db_path)
+    app.state.auth = AuthService(auth_store)
+    app.state.sync_store = SyncStore(sync_persist)
 
     # A wildcard allow-origin ("*") can never carry credentials: browsers
     # reject a credentialed response whose `Access-Control-Allow-Origin` is

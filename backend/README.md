@@ -82,14 +82,17 @@ client's kotlinx.serialization expects (`tokens.{accessToken, refreshToken,
 accessExpiresAt, refreshExpiresAt}`, `user.{id, email, displayName, createdAt,
 deviceId}`, etc.).
 
-### Storage model (in-memory)
+### Storage model (durable by default)
 
-Auth accounts, tokens, and sync items are stored **in memory only** — state is
-lost on process restart, and tokens/accounts are shared across all workers of a
-single process. This makes the contract work end-to-end and keeps the core
-fully unit-testable offline. Durable persistence (PostgreSQL/Redis, per the
-roadmap) plugs in behind `app.core.auth.AuthService` and
-`app.core.sync_store.SyncStore` without touching the routers.
+Auth accounts, tokens, and sync items are persisted to **SQLite** by default
+(`FOX_STORE=sqlite`, file at `FOX_DB_PATH`, WAL mode) — state survives process
+restarts, so a restarted server still recognises logged-in users and their
+synced data. For stateless/ephemeral deployments set `FOX_STORE=memory`
+(the in-memory backend is also what unit tests use).
+
+Persistence sits behind a pluggable store interface (`app.core.persistence`
+`AuthStore` / `SyncStore`), so a future PostgreSQL/Redis backend is a one-line
+swap in `app/api.py` without touching the routers.
 
 - Passwords are hashed with PBKDF2-HMAC-SHA256 + per-user salt.
 - Access tokens are opaque, short-lived (15 min); refresh tokens are rotated
