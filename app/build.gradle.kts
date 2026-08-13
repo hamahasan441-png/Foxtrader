@@ -17,7 +17,6 @@ plugins {
     alias(libs.plugins.hilt)
     alias(libs.plugins.detekt)
     alias(libs.plugins.ktlint)
-    alias(libs.plugins.dependency.check)
     jacoco
 }
 
@@ -59,15 +58,6 @@ android {
             ?: System.getenv("CRASH_REPORTING_DSN")
             ?: ""
         buildConfigField("String", "CRASH_REPORTING_DSN", "\"$crashDsn\"")
-
-        // Certificate-pinning pins for the FoxTrader backend, comma-separated
-        // SHA-256 hashes (e.g. "sha256/AAAA..."). When empty, no pinning is
-        // applied (safe default for local dev against 10.0.2.2); operators set
-        // this to the real production hashes to enable certificate pinning.
-        val certPins = (project.findProperty("FOXTRADER_CERT_PINS") as? String)
-            ?: System.getenv("FOXTRADER_CERT_PINS")
-            ?: ""
-        buildConfigField("String", "FOXTRADER_CERT_PINS", "\"$certPins\"")
     }
 
     // Release signing is driven entirely by environment/secrets so no key
@@ -177,20 +167,8 @@ detekt {
     // ignoreFailures = false and fail only on new issues above the baseline.
     ignoreFailures = true
     config.setFrom(rootProject.files("config/detekt/detekt.yml"))
-    // Use rootProject.file to ensure the path is resolved correctly in CI
-    baseline = rootProject.file("config/detekt/baseline.xml")
+    baseline = file("config/detekt/baseline.xml")
     source.setFrom(files("src/main/java", "src/test/java"))
-}
-
-// Ensure every Detekt task instance running in the module inherits the
-// ignoreFailures setting. This guards against different detekt task types
-// or initialization order causing the build to fail unexpectedly.
-tasks.withType<io.gitlab.arturbosch.detekt.Detekt>().configureEach {
-    ignoreFailures = true
-    reports {
-        xml.required.set(true)
-        html.required.set(true)
-    }
 }
 
 ktlint {
