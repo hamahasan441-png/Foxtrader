@@ -18,6 +18,8 @@ import androidx.core.view.WindowCompat
 // Dark (Ember Ink) is the institutional default. Light is a warm paper desk.
 // ============================================================================
 
+private val ColorSurfaceStrongLight = androidx.compose.ui.graphics.Color(0xFFE4DACA)
+
 private val FoxDarkColors = darkColorScheme(
     primary = FoxAmber50,
     onPrimary = FoxOnAccent,
