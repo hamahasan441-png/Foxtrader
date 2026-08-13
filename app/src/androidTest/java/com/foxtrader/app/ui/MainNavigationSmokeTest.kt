@@ -33,22 +33,23 @@ class MainNavigationSmokeTest {
 
     @Test
     fun bottomNavigationTabs_areVisible() {
+        composeRule.onNodeWithText("Home").assertExists()
         composeRule.onNodeWithText("Chart").assertExists()
-        composeRule.onNodeWithText("Scanner").assertExists()
-        composeRule.onNodeWithText("Strategies").assertExists()
+        composeRule.onNodeWithText("Markets").assertExists()
         composeRule.onNodeWithText("Lab").assertExists()
-        composeRule.onNodeWithText("Journal").assertExists()
-        composeRule.onNodeWithText("Settings").assertExists()
+        composeRule.onNodeWithText("More").assertExists()
     }
 
     @Test
-    fun navigation_opensScannerJournalAndSettingsScreens() {
-        composeRule.onNodeWithText("Scanner").performClick()
+    fun navigation_opensMarketsJournalAndSettingsScreens() {
+        composeRule.onNodeWithText("Markets").performClick()
         composeRule.onNodeWithText("Strategy").assertIsDisplayed()
 
+        composeRule.onNodeWithText("More").performClick()
         composeRule.onNodeWithText("Journal").performClick()
         composeRule.onNodeWithContentDescription("Open portfolio exposure").assertExists()
 
+        composeRule.onNodeWithText("More").performClick()
         composeRule.onNodeWithText("Settings").performClick()
         composeRule.onNodeWithText("Risk Management").assertExists()
     }

@@ -126,6 +126,9 @@ fun DrawingPalette(
                 ToolIcon(Icons.Default.Remove, "Horizontal line", activeTool == DrawingToolType.HORIZONTAL_LINE) {
                     select(DrawingToolType.HORIZONTAL_LINE)
                 }
+                ToolIcon(Icons.Default.Timeline, "Vertical line", activeTool == DrawingToolType.VERTICAL_LINE) {
+                    select(DrawingToolType.VERTICAL_LINE)
+                }
                 ToolIcon(Icons.Default.Timeline, "Fibonacci retracement", activeTool == DrawingToolType.FIBONACCI_RETRACEMENT) {
                     select(DrawingToolType.FIBONACCI_RETRACEMENT)
                 }

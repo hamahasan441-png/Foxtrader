@@ -32,7 +32,7 @@ class FeatureSurfaceSmokeTest {
 
     @Test
     fun scanner_shows_strategy_and_view_mode_controls() {
-        composeRule.onNodeWithText("Scanner").performClick()
+        composeRule.onNodeWithText("Markets").performClick()
         composeRule.onNodeWithText("Strategy").assertIsDisplayed()
         composeRule.onNodeWithText("LIST").assertExists()
         composeRule.onNodeWithText("HEATMAP").assertExists()
@@ -40,6 +40,7 @@ class FeatureSurfaceSmokeTest {
 
     @Test
     fun settings_shows_core_sections() {
+        composeRule.onNodeWithText("More").performClick()
         composeRule.onNodeWithText("Settings").performClick()
         composeRule.onNodeWithText("Account").assertExists()
         composeRule.onNodeWithText("Security").assertExists()

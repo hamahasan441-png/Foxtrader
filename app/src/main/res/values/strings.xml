@@ -2,6 +2,11 @@
 <resources>
     <string name="app_name">FoxTrader</string>
     <string name="tagline">Institutional AI Trading</string>
+    <string name="nav_home">Home</string>
+    <string name="nav_chart">Chart</string>
+    <string name="nav_markets">Markets</string>
+    <string name="nav_lab">Lab</string>
+    <string name="nav_more">More</string>
 
     <string name="chart_brand_short">Fox</string>
     <string name="chart_no_data">No data</string>

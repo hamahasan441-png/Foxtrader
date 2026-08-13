@@ -3,6 +3,7 @@ package com.foxtrader.app.feature.chart.presentation
 import androidx.compose.runtime.Immutable
 import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.SmcVisualMode
 import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.model.ChartBarMode
 import com.foxtrader.app.domain.model.ChartSignal
@@ -61,6 +62,7 @@ data class IndicatorToggles(
     val rsi: Boolean = false,
     val macd: Boolean = false,
     val volume: Boolean = false,
+    val smcVisualMode: SmcVisualMode = SmcVisualMode.PROFESSIONAL,
 )
 
 /**

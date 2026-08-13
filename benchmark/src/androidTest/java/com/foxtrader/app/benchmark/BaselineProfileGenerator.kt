@@ -21,14 +21,16 @@ class BaselineProfileGenerator {
     ) {
         pressHome()
         startActivityAndWait()
-        device.wait(Until.hasObject(By.text("Fox")), 5_000)
+        device.wait(Until.hasObject(By.text("FoxTrader")), 5_000)
 
-        device.findObject(By.text("Scanner"))?.click()
-        device.wait(Until.hasObject(By.text("Scanner")), 5_000)
+        device.findObject(By.text("Markets"))?.click()
+        device.wait(Until.hasObject(By.text("Strategy")), 5_000)
 
+        device.findObject(By.text("More"))?.click()
         device.findObject(By.text("Settings"))?.click()
         device.wait(Until.hasObject(By.text("Settings")), 5_000)
 
+        device.findObject(By.text("More"))?.click()
         device.findObject(By.text("Journal"))?.click()
         device.wait(Until.hasObject(By.text("Journal")), 5_000)
 

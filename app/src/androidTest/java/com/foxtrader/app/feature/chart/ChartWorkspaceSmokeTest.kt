@@ -31,6 +31,7 @@ class ChartWorkspaceSmokeTest {
 
     @Test
     fun multiChartToolbar_canOpenSplitWorkspace() {
+        composeRule.onNodeWithText("Chart").performClick()
         composeRule.onNodeWithText("1×2").performClick()
         composeRule.onNodeWithText("DRAG").assertExists()
         composeRule.onNodeWithText("SYM-LINK").assertExists()

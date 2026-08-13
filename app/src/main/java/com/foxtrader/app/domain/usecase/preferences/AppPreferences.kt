@@ -19,7 +19,12 @@ import com.foxtrader.app.domain.model.AlertPriority
 import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.PositionSizingMethod
 import com.foxtrader.app.domain.model.RiskConfig
+import com.foxtrader.app.domain.model.SmcVisualMode
+import com.foxtrader.app.domain.model.StrategyBlueprint
+import com.foxtrader.app.domain.model.SubscriptionPlan
+import com.foxtrader.app.domain.model.SubscriptionState
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.model.WorkspaceProfile
 import com.foxtrader.app.domain.model.tradepro.AlertRule
 import com.foxtrader.app.domain.model.LitXConfig
 import com.foxtrader.app.domain.model.tradepro.TradeProConfig
@@ -132,6 +137,18 @@ class AppPreferences @Inject constructor(
     private val _disclaimerAcknowledged = MutableStateFlow(false)
     val disclaimerAcknowledged: StateFlow<Boolean> = _disclaimerAcknowledged.asStateFlow()
 
+    private val _workspaceProfile = MutableStateFlow(WorkspaceProfile())
+    val workspaceProfile: StateFlow<WorkspaceProfile> = _workspaceProfile.asStateFlow()
+
+    private val _subscription = MutableStateFlow(SubscriptionState())
+    val subscription: StateFlow<SubscriptionState> = _subscription.asStateFlow()
+
+    private val _smcVisualMode = MutableStateFlow(SmcVisualMode.PROFESSIONAL)
+    val smcVisualMode: StateFlow<SmcVisualMode> = _smcVisualMode.asStateFlow()
+
+    private val _strategyBlueprints = MutableStateFlow<List<StrategyBlueprint>>(emptyList())
+    val strategyBlueprints: StateFlow<List<StrategyBlueprint>> = _strategyBlueprints.asStateFlow()
+
     private val _tradeProConfig = MutableStateFlow(TradeProConfig())
     val tradeProConfig: StateFlow<TradeProConfig> = _tradeProConfig.asStateFlow()
 
@@ -199,6 +216,22 @@ class AppPreferences @Inject constructor(
                     ?: PersistedMultiChartState()
                 _crashReportingEnabled.value = prefs[KEY_CRASH_REPORTING_ENABLED] ?: false
                 _disclaimerAcknowledged.value = prefs[KEY_DISCLAIMER_ACKNOWLEDGED] ?: false
+                _workspaceProfile.value = prefs[KEY_WORKSPACE_PROFILE]?.let { raw ->
+                    runCatching { json.decodeFromString<WorkspaceProfile>(raw) }.getOrDefault(WorkspaceProfile())
+                } ?: WorkspaceProfile(
+                    // Existing installs already passed the disclaimer. Don't
+                    // force the new desk setup on them or on instrumentation.
+                    completed = prefs[KEY_DISCLAIMER_ACKNOWLEDGED] ?: false,
+                )
+                _subscription.value = prefs[KEY_SUBSCRIPTION]?.let { raw ->
+                    runCatching { json.decodeFromString<SubscriptionState>(raw) }.getOrDefault(SubscriptionState())
+                } ?: SubscriptionState()
+                _smcVisualMode.value = prefs[KEY_SMC_VISUAL_MODE]?.let { name ->
+                    runCatching { SmcVisualMode.valueOf(name) }.getOrDefault(SmcVisualMode.PROFESSIONAL)
+                } ?: SmcVisualMode.PROFESSIONAL
+                _strategyBlueprints.value = prefs[KEY_STRATEGY_BLUEPRINTS]?.let { raw ->
+                    runCatching { json.decodeFromString<List<StrategyBlueprint>>(raw) }.getOrDefault(emptyList())
+                } ?: emptyList()
                 _tradeProConfig.value = prefs[KEY_TRADEPRO_CONFIG]?.let { raw ->
                     runCatching { json.decodeFromString<TradeProConfig>(raw) }.getOrDefault(TradeProConfig())
                 } ?: TradeProConfig()
@@ -227,6 +260,45 @@ class AppPreferences @Inject constructor(
     fun setDisclaimerAcknowledged(acknowledged: Boolean) {
         _disclaimerAcknowledged.value = acknowledged
         scope.launch { context.dataStore.edit { it[KEY_DISCLAIMER_ACKNOWLEDGED] = acknowledged } }
+    }
+
+    fun setWorkspaceProfile(profile: WorkspaceProfile) {
+        _workspaceProfile.value = profile
+        scope.launch { context.dataStore.edit { it[KEY_WORKSPACE_PROFILE] = json.encodeToString(profile) } }
+    }
+
+    fun setSubscription(state: SubscriptionState) {
+        _subscription.value = state
+        scope.launch { context.dataStore.edit { it[KEY_SUBSCRIPTION] = json.encodeToString(state) } }
+    }
+
+    fun startProTrial(durationMs: Long = DEFAULT_TRIAL_DURATION_MS) {
+        setSubscription(
+            SubscriptionState(
+                plan = SubscriptionPlan.TRIAL,
+                trialEndsAtEpochMs = System.currentTimeMillis() + durationMs,
+            ),
+        )
+    }
+
+    fun setSmcVisualMode(mode: SmcVisualMode) {
+        _smcVisualMode.value = mode
+        scope.launch { context.dataStore.edit { it[KEY_SMC_VISUAL_MODE] = mode.name } }
+    }
+
+    fun setStrategyBlueprints(blueprints: List<StrategyBlueprint>) {
+        _strategyBlueprints.value = blueprints
+        scope.launch { context.dataStore.edit { it[KEY_STRATEGY_BLUEPRINTS] = json.encodeToString(blueprints) } }
+    }
+
+    fun upsertStrategyBlueprint(blueprint: StrategyBlueprint) {
+        val next = _strategyBlueprints.value
+            .filterNot { it.id == blueprint.id } + blueprint
+        setStrategyBlueprints(next)
+    }
+
+    fun deleteStrategyBlueprint(id: String) {
+        setStrategyBlueprints(_strategyBlueprints.value.filterNot { it.id == id })
     }
 
     fun setTradeProConfig(config: TradeProConfig) {

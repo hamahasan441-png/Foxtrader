@@ -58,6 +58,7 @@ fun DrawScope.drawOrderBlocks(
     viewport: ChartViewport,
     cw: Float,
     ch: Float,
+    intensity: Float = 1f,
 ) {
     val startIdx = max(0, viewport.startIndex.toInt())
     val endIdx = (viewport.startIndex + viewport.visibleBars).toInt() + 1
@@ -75,8 +76,8 @@ fun DrawScope.drawOrderBlocks(
         // are a faint tint; mitigated blocks fade further. (Previously this
         // overrode the baked-in ~15% alpha with 1f, painting solid opaque boxes
         // that swamped the chart.)
-        val fillAlpha = if (ob.mitigated) OB_FILL_ALPHA_MITIGATED else OB_FILL_ALPHA
-        val borderAlpha = if (ob.mitigated) OB_BORDER_ALPHA_MITIGATED else OB_BORDER_ALPHA
+        val fillAlpha = (if (ob.mitigated) OB_FILL_ALPHA_MITIGATED else OB_FILL_ALPHA) * intensity
+        val borderAlpha = (if (ob.mitigated) OB_BORDER_ALPHA_MITIGATED else OB_BORDER_ALPHA) * intensity
         val fillColor = when (ob.type) {
             OrderBlockType.BULLISH -> OB_BULLISH_COLOR
             OrderBlockType.BEARISH -> OB_BEARISH_COLOR
@@ -128,6 +129,7 @@ fun DrawScope.drawFairValueGaps(
     viewport: ChartViewport,
     cw: Float,
     ch: Float,
+    intensity: Float = 1f,
 ) {
     val startIdx = max(0, viewport.startIndex.toInt())
     val endIdx = (viewport.startIndex + viewport.visibleBars).toInt() + 1
@@ -148,11 +150,11 @@ fun DrawScope.drawFairValueGaps(
         val fillColor = when (gap.type) {
             FvgType.BULLISH -> FVG_BULLISH_COLOR
             FvgType.BEARISH -> FVG_BEARISH_COLOR
-        }
+        }.copy(alpha = (if (gap.type == FvgType.BULLISH) FVG_BULLISH_COLOR.alpha else FVG_BEARISH_COLOR.alpha) * intensity)
         val borderColor = when (gap.type) {
             FvgType.BULLISH -> FVG_BULLISH_BORDER
             FvgType.BEARISH -> FVG_BEARISH_BORDER
-        }
+        }.copy(alpha = (if (gap.type == FvgType.BULLISH) FVG_BULLISH_BORDER.alpha else FVG_BEARISH_BORDER.alpha) * intensity)
 
         // Fill zone
         drawRect(
@@ -196,6 +198,7 @@ fun DrawScope.drawLiquidityPools(
     viewport: ChartViewport,
     cw: Float,
     ch: Float,
+    intensity: Float = 1f,
 ) {
     val startIdx = max(0, viewport.startIndex.toInt())
     val endIdx = (viewport.startIndex + viewport.visibleBars).toInt() + 1
@@ -209,7 +212,7 @@ fun DrawScope.drawLiquidityPools(
 
         if (y < 0f || y > ch) continue
 
-        val alpha = if (pool.swept) LIQ_SWEPT_ALPHA else 1f
+        val alpha = (if (pool.swept) LIQ_SWEPT_ALPHA else 1f) * intensity
         val color = when (pool.type) {
             LiquidityType.BUY_SIDE -> LIQ_BUY_COLOR
             LiquidityType.SELL_SIDE -> LIQ_SELL_COLOR
@@ -256,6 +259,7 @@ fun DrawScope.drawSessionBackgrounds(
     viewport: ChartViewport,
     cw: Float,
     ch: Float,
+    intensity: Float = 1f,
 ) {
     val startIdx = max(0, viewport.startIndex.toInt())
     val endIdx = (viewport.startIndex + viewport.visibleBars).toInt() + 1

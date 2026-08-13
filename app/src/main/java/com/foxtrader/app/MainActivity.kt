@@ -23,6 +23,7 @@ import com.foxtrader.app.data.auth.BiometricAuthManager
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.feature.auth.presentation.LockScreen
 import com.foxtrader.app.feature.onboarding.presentation.DisclaimerScreen
+import com.foxtrader.app.feature.onboarding.presentation.OnboardingScreen
 import com.foxtrader.app.ui.navigation.FoxNavHost
 import com.foxtrader.app.ui.theme.FoxTraderTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -63,6 +64,7 @@ class MainActivity : FragmentActivity() {
             // any analysis is shown (ENTERPRISE_MASTER_PLAN T5.3).
             val disclaimerAcknowledged by appPreferences.disclaimerAcknowledged
                 .collectAsStateWithLifecycle()
+            val workspaceProfile by appPreferences.workspaceProfile.collectAsStateWithLifecycle()
 
             // Lock the app on launch when App Lock is on; unlocked for the session
             // once biometric auth succeeds.
@@ -73,6 +75,15 @@ class MainActivity : FragmentActivity() {
                 darkMode = darkMode,
                 showDisclaimer = !disclaimerAcknowledged,
                 onAcknowledgeDisclaimer = { appPreferences.setDisclaimerAcknowledged(true) },
+                showOnboarding = disclaimerAcknowledged && !workspaceProfile.completed,
+                onFinishOnboarding = { profile ->
+                    appPreferences.setWorkspaceProfile(profile)
+                    val risk = appPreferences.riskConfig.value.copy(
+                        riskPercentPerTrade = profile.suggestedRiskPercent(),
+                    )
+                    appPreferences.setRiskConfig(risk)
+                    appPreferences.setDefaultTimeframe(profile.preferredTimeframe)
+                },
                 locked = locked,
                 onAuthenticate = {
                     biometricAuthManager.authenticate(

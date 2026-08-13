@@ -1,6 +1,9 @@
 package com.foxtrader.app.domain.model
 
+import kotlinx.serialization.Serializable
+
 /** Asset class categories for the screener watchlist. */
+@Serializable
 enum class AssetClass {
     FOREX, CRYPTO, STOCKS, INDICES, METALS, ENERGY, COMMODITIES
 }

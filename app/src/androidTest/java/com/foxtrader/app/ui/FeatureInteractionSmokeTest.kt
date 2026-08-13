@@ -32,7 +32,7 @@ class FeatureInteractionSmokeTest {
 
     @Test
     fun scanner_viewModeCanToggleBetweenListAndHeatmap() {
-        composeRule.onNodeWithText("Scanner").performClick()
+        composeRule.onNodeWithText("Markets").performClick()
         composeRule.onNodeWithText("HEATMAP").performClick()
         composeRule.onNodeWithText("Market sentiment").assertExists()
         composeRule.onNodeWithText("LIST").performClick()
@@ -41,6 +41,7 @@ class FeatureInteractionSmokeTest {
 
     @Test
     fun settings_saveButtonTransitionsToSavedState() {
+        composeRule.onNodeWithText("More").performClick()
         composeRule.onNodeWithText("Settings").performClick()
         composeRule.onNodeWithText("Save Settings").performClick()
         composeRule.onNodeWithText("Saved").assertExists()

@@ -617,7 +617,7 @@ This section is the normative style and architecture guide for all Android/Kotli
 ## 3.6 Navigation
 
 - **Single-activity, Compose Navigation.** `FoxNavHost` hosts one `NavHost` with a `Scaffold` bottom bar. Routes are string constants in `FoxRoutes` (`chart`, `scanner`, `strategies`, `journal`, `settings`). Start destination is `chart`.
-- **Bottom-nav behavior:** `popUpTo(FoxRoutes.CHART) { saveState = true }`, `launchSingleTop = true`, `restoreState = true` — a single-entry back stack with per-tab state restoration.
+- **Bottom-nav behavior:** five tabs — Home, Chart, Markets, Lab, More. `popUpTo(FoxRoutes.HOME) { saveState = true }`, `launchSingleTop = true`, `restoreState = true` — a single-entry back stack with per-tab state restoration.
 - `RULE` Screens do not receive `NavController`. Navigation intents are events handled at the graph level or via typed callbacks, keeping screens testable and preview-able.
 - **Future:** migrate route strings to type-safe Navigation (Kotlin serialization routes) when adding argument-bearing destinations (e.g., `chart/{symbol}/{timeframe}`).
 

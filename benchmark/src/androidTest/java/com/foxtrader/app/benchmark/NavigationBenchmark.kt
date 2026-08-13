@@ -27,18 +27,20 @@ class NavigationBenchmark {
         setupBlock = {
             pressHome()
             startActivityAndWait()
-            device.wait(Until.hasObject(By.text("Fox")), 5_000)
+            device.wait(Until.hasObject(By.text("FoxTrader")), 5_000)
         },
     ) {
-        device.findObject(By.text("Scanner"))?.click()
+        device.findObject(By.text("Markets"))?.click()
         device.wait(Until.hasObject(By.text("Strategy")), 5_000)
 
+        device.findObject(By.text("More"))?.click()
         device.findObject(By.text("Strategies"))?.click()
         device.wait(Until.hasObject(By.desc("Rescan")), 5_000)
 
         device.findObject(By.text("Lab"))?.click()
         device.wait(Until.hasObject(By.text("Backtesting Lab")), 5_000)
 
+        device.findObject(By.text("More"))?.click()
         device.findObject(By.text("Journal"))?.click()
         device.wait(Until.hasObject(By.text("Journal")), 5_000)
 

@@ -27,14 +27,15 @@ class ScannerSettingsBenchmark {
         setupBlock = {
             pressHome()
             startActivityAndWait()
-            device.wait(Until.hasObject(By.text("Fox")), 5_000)
+            device.wait(Until.hasObject(By.text("FoxTrader")), 5_000)
         },
     ) {
-        device.findObject(By.text("Scanner"))?.click()
+        device.findObject(By.text("Markets"))?.click()
         device.wait(Until.hasObject(By.text("Strategy")), 5_000)
         device.findObject(By.text("HEATMAP"))?.click()
         device.findObject(By.text("LIST"))?.click()
 
+        device.findObject(By.text("More"))?.click()
         device.findObject(By.text("Settings"))?.click()
         device.wait(Until.hasObject(By.text("Settings")), 5_000)
         device.findObject(By.text("Save Settings"))?.click()

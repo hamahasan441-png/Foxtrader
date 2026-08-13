@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Fox Design System — base colors for XML theme -->
-    <color name="fox_bg">#080B12</color>
-    <color name="fox_surface">#0C1019</color>
-    <color name="fox_accent">#D4A84E</color>
-    <color name="fox_text">#E4E7EC</color>
+    <!-- Fox Design Language — Ember Ink (XML splash / system chrome) -->
+    <color name="fox_bg">#090807</color>
+    <color name="fox_surface">#110E0C</color>
+    <color name="fox_accent">#E39B2E</color>
+    <color name="fox_text">#F3EDE3</color>
     <color name="white">#FFFFFF</color>
     <color name="black">#000000</color>
 </resources>

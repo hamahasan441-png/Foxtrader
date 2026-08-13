@@ -14,11 +14,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import com.foxtrader.app.ui.components.FoxButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -87,17 +86,11 @@ fun DisclaimerScreen(
         DisclaimerPoint(stringResource(R.string.disclaimer_point_local))
 
         Spacer(Modifier.height(28.dp))
-        Button(
+        FoxButton(
+            text = stringResource(R.string.disclaimer_acknowledge),
             onClick = onAcknowledge,
             modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = FoxAmber50),
-        ) {
-            Text(
-                text = stringResource(R.string.disclaimer_acknowledge),
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onPrimary,
-            )
-        }
+        )
         Spacer(Modifier.height(12.dp))
         Text(
             text = stringResource(R.string.disclaimer_settings_note),
