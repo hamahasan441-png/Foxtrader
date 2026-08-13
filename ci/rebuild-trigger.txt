@@ -1,0 +1,5 @@
+Rebuild trigger
+
+This file is updated to retrigger CI after detekt configuration change.
+
+Timestamp: 2026-08-13T11:40:00Z
