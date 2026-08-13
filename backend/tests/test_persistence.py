@@ -86,3 +86,14 @@ def test_memory_store_does_not_persist_across_instances():
     # A brand-new memory store has nothing.
     fresh = AuthService(build_stores("memory", None)[0])
     assert fresh.authenticate_access(tokens["access_token"]) is None
+
+
+def test_create_app_rejects_unknown_store_backend(monkeypatch):
+    import pytest as _pytest
+
+    _pytest.importorskip("fastapi")
+    from app.api import create_app
+    from app.config import Settings
+
+    with _pytest.raises(ValueError):
+        create_app(Settings(provider="sample", store_backend="postgres"))

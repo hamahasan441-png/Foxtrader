@@ -52,6 +52,15 @@ class AuthInterceptorTest {
             .body("original 401 body".toResponseBody())
             .build()
 
+    private fun buildOk() =
+        Response.Builder()
+            .request(request)
+            .protocol(Protocol.HTTP_1_1)
+            .code(200)
+            .message("OK")
+            .body("{\"ok\":true}".toResponseBody())
+            .build()
+
     private fun refreshResponse() =
         AuthResponse(
             tokens = AuthTokens(
@@ -105,5 +114,50 @@ class AuthInterceptorTest {
         val text = body?.string()
         assertTrue("expected a readable session-expired body", text?.contains("Session expired") == true)
         assertEquals(401, result.code)
+    }
+
+    @Test
+    fun `successful refresh retries the request and returns the retried response`() {
+        every { tokenManager.getAccessToken() } returns "expired-access" andThen "new-access"
+        every { tokenManager.getRefreshToken() } returns "refresh-token"
+        every { tokenManager.isRefreshTokenExpired() } returns false
+        every { syncApiProvider.get() } returns syncApi
+        coEvery { syncApi.refresh(any<RefreshRequest>()) } returns refreshResponse()
+
+        // First proceed returns the 401 (triggers refresh), second returns the
+        // retried 200.
+        val chain = mockk<Interceptor.Chain>()
+        every { chain.request() } returns request
+        every { chain.proceed(any<Request>()) } returns build401() andThen buildOk()
+
+        val interceptor = AuthInterceptor(tokenManager, syncApiProvider)
+        val result = interceptor.intercept(chain)
+
+        // The retry response is returned, not the closed 401.
+        assertEquals(200, result.code)
+        assertEquals("{\"ok\":true}", result.body?.string())
+    }
+
+    @Test
+    fun `auth endpoint paths skip token attach and return the response unchanged`() {
+        val loginRequest = Request.Builder().url("https://api.foxtrader.io/api/v1/auth/login").build()
+        val ok = Response.Builder()
+            .request(loginRequest)
+            .protocol(Protocol.HTTP_1_1)
+            .code(200)
+            .message("OK")
+            .body("auth body".toResponseBody())
+            .build()
+
+        val chain = mockk<Interceptor.Chain>()
+        every { chain.request() } returns loginRequest
+        every { chain.proceed(any<Request>()) } returns ok
+
+        val interceptor = AuthInterceptor(tokenManager, syncApiProvider)
+        val result = interceptor.intercept(chain)
+
+        // No refresh attempted on an auth path; response returned unchanged.
+        assertEquals(200, result.code)
+        assertEquals("auth body", result.body?.string())
     }
 }
