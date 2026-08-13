@@ -74,7 +74,7 @@ fun ScannerScreen(
             TopAppBar(
                 title = {
                     Text(
-                        "Scanner",
+                        "Markets",
                         fontWeight = FontWeight.Bold,
                         fontSize = 20.sp,
                     )

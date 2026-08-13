@@ -10,13 +10,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.foxtrader.app.ui.components.FoxButton
+import com.foxtrader.app.ui.components.FoxButtonStyle
+import com.foxtrader.app.ui.components.FoxTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -88,23 +87,19 @@ fun LoginScreen(
         Spacer(Modifier.height(32.dp))
 
         if (state.mode == AuthMode.REGISTER) {
-            OutlinedTextField(
+            FoxTextField(
                 value = state.displayName,
                 onValueChange = viewModel::onDisplayNameChange,
-                label = { Text(stringResource(R.string.auth_label_display_name)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+                label = stringResource(R.string.auth_label_display_name),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
             )
             Spacer(Modifier.height(12.dp))
         }
 
-        OutlinedTextField(
+        FoxTextField(
             value = state.email,
             onValueChange = viewModel::onEmailChange,
-            label = { Text(stringResource(R.string.auth_label_email)) },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
+            label = stringResource(R.string.auth_label_email),
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Email,
                 imeAction = ImeAction.Next,
@@ -113,13 +108,11 @@ fun LoginScreen(
 
         Spacer(Modifier.height(12.dp))
 
-        OutlinedTextField(
+        FoxTextField(
             value = state.password,
             onValueChange = viewModel::onPasswordChange,
-            label = { Text(stringResource(R.string.auth_label_password)) },
-            singleLine = true,
+            label = stringResource(R.string.auth_label_password),
             visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth(),
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Password,
                 imeAction = ImeAction.Done,
@@ -137,44 +130,43 @@ fun LoginScreen(
 
         Spacer(Modifier.height(24.dp))
 
-        Button(
-            onClick = viewModel::submit,
-            enabled = state.canSubmit,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = FoxAmber50),
-        ) {
-            if (state.isSubmitting) {
-                CircularProgressIndicator(
-                    modifier = Modifier.height(20.dp),
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    strokeWidth = 2.dp,
-                )
-            } else {
-                Text(
-                    text = if (state.mode == AuthMode.LOGIN) stringResource(R.string.auth_action_sign_in) else stringResource(R.string.auth_action_create_account),
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimary,
-                )
-            }
+        if (state.isSubmitting) {
+            CircularProgressIndicator(
+                modifier = Modifier.height(20.dp),
+                color = FoxAmber50,
+                strokeWidth = 2.dp,
+            )
+        } else {
+            FoxButton(
+                text = if (state.mode == AuthMode.LOGIN) {
+                    stringResource(R.string.auth_action_sign_in)
+                } else {
+                    stringResource(R.string.auth_action_create_account)
+                },
+                onClick = viewModel::submit,
+                enabled = state.canSubmit,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
 
         Spacer(Modifier.height(8.dp))
 
-        TextButton(onClick = viewModel::toggleMode) {
-            Text(
-                text = if (state.mode == AuthMode.LOGIN) {
-                    stringResource(R.string.auth_switch_to_register)
-                } else {
-                    stringResource(R.string.auth_switch_to_login)
-                },
-                color = FoxAmber50,
-            )
-        }
+        FoxButton(
+            text = if (state.mode == AuthMode.LOGIN) {
+                stringResource(R.string.auth_switch_to_register)
+            } else {
+                stringResource(R.string.auth_switch_to_login)
+            },
+            onClick = viewModel::toggleMode,
+            style = FoxButtonStyle.Ghost,
+            modifier = Modifier.fillMaxWidth(),
+        )
 
-        TextButton(onClick = onDismiss) {
-            Text(stringResource(R.string.auth_continue_offline), color = FoxNeutral60)
-        }
+        FoxButton(
+            text = stringResource(R.string.auth_continue_offline),
+            onClick = onDismiss,
+            style = FoxButtonStyle.Ghost,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }

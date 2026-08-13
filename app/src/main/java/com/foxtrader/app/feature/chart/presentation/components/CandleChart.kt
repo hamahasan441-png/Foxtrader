@@ -522,9 +522,10 @@ fun CandleChart(
         // ====================================================================
         // LAYER 0.5: SESSION BACKGROUNDS (behind candles)
         // ====================================================================
-        if (sessions.isNotEmpty() && quality.sessions) {
+        val smcIntensity = indicators.smcVisualMode.intensity
+        if (sessions.isNotEmpty() && quality.sessions && indicators.sessions) {
             clipRect(right = cw, bottom = ch) {
-                drawSessionBackgrounds(sessions, viewport, cw, ch)
+                drawSessionBackgrounds(sessions, viewport, cw, ch, smcIntensity)
             }
         }
 
@@ -534,7 +535,7 @@ fun CandleChart(
             }
         }
 
-        if (supportResistanceZones.isNotEmpty() && quality.structureAnnotations) {
+        if (indicators.supportResistance && supportResistanceZones.isNotEmpty() && quality.structureAnnotations) {
             clipRect(right = cw, bottom = ch) {
                 drawSupportResistanceZones(supportResistanceZones, viewport, cw, ch, structureLabelPaint)
             }
@@ -544,8 +545,12 @@ fun CandleChart(
         // LAYER 0.7: ORDER BLOCKS + FAIR VALUE GAPS (behind candles)
         // ====================================================================
         clipRect(right = cw, bottom = ch) {
-            if (orderBlocks.isNotEmpty()) drawOrderBlocks(orderBlocks, viewport, cw, ch)
-            if (fairValueGaps.isNotEmpty()) drawFairValueGaps(fairValueGaps, viewport, cw, ch)
+            if (indicators.orderBlocks && orderBlocks.isNotEmpty()) {
+                drawOrderBlocks(orderBlocks, viewport, cw, ch, smcIntensity)
+            }
+            if (indicators.fairValueGaps && fairValueGaps.isNotEmpty()) {
+                drawFairValueGaps(fairValueGaps, viewport, cw, ch, smcIntensity)
+            }
         }
 
         // ====================================================================
@@ -594,16 +599,16 @@ fun CandleChart(
         // ====================================================================
         // LAYER 1.5: LIQUIDITY POOLS (over candles, under indicators)
         // ====================================================================
-        if (liquidityPools.isNotEmpty()) {
+        if (indicators.liquidity && liquidityPools.isNotEmpty()) {
             clipRect(right = cw, bottom = ch) {
-                drawLiquidityPools(liquidityPools, viewport, cw, ch)
+                drawLiquidityPools(liquidityPools, viewport, cw, ch, smcIntensity)
             }
         }
 
         // ====================================================================
         // LAYER 1.7: VOLUME PROFILE (horizontal histogram, right-aligned)
         // ====================================================================
-        if (volumeProfile != null && quality.volumeProfile) {
+        if (indicators.volumeProfile && volumeProfile != null && quality.volumeProfile) {
             clipRect(right = cw, bottom = ch) {
                 drawVolumeProfile(volumeProfile, viewport, cw, ch)
             }
@@ -639,7 +644,7 @@ fun CandleChart(
         // ====================================================================
         // LAYER 3: MARKET STRUCTURE ANNOTATIONS
         // ====================================================================
-        if (structureBreaks.isNotEmpty() && quality.structureAnnotations) {
+        if (indicators.structure && structureBreaks.isNotEmpty() && quality.structureAnnotations) {
             clipRect(right = cw, bottom = ch) {
                 drawStructureLayer(structureBreaks, candles, viewport, cw, ch, structureLabelPaint)
             }

@@ -144,26 +144,11 @@ fun JournalScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            if (!state.hasEntries) {
-                // Empty state
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            "No trades recorded yet",
-                            color = FoxNeutral60,
-                            style = MaterialTheme.typography.bodyLarge,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "Tap + to log a trade, or trades from replay and backtesting will appear here",
-                            color = FoxNeutral60.copy(alpha = 0.6f),
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                }
+                if (!state.hasEntries) {
+                com.foxtrader.app.ui.components.FoxEmptyState(
+                    title = "No trades recorded yet",
+                    subtitle = "Tap + to log a trade, or trades from replay and backtesting will appear here",
+                )
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),

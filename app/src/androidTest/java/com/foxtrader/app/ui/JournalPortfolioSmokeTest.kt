@@ -33,6 +33,7 @@ class JournalPortfolioSmokeTest {
 
     @Test
     fun journal_opensAndPortfolioRouteIsReachable() {
+        composeRule.onNodeWithText("More").performClick()
         composeRule.onNodeWithText("Journal").performClick()
         composeRule.onNodeWithText("No trades recorded yet").assertExists()
         composeRule.onNodeWithContentDescription("Open portfolio exposure").performClick()

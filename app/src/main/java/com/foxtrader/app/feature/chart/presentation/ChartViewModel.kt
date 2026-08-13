@@ -203,6 +203,14 @@ class ChartViewModel @Inject constructor(
         appPreferences.performanceMode
             .onEach { mode -> performanceMonitor.setPerformanceMode(mode) }
             .launchIn(viewModelScope)
+        appPreferences.smcVisualMode
+            .onEach { mode ->
+                val current = _uiState.value.indicators
+                if (current.smcVisualMode != mode) {
+                    _uiState.value = _uiState.value.copy(indicators = current.copy(smcVisualMode = mode))
+                }
+            }
+            .launchIn(viewModelScope)
         refresh()
     }
 
@@ -331,6 +339,9 @@ class ChartViewModel @Inject constructor(
         val current = _uiState.value.indicators
         val updated = transform(current)
         if (current.confluence != updated.confluence) { aiCoordinator.lastAiCandlesHash = 0L }
+        if (current.smcVisualMode != updated.smcVisualMode) {
+            appPreferences.setSmcVisualMode(updated.smcVisualMode)
+        }
         _uiState.value = _uiState.value.copy(
             indicators = updated,
             confluence = if (updated.confluence) _uiState.value.confluence else null,

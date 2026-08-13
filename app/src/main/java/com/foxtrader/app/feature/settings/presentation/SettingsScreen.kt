@@ -85,6 +85,16 @@ fun SettingsScreen(
         ) {
             Spacer(Modifier.height(4.dp))
 
+            SectionHeader("Workspace")
+
+            SettingsCard {
+                Text(
+                    "Desk setup and FoxTrader Pro live under More. Risk, data and privacy stay here.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = FoxNeutral60,
+                )
+            }
+
             // === ACCOUNT ===
             SectionHeader("Account")
 

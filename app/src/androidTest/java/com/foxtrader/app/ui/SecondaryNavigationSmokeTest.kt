@@ -33,6 +33,7 @@ class SecondaryNavigationSmokeTest {
 
     @Test
     fun navigation_opensStrategiesAndLab() {
+        composeRule.onNodeWithText("More").performClick()
         composeRule.onNodeWithText("Strategies").performClick()
         composeRule.onNodeWithContentDescription("Rescan").assertExists()
 

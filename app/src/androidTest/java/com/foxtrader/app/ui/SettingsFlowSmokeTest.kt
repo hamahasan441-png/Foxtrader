@@ -31,6 +31,7 @@ class SettingsFlowSmokeTest {
 
     @Test
     fun settings_dataProviderSectionAndSaveAreReachable() {
+        composeRule.onNodeWithText("More").performClick()
         composeRule.onNodeWithText("Settings").performClick()
         composeRule.onNodeWithText("Data Provider").assertExists()
         composeRule.onNodeWithText("General").assertExists()

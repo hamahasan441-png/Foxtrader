@@ -27,6 +27,8 @@ class ChartInteractionBenchmark {
         setupBlock = {
             pressHome()
             startActivityAndWait()
+            device.wait(Until.hasObject(By.text("FoxTrader")), 5_000)
+            device.findObject(By.text("Chart"))?.click()
             device.wait(Until.hasObject(By.text("Fox")), 5_000)
         },
     ) {

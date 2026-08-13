@@ -2,12 +2,16 @@ package com.foxtrader.app.ui.navigation
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.BarChart
-import androidx.compose.material.icons.filled.Book
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.outlined.ShowChart
+import androidx.compose.material.icons.outlined.Insights
+import androidx.compose.material.icons.outlined.Apps
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.ShowChart
-import androidx.compose.material.icons.filled.TrendingUp
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Insights
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -30,13 +34,17 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.foxtrader.app.feature.ai.presentation.AiWorkspaceScreen
 import com.foxtrader.app.feature.auth.presentation.LoginScreen
 import com.foxtrader.app.feature.alerts.presentation.AlertsScreen
 import com.foxtrader.app.feature.backtest.presentation.BacktestLabScreen
 import com.foxtrader.app.feature.chart.presentation.ChartScreen
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.feature.home.presentation.HomeScreen
 import com.foxtrader.app.feature.journal.presentation.JournalScreen
 import com.foxtrader.app.feature.litx.presentation.LitXScreen
+import com.foxtrader.app.feature.more.presentation.MoreAction
+import com.foxtrader.app.feature.more.presentation.MoreScreen
 import com.foxtrader.app.feature.tradepro.presentation.OpportunityBoardScreen
 import com.foxtrader.app.feature.tradepro.presentation.AlertRulesScreen
 import com.foxtrader.app.feature.tradepro.presentation.CorrelationScreen
@@ -48,17 +56,24 @@ import com.foxtrader.app.feature.portfolio.presentation.PortfolioScreen
 import com.foxtrader.app.feature.scanner.presentation.ScannerScreen
 import com.foxtrader.app.feature.settings.presentation.SettingsScreen
 import com.foxtrader.app.feature.strategies.presentation.StrategiesScreen
+import com.foxtrader.app.feature.strategies.presentation.StrategyBuilderScreen
+import com.foxtrader.app.feature.subscription.presentation.SubscriptionScreen
 import com.foxtrader.app.feature.trademanagement.presentation.TradeManagementScreen
 import com.foxtrader.app.feature.tradepro.presentation.TradeProBacktestReportScreen
 import com.foxtrader.app.feature.tradepro.presentation.TradeProOptimizerScreen
 import com.foxtrader.app.feature.tradepro.presentation.TradeProRiskDashboardScreen
 import com.foxtrader.app.feature.tradepro.presentation.TradeProSimulatorScreen
+import com.foxtrader.app.feature.watchlist.presentation.WatchlistScreen
+import com.foxtrader.app.ui.theme.FoxTheme
 
 /** Type-safe route constants for the app's destinations. */
 object FoxRoutes {
+    const val HOME = "home"
     const val CHART = "chart"
+    const val MARKETS = "markets"
     const val SCANNER = "scanner"
     const val STRATEGIES = "strategies"
+    const val STRATEGY_BUILDER = "strategy_builder"
     const val BACKTEST_LAB = "backtest_lab"
     const val JOURNAL = "journal"
     const val PORTFOLIO = "portfolio"
@@ -77,49 +92,39 @@ object FoxRoutes {
     const val OPPORTUNITY_BOARD = "opportunity_board"
     const val CORRELATION = "correlation"
     const val PAPER_TRADING = "paper_trading"
-
-    // LIT X institutional analysis for a specific symbol/timeframe (reached
-    // from the Chart top bar — additive, not a bottom tab).
+    const val MORE = "more"
+    const val AI = "ai_workspace"
+    const val WATCHLIST = "watchlist"
+    const val SUBSCRIPTION = "subscription"
     const val LITX = "litx/{symbol}/{timeframe}"
 
-    /** Builds a concrete LIT X route; the symbol is URL-encoded so values with
-     *  a '/' or space (e.g. "EUR/USD") don't break path-argument matching. */
     fun litx(symbol: String, timeframeLabel: String): String =
         "litx/${android.net.Uri.encode(symbol)}/${android.net.Uri.encode(timeframeLabel)}"
 }
 
-/** Bottom navigation tab definition. */
 data class BottomNavTab(
     val route: String,
     val label: String,
     val icon: ImageVector,
+    val selectedIcon: ImageVector,
 )
 
 private val bottomTabs = listOf(
-    BottomNavTab(FoxRoutes.CHART, "Chart", Icons.Default.BarChart),
-    BottomNavTab(FoxRoutes.SCANNER, "Scanner", Icons.Default.Search),
-    BottomNavTab(FoxRoutes.STRATEGIES, "Strategies", Icons.Default.TrendingUp),
-    BottomNavTab(FoxRoutes.BACKTEST_LAB, "Lab", Icons.Default.ShowChart),
-    BottomNavTab(FoxRoutes.JOURNAL, "Journal", Icons.Default.Book),
-    BottomNavTab(FoxRoutes.SETTINGS, "Settings", Icons.Default.Settings),
+    BottomNavTab(FoxRoutes.HOME, "Home", Icons.Outlined.Home, Icons.Filled.Home),
+    BottomNavTab(FoxRoutes.CHART, "Chart", Icons.Outlined.ShowChart, Icons.Filled.ShowChart),
+    BottomNavTab(FoxRoutes.MARKETS, "Markets", Icons.Outlined.GridView, Icons.Filled.GridView),
+    BottomNavTab(FoxRoutes.BACKTEST_LAB, "Lab", Icons.Outlined.Insights, Icons.Filled.Insights),
+    BottomNavTab(FoxRoutes.MORE, "More", Icons.Outlined.Apps, Icons.Filled.Apps),
 )
 
-/**
- * Root navigation graph with bottom navigation bar.
- * Single-activity architecture — every screen is a Composable destination.
- * Chart is the start destination (the heart of FoxTrader).
- */
 @Composable
 fun FoxNavHost(
     navController: NavHostController = rememberNavController(),
 ) {
-    // Immersive full-screen chart focus mode (R1): when the Chart requests it,
-    // the bottom navigation bar is hidden so the chart can use the full height.
-    // Guarded by the current route so navigating to any other destination —
-    // even via an in-chart action while immersive — always restores the bar.
     var chartImmersive by rememberSaveable { mutableStateOf(false) }
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
+    val colors = FoxTheme.colors
 
     Scaffold(
         bottomBar = {
@@ -127,13 +132,24 @@ fun FoxNavHost(
                 FoxBottomBar(navController = navController)
             }
         },
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = colors.background,
     ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = FoxRoutes.CHART,
+            startDestination = FoxRoutes.HOME,
             modifier = Modifier.padding(innerPadding),
         ) {
+            composable(FoxRoutes.HOME) {
+                HomeScreen(
+                    onOpenChart = { navController.navigate(FoxRoutes.CHART) },
+                    onOpenMarkets = { navController.navigate(FoxRoutes.MARKETS) },
+                    onOpenAlerts = { navController.navigate(FoxRoutes.ALERTS) },
+                    onOpenJournal = { navController.navigate(FoxRoutes.JOURNAL) },
+                    onOpenPortfolio = { navController.navigate(FoxRoutes.PORTFOLIO) },
+                    onOpenLab = { navController.navigate(FoxRoutes.BACKTEST_LAB) },
+                    onOpenAi = { navController.navigate(FoxRoutes.AI) },
+                )
+            }
             composable(FoxRoutes.CHART) {
                 ChartScreen(
                     onNavigateToAlerts = { navController.navigate(FoxRoutes.ALERTS) },
@@ -145,7 +161,6 @@ fun FoxNavHost(
                     onToggleImmersive = { chartImmersive = !chartImmersive },
                 )
             }
-            // LIT X Institutional Framework analysis for the charted symbol.
             composable(
                 route = FoxRoutes.LITX,
                 arguments = listOf(
@@ -161,19 +176,17 @@ fun FoxNavHost(
                     onNavigateBack = { navController.popBackStack() },
                 )
             }
-            // Alerts is reachable from the Chart top bar rather than a 7th
-            // bottom tab: Material 3 caps the bar at 5 destinations (already
-            // exceeded at 6), and the chart is where a trader reacts to a
-            // signal.
             composable(FoxRoutes.ALERTS) {
                 AlertsScreen(
                     onNavigateToRules = { navController.navigate(FoxRoutes.ALERT_RULES) },
                 )
             }
-            // Smart Alert rule builder \u2014 user-defined TRADEPRO alert conditions.
             composable(FoxRoutes.ALERT_RULES) {
-                AlertRulesScreen(
-                    onNavigateBack = { navController.popBackStack() },
+                AlertRulesScreen(onNavigateBack = { navController.popBackStack() })
+            }
+            composable(FoxRoutes.MARKETS) {
+                ScannerScreen(
+                    onNavigateToOpportunityBoard = { navController.navigate(FoxRoutes.OPPORTUNITY_BOARD) },
                 )
             }
             composable(FoxRoutes.SCANNER) {
@@ -181,15 +194,17 @@ fun FoxNavHost(
                     onNavigateToOpportunityBoard = { navController.navigate(FoxRoutes.OPPORTUNITY_BOARD) },
                 )
             }
-            // TRADEPRO Opportunity Board — a watchlist-wide readiness ranking,
-            // reached from the Scanner (both are market-wide scan surfaces).
             composable(FoxRoutes.OPPORTUNITY_BOARD) {
-                OpportunityBoardScreen(
-                    onNavigateBack = { navController.popBackStack() },
-                )
+                OpportunityBoardScreen(onNavigateBack = { navController.popBackStack() })
             }
             composable(FoxRoutes.STRATEGIES) {
                 StrategiesScreen()
+            }
+            composable(FoxRoutes.STRATEGY_BUILDER) {
+                StrategyBuilderScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    onOpenLab = { navController.navigate(FoxRoutes.BACKTEST_LAB) },
+                )
             }
             composable(FoxRoutes.BACKTEST_LAB) {
                 BacktestLabScreen(
@@ -197,12 +212,8 @@ fun FoxNavHost(
                     onNavigateToRiskSimulator = { navController.navigate(FoxRoutes.RISK_SIMULATOR) },
                 )
             }
-            // Monte Carlo risk simulator \u2014 reached from the Backtesting Lab
-            // (both quantify an edge; the simulator adds tail-risk / risk-of-ruin).
             composable(FoxRoutes.RISK_SIMULATOR) {
-                RiskSimulatorScreen(
-                    onNavigateBack = { navController.popBackStack() },
-                )
+                RiskSimulatorScreen(onNavigateBack = { navController.popBackStack() })
             }
             composable(FoxRoutes.JOURNAL) {
                 JournalScreen(
@@ -211,43 +222,57 @@ fun FoxNavHost(
                     onNavigateToDailyPlan = { navController.navigate(FoxRoutes.DAILY_PLAN) },
                 )
             }
-            // Daily Plan (pre-market briefing + session review) lives with the
-            // Journal — planning and reviewing are two ends of the same ritual.
             composable(FoxRoutes.DAILY_PLAN) {
-                DailyPlanScreen(
-                    onNavigateBack = { navController.popBackStack() },
-                )
+                DailyPlanScreen(onNavigateBack = { navController.popBackStack() })
             }
-            // Trader Profile (journal analytics / coaching) lives under Journal —
-            // it is derived entirely from journal entries.
             composable(FoxRoutes.TRADER_PROFILE) {
-                TraderProfileScreen(
-                    onNavigateBack = { navController.popBackStack() },
-                )
+                TraderProfileScreen(onNavigateBack = { navController.popBackStack() })
             }
-            // Portfolio lives under Journal rather than as a 7th bottom tab:
-            // Material 3 guidance caps the bar at 5 destinations (already
-            // exceeded at 6), and open exposure is derived from open journal
-            // trades, so it belongs in that hierarchy.
             composable(FoxRoutes.PORTFOLIO) {
                 PortfolioScreen(
                     onNavigateToCorrelation = { navController.navigate(FoxRoutes.CORRELATION) },
                     onNavigateToPaperTrading = { navController.navigate(FoxRoutes.PAPER_TRADING) },
                 )
             }
-            // Paper Trading — simulated execution reached from Portfolio (open
-            // exposure and the paper account are the same concern). Prices are
-            // fed by the chart via the shared PaperTradingSession singleton.
             composable(FoxRoutes.PAPER_TRADING) {
-                PaperTradingScreen(
-                    onNavigateBack = { navController.popBackStack() },
+                PaperTradingScreen(onNavigateBack = { navController.popBackStack() })
+            }
+            composable(FoxRoutes.CORRELATION) {
+                CorrelationScreen(onNavigateBack = { navController.popBackStack() })
+            }
+            composable(FoxRoutes.MORE) {
+                MoreScreen(
+                    onOpen = { action ->
+                        val route = when (action) {
+                            MoreAction.JOURNAL -> FoxRoutes.JOURNAL
+                            MoreAction.PORTFOLIO -> FoxRoutes.PORTFOLIO
+                            MoreAction.ALERTS -> FoxRoutes.ALERTS
+                            MoreAction.STRATEGIES -> FoxRoutes.STRATEGIES
+                            MoreAction.STRATEGY_BUILDER -> FoxRoutes.STRATEGY_BUILDER
+                            MoreAction.AI -> FoxRoutes.AI
+                            MoreAction.WATCHLIST -> FoxRoutes.WATCHLIST
+                            MoreAction.PAPER -> FoxRoutes.PAPER_TRADING
+                            MoreAction.TRADE_MANAGEMENT -> FoxRoutes.TRADE_MANAGEMENT
+                            MoreAction.DAILY_PLAN -> FoxRoutes.DAILY_PLAN
+                            MoreAction.CORRELATION -> FoxRoutes.CORRELATION
+                            MoreAction.SETTINGS -> FoxRoutes.SETTINGS
+                            MoreAction.SUBSCRIPTION -> FoxRoutes.SUBSCRIPTION
+                        }
+                        navController.navigate(route)
+                    },
                 )
             }
-            // Correlation matrix \u2014 data-driven concentration risk, under Portfolio.
-            composable(FoxRoutes.CORRELATION) {
-                CorrelationScreen(
+            composable(FoxRoutes.AI) {
+                AiWorkspaceScreen(
                     onNavigateBack = { navController.popBackStack() },
+                    onOpenChart = { navController.navigate(FoxRoutes.CHART) },
                 )
+            }
+            composable(FoxRoutes.WATCHLIST) {
+                WatchlistScreen(onNavigateBack = { navController.popBackStack() })
+            }
+            composable(FoxRoutes.SUBSCRIPTION) {
+                SubscriptionScreen(onNavigateBack = { navController.popBackStack() })
             }
             composable(FoxRoutes.SETTINGS) {
                 SettingsScreen(
@@ -266,10 +291,6 @@ fun FoxNavHost(
                     onNavigateToRiskDashboard = { navController.navigate(FoxRoutes.RISK_DASHBOARD) },
                 )
             }
-            // TRADEPRO Backtest Report is reached from the Backtesting Lab (it
-            // shares the Lab's symbol/timeframe mental model) rather than a 7th
-            // bottom tab: Material 3 caps the bar at 5 destinations (already
-            // exceeded at 6).
             composable(FoxRoutes.TRADEPRO_BACKTEST) {
                 TradeProBacktestReportScreen(
                     onNavigateBack = { navController.popBackStack() },
@@ -277,19 +298,13 @@ fun FoxNavHost(
                 )
             }
             composable(FoxRoutes.TRADEPRO_OPTIMIZER) {
-                TradeProOptimizerScreen(
-                    onNavigateBack = { navController.popBackStack() },
-                )
+                TradeProOptimizerScreen(onNavigateBack = { navController.popBackStack() })
             }
             composable(FoxRoutes.TRADEPRO_SIMULATOR) {
-                TradeProSimulatorScreen(
-                    onNavigateBack = { navController.popBackStack() },
-                )
+                TradeProSimulatorScreen(onNavigateBack = { navController.popBackStack() })
             }
             composable(FoxRoutes.RISK_DASHBOARD) {
-                TradeProRiskDashboardScreen(
-                    onNavigateBack = { navController.popBackStack() },
-                )
+                TradeProRiskDashboardScreen(onNavigateBack = { navController.popBackStack() })
             }
         }
     }
@@ -299,10 +314,12 @@ fun FoxNavHost(
 private fun FoxBottomBar(navController: NavHostController) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
+    val colors = FoxTheme.colors
 
     NavigationBar(
-        containerColor = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.onSurface,
+        containerColor = colors.surface,
+        contentColor = colors.textPrimary,
+        tonalElevation = FoxTheme.elevation.none,
     ) {
         bottomTabs.forEach { tab ->
             val selected = currentDestination?.hierarchy?.any { it.route == tab.route } == true
@@ -311,21 +328,25 @@ private fun FoxBottomBar(navController: NavHostController) {
                 onClick = {
                     if (!selected) {
                         navController.navigate(tab.route) {
-                            // Pop up to the start destination to avoid building a large back stack
-                            popUpTo(FoxRoutes.CHART) { saveState = true }
+                            popUpTo(FoxRoutes.HOME) { saveState = true }
                             launchSingleTop = true
                             restoreState = true
                         }
                     }
                 },
-                icon = { Icon(tab.icon, contentDescription = tab.label) },
-                label = { Text(tab.label) },
+                icon = {
+                    Icon(
+                        if (selected) tab.selectedIcon else tab.icon,
+                        contentDescription = tab.label,
+                    )
+                },
+                label = { Text(tab.label, style = MaterialTheme.typography.labelSmall) },
                 colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                    selectedIconColor = colors.accent,
+                    selectedTextColor = colors.accent,
+                    unselectedIconColor = colors.textMuted,
+                    unselectedTextColor = colors.textMuted,
+                    indicatorColor = colors.accentMuted,
                 ),
             )
         }

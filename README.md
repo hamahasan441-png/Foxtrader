@@ -92,11 +92,13 @@ A native Android trading-analysis app built with **Kotlin 2.0, Jetpack Compose, 
 - Acknowledgment tracking
 
 ### Navigation & UX
-- Bottom navigation bar (Chart, Scanner, Strategies, Lab, Journal, Settings)
+- Mobile-first desk: Home, Chart, Markets, Lab, More
+- Home snapshot: breadth, movers, signals, journal, alerts, classified AI notes
+- More hub: journal, portfolio, strategies, AI workspace, watchlist, settings, Pro
 - Interactive timeframe selector with tappable chips
-- Persisted risk, alert, AI decision, provider, theme, and default-timeframe settings
+- Persisted risk, alert, AI decision, provider, theme, workspace profile, and default-timeframe settings
 - Pull-to-refresh for live data reload
-- Fox Design System (dark-first Material 3 theme with amber accent)
+- Fox Design Language (Ember Ink — warm ink canvas, fox ember accent, tabular prices)
 - Edge-to-edge display
 
 ---
@@ -204,8 +206,9 @@ Foxtrader/
 │       │   │   ├── FoxTraderApp.kt              # @HiltAndroidApp entry point
 │       │   │   ├── MainActivity.kt              # Single-activity Compose host
 │       │   │   ├── ui/
-│       │   │   │   ├── theme/                   # Fox Design System (Color, Type, Theme)
-│       │   │   │   └── navigation/              # Bottom nav + NavHost
+│       │   │   │   ├── theme/                   # Fox Design Language (Ember Ink tokens)
+│       │   │   │   ├── components/              # Shared Fox buttons, cards, states
+│       │   │   │   └── navigation/              # Home / Chart / Markets / Lab / More
 │       │   │   ├── di/                          # Hilt DI modules
 │       │   │   │   ├── DatabaseModule.kt        # Room database provider
 │       │   │   │   ├── NetworkModule.kt         # Retrofit + OkHttp (timeouts, HTTPS)

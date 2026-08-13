@@ -6,20 +6,23 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
 // ============================================================================
-// FOX DESIGN SYSTEM — Material3 theme
-// Maps Fox tokens onto Material3 color roles. Dark theme is the default
-// institutional experience; light theme is available.
+// FOX DESIGN LANGUAGE — Material3 + semantic token providers
+// Dark (Ember Ink) is the institutional default. Light is a warm paper desk.
 // ============================================================================
+
+private val ColorSurfaceStrongLight = androidx.compose.ui.graphics.Color(0xFFE4DACA)
 
 private val FoxDarkColors = darkColorScheme(
     primary = FoxAmber50,
-    onPrimary = FoxNeutral0,
+    onPrimary = FoxOnAccent,
     primaryContainer = FoxAmber40,
     onPrimaryContainer = FoxAmber70,
     secondary = FoxInfo,
@@ -41,15 +44,55 @@ private val FoxDarkColors = darkColorScheme(
 private val FoxLightColors = lightColorScheme(
     primary = FoxAmberLight,
     onPrimary = FoxLightSurface,
+    primaryContainer = FoxAmber40,
+    onPrimaryContainer = FoxAmber70,
+    secondary = FoxInfo,
+    onSecondary = FoxLightText,
     background = FoxLightBg,
     onBackground = FoxLightText,
     surface = FoxLightSurface,
     onSurface = FoxLightText,
     surfaceVariant = FoxLightSurfaceRaised,
     onSurfaceVariant = FoxLightTextSecondary,
+    surfaceContainer = FoxLightSurfaceRaised,
+    surfaceContainerHigh = ColorSurfaceStrongLight,
     outline = FoxLightBorder,
+    outlineVariant = FoxLightBorder,
     error = FoxError,
+    onError = FoxLightSurface,
 )
+
+object FoxTheme {
+    val colors: FoxColorTokens
+        @Composable
+        @ReadOnlyComposable
+        get() = LocalFoxColors.current
+
+    val type: FoxTypeTokens
+        @Composable
+        @ReadOnlyComposable
+        get() = LocalFoxType.current
+
+    val spacing: FoxSpacing
+        @Composable
+        @ReadOnlyComposable
+        get() = LocalFoxSpacing.current
+
+    val shapes: FoxShapes
+        @Composable
+        @ReadOnlyComposable
+        get() = LocalFoxShapes.current
+
+    val elevation: FoxElevation
+        @Composable
+        @ReadOnlyComposable
+        get() = LocalFoxElevation.current
+
+    val motion: FoxMotion
+        @Composable
+        @ReadOnlyComposable
+        get() = LocalFoxMotion.current
+}
 
 @Composable
 fun FoxTraderTheme(
@@ -57,6 +100,7 @@ fun FoxTraderTheme(
     content: @Composable () -> Unit,
 ) {
     val colorScheme = if (darkTheme) FoxDarkColors else FoxLightColors
+    val tokens = if (darkTheme) FoxDarkTokens else FoxLightTokens
     val view = LocalView.current
 
     if (!view.isInEditMode) {
@@ -68,9 +112,18 @@ fun FoxTraderTheme(
         }
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = FoxTypography,
-        content = content,
-    )
+    CompositionLocalProvider(
+        LocalFoxColors provides tokens,
+        LocalFoxType provides FoxTypeTokensDefault,
+        LocalFoxSpacing provides FoxSpacing(),
+        LocalFoxShapes provides FoxShapes(),
+        LocalFoxElevation provides FoxElevation(),
+        LocalFoxMotion provides FoxMotion(),
+    ) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = FoxTypography,
+            content = content,
+        )
+    }
 }

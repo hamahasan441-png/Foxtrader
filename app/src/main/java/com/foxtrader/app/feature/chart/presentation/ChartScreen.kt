@@ -717,6 +717,7 @@ private fun ChartToolbar(
             icon = Icons.Default.Timer,
             isActive = activeMenu == ChartMenu.TIMEFRAME,
             onClick = { onMenuToggle(ChartMenu.TIMEFRAME) },
+            contentDescription = stringResource(R.string.chart_timeframe_selector_cd),
         )
 
         // Bar-mode button - shows current mode label
@@ -816,6 +817,7 @@ private fun ToolbarChipButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     isActive: Boolean,
     onClick: () -> Unit,
+    contentDescription: String? = null,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -826,7 +828,12 @@ private fun ToolbarChipButton(
                 else MaterialTheme.colorScheme.surfaceVariant
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .then(
+                if (contentDescription != null) {
+                    Modifier.semantics { this.contentDescription = contentDescription }
+                } else Modifier
+            ),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Icon(
