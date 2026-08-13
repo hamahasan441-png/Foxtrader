@@ -62,8 +62,6 @@ private val FoxLightColors = lightColorScheme(
     onError = FoxLightSurface,
 )
 
-private val ColorSurfaceStrongLight = androidx.compose.ui.graphics.Color(0xFFE4DACA)
-
 object FoxTheme {
     val colors: FoxColorTokens
         @Composable
