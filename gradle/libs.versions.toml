@@ -71,6 +71,8 @@ profileInstaller = "1.4.1"
 leakcanary = "2.14"
 detekt = "1.23.7"
 ktlintGradle = "12.2.0"
+# OWASP Dependency-Check — dependency-vulnerability scan (non-blocking report).
+dependencyCheck = "9.2.0"
 
 [libraries]
 # Core
@@ -156,3 +158,4 @@ ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }
 ktlint = { id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlintGradle" }
+dependency-check = { id = "org.owasp.dependencycheck", version.ref = "dependencyCheck" }

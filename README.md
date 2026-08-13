@@ -311,6 +311,28 @@ export FOXTRADER_BASE_URL=https://staging.foxtrader.io/
 
 ---
 
+## ⚠️ Not implemented yet — auth & cloud-sync backend
+
+The Android client defines a complete **client-side contract** for
+authentication and cloud sync in `SyncApi.kt` (base URL shared with the
+market-data backend):
+
+- `POST /api/v1/auth/register`
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/refresh`
+- `POST /api/v1/auth/logout`
+- `POST /api/v1/sync/push`
+- `GET  /api/v1/sync/pull`
+
+**There is no server implementation of these endpoints in this repository.**
+The FastAPI backend (`backend/`) currently serves only the market-data contract
+(`/api/v1/market/candles/*` and `/health`). Calling any of the auth/sync
+endpoints against the shipped backend will return **404**. Logging in will
+silently fail until a server implementation exists — do not ship this as a
+working login flow.
+
+---
+
 ## Roadmap
 
 - [x] Hardware-accelerated candlestick chart engine

@@ -214,6 +214,28 @@ private fun OrderTicketCard(state: PaperTradingUiState, viewModel: PaperTradingV
                     colors = ButtonDefaults.buttonColors(containerColor = FoxBearishText),
                 ) { Text("Sell", fontWeight = FontWeight.Bold) }
             }
+
+            if (state.rejectionReasons.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    state.rejectionReasons.forEach { reason ->
+                        Text(
+                            text = "Blocked: $reason",
+                            color = FoxBearishText,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                }
+            } else if (state.lastFilledVolume != null) {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    text = "Filled ${trimZeros(state.lastFilledVolume!!)} (risk-adjusted)",
+                    color = FoxBullishText,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
         }
     }
 }

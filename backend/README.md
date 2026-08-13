@@ -65,6 +65,24 @@ The **core is framework-free and unit-tested offline**; the FastAPI layer is a
 thin adapter. `tests/test_api_contract.py` exercises the real HTTP surface via
 `TestClient` and is skipped automatically when FastAPI isn't installed.
 
+## ⚠️ Not implemented yet — auth & cloud-sync endpoints
+
+The Android client (`app/.../data/remote/api/SyncApi.kt`) declares a complete
+**client-side contract** for authentication and cloud sync that this backend
+does **not** implement:
+
+- `POST /api/v1/auth/register`
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/refresh`
+- `POST /api/v1/auth/logout`
+- `POST /api/v1/sync/push`
+- `GET  /api/v1/sync/pull`
+
+These routes are **client-contract-only**. This backend serves the market-data
+contract (`/api/v1/market/candles/*`) and `/health`; any auth/sync request
+against it returns **404**. A client relying on login will silently fail until
+a server implementation is added — do not treat these endpoints as live.
+
 ## Run
 
 ```bash

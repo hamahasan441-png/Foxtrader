@@ -3,7 +3,9 @@ package com.foxtrader.app.feature.papertrading.presentation
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.foxtrader.app.domain.usecase.orders.PaperTradingSession
+import com.foxtrader.app.domain.usecase.orders.RiskGatedBrokerResult
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -17,6 +19,10 @@ import javax.inject.Inject
  * Paper Trading screen ViewModel — a thin reactive shell over
  * [PaperTradingSession]. Combines the shared account/market flows with the
  * locally-chosen order volume; all trading actions delegate to the session.
+ *
+ * The outcome of each order attempt is surfaced so the UI can show *why* an
+ * order was blocked (the risk-gate rejection reasons) and the actual
+ * risk-computed volume that filled — not the free-typed input.
  */
 @HiltViewModel
 class PaperTradingViewModel @Inject constructor(
@@ -24,9 +30,11 @@ class PaperTradingViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val _orderVolume = MutableStateFlow(DEFAULT_VOLUME)
+    private val _lastOrderOutcome = MutableStateFlow<RiskGatedBrokerResult?>(null)
 
     val uiState: StateFlow<PaperTradingUiState> =
-        combine(session.account, session.market, _orderVolume) { account, market, volume ->
+        combine(session.account, session.market, _orderVolume, _lastOrderOutcome) {
+            account, market, volume, outcome ->
             PaperTradingUiState(
                 startingBalance = account.startingBalance,
                 balance = account.balance,
@@ -37,6 +45,8 @@ class PaperTradingViewModel @Inject constructor(
                 closedTradeCount = account.closedTrades.size,
                 market = market,
                 orderVolume = volume,
+                rejectionReasons = outcome?.rejectionReasons?.toPersistentList() ?: persistentListOf(),
+                lastFilledVolume = outcome?.sizing?.volume,
                 isLoading = false,
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), PaperTradingUiState())
@@ -51,12 +61,16 @@ class PaperTradingViewModel @Inject constructor(
 
     fun buy() {
         val symbol = session.market.value?.symbol ?: return
-        viewModelScope.launch { session.buy(symbol, _orderVolume.value) }
+        viewModelScope.launch {
+            _lastOrderOutcome.value = session.buy(symbol, _orderVolume.value)
+        }
     }
 
     fun sell() {
         val symbol = session.market.value?.symbol ?: return
-        viewModelScope.launch { session.sell(symbol, _orderVolume.value) }
+        viewModelScope.launch {
+            _lastOrderOutcome.value = session.sell(symbol, _orderVolume.value)
+        }
     }
 
     fun close(positionId: String) {
@@ -64,7 +78,10 @@ class PaperTradingViewModel @Inject constructor(
     }
 
     fun reset() {
-        viewModelScope.launch { session.reset() }
+        viewModelScope.launch {
+            session.reset()
+            _lastOrderOutcome.value = null
+        }
     }
 
     private fun roundVolume(value: Double): Double = kotlin.math.round(value * 100.0) / 100.0

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Data-extraction rules (API 31+): excludes the Room database from BOTH cloud
+    backup and device-to-device transfer.
+
+    The Room database (foxtrader.db + its -wal / -shm side files) holds
+    user-authored journal entries, chart drawings, alerts and watchlists. It is
+    excluded so a user's private trading journal is never copied off-device in
+    plaintext, whether to cloud backup or to a transferred device.
+
+    EncryptedSharedPreferences (already at-rest encrypted via Android Keystore)
+    is intentionally NOT excluded.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="database" path="foxtrader.db" />
+        <exclude domain="database" path="foxtrader.db-wal" />
+        <exclude domain="database" path="foxtrader.db-shm" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="database" path="foxtrader.db" />
+        <exclude domain="database" path="foxtrader.db-wal" />
+        <exclude domain="database" path="foxtrader.db-shm" />
+    </device-transfer>
+</data-extraction-rules>

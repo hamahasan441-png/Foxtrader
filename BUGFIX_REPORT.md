@@ -117,3 +117,146 @@ a coroutines stub; they still warrant a CI run of `assembleDebug`.
 - `domain/usecase/risk/RiskEngineDegenerateStateTest.kt`
 - `domain/usecase/calculator/PositionCalculatorDegenerateInputTest.kt`
 - `domain/usecase/backtest/BacktestEngineDegenerateConfigTest.kt`
+
+---
+
+# Security & Correctness Hardening Pass — 2026-08-13
+
+Scope: risk-gating, response lifecycle, backend CORS, data backup exposure,
+CI/CD enforcement, provider fail-loud behaviour, and release-signing hygiene.
+Method per item: trigger → failure/gap → fix → verification.
+
+## 1. [CRITICAL] Paper-trading bypassed the risk gate
+
+- **Trigger:** `PaperTradingSession.place()` sent the raw UI `volume` straight
+  to `PaperBroker.placeOrder()`, never consulting `RiskEngine`.
+- **Failure / gap:** A paper trade could open any position size regardless of
+  the configured per-trade risk %, defeating the masterplan invariant that no
+  order reaches a broker unless risk allows it. Two gating services
+  (`RiskGatedOrderService`, `RiskGatedBrokerExecutor`) existed but neither was
+  wired into paper trading.
+- **Fix:** `PaperTradingSession` now delegates to `RiskGatedBrokerExecutor`
+  (the broker-adapter gate, matching `RiskGatedBrokerExecutor.placeMarketOrder`).
+  The free-typed UI volume is applied as a manual override, the engine's
+  `calculatePositionSize` + `canOpenTrade` gate it, and a rejected trade never
+  reaches `PaperBroker`. `buy()`/`sell()` now return `RiskGatedBrokerResult`
+  carrying rejection reasons + the risk-adjusted `sizing.volume` (the actual
+  filled volume). `PaperTradingViewModel`/`PaperTradingUiState`/`PaperTradingScreen`
+  surface those reasons and the filled volume. The duplicate `RiskGatedOrderService`
+  (+ its test) was deleted so there is exactly one gating code path.
+- **Verification:** `PaperTradingSessionTest` extended with
+  `trade exceeding the configured risk percent is rejected and never reaches the broker`
+  and `accepted order surfaces the risk-computed filled volume`. All domain
+  files + tests compile under `kotlinc` (stubbed coroutines/inject; see env note).
+
+## 2. [CRITICAL] `AuthInterceptor` returned an already-closed `Response`
+
+- **Trigger:** On a 401 the original `Response` was closed, then the
+  refresh-failure branch (and the `getAccessToken() ?: return response` guard)
+  fell through to `return response` — handing callers a closed body whose
+  `read()` throws `IllegalStateException: closed`.
+- **Fix:** A clean 401 with a readable `{"error":"Session expired"}` body is
+  built via `response.newBuilder()` **before** closing the original, and every
+  refresh-failure / missing-new-token branch returns that fresh response.
+  Successful refresh still returns `chain.proceed(retryRequest)`.
+- **Verification:** New `AuthInterceptorTest` (fake `SyncApi` throwing on
+  refresh + a fake refresh that yields no new token) asserts the returned
+  `Response` is not closed and its body reads back cleanly. Compiles under
+  `kotlinc` with okhttp/mockk stubs.
+
+## 3. [HIGH] Backend CORS wildcard + credentials
+
+- **Trigger:** `create_app()` always set `allow_credentials=True`, while
+  `Settings` defaulted `cors_origins` to `["*"]`.
+- **Failure / gap:** Browsers reject credentialed requests against a wildcard
+  origin; shipping both is broken and unsafe (origin echo would leak
+  authenticated data).
+- **Fix:** `Settings` gains an `allow_credentials` flag (`FOX_ALLOW_CREDENTIALS`).
+  `create_app()` force-disables credentials whenever the origin list contains a
+  wildcard and logs a hard warning (never silent).
+- **Verification:** New `backend/tests/test_cors.py` asserts the middleware never
+  receives `allow_credentials=True` with `["*"]`, and that the warning is
+  logged. `pytest` = 26 passed; `ruff check` clean.
+
+## 4. [HIGH] Room database exposed to cloud/device backup
+
+- **Trigger:** `android:allowBackup="true"` with no exclusions — the user's
+  journal/drawings/alerts (`foxtrader.db*`) could be copied off-device in
+  plaintext via Auto Backup / device transfer.
+- **Fix (option b — minimum viable):** Kept `allowBackup` true so the
+  already-encrypted `EncryptedSharedPreferences` can still be restored, and
+  added `@xml/backup_rules` (API 23–30) + `@xml/data_extraction_rules` (API 31+)
+  excluding `foxtrader.db`, `-wal`, `-shm` from both cloud backup and
+  device-to-device transfer. SQLCipher (option a) was not chosen because it
+  requires a native dependency that could not be fetched/verified in this
+  sandbox; option b fully closes the exposure with no runtime dependency.
+- **Verification:** Manifest + XML reviewed; referenced resources resolve.
+
+## 5. [HIGH] Turn on real CI/CD gates
+
+- **Fix:** `detekt { ignoreFailures = false }` and `ktlint { ignoreFailures.set(false) }`
+  in `app/build.gradle.kts`; `android.yml` runs `./gradlew detekt ktlintCheck`
+  before the build and adds a non-blocking OWASP `dependencyCheckAnalyze` step.
+  New `backend.yml` runs ruff + pytest on push/PR (required check) with a
+  non-blocking `pip-audit` report. OWASP Dependency-Check plugin wired via
+  version catalog.
+- **Gap/note:** a fresh detekt baseline should be generated from a clean CI run
+  (`./gradlew detektBaseline`) to cover any historical violations; my changed
+  files are clean per static review.
+
+## 6. [MEDIUM] `DukascopyAdapter` silently substituted providers
+
+- **Trigger:** `fetchHistory()` returned `emptyList()`, whose KDoc claimed it
+  "causes the repository to fall back to alternative providers".
+- **Failure / gap:** Contradicted the fail-loud principle in `DataProvider.kt` —
+  a caller could believe it was looking at Dukascopy data when it was actually
+  Binance/synthetic.
+- **Fix:** `fetchHistory()` now throws `ProviderNotImplementedException`
+  (matching the rest of the codebase), and the KDoc no longer claims a silent
+  fallback. `DataProvider.DUKASCOPY` already documents the stub.
+- **Verification:** Compiles under `kotlinc`.
+
+## 7. [MEDIUM] Missing auth/sync backend silently 404s
+
+- **Fix:** Added clearly-flagged "⚠️ Not implemented yet — auth & cloud-sync
+  endpoints" sections to `README.md` and `backend/README.md` listing
+  `/api/v1/auth/*` and `/api/v1/sync/*` as client-contract-only (referenced by
+  `SyncApi.kt`, no server implementation in this repo).
+
+## 8. [LOW / hardening]
+
+- **Certificate pinning:** the main backend `OkHttpClient` now applies a
+  `CertificatePinner` driven by `FOXTRADER_CERT_PINS` (build-config), only
+  active for non-local backend hosts; inert by default so local dev
+  (`10.0.2.2`) is unaffected. Pinner logic compiles under `kotlinc`.
+- **Release signing:** `release.yml` now FAILS the job with a clear error when
+  the keystore secrets are absent, instead of silently producing a debug-signed
+  artifact.
+
+## Verification
+
+| Check | Result |
+|---|---|
+| Backend `pytest backend/tests` | **26 passed** (23 baseline + 3 new CORS) |
+| Backend `ruff check app tests` | **pass** |
+| Workflow YAML (`android.yml`, `backend.yml`, `release.yml`) | parse OK |
+| Kotlin domain/auth/provider changes (`kotlinc` + stubs) | compile-clean |
+| `./gradlew :app:assembleDebug :app:testDebugUnitTest` | not runnable here — see env note |
+
+### Environment note
+
+As in the previous pass, this sandbox has **no Android SDK and no usable JDK
+toolchain** (Gradle distribution, Maven Central, and GitHub release assets are
+all network-blocked), so `./gradlew :app:testDebugUnitTest :app:assembleDebug`
+could not be executed. Kotlin changes were instead **type-checked** with the
+Kotlin compiler against stubbed coroutines/inject/serialization/okhttp/mockk,
+and the backend suite was run for real. A CI run of the Android tasks is still
+required to confirm the full `assembleDebug`/unit-test path and the
+detekt/ktlint gates.
+
+## New / changed test files
+
+- `domain/usecase/orders/PaperTradingSessionTest.kt` (extended: risk-gate rejection, filled volume)
+- `data/auth/AuthInterceptorTest.kt` (new)
+- `backend/tests/test_cors.py` (new)
+- removed `domain/usecase/orders/RiskGatedOrderServiceTest.kt` (service deleted)

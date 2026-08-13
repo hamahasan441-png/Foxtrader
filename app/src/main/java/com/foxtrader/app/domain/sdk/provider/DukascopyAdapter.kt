@@ -1,6 +1,7 @@
 package com.foxtrader.app.domain.sdk.provider
 
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.ProviderNotImplementedException
 import com.foxtrader.app.domain.model.Timeframe
 
 /**
@@ -11,7 +12,7 @@ import com.foxtrader.app.domain.model.Timeframe
  *
  * NOTE: This is a stub — the actual Dukascopy binary format parsing
  * (compressed hourly blocks) will be implemented when the data pipeline
- * is built. For now it demonstrates the DataProviderAdapter contract.
+ * is built.
  */
 class DukascopyAdapter : DataProviderAdapter {
     override val id = "dukascopy"
@@ -30,10 +31,15 @@ class DukascopyAdapter : DataProviderAdapter {
      * Fetch historical candle data from Dukascopy.
      *
      * This is an intentional stub. The Dukascopy binary format uses compressed
-     * hourly LZMA blocks requiring a dedicated data pipeline. The adapter
-     * satisfies the [DataProviderAdapter] contract by returning [emptyList],
-     * causing the repository to fall back to alternative providers (Binance,
-     * Alpha Vantage).
+     * hourly LZMA blocks requiring a dedicated data pipeline. Rather than
+     * silently returning an empty list (which used to cause the repository to
+     * fall back to alternative providers), this adapter FAILS LOUDLY with
+     * [ProviderNotImplementedException]. A caller must never be left believing
+     * it is looking at real Dukascopy data when it is actually Binance/synthetic
+     * data — if Dukascopy is required, an explicit user-visible fallback choice
+     * must be made instead of a silent substitution.
+     *
+     * @throws ProviderNotImplementedException always — Dukascopy is not implemented yet.
      */
     override suspend fun fetchHistory(
         symbol: String,
@@ -42,6 +48,6 @@ class DukascopyAdapter : DataProviderAdapter {
         startTime: Long?,
         endTime: Long?,
     ): List<Candle> {
-        return emptyList()
+        throw ProviderNotImplementedException(displayName)
     }
 }

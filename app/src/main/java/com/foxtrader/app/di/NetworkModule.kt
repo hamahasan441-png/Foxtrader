@@ -17,6 +17,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import kotlinx.serialization.json.Json
+import okhttp3.CertificatePinner
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -127,6 +128,11 @@ object NetworkModule {
             .addInterceptor(dynamicBaseUrlInterceptor)
             .addInterceptor(authInterceptor)
             .addInterceptor(logging)
+            // Certificate pinning for the FoxTrader backend. Only active when the
+            // operator has supplied real SHA-256 pins via FOXTRADER_CERT_PINS and
+            // the configured backend host is not a local/dev address; otherwise the
+            // pinner is inert so local development (10.0.2.2) is unaffected.
+            .certificatePinner(buildCertificatePinner())
             .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
             .readTimeout(READ_TIMEOUT, TimeUnit.SECONDS)
             .writeTimeout(WRITE_TIMEOUT, TimeUnit.SECONDS)
@@ -134,6 +140,38 @@ object NetworkModule {
             .retryOnConnectionFailure(false)
             .build()
     }
+
+    /**
+     * Builds a [CertificatePinner] for the configured backend host.
+     *
+     * Pins come from `BuildConfig.FOXTRADER_CERT_PINS` (comma-separated
+     * `sha256/...` hashes). With no pins configured — or when the backend host
+     * is a local/dev address (emulator loopback, localhost) — the returned
+     * pinner pins nothing, so pinning never breaks a local dev build. Production
+     * operators must supply the real hashes.
+     */
+    private fun buildCertificatePinner(): CertificatePinner {
+        val pins = BuildConfig.FOXTRADER_CERT_PINS
+            .split(",")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+        val host = backendHost() ?: return CertificatePinner.Builder().build()
+        if (pins.isEmpty()) return CertificatePinner.Builder().build()
+
+        val builder = CertificatePinner.Builder()
+        for (pin in pins) {
+            builder.add(host, pin)
+        }
+        return builder.build()
+    }
+
+    /** Resolve the backend host, or null for a local/dev address. */
+    private fun backendHost(): String? = runCatching {
+        val host = java.net.URI(BASE_URL).host ?: return@runCatching null
+        if (host.lowercase() in LOCAL_HOSTS) null else host
+    }.getOrNull()
+
+    private val LOCAL_HOSTS = setOf("10.0.2.2", "127.0.0.1", "localhost", "0.0.0.0", "::1")
 
     @Provides
     @Singleton

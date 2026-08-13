@@ -17,6 +17,7 @@ plugins {
     alias(libs.plugins.hilt)
     alias(libs.plugins.detekt)
     alias(libs.plugins.ktlint)
+    alias(libs.plugins.dependency.check)
     jacoco
 }
 
@@ -58,6 +59,15 @@ android {
             ?: System.getenv("CRASH_REPORTING_DSN")
             ?: ""
         buildConfigField("String", "CRASH_REPORTING_DSN", "\"$crashDsn\"")
+
+        // Certificate-pinning pins for the FoxTrader backend, comma-separated
+        // SHA-256 hashes (e.g. "sha256/AAAA..."). When empty, no pinning is
+        // applied (safe default for local dev against 10.0.2.2); operators set
+        // this to the real production hashes to enable certificate pinning.
+        val certPins = (project.findProperty("FOXTRADER_CERT_PINS") as? String)
+            ?: System.getenv("FOXTRADER_CERT_PINS")
+            ?: ""
+        buildConfigField("String", "FOXTRADER_CERT_PINS", "\"$certPins\"")
     }
 
     // Release signing is driven entirely by environment/secrets so no key
@@ -162,10 +172,11 @@ detekt {
     buildUponDefaultConfig = true
     allRules = false
     parallel = true
-    // During the app-wide rollout, report violations without blocking the build.
-    // Once a proper baseline is generated from a passing build, switch back to
-    // ignoreFailures = false and fail only on new issues above the baseline.
-    ignoreFailures = true
+    // Real gate: fail the build on violations. The committed baseline
+    // (config/detekt/baseline.xml) holds known-good historical issues; anything
+    // new above it (or beyond the maxIssues budget in detekt.yml) fails CI.
+    // Regenerate the baseline from a passing build with `./gradlew detektBaseline`.
+    ignoreFailures = false
     config.setFrom(rootProject.files("config/detekt/detekt.yml"))
     baseline = file("config/detekt/baseline.xml")
     source.setFrom(files("src/main/java", "src/test/java"))
@@ -173,9 +184,9 @@ detekt {
 
 ktlint {
     android.set(true)
-    // Temporarily allow failures during app-wide rollout. Track violations and
-    // burn down over subsequent sprints. Fail-on-new once baseline stabilizes.
-    ignoreFailures.set(true)
+    // Real gate: fail on formatting/lint violations. No baseline — ktlint is
+    // deterministic and the codebase is expected to be ktlint-clean.
+    ignoreFailures.set(false)
     reporters {
         reporter(ReporterType.PLAIN)
         reporter(ReporterType.CHECKSTYLE)

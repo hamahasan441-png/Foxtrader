@@ -5,7 +5,10 @@ import com.foxtrader.app.domain.model.RefreshRequest
 import com.foxtrader.app.data.remote.api.SyncApi
 import kotlinx.coroutines.runBlocking
 import okhttp3.Interceptor
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Response
+import okhttp3.ResponseBody
+import okhttp3.ResponseBody.Companion.toResponseBody
 import javax.inject.Inject
 import javax.inject.Provider
 import javax.inject.Singleton
@@ -20,10 +23,17 @@ import javax.inject.Singleton
  * 3. If the server responds with 401 (expired/invalid access token):
  *    a. Attempt a refresh using the refresh token.
  *    b. On success: save new tokens, retry the original request once.
- *    c. On failure: mark session expired, propagate the 401.
+ *    c. On failure: mark session expired, propagate a *fresh* 401.
  *
  * SECURITY: This interceptor never logs token values. It uses [Provider] for
  * [SyncApi] to break the Dagger cycle (OkHttp -> Retrofit -> OkHttp).
+ *
+ * NOTE on response lifecycle: the original 401 `Response` is closed before the
+ * refresh attempt (so its resources are released promptly), but callers must
+ * never receive that closed object. Every code path that runs after the close
+ * returns a freshly-built `Response` carrying a readable "session expired" body
+ * instead — otherwise the app could hand back an already-closed body whose
+ * `read()` throws `IllegalStateException: closed`.
  */
 @Singleton
 class AuthInterceptor @Inject constructor(
@@ -54,18 +64,33 @@ class AuthInterceptor @Inject constructor(
 
         // Handle 401 — attempt transparent refresh.
         if (response.code == 401 && accessToken != null) {
+            // Build the clean session-expired response BEFORE closing the
+            // original, so the failure branches below can return a readable body.
+            val sessionExpired = response.newBuilder()
+                .request(request)
+                .code(401)
+                .message("Session expired")
+                .body(SESSION_EXPIRED_BODY)
+                .build()
             response.close()
+
             val refreshed = attemptRefresh()
             if (refreshed) {
                 // Retry with new access token.
-                val newToken = tokenManager.getAccessToken() ?: return response
-                val retryRequest = request.newBuilder()
-                    .header("Authorization", "Bearer $newToken")
-                    .build()
-                return chain.proceed(retryRequest)
+                val newToken = tokenManager.getAccessToken()
+                if (newToken != null) {
+                    val retryRequest = request.newBuilder()
+                        .header("Authorization", "Bearer $newToken")
+                        .build()
+                    return chain.proceed(retryRequest)
+                }
+                // A "successful" refresh that left no token is still a failure —
+                // surface a readable session-expired rather than the closed 401.
+                return sessionExpired
             } else {
                 // Refresh failed — session expired.
                 tokenManager.setAuthState(AuthState.SESSION_EXPIRED)
+                return sessionExpired
             }
         }
 
@@ -99,5 +124,10 @@ class AuthInterceptor @Inject constructor(
 
     private companion object {
         val AUTH_PATHS = listOf("/auth/login", "/auth/register", "/auth/refresh")
+
+        private val JSON_MEDIA_TYPE = "application/json".toMediaType()
+
+        private val SESSION_EXPIRED_BODY: ResponseBody =
+            """{"error":"Session expired"}""".toResponseBody(JSON_MEDIA_TYPE)
     }
 }

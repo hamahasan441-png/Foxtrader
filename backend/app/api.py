@@ -7,11 +7,15 @@ lives in `app.core` (pure, framework-free); this module is intentionally thin.
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import Settings
 from app.core.providers.registry import build_provider
+
+logger = logging.getLogger(__name__)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -22,10 +26,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.provider = provider
 
+    # A wildcard allow-origin ("*") can never carry credentials: browsers
+    # reject a credentialed response whose `Access-Control-Allow-Origin` is
+    # "*" (they require an explicit origin echo). Enabling both would either
+    # break credentialed cross-origin calls at the browser or — if a middleware
+    # naively echoes the origin — allow any site to read authenticated
+    # responses. We therefore force-disable credentials whenever the origin
+    # list contains a wildcard, and log a hard warning so the misconfiguration
+    # is never silent.
+    origins = settings.cors_origins
+    wildcard = "*" in origins
+    allow_credentials = settings.allow_credentials and not wildcard
+    if settings.allow_credentials and wildcard:
+        logger.warning(
+            "CORS: allow_credentials=True is incompatible with a wildcard "
+            "allow_origin; credentials have been disabled. Set FOX_CORS_ORIGINS "
+            "to an explicit origin list to allow credentialed requests."
+        )
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origins,
-        allow_credentials=True,
+        allow_origins=origins,
+        allow_credentials=allow_credentials,
         allow_methods=["*"],
         allow_headers=["*"],
     )
