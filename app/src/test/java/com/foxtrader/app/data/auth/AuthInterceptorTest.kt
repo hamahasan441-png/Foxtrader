@@ -29,9 +29,9 @@ import javax.inject.Provider
  */
 class AuthInterceptorTest {
 
-    private val tokenManager = mockk<TokenManager>()
-    private val syncApi = mockk<SyncApi>()
-    private val syncApiProvider = mockk<Provider<SyncApi>>()
+    private val tokenManager = mockk<TokenManager>(relaxed = true)
+    private val syncApi = mockk<SyncApi>(relaxed = true)
+    private val syncApiProvider = mockk<Provider<SyncApi>>(relaxed = true)
 
     private val request = Request.Builder().url("https://api.foxtrader.io/api/v1/data").build()
 
