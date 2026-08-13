@@ -13,7 +13,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import Settings
+from app.core.auth import AuthService
 from app.core.providers.registry import build_provider
+from app.core.sync_store import SyncStore
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +27,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title=settings.app_name, version=settings.version)
     app.state.settings = settings
     app.state.provider = provider
+
+    # Auth + cloud-sync stores. In-memory (not durable across restarts) — the
+    # FastAPI layer and the client contract work end-to-end; durable persistence
+    # (PostgreSQL/Redis) is the documented roadmap item.
+    app.state.auth = AuthService()
+    app.state.sync_store = SyncStore()
 
     # A wildcard allow-origin ("*") can never carry credentials: browsers
     # reject a credentialed response whose `Access-Control-Allow-Origin` is
@@ -63,9 +71,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # Import here so `app.core` stays importable without FastAPI installed
     # (the pure core and its tests never import this module).
+    from app.routers.auth import router as auth_router
     from app.routers.market import router as market_router
+    from app.routers.sync import router as sync_router
 
     app.include_router(market_router)
+    app.include_router(auth_router)
+    app.include_router(sync_router)
     return app
 
 

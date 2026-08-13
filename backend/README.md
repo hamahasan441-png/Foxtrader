@@ -65,23 +65,36 @@ The **core is framework-free and unit-tested offline**; the FastAPI layer is a
 thin adapter. `tests/test_api_contract.py` exercises the real HTTP surface via
 `TestClient` and is skipped automatically when FastAPI isn't installed.
 
-## ⚠️ Not implemented yet — auth & cloud-sync endpoints
+## Auth & Cloud Sync
 
-The Android client (`app/.../data/remote/api/SyncApi.kt`) declares a complete
-**client-side contract** for authentication and cloud sync that this backend
-does **not** implement:
+This backend implements the full auth + sync contract the Android client
+(`SyncApi.kt` / `Auth.kt`) expects — previously client-contract-only, now live:
 
-- `POST /api/v1/auth/register`
-- `POST /api/v1/auth/login`
-- `POST /api/v1/auth/refresh`
-- `POST /api/v1/auth/logout`
-- `POST /api/v1/sync/push`
-- `GET  /api/v1/sync/pull`
+- `POST /api/v1/auth/register`   `{email, password, displayName}` → `AuthResponse`
+- `POST /api/v1/auth/login`      `{email, password}` → `AuthResponse`
+- `POST /api/v1/auth/refresh`    `{refreshToken}` → `AuthResponse`
+- `POST /api/v1/auth/logout`     (Bearer) → `204`
+- `POST /api/v1/sync/push`       `{items, lastSyncTimestamp, deviceId}` (Bearer) → `204`
+- `GET  /api/v1/sync/pull`       `?since=&types=` (Bearer) → `SyncPullResponse`
 
-These routes are **client-contract-only**. This backend serves the market-data
-contract (`/api/v1/market/candles/*`) and `/health`; any auth/sync request
-against it returns **404**. A client relying on login will silently fail until
-a server implementation is added — do not treat these endpoints as live.
+`AuthResponse` / `SyncPullResponse` use the exact **camelCase** field names the
+client's kotlinx.serialization expects (`tokens.{accessToken, refreshToken,
+accessExpiresAt, refreshExpiresAt}`, `user.{id, email, displayName, createdAt,
+deviceId}`, etc.).
+
+### Storage model (in-memory)
+
+Auth accounts, tokens, and sync items are stored **in memory only** — state is
+lost on process restart, and tokens/accounts are shared across all workers of a
+single process. This makes the contract work end-to-end and keeps the core
+fully unit-testable offline. Durable persistence (PostgreSQL/Redis, per the
+roadmap) plugs in behind `app.core.auth.AuthService` and
+`app.core.sync_store.SyncStore` without touching the routers.
+
+- Passwords are hashed with PBKDF2-HMAC-SHA256 + per-user salt.
+- Access tokens are opaque, short-lived (15 min); refresh tokens are rotated
+  on every refresh.
+- Sync merges last-write-wins on `updatedAt` (matching the client's merge).
 
 ## Run
 

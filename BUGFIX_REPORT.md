@@ -260,3 +260,70 @@ detekt/ktlint gates.
 - `data/auth/AuthInterceptorTest.kt` (new)
 - `backend/tests/test_cors.py` (new)
 - removed `domain/usecase/orders/RiskGatedOrderServiceTest.kt` (service deleted)
+
+---
+
+# Backend Integration Pass — 2026-08-13
+
+Scope: implement the backend auth + cloud-sync endpoints that the Android
+client's `SyncApi.kt` referenced but which had no server implementation
+(previously documented as "not implemented yet"); fix a broken CI step found
+along the way. Method: trigger → gap → fix → verification.
+
+## 1. Missing auth + sync backend now implemented
+
+- **Trigger:** The Android client (`SyncApi.kt`, `AuthRepositoryImpl`,
+  `CloudSyncRepositoryImpl`) calls `/api/v1/auth/*` and `/api/v1/sync/*`, but
+  the FastAPI backend only served market candles — every login/sync request
+  404'd.
+- **Gap:** Login/register/refresh/logout and push/pull had **no server
+  implementation**, so the app's auth and cloud-sync flows could never work.
+- **Fix:**
+  - `backend/app/core/auth.py` — pure `AuthService`: PBKDF2-HMAC-SHA256 password
+    hashing with per-user salt; opaque access tokens (15-min TTL) + rotated
+    refresh tokens (7-day TTL); duplicate-email / bad-credentials / invalid-token
+    errors.
+  - `backend/app/core/sync_store.py` — pure `SyncStore`: per-user
+    last-write-wins merge on `updatedAt`, pull window (`since`) + type filter.
+  - `backend/app/routers/auth.py` — `POST /register|/login|/refresh` returning
+    the exact camelCase `AuthResponse` (`tokens`, `user`) the client's
+    kotlinx.serialization expects; `POST /logout` revokes the access token (204).
+  - `backend/app/routers/sync.py` — `POST /push` (204) and `GET /pull`, both
+    gated on a valid `Authorization: Bearer <accessToken>`; camelCase
+    `SyncPullResponse` (`items`, `serverTimestamp`, `hasMore`).
+  - `backend/app/api.py` — wires the stores onto `app.state` and includes both
+    routers.
+- **Verification:** End-to-end smoke test confirms register → push → pull →
+  refresh → token rotation → 401-on-reuse all return the client contract.
+  Storage is in-memory (documented); durable persistence (PostgreSQL/Redis)
+  remains on the roadmap.
+
+## 2. Backend CI pytest path was broken
+
+- **Trigger:** `backend.yml` (added in the prior pass) ran `pytest backend/tests`
+  with `working-directory: backend`, resolving to a non-existent
+  `backend/backend/tests`.
+- **Fix:** Changed the step to `pytest tests` (pyproject already sets
+  `testpaths = ["tests"]`).
+- **Verification:** Workflow YAML re-validated; `pytest tests` from `backend/`
+  runs the full 47-test suite.
+
+## Verification
+
+| Check | Result |
+|---|---|
+| `pytest backend/tests` | **47 passed** (26 prior + 21 new: auth core 6, sync core 4, auth http 6, sync http 5) |
+| `ruff check app tests` | **pass** |
+| OpenAPI route registration | all auth + sync + market + health paths present |
+| End-to-end smoke (register→push→pull→refresh→logout) | camelCase contract verified |
+
+## New backend files
+
+- `backend/app/core/auth.py`
+- `backend/app/core/sync_store.py`
+- `backend/app/routers/auth.py`
+- `backend/app/routers/sync.py`
+- `backend/tests/test_auth_core.py`
+- `backend/tests/test_sync_core.py`
+- `backend/tests/test_auth_http.py`
+- `backend/tests/test_sync_http.py`

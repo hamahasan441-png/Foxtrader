@@ -311,7 +311,7 @@ export FOXTRADER_BASE_URL=https://staging.foxtrader.io/
 
 ---
 
-## ⚠️ Not implemented yet — auth & cloud-sync backend
+## Auth & cloud sync — implementation status
 
 The Android client defines a complete **client-side contract** for
 authentication and cloud sync in `SyncApi.kt` (base URL shared with the
@@ -324,12 +324,13 @@ market-data backend):
 - `POST /api/v1/sync/push`
 - `GET  /api/v1/sync/pull`
 
-**There is no server implementation of these endpoints in this repository.**
-The FastAPI backend (`backend/`) currently serves only the market-data contract
-(`/api/v1/market/candles/*` and `/health`). Calling any of the auth/sync
-endpoints against the shipped backend will return **404**. Logging in will
-silently fail until a server implementation exists — do not ship this as a
-working login flow.
+The FastAPI backend (`backend/`) implements all of the above against the
+client's exact camelCase contract, alongside the market-data endpoints
+(`/api/v1/market/candles/*` and `/health`). **Storage is in-memory only** —
+accounts, tokens, and synced items are lost when the server restarts, and
+durable persistence (PostgreSQL/Redis) is still on the roadmap. The app must
+reach a running backend for login/sync to work; the default emulator URL is
+`http://10.0.2.2:8000/`.
 
 ---
 
@@ -360,7 +361,8 @@ working login flow.
 - [x] Bar-snapped crosshair with OHLC readout panel
 - [x] Adaptive quality control wired into the render pass (120fps budget enforcement)
 - [x] Debug render-performance HUD
-- [ ] FastAPI backend (PostgreSQL + Redis)
+- [x] FastAPI backend — market-data + auth + cloud sync (in-memory store)
+- [ ] FastAPI backend durable persistence (PostgreSQL + Redis)
 - [ ] Social / copy-trading features
 - [ ] Release on Google Play Store
 
