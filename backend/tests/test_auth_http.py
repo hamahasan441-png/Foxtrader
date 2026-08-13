@@ -22,7 +22,7 @@ def client() -> TestClient:
 def test_register_returns_camelcase_auth_response(client: TestClient):
     r = client.post(
         "/api/v1/auth/register",
-        json={"email": "trader@example.com", "password": "hunter2", "displayName": "Trader"},
+        json={"email": "trader@example.com", "password": "Password123", "displayName": "Trader"},
     )
     assert r.status_code == 201
     body = r.json()
@@ -38,11 +38,11 @@ def test_register_returns_camelcase_auth_response(client: TestClient):
 def test_duplicate_registration_is_409(client: TestClient):
     client.post(
         "/api/v1/auth/register",
-        json={"email": "a@b.c", "password": "pw", "displayName": "A"},
+        json={"email": "a@b.c", "password": "Password123", "displayName": "A"},
     )
     r = client.post(
         "/api/v1/auth/register",
-        json={"email": "a@b.c", "password": "pw", "displayName": "A"},
+        json={"email": "a@b.c", "password": "Password123", "displayName": "A"},
     )
     assert r.status_code == 409
 
@@ -50,9 +50,9 @@ def test_duplicate_registration_is_409(client: TestClient):
 def test_login_returns_tokens_and_user(client: TestClient):
     client.post(
         "/api/v1/auth/register",
-        json={"email": "a@b.c", "password": "pw", "displayName": "A"},
+        json={"email": "a@b.c", "password": "Password123", "displayName": "A"},
     )
-    r = client.post("/api/v1/auth/login", json={"email": "a@b.c", "password": "pw"})
+    r = client.post("/api/v1/auth/login", json={"email": "a@b.c", "password": "Password123"})
     assert r.status_code == 200
     body = r.json()
     assert body["user"]["id"]
@@ -62,7 +62,7 @@ def test_login_returns_tokens_and_user(client: TestClient):
 def test_login_wrong_password_is_401(client: TestClient):
     client.post(
         "/api/v1/auth/register",
-        json={"email": "a@b.c", "password": "pw", "displayName": "A"},
+        json={"email": "a@b.c", "password": "Password123", "displayName": "A"},
     )
     r = client.post("/api/v1/auth/login", json={"email": "a@b.c", "password": "wrong"})
     assert r.status_code == 401
@@ -71,7 +71,7 @@ def test_login_wrong_password_is_401(client: TestClient):
 def test_refresh_rotates_tokens(client: TestClient):
     reg = client.post(
         "/api/v1/auth/register",
-        json={"email": "a@b.c", "password": "pw", "displayName": "A"},
+        json={"email": "a@b.c", "password": "Password123", "displayName": "A"},
     ).json()
     old_refresh = reg["tokens"]["refreshToken"]
 
@@ -89,7 +89,7 @@ def test_refresh_rotates_tokens(client: TestClient):
 def test_logout_revokes_access_token(client: TestClient):
     reg = client.post(
         "/api/v1/auth/register",
-        json={"email": "a@b.c", "password": "pw", "displayName": "A"},
+        json={"email": "a@b.c", "password": "Password123", "displayName": "A"},
     ).json()
     access = reg["tokens"]["accessToken"]
 

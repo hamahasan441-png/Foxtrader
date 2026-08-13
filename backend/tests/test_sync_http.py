@@ -22,7 +22,7 @@ def client() -> TestClient:
 def _register(client: TestClient) -> str:
     r = client.post(
         "/api/v1/auth/register",
-        json={"email": "a@b.c", "password": "pw", "displayName": "A"},
+        json={"email": "a@b.c", "password": "Password123", "displayName": "A"},
     )
     return r.json()["tokens"]["accessToken"]
 

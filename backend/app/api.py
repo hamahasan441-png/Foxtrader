@@ -16,12 +16,16 @@ from app.config import Settings
 from app.core.auth import AuthService
 from app.core.persistence import build_stores
 from app.core.providers.registry import build_provider
+from app.core.ratelimit import RateLimiter
 from app.core.sync_store import SyncStore
+from app.logging_setup import configure_logging
+from app.middleware import LoggingMiddleware, RateLimitMiddleware
 
 logger = logging.getLogger(__name__)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
+    configure_logging()
     settings = settings or Settings.from_env()
     provider = build_provider(settings.provider)
 
@@ -63,6 +67,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Structured request logging + auth/sync rate limiting. Rate limiting is
+    # opt-out via settings (FOX_RATE_LIMIT_ENABLED=false).
+    if settings.rate_limit_enabled:
+        limiter = RateLimiter(
+            settings.rate_limit_auth_per_window,
+            settings.rate_limit_window_seconds,
+        )
+        app.add_middleware(RateLimitMiddleware, limiter=limiter)
+    app.add_middleware(LoggingMiddleware)
+
     @app.get("/health", tags=["health"])
     def health() -> dict[str, str]:
         return {
@@ -70,6 +84,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "service": settings.app_name,
             "version": settings.version,
             "provider": provider.name,
+            "store": settings.store_backend,
         }
 
     # Import here so `app.core` stays importable without FastAPI installed

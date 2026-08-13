@@ -40,20 +40,41 @@ Unsupported timeframe → `400`; `limit` outside 1–5000 → `422`.
 ### `GET /health`
 
 ```json
-{"status": "ok", "service": "...", "version": "0.1.0", "provider": "sample"}
+{"status": "ok", "service": "...", "version": "0.1.0", "provider": "sample", "store": "sqlite"}
 ```
+
+## Hardening
+
+- **Auth rate limiting** — the auth endpoints (`/api/v1/auth/*`) and
+  `POST /api/v1/sync/push` are throttled per client IP (default 20/min) to blunt
+  brute-force attempts; excess requests get `429` with `Retry-After`.
+  Configure with `FOX_RATE_LIMIT_ENABLED`, `FOX_RATE_LIMIT_AUTH_PER_WINDOW`,
+  `FOX_RATE_LIMIT_WINDOW_SECONDS`.
+- **Structured request logging** — every request logs a single line with
+  `method`, `path`, `status`, `duration_ms`, `client`. Tokens/bodies are never
+  logged.
+- **Input validation** — registration requires a valid email and a password of
+  at least 8 characters (`422` otherwise).
 
 ## Architecture
 
 ```
 app/
-  api.py                 FastAPI app factory (thin: health + router + CORS)
+  api.py                 FastAPI app factory (health + routers + middleware)
   config.py              env-driven Settings (stdlib only)
+  middleware.py          structured request logging + auth rate limiting
+  logging_setup.py       console logger with structured fields
   routers/market.py      HTTP adapter over the pure service
+  routers/auth.py        register/login/refresh/logout (camelCase contract)
+  routers/sync.py        push/pull (Bearer-gated)
   core/                  PURE python — no FastAPI/pydantic imports
     timeframes.py        client label -> minutes
     candles.py           Candle value object + client-shaped response
     service.py           get_candles(): validate, clamp, delegate, assemble
+    auth.py              password hashing + token lifecycle
+    sync_store.py        last-write-wins sync merge
+    persistence.py       pluggable AuthStore/SyncStore (SQLite + memory)
+    ratelimit.py         fixed-window rate limiter
     providers/
       base.py            MarketDataProvider Protocol (the seam)
       sample.py          deterministic synthetic provider (default)

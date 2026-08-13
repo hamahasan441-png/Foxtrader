@@ -17,8 +17,10 @@ Login/register/refresh return an AuthResponse:
 
 from __future__ import annotations
 
+import re
+
 from fastapi import APIRouter, Header, HTTPException, Request, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.auth import (
     AuthService,
@@ -30,17 +32,37 @@ from app.core.auth import (
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
+PASSWORD_MIN_LENGTH = 8
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _validate_email(value: str) -> str:
+    if not _EMAIL_RE.match(value):
+        raise ValueError("Invalid email address")
+    return value
+
+
+def _validate_password(value: str) -> str:
+    if len(value) < PASSWORD_MIN_LENGTH:
+        raise ValueError(f"Password must be at least {PASSWORD_MIN_LENGTH} characters")
+    return value
+
 
 class RegisterIn(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     email: str
     password: str
-    display_name: str = Field(..., alias="displayName")
+    display_name: str = Field(..., alias="displayName", min_length=1, max_length=60)
+
+    _email = field_validator("email")(_validate_email)
+    _password = field_validator("password")(_validate_password)
 
 
 class LoginIn(BaseModel):
     email: str
     password: str
+
+    _email = field_validator("email")(_validate_email)
 
 
 class RefreshIn(BaseModel):
