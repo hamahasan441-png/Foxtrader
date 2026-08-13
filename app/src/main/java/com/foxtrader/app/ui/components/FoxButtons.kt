@@ -19,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -40,6 +41,7 @@ fun FoxButton(
     val colors = FoxTheme.colors
     val spacing = FoxTheme.spacing
     val height = Modifier.heightIn(min = spacing.touch)
+    val spokenDescription = contentDescription
     val content: @Composable () -> Unit = {
         if (icon != null) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -54,7 +56,9 @@ fun FoxButton(
             enabled = enabled,
             modifier = modifier.then(height).semantics {
                 role = Role.Button
-                contentDescription?.let { this.contentDescription = it }
+                if (spokenDescription != null) {
+                    this.contentDescription = spokenDescription
+                }
             },
             shape = RoundedCornerShape(FoxTheme.shapes.sm),
             colors = ButtonDefaults.buttonColors(

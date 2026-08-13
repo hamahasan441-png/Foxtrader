@@ -1,6 +1,7 @@
 package com.foxtrader.app.feature.home.presentation
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -285,7 +286,7 @@ private fun SnapshotStrip(state: HomeUiState, onOpenPortfolio: () -> Unit) {
 }
 
 private fun Modifier.clickableText(onClick: () -> Unit): Modifier =
-    androidx.compose.foundation.clickable(onClick = onClick).let { this.then(it) }
+    this.clickable(onClick = onClick)
 
 @Composable
 private fun BreadthCard(state: HomeUiState) {

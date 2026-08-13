@@ -1,6 +1,7 @@
 package com.foxtrader.app.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -116,7 +117,7 @@ fun FoxSegmentedControl(
 }
 
 private fun Modifier.clickableIndex(index: Int, onSelect: (Int) -> Unit): Modifier =
-    androidx.compose.foundation.clickable { onSelect(index) }.let { this.then(it) }
+    this.clickable { onSelect(index) }
 
 @Composable
 fun FoxSwitchRow(

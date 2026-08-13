@@ -1,5 +1,6 @@
 package com.foxtrader.app.feature.more.presentation
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -174,4 +175,4 @@ private fun MoreRow(destination: MoreDestination, onOpen: (MoreAction) -> Unit) 
 }
 
 private fun Modifier.clickableRow(onClick: () -> Unit): Modifier =
-    androidx.compose.foundation.clickable(onClick = onClick).let { this.then(it) }
+    this.clickable(onClick = onClick)
