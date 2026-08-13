@@ -12,6 +12,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Path, Query, Request
 
+from app.core.providers.rest import MissingApiKeyError, ProviderRequestError
 from app.core.service import DEFAULT_LIMIT, MAX_LIMIT, MIN_LIMIT, get_candles
 from app.core.timeframes import SUPPORTED_LABELS, UnknownTimeframeError
 
@@ -37,3 +38,9 @@ def get_candles_route(
         )
     except UnknownTimeframeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except MissingApiKeyError as exc:
+        # Misconfiguration, not a client error — tell the operator clearly.
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ProviderRequestError as exc:
+        # The upstream is unavailable or returned garbage.
+        raise HTTPException(status_code=502, detail=str(exc)) from exc

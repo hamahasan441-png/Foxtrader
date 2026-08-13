@@ -6,10 +6,11 @@ FoxTrader backend for non-crypto candles (forex / stocks / indices); until now
 that backend did not exist, so those requests fell back to clearly-labelled
 synthetic data. This service is the start of that backend.
 
-> Scope note: this is an intentional first slice. It currently serves candles
-> from an **offline, deterministic `sample` provider** (no API key, no network),
-> so the endpoint works end-to-end today. Real upstreams (Twelve Data, Polygon,
-> OANDA, …) plug into the same provider seam without touching the router.
+> Scope note: the default provider is **`sample`** — an offline, deterministic
+> synthetic source (no API key, no network) so the endpoint works end-to-end
+> immediately. Real upstreams are wired into the same provider seam and selected
+> via `FOX_PROVIDER` (no router change): **Twelve Data** and **Polygon** are
+> implemented; OANDA/Alpha Vantage plug in the same way.
 
 ## API
 
@@ -147,6 +148,20 @@ pytest
 
 The pure-core suite runs with no third-party dependencies (only `pytest`); the
 HTTP contract suite additionally needs `fastapi` + `httpx`.
+
+## Real market-data providers
+
+Two real upstreams are implemented and selectable with `FOX_PROVIDER`:
+
+| Provider | Env var | Coverage | Notes |
+|---|---|---|---|
+| `sample` (default) | — | synthetic | offline, deterministic |
+| `twelvedata` | `FOX_TWELVE_DATA_KEY` | forex, stocks, indices, crypto | deep-history paging via `before_ms` filters the fetched window |
+| `polygon` | `FOX_POLYGON_KEY` | stocks, forex, crypto, indices | uses Polygon `from`/`to` window for `before_ms` |
+
+A missing API key returns **503** (clear operator-facing message); an upstream
+failure/error returns **502**. Both are implemented on `core/providers/rest.py`
+(stdlib `urllib`, no new deps) so they are fully testable offline.
 
 ## Adding a real provider
 
