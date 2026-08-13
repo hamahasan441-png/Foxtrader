@@ -327,3 +327,80 @@ along the way. Method: trigger → gap → fix → verification.
 - `backend/tests/test_sync_core.py`
 - `backend/tests/test_auth_http.py`
 - `backend/tests/test_sync_http.py`
+
+---
+
+# Engineering-Org Hardening & Roadmap Pass — 2026-08-13
+
+Scope: durable persistence, production hardening, real market-data providers,
+CI/CD finalization, and auth-interceptor test coverage. Method: gap → fix →
+verification for each.
+
+## 1. Durable persistence for auth + cloud sync
+
+- **Gap:** auth accounts, tokens, and sync items were in-memory only — lost on
+  restart.
+- **Fix:** pluggable `AuthStore`/`SyncStore` seam (`app/core/persistence.py`).
+  `SqliteStore` (WAL, connection-per-op, thread-safe) is the default via
+  `FOX_STORE=sqlite`; `MemoryStore` kept for tests/stateless deploys.
+  `AuthService`/`SyncStore` now delegate to the store; routers unchanged.
+  `FOX_DB_PATH` selects the file; Dockerfile + docker-compose mount a volume.
+- **Verification:** 5 persistence tests (restart survival, LWW, windows, type
+  filter, unknown-backend, memory ephemerality) + a real two-process restart
+  smoke test confirmed login + sync items persist.
+
+## 2. Backend production hardening
+
+- **Fix:** auth/sync rate limiting per client IP (fixed-window, `429` +
+  `Retry-After`); structured request logging (method/path/status/duration/client,
+  never tokens/bodies); registration validates email + enforces an 8-char
+  password minimum; `create_app` rejects an unknown store backend at startup;
+  `/health` reports the store backend.
+- **Verification:** 10 new tests (limiter 5, HTTP 429/validation/opt-out 5);
+  structured log lines verified in a live smoke run.
+
+## 3. Real market-data providers
+
+- **Gap:** only the offline `sample` provider existed.
+- **Fix:** `RESTProvider` base (stdlib urllib) + `TwelveDataProvider` and
+  `PolygonProvider` behind the provider seam, selectable via `FOX_PROVIDER`,
+  keyed via `FOX_TWELVE_DATA_KEY`/`FOX_POLYGON_KEY`. Missing key → `503`,
+  upstream failure → `502` (clear messages, not a bare 500). `before_ms` paging
+  honoured (Polygon via from/to window; Twelve Data filters the fetched window).
+- **Verification:** 13 provider tests (mapping, sorting, `before_ms`,
+  malformed-row skip, limit, missing-key, 503 route) with a stubbed HTTP layer.
+
+## 4. CI/CD
+
+- **Status:** `android.yml` (detekt+ktlint gate, non-blocking OWASP scan),
+  `backend.yml` (ruff+pytest, pip-audit), `release.yml` (fail without keystore)
+  are finalized and validated, but **not pushed**: the GitHub App token lacks the
+  `workflows` permission, so any push touching `.github/workflows/*` is refused.
+  Grant that permission, then `git add .github/workflows && git commit && git push`.
+- **Note:** the detekt baseline should be regenerated from a clean CI run
+  (`./gradlew detektBaseline`) before relying on the gate.
+
+## 5. Android — auth interceptor test coverage
+
+- **Fix:** added `AuthInterceptorTest` cases for the refresh-success path
+  (retry returns the 200, not the closed 401) and the auth-endpoint skip path
+  (response returned unchanged). These complete coverage of the closed-response
+  fix from the prior pass.
+- **Verification:** compiles under `kotlinc` with okhttp/mockk stubs.
+
+## Verification
+
+| Check | Result |
+|---|---|
+| `pytest backend/tests` | **74 passed** |
+| `ruff check app tests` | **pass** |
+| Docker restart durability (two processes) | login + sync items survive |
+| Kotlin auth-interceptor tests | compile-clean |
+
+### Environment note
+
+No Android SDK/JDK-Gradle is available in this sandbox, so `./gradlew`
+(`assembleDebug`, `testDebugUnitTest`, `detekt`, `ktlintCheck`) cannot be run
+here. Android changes are type-checked with `kotlinc` against stubs; the
+`android.yml` CI job remains the authoritative verification path for the Android
+build and the detekt/ktlint gates.
