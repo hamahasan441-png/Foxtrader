@@ -2,8 +2,9 @@ package com.foxtrader.app.data.auth
 
 import com.foxtrader.app.data.remote.api.SyncApi
 import com.foxtrader.app.domain.model.AuthResponse
-import com.foxtrader.app.domain.model.RefreshRequest
+import com.foxtrader.app.domain.model.AuthState
 import com.foxtrader.app.domain.model.AuthTokens
+import com.foxtrader.app.domain.model.RefreshRequest
 import com.foxtrader.app.domain.model.UserProfile
 import io.mockk.coEvery
 import io.mockk.every
@@ -29,11 +30,29 @@ import javax.inject.Provider
  */
 class AuthInterceptorTest {
 
-    private val tokenManager = mockk<TokenManager>(relaxed = true)
-    private val syncApi = mockk<SyncApi>(relaxed = true)
-    private val syncApiProvider = mockk<Provider<SyncApi>>(relaxed = true)
+    private val tokenManager = mockk<TokenManager>()
+    private val syncApi = mockk<SyncApi>()
+    private val syncApiProvider = mockk<Provider<SyncApi>>()
 
     private val request = Request.Builder().url("https://api.foxtrader.io/api/v1/data").build()
+
+    /**
+     * Stub every TokenManager method the interceptor may touch so the strict
+     * mock never throws "no answer found" for a side-effect call
+     * (setAuthState / clearTokens / saveTokens).
+     */
+    private fun stubTokenManager(
+        accessToken: String?,
+        refreshToken: String?,
+        accessAfterRefresh: String? = accessToken,
+    ): Unit {
+        every { tokenManager.getAccessToken() } returns accessToken andThen accessAfterRefresh
+        every { tokenManager.getRefreshToken() } returns refreshToken
+        every { tokenManager.isRefreshTokenExpired() } returns false
+        every { tokenManager.setAuthState(any<AuthState>()) } returns Unit
+        every { tokenManager.clearTokens() } returns Unit
+        every { tokenManager.saveTokens(any<AuthTokens>()) } returns Unit
+    }
 
     private fun stubChain(original: Response): Interceptor.Chain {
         val chain = mockk<Interceptor.Chain>()
@@ -73,9 +92,7 @@ class AuthInterceptorTest {
 
     @Test
     fun `refresh failure returns a readable 401 instead of the closed response`() {
-        every { tokenManager.getAccessToken() } returns "expired-access-token"
-        every { tokenManager.getRefreshToken() } returns "refresh-token"
-        every { tokenManager.isRefreshTokenExpired() } returns false
+        stubTokenManager(accessToken = "expired-access-token", refreshToken = "refresh-token")
         every { syncApiProvider.get() } returns syncApi
         coEvery { syncApi.refresh(any<RefreshRequest>()) } throws IOException("refresh endpoint unreachable")
 
@@ -95,11 +112,13 @@ class AuthInterceptorTest {
 
     @Test
     fun `missing new token after a refresh returns a readable 401`() {
-        // Initial header attach reads "expired-access-token"; the post-refresh
-        // read yields null, exercising the defensive `?: return ...` branch.
-        every { tokenManager.getAccessToken() } returns "expired-access-token" andThen null
-        every { tokenManager.getRefreshToken() } returns "refresh-token"
-        every { tokenManager.isRefreshTokenExpired() } returns false
+        // First read returns the header token; the post-refresh read yields
+        // null, exercising the defensive `?: return ...` branch.
+        stubTokenManager(
+            accessToken = "expired-access-token",
+            refreshToken = "refresh-token",
+            accessAfterRefresh = null,
+        )
         every { syncApiProvider.get() } returns syncApi
         coEvery { syncApi.refresh(any<RefreshRequest>()) } returns refreshResponse()
 
@@ -117,9 +136,11 @@ class AuthInterceptorTest {
 
     @Test
     fun `successful refresh retries the request and returns the retried response`() {
-        every { tokenManager.getAccessToken() } returns "expired-access" andThen "new-access"
-        every { tokenManager.getRefreshToken() } returns "refresh-token"
-        every { tokenManager.isRefreshTokenExpired() } returns false
+        stubTokenManager(
+            accessToken = "expired-access",
+            refreshToken = "refresh-token",
+            accessAfterRefresh = "new-access",
+        )
         every { syncApiProvider.get() } returns syncApi
         coEvery { syncApi.refresh(any<RefreshRequest>()) } returns refreshResponse()
 
