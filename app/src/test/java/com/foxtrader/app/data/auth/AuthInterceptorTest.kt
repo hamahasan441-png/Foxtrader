@@ -6,7 +6,6 @@ import com.foxtrader.app.domain.model.RefreshRequest
 import com.foxtrader.app.domain.model.AuthTokens
 import com.foxtrader.app.domain.model.UserProfile
 import io.mockk.coEvery
-import io.mockk.any
 import io.mockk.every
 import io.mockk.mockk
 import okhttp3.Interceptor
