@@ -83,9 +83,13 @@ class PositionCalculator @Inject constructor() {
         val rewardAmount = tpPips?.let { it * pipValue * roundedSize }
         val rrRatio = if (stopPips > 0 && tpPips != null) tpPips / stopPips else null
 
-        // Margin required
+        // Margin required. Leverage arrives from a user-editable field; 0 (or a
+        // negative value) previously produced an Infinity/negative margin that
+        // rendered as "Infinity" in the UI and made the trade look free.
+        // Unleveraged (1:1) is the correct, conservative interpretation.
         val notionalValue = input.entryPrice * input.instrumentType.contractSize * roundedSize
-        val marginRequired = notionalValue / input.leverage
+        val effectiveLeverage = if (input.leverage > 0.0) input.leverage else 1.0
+        val marginRequired = notionalValue / effectiveLeverage
 
         // Break-even (entry + spread + commission recovery)
         val commissionPips = if (pipValue > 0) (input.commission * 2) / (pipValue * roundedSize) else 0.0

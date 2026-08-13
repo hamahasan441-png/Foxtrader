@@ -36,6 +36,11 @@ class MarketProfile @Inject constructor() {
         if (candles.isEmpty()) {
             return ProfileResult(emptyList(), 0.0, 0.0, 0.0, 0.0, 0.0)
         }
+        // A non-positive row count allocates a negative-size array
+        // (NegativeArraySizeException) or makes `coerceIn(0, rowSize - 1)`
+        // an empty range (IllegalArgumentException). Row count is a display
+        // resolution, so clamping to at least one row is always safe.
+        @Suppress("NAME_SHADOWING") val rowSize = rowSize.coerceAtLeast(1)
         val high = candles.maxOf { it.high }
         val low = candles.minOf { it.low }
         val range = (high - low).coerceAtLeast(1e-9)

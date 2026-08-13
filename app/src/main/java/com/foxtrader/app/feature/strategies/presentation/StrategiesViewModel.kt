@@ -15,6 +15,7 @@ import com.foxtrader.app.domain.usecase.journal.BacktestJournalMapper
 import com.foxtrader.app.domain.usecase.scanner.ScannerUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.toPersistentList
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -72,6 +73,11 @@ class StrategiesViewModel @Inject constructor(
                 }
                 // Run an AI-scored backtest on the first scanned symbol (representative).
                 runAiBacktest()
+            } catch (cancel: CancellationException) {
+                // Never swallow cancellation: doing so breaks structured
+                // concurrency and surfaces a routine screen-close or
+                // re-run as a spurious on-screen error.
+                throw cancel
             } catch (e: Exception) {
                 _uiState.update { it.copy(isScanning = false, error = e.message) }
             }

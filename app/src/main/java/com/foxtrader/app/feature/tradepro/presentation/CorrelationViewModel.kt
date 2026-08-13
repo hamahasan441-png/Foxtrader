@@ -9,6 +9,7 @@ import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.scanner.ScannerUseCase
 import com.foxtrader.app.domain.usecase.tradepro.CorrelationEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -57,6 +58,11 @@ class CorrelationViewModel @Inject constructor(
                     correlationEngine.compute(candlesBySymbol)
                 }
                 _uiState.update { it.copy(isComputing = false, matrix = matrix) }
+            } catch (cancel: CancellationException) {
+                // Never swallow cancellation: doing so breaks structured
+                // concurrency and surfaces a routine screen-close or
+                // re-run as a spurious on-screen error.
+                throw cancel
             } catch (e: Exception) {
                 _uiState.update { it.copy(isComputing = false, error = e.message ?: "Failed to compute correlations.") }
             }

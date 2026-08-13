@@ -47,6 +47,11 @@ class BollingerBands @Inject constructor() {
         val bandwidth = DoubleArray(n)
         if (n == 0) return BollingerResult(middle, upper, lower, percentB, bandwidth)
 
+        // period == 0 makes the window `maxOf(0, i + 1)..i` empty, so
+        // `sum / count` divides by zero and every band becomes NaN — which then
+        // renders as an invisible/garbage overlay rather than an error.
+        @Suppress("NAME_SHADOWING") val period = period.coerceAtLeast(1)
+
         val startIndex = if (previous != null && recomputeFrom > 0) {
             maxOf(0, recomputeFrom - period + 1)
         } else {

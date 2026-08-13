@@ -15,6 +15,7 @@ import com.foxtrader.app.domain.usecase.scanner.ScannerUseCase
 import com.foxtrader.app.domain.usecase.tradepro.DailyPlanEngine
 import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -78,6 +79,11 @@ class DailyPlanViewModel @Inject constructor(
                 }
                 val review = planEngine.reviewSession(plan, todaysEntries(allEntries, plan))
                 _uiState.update { it.copy(isGenerating = false, plan = plan, review = review, error = null) }
+            } catch (cancel: CancellationException) {
+                // Never swallow cancellation: doing so breaks structured
+                // concurrency and surfaces a routine screen-close or
+                // re-run as a spurious on-screen error.
+                throw cancel
             } catch (e: Exception) {
                 _uiState.update { it.copy(isGenerating = false, error = e.message ?: "Failed to build the plan.") }
             }

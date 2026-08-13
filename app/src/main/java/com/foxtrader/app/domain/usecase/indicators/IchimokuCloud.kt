@@ -62,6 +62,12 @@ class IchimokuCloud @Inject constructor() {
         val chikou = DoubleArray(n)
         if (n == 0) return IchimokuResult(tenkan, kijun, senkouA, senkouB, chikou, displacement)
 
+        // Non-positive periods make `midpoint`'s window `start > index`, leaving
+        // hi/lo at ±Infinity and producing NaN cloud lines.
+        @Suppress("NAME_SHADOWING") val tenkanPeriod = tenkanPeriod.coerceAtLeast(1)
+        @Suppress("NAME_SHADOWING") val kijunPeriod = kijunPeriod.coerceAtLeast(1)
+        @Suppress("NAME_SHADOWING") val senkouBPeriod = senkouBPeriod.coerceAtLeast(1)
+
         val startIndex = if (previous != null && recomputeFrom > 0) {
             max(0, recomputeFrom - senkouBPeriod + 1)
         } else {

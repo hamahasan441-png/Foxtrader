@@ -12,6 +12,21 @@ import kotlin.math.sqrt
  */
 object TechnicalIndicators {
 
+    /**
+     * Smallest legal look-back for any period-based indicator.
+     *
+     * Periods reach this layer from user-editable surfaces (the plugin SDK
+     * reads `params["period"]` straight from a script, indicator settings are
+     * user-editable). A zero or negative period previously produced either a
+     * division by zero (silent NaN poisoning every downstream signal) or a
+     * negative array index (hard crash). Clamping once, here, keeps every
+     * indicator total: bad configuration degrades to a degenerate-but-valid
+     * series instead of taking the chart — or the whole app — down.
+     */
+    private const val MIN_PERIOD = 1
+
+    private fun sanitizePeriod(period: Int): Int = if (period < MIN_PERIOD) MIN_PERIOD else period
+
     // ========================================================================
     // MOVING AVERAGES
     // ========================================================================
@@ -34,7 +49,9 @@ object TechnicalIndicators {
     ): DoubleArray {
         val ema = DoubleArray(candles.size)
         if (candles.isEmpty()) return ema
-        val k = 2.0 / (period + 1)
+        // period == -1 makes k = 2/0 = Infinity, and every subsequent value NaN.
+        val safePeriod = sanitizePeriod(period)
+        val k = 2.0 / (safePeriod + 1)
         val start = recomputeFrom.coerceIn(0, candles.lastIndex)
 
         if (previous != null && previous.size >= start && start > 0) {
@@ -55,11 +72,14 @@ object TechnicalIndicators {
     /** Simple Moving Average */
     fun calculateSMA(candles: List<Candle>, period: Int): DoubleArray {
         val sma = DoubleArray(candles.size)
+        // A non-positive period both divides by zero (NaN) and indexes
+        // candles[i - period] past the end of the list (IndexOutOfBounds).
+        val safePeriod = sanitizePeriod(period)
         var sum = 0.0
         for (i in candles.indices) {
             sum += candles[i].close
-            if (i >= period) sum -= candles[i - period].close
-            sma[i] = if (i >= period - 1) sum / period else sum / (i + 1)
+            if (i >= safePeriod) sum -= candles[i - safePeriod].close
+            sma[i] = if (i >= safePeriod - 1) sum / safePeriod else sum / (i + 1)
         }
         return sma
     }
@@ -139,6 +159,10 @@ object TechnicalIndicators {
         val plusDI = DoubleArray(len)
         val minusDI = DoubleArray(len)
 
+        // Clamp before the `len < period * 2` guard: with period <= 0 that
+        // guard passes for any series and the seeding loop below then reads
+        // tr[-1] / writes adx[-1].
+        @Suppress("NAME_SHADOWING") val period = sanitizePeriod(period)
         if (len < period * 2) return ADXResult(adx, plusDI, minusDI)
 
         val startIndex = if (previous != null && recomputeFrom > 0) max(0, recomputeFrom - period * 2) else 0
@@ -208,6 +232,9 @@ object TechnicalIndicators {
 
     fun calculateRSI(candles: List<Candle>, period: Int = 14): DoubleArray {
         val rsi = DoubleArray(candles.size) { 50.0 }
+        // With period <= 0 the size guard passes and the seed loop reads
+        // candles[i - 1] at i = 0 (or writes rsi[period] at a negative index).
+        @Suppress("NAME_SHADOWING") val period = sanitizePeriod(period)
         if (candles.size < period + 1) return rsi
 
         var avgGain = 0.0
@@ -270,7 +297,8 @@ object TechnicalIndicators {
         val macdLine = DoubleArray(candles.size) { emaFast[it] - emaSlow[it] }
 
         val signalLine = DoubleArray(candles.size)
-        val k = 2.0 / (signalPeriod + 1)
+        // signalPeriod == -1 makes k Infinity and NaNs the entire signal line.
+        val k = 2.0 / (sanitizePeriod(signalPeriod) + 1)
         val startIndex = if (previous != null && recomputeFrom > 0) max(0, recomputeFrom - 1) else 0
         if (previous != null && startIndex > 0 && previous.signal.size >= startIndex) {
             System.arraycopy(previous.signal, 0, signalLine, 0, startIndex)
@@ -301,6 +329,11 @@ object TechnicalIndicators {
     ): DoubleArray {
         val atr = DoubleArray(candles.size)
         if (candles.size < 2) return atr
+
+        // period <= 0 makes `atr[period - 1]` a negative index and divides the
+        // Wilder smoothing by zero. ATR feeds stop-loss distances and position
+        // sizing, so a NaN here would silently size a real order.
+        @Suppress("NAME_SHADOWING") val period = sanitizePeriod(period)
 
         val tr = DoubleArray(candles.size)
         tr[0] = candles[0].range
@@ -335,6 +368,7 @@ object TechnicalIndicators {
 
     fun calculateRelativeVolume(candles: List<Candle>, period: Int = 20): DoubleArray {
         val relVol = DoubleArray(candles.size) { 1.0 }
+        @Suppress("NAME_SHADOWING") val period = sanitizePeriod(period)
         for (i in candles.indices) {
             val start = max(0, i - period)
             var sum = 0.0
@@ -355,6 +389,9 @@ object TechnicalIndicators {
 
     fun calculateMomentum(candles: List<Candle>, period: Int = 10): DoubleArray {
         val momentum = DoubleArray(candles.size)
+        // A negative period would start the loop at a negative index and read
+        // candles[i - period] beyond the last element.
+        @Suppress("NAME_SHADOWING") val period = sanitizePeriod(period)
         for (i in period until candles.size) {
             val prev = candles[i - period].close
             momentum[i] = if (prev != 0.0) ((candles[i].close - prev) / prev) * 100.0 else 0.0
@@ -368,12 +405,23 @@ object TechnicalIndicators {
 
     fun calculateVolatility(candles: List<Candle>): Double {
         if (candles.size < 2) return 0.0
-        val returns = DoubleArray(candles.size - 1) { i ->
-            (candles[i + 1].close - candles[i].close) / candles[i].close
+        // A zero close (malformed provider bar, or a delisted/halted symbol
+        // padded with zeros) makes the percentage return 0/0 = NaN, and a
+        // single NaN propagates through mean/variance to poison the whole
+        // series. Volatility feeds stop distances and volatility-based position
+        // sizing, so it must never return a non-finite number.
+        val returns = ArrayList<Double>(candles.size - 1)
+        for (i in 0 until candles.size - 1) {
+            val prevClose = candles[i].close
+            if (prevClose == 0.0) continue
+            val r = (candles[i + 1].close - prevClose) / prevClose
+            if (r.isFinite()) returns += r
         }
+        if (returns.isEmpty()) return 0.0
         val mean = returns.average()
         val variance = returns.sumOf { (it - mean) * (it - mean) } / returns.size
-        return sqrt(variance) * candles.last().close
+        val result = sqrt(variance) * candles.last().close
+        return if (result.isFinite()) result else 0.0
     }
 
     private fun findUtcDayStartIndex(candles: List<Candle>, index: Int): Int {

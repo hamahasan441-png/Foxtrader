@@ -250,7 +250,14 @@ class BacktestEngine @Inject constructor() {
         val sortino = calculateSortino(returns)
 
         val finalBalance = config.initialBalance + netProfit
-        val returnPercent = (netProfit / config.initialBalance) * 100.0
+        // A zero (or negative) starting balance is a misconfiguration, not a
+        // reason to render "NaN%"/"Infinity%" across the whole report — and a
+        // NaN return silently poisons the Calmar ratio below it too.
+        val returnPercent = if (config.initialBalance > 0.0) {
+            (netProfit / config.initialBalance) * 100.0
+        } else {
+            0.0
+        }
         val calmar = if (maxDDPercent > 0) returnPercent / maxDDPercent else 0.0
         val recoveryFactor = if (maxDD > 0) netProfit / maxDD else 0.0
 
@@ -290,7 +297,11 @@ class BacktestEngine @Inject constructor() {
         val returns = DoubleArray(trades.size)
         var balance = config.initialBalance
         for ((i, t) in trades.withIndex()) {
-            returns[i] = t.netPnL / balance
+            // The running balance can legitimately reach exactly zero (an
+            // account wiped out mid-run). Dividing by it yields NaN/Infinity,
+            // and a single non-finite return NaNs the Sharpe and Sortino ratios
+            // for the entire report.
+            returns[i] = if (balance != 0.0) t.netPnL / balance else 0.0
             balance += t.netPnL
         }
         return returns
