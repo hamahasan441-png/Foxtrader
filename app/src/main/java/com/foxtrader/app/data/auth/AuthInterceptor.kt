@@ -66,11 +66,14 @@ class AuthInterceptor @Inject constructor(
         if (response.code == 401 && accessToken != null) {
             // Build the clean session-expired response BEFORE closing the
             // original, so the failure branches below can return a readable body.
+            // A fresh ResponseBody is created per call — okhttp ResponseBody is
+            // single-use (string() consumes and closes it), so a shared singleton
+            // would throw "closed" on the second session-expiry.
             val sessionExpired = response.newBuilder()
                 .request(request)
                 .code(401)
                 .message("Session expired")
-                .body(SESSION_EXPIRED_BODY)
+                .body(sessionExpiredBody())
                 .build()
             response.close()
 
@@ -127,7 +130,13 @@ class AuthInterceptor @Inject constructor(
 
         private val JSON_MEDIA_TYPE = "application/json".toMediaType()
 
-        private val SESSION_EXPIRED_BODY: ResponseBody =
+        /**
+         * Returns a fresh single-use [ResponseBody] for the session-expired 401.
+         * A new instance per call is required: okhttp [ResponseBody] is consumed
+         * (and closed) by [ResponseBody.string], so a shared instance would be
+         * unreadable on the second expiry.
+         */
+        private fun sessionExpiredBody(): ResponseBody =
             """{"error":"Session expired"}""".toResponseBody(JSON_MEDIA_TYPE)
     }
 }
