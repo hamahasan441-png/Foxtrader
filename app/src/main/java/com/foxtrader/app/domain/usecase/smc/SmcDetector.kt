@@ -378,6 +378,10 @@ class SmcDetector @Inject constructor() {
     ): VolumeProfile {
         if (candles.isEmpty()) return VolumeProfile(emptyList(), 0.0, 0.0, 0.0, 0.0)
 
+        // Bucket count is a display resolution that can arrive from settings or
+        // a plugin. Zero/negative values allocate a negative-size array or turn
+        // `coerceIn(0, buckets - 1)` into an empty range — both hard crashes.
+        @Suppress("NAME_SHADOWING") val buckets = buckets.coerceAtLeast(1)
         val high = candles.maxOf { it.high }
         val low = candles.minOf { it.low }
         val range = (high - low).coerceAtLeast(1e-9)

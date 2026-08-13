@@ -45,7 +45,14 @@ class RiskEngine @Inject constructor(
 ) {
 
     private val lock = Any()
-    private var config: RiskConfig = RiskConfig()
+
+    // Written from the settings/UI thread via [updateConfig] and read from
+    // background analysis threads during sizing and gating. Without @Volatile a
+    // worker thread can keep serving a stale risk configuration indefinitely —
+    // e.g. still sizing against the old risk-per-trade after the user lowered
+    // it. RiskConfig is an immutable data class, so a volatile reference swap
+    // publishes the whole configuration atomically.
+    @Volatile private var config: RiskConfig = RiskConfig()
     private val tradeHistory = CopyOnWriteArrayList<TradeOutcome>()
     @Volatile private var peakBalance: Double = config.accountBalance
     @Volatile private var currentBalance: Double = config.accountBalance
@@ -127,13 +134,39 @@ class RiskEngine @Inject constructor(
             }
         }
 
+        // A non-finite intermediate (an Infinity from a near-zero stop distance,
+        // or a NaN from a degenerate ATR/volatility read) must never reach the
+        // rounding step: (Infinity * 100).roundToInt() silently becomes
+        // Int.MAX_VALUE, i.e. a ~21 million lot order that looks like a real
+        // number all the way to the broker.
+        if (!volume.isFinite()) {
+            warnings += "Computed volume was not finite — falling back to minimum size"
+            volume = 0.0
+        }
+        if (!riskAmount.isFinite()) {
+            warnings += "Computed risk amount was not finite — reported as zero"
+            riskAmount = 0.0
+        }
+
         // Round to 0.01 lot minimum
         volume = max(0.01, (volume * 100).roundToInt() / 100.0)
+
+        // riskPercent is only meaningful against a positive balance. With a
+        // zero balance the division yields Infinity/NaN and with a negative
+        // balance (a blown account still being reconciled) it yields a negative
+        // percentage — which trips `require(riskPercent >= 0.0)` inside
+        // PositionSizeResult and crashes the caller instead of sizing a trade.
+        val riskPercent = if (currentBalance > 0.0) {
+            ((riskAmount / currentBalance) * 100.0).takeIf { it.isFinite() }?.coerceAtLeast(0.0) ?: 0.0
+        } else {
+            warnings += "Account balance is not positive — risk percent is undefined"
+            0.0
+        }
 
         return PositionSizeResult(
             volume = volume,
             riskAmount = riskAmount,
-            riskPercent = (riskAmount / currentBalance) * 100.0,
+            riskPercent = riskPercent,
             stopDistance = stopDistance,
             method = config.sizingMethod,
             warnings = warnings,

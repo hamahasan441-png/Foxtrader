@@ -167,6 +167,11 @@ internal class ChartAiCoordinator(
          * still reacting to live high/low/volume updates where close is unchanged.
          */
         fun computeFingerprint(candles: List<Candle>): Long {
+            // Public and independently testable, so it must not rely on the
+            // caller's `size < 50` guard to stay in bounds: first()/last() throw
+            // on an empty series. 0 is a safe sentinel because the caller also
+            // resets `lastAiCandlesHash` to 0 when data is insufficient.
+            if (candles.isEmpty()) return 0L
             val midIndex = candles.size / 2
             val last = candles.last()
             var h = candles.size.toLong()

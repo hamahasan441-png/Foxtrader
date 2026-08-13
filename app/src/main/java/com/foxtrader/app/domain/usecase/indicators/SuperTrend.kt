@@ -49,7 +49,10 @@ class SuperTrend @Inject constructor() {
 
         val atr = TechnicalIndicators.calculateATRIncremental(
             candles = candles,
-            period = atrPeriod,
+            // ATR period reaches here from indicator settings / the plugin SDK.
+            // TechnicalIndicators clamps it too, but doing it here keeps the
+            // band math below reading a period that matches what was computed.
+            period = atrPeriod.coerceAtLeast(1),
             previous = null,
             recomputeFrom = recomputeFrom,
         )

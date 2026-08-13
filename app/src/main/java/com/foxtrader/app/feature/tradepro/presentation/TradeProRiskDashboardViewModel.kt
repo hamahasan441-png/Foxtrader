@@ -14,6 +14,7 @@ import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.domain.usecase.tradepro.TradeProRiskManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -75,6 +76,11 @@ class TradeProRiskDashboardViewModel @Inject constructor(
                     )
                 }
                 _uiState.update { it.copy(positionSizerResult = result) }
+            } catch (cancel: CancellationException) {
+                // Never swallow cancellation: doing so breaks structured
+                // concurrency and surfaces a routine screen-close or
+                // re-run as a spurious on-screen error.
+                throw cancel
             } catch (e: Exception) {
                 _uiState.update { it.copy(error = e.message ?: "Position sizing failed.") }
             }
@@ -156,6 +162,11 @@ class TradeProRiskDashboardViewModel @Inject constructor(
                         error = null,
                     )
                 }
+            } catch (cancel: CancellationException) {
+                // Never swallow cancellation: doing so breaks structured
+                // concurrency and surfaces a routine screen-close or
+                // re-run as a spurious on-screen error.
+                throw cancel
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(isLoading = false, error = e.message ?: "Failed to load risk data.")

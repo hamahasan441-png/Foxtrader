@@ -15,6 +15,7 @@ import com.foxtrader.app.domain.usecase.tradepro.AlertRuleEngine
 import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -137,6 +138,11 @@ class AlertRulesViewModel @Inject constructor(
                         lastScanEpochMs = System.currentTimeMillis(),
                     )
                 }
+            } catch (cancel: CancellationException) {
+                // Never swallow cancellation: doing so breaks structured
+                // concurrency and surfaces a routine screen-close or
+                // re-run as a spurious on-screen error.
+                throw cancel
             } catch (e: Exception) {
                 _uiState.update { it.copy(isScanning = false, error = e.message ?: "Test scan failed.") }
             }

@@ -13,6 +13,7 @@ import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.domain.usecase.tradepro.TradeProSimulationEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -73,6 +74,11 @@ class TradeProSimulatorViewModel @Inject constructor(
                         isPlaying = false,
                     )
                 }
+            } catch (cancel: CancellationException) {
+                // Never swallow cancellation: doing so breaks structured
+                // concurrency and surfaces a routine screen-close or
+                // re-run as a spurious on-screen error.
+                throw cancel
             } catch (e: Exception) {
                 _uiState.update { it.copy(isLoading = false, error = e.message ?: "Failed to start session.") }
             }

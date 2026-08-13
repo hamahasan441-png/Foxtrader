@@ -31,6 +31,11 @@ class StochasticOscillator @Inject constructor() {
         val d = DoubleArray(n) { 50.0 }
         if (n == 0) return StochResult(k, d)
 
+        // Guard user/plugin-supplied periods: a non-positive value makes the
+        // look-back windows empty, yielding NaN for %K and %D.
+        @Suppress("NAME_SHADOWING") val kPeriod = kPeriod.coerceAtLeast(1)
+        @Suppress("NAME_SHADOWING") val dPeriod = dPeriod.coerceAtLeast(1)
+
         for (i in 0 until n) {
             val start = max(0, i - kPeriod + 1)
             var hh = Double.NEGATIVE_INFINITY

@@ -20,6 +20,7 @@ import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
 import com.foxtrader.app.domain.usecase.strategies.StrategyLibrary
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -130,6 +131,11 @@ class BacktestLabViewModel @Inject constructor(
                         lastRunTime = System.currentTimeMillis(),
                     )
                 }
+            } catch (cancel: CancellationException) {
+                // Never swallow cancellation: doing so breaks structured
+                // concurrency and surfaces a routine screen-close or
+                // re-run as a spurious on-screen error.
+                throw cancel
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(
