@@ -6,10 +6,11 @@ FoxTrader backend for non-crypto candles (forex / stocks / indices); until now
 that backend did not exist, so those requests fell back to clearly-labelled
 synthetic data. This service is the start of that backend.
 
-> Scope note: this is an intentional first slice. It currently serves candles
-> from an **offline, deterministic `sample` provider** (no API key, no network),
-> so the endpoint works end-to-end today. Real upstreams (Twelve Data, Polygon,
-> OANDA, …) plug into the same provider seam without touching the router.
+> Scope note: the default provider is **`sample`** — an offline, deterministic
+> synthetic source (no API key, no network) so the endpoint works end-to-end
+> immediately. Real upstreams are wired into the same provider seam and selected
+> via `FOX_PROVIDER` (no router change): **Twelve Data** and **Polygon** are
+> implemented; OANDA/Alpha Vantage plug in the same way.
 
 ## API
 
@@ -40,20 +41,41 @@ Unsupported timeframe → `400`; `limit` outside 1–5000 → `422`.
 ### `GET /health`
 
 ```json
-{"status": "ok", "service": "...", "version": "0.1.0", "provider": "sample"}
+{"status": "ok", "service": "...", "version": "0.1.0", "provider": "sample", "store": "sqlite"}
 ```
+
+## Hardening
+
+- **Auth rate limiting** — the auth endpoints (`/api/v1/auth/*`) and
+  `POST /api/v1/sync/push` are throttled per client IP (default 20/min) to blunt
+  brute-force attempts; excess requests get `429` with `Retry-After`.
+  Configure with `FOX_RATE_LIMIT_ENABLED`, `FOX_RATE_LIMIT_AUTH_PER_WINDOW`,
+  `FOX_RATE_LIMIT_WINDOW_SECONDS`.
+- **Structured request logging** — every request logs a single line with
+  `method`, `path`, `status`, `duration_ms`, `client`. Tokens/bodies are never
+  logged.
+- **Input validation** — registration requires a valid email and a password of
+  at least 8 characters (`422` otherwise).
 
 ## Architecture
 
 ```
 app/
-  api.py                 FastAPI app factory (thin: health + router + CORS)
+  api.py                 FastAPI app factory (health + routers + middleware)
   config.py              env-driven Settings (stdlib only)
+  middleware.py          structured request logging + auth rate limiting
+  logging_setup.py       console logger with structured fields
   routers/market.py      HTTP adapter over the pure service
+  routers/auth.py        register/login/refresh/logout (camelCase contract)
+  routers/sync.py        push/pull (Bearer-gated)
   core/                  PURE python — no FastAPI/pydantic imports
     timeframes.py        client label -> minutes
     candles.py           Candle value object + client-shaped response
     service.py           get_candles(): validate, clamp, delegate, assemble
+    auth.py              password hashing + token lifecycle
+    sync_store.py        last-write-wins sync merge
+    persistence.py       pluggable AuthStore/SyncStore (SQLite + memory)
+    ratelimit.py         fixed-window rate limiter
     providers/
       base.py            MarketDataProvider Protocol (the seam)
       sample.py          deterministic synthetic provider (default)
@@ -64,6 +86,40 @@ tests/                   pytest (core is fully covered offline)
 The **core is framework-free and unit-tested offline**; the FastAPI layer is a
 thin adapter. `tests/test_api_contract.py` exercises the real HTTP surface via
 `TestClient` and is skipped automatically when FastAPI isn't installed.
+
+## Auth & Cloud Sync
+
+This backend implements the full auth + sync contract the Android client
+(`SyncApi.kt` / `Auth.kt`) expects — previously client-contract-only, now live:
+
+- `POST /api/v1/auth/register`   `{email, password, displayName}` → `AuthResponse`
+- `POST /api/v1/auth/login`      `{email, password}` → `AuthResponse`
+- `POST /api/v1/auth/refresh`    `{refreshToken}` → `AuthResponse`
+- `POST /api/v1/auth/logout`     (Bearer) → `204`
+- `POST /api/v1/sync/push`       `{items, lastSyncTimestamp, deviceId}` (Bearer) → `204`
+- `GET  /api/v1/sync/pull`       `?since=&types=` (Bearer) → `SyncPullResponse`
+
+`AuthResponse` / `SyncPullResponse` use the exact **camelCase** field names the
+client's kotlinx.serialization expects (`tokens.{accessToken, refreshToken,
+accessExpiresAt, refreshExpiresAt}`, `user.{id, email, displayName, createdAt,
+deviceId}`, etc.).
+
+### Storage model (durable by default)
+
+Auth accounts, tokens, and sync items are persisted to **SQLite** by default
+(`FOX_STORE=sqlite`, file at `FOX_DB_PATH`, WAL mode) — state survives process
+restarts, so a restarted server still recognises logged-in users and their
+synced data. For stateless/ephemeral deployments set `FOX_STORE=memory`
+(the in-memory backend is also what unit tests use).
+
+Persistence sits behind a pluggable store interface (`app.core.persistence`
+`AuthStore` / `SyncStore`), so a future PostgreSQL/Redis backend is a one-line
+swap in `app/api.py` without touching the routers.
+
+- Passwords are hashed with PBKDF2-HMAC-SHA256 + per-user salt.
+- Access tokens are opaque, short-lived (15 min); refresh tokens are rotated
+  on every refresh.
+- Sync merges last-write-wins on `updatedAt` (matching the client's merge).
 
 ## Run
 
@@ -92,6 +148,20 @@ pytest
 
 The pure-core suite runs with no third-party dependencies (only `pytest`); the
 HTTP contract suite additionally needs `fastapi` + `httpx`.
+
+## Real market-data providers
+
+Two real upstreams are implemented and selectable with `FOX_PROVIDER`:
+
+| Provider | Env var | Coverage | Notes |
+|---|---|---|---|
+| `sample` (default) | — | synthetic | offline, deterministic |
+| `twelvedata` | `FOX_TWELVE_DATA_KEY` | forex, stocks, indices, crypto | deep-history paging via `before_ms` filters the fetched window |
+| `polygon` | `FOX_POLYGON_KEY` | stocks, forex, crypto, indices | uses Polygon `from`/`to` window for `before_ms` |
+
+A missing API key returns **503** (clear operator-facing message); an upstream
+failure/error returns **502**. Both are implemented on `core/providers/rest.py`
+(stdlib `urllib`, no new deps) so they are fully testable offline.
 
 ## Adding a real provider
 

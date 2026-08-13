@@ -18,6 +18,10 @@ data class PaperTradingUiState(
     val closedTradeCount: Int = 0,
     val market: PaperTradingSession.MarketSnapshot? = null,
     val orderVolume: Double = 0.1,
+    /** Risk-gate rejection reasons from the most recent order attempt. */
+    val rejectionReasons: ImmutableList<String> = persistentListOf(),
+    /** The risk-computed volume that actually filled on the last accepted order. */
+    val lastFilledVolume: Double? = null,
     val isLoading: Boolean = true,
 ) {
     val hasPositions: Boolean get() = positions.isNotEmpty()

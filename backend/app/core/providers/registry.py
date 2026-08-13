@@ -9,7 +9,9 @@ place instead of scattered conditionals.
 from __future__ import annotations
 
 from app.core.providers.base import MarketDataProvider
+from app.core.providers.polygon import PolygonProvider
 from app.core.providers.sample import SampleProvider
+from app.core.providers.twelve_data import TwelveDataProvider
 
 
 class UnknownProviderError(ValueError):
@@ -20,6 +22,10 @@ def build_provider(name: str) -> MarketDataProvider:
     key = (name or "sample").strip().lower()
     if key == "sample":
         return SampleProvider()
+    if key == "twelvedata":
+        return TwelveDataProvider()
+    if key == "polygon":
+        return PolygonProvider()
     raise UnknownProviderError(
-        f"Unknown provider '{name}'. Available: sample"
+        f"Unknown provider '{name}'. Available: sample, twelvedata, polygon"
     )

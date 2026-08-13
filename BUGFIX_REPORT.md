@@ -117,3 +117,290 @@ a coroutines stub; they still warrant a CI run of `assembleDebug`.
 - `domain/usecase/risk/RiskEngineDegenerateStateTest.kt`
 - `domain/usecase/calculator/PositionCalculatorDegenerateInputTest.kt`
 - `domain/usecase/backtest/BacktestEngineDegenerateConfigTest.kt`
+
+---
+
+# Security & Correctness Hardening Pass — 2026-08-13
+
+Scope: risk-gating, response lifecycle, backend CORS, data backup exposure,
+CI/CD enforcement, provider fail-loud behaviour, and release-signing hygiene.
+Method per item: trigger → failure/gap → fix → verification.
+
+## 1. [CRITICAL] Paper-trading bypassed the risk gate
+
+- **Trigger:** `PaperTradingSession.place()` sent the raw UI `volume` straight
+  to `PaperBroker.placeOrder()`, never consulting `RiskEngine`.
+- **Failure / gap:** A paper trade could open any position size regardless of
+  the configured per-trade risk %, defeating the masterplan invariant that no
+  order reaches a broker unless risk allows it. Two gating services
+  (`RiskGatedOrderService`, `RiskGatedBrokerExecutor`) existed but neither was
+  wired into paper trading.
+- **Fix:** `PaperTradingSession` now delegates to `RiskGatedBrokerExecutor`
+  (the broker-adapter gate, matching `RiskGatedBrokerExecutor.placeMarketOrder`).
+  The free-typed UI volume is applied as a manual override, the engine's
+  `calculatePositionSize` + `canOpenTrade` gate it, and a rejected trade never
+  reaches `PaperBroker`. `buy()`/`sell()` now return `RiskGatedBrokerResult`
+  carrying rejection reasons + the risk-adjusted `sizing.volume` (the actual
+  filled volume). `PaperTradingViewModel`/`PaperTradingUiState`/`PaperTradingScreen`
+  surface those reasons and the filled volume. The duplicate `RiskGatedOrderService`
+  (+ its test) was deleted so there is exactly one gating code path.
+- **Verification:** `PaperTradingSessionTest` extended with
+  `trade exceeding the configured risk percent is rejected and never reaches the broker`
+  and `accepted order surfaces the risk-computed filled volume`. All domain
+  files + tests compile under `kotlinc` (stubbed coroutines/inject; see env note).
+
+## 2. [CRITICAL] `AuthInterceptor` returned an already-closed `Response`
+
+- **Trigger:** On a 401 the original `Response` was closed, then the
+  refresh-failure branch (and the `getAccessToken() ?: return response` guard)
+  fell through to `return response` — handing callers a closed body whose
+  `read()` throws `IllegalStateException: closed`.
+- **Fix:** A clean 401 with a readable `{"error":"Session expired"}` body is
+  built via `response.newBuilder()` **before** closing the original, and every
+  refresh-failure / missing-new-token branch returns that fresh response.
+  Successful refresh still returns `chain.proceed(retryRequest)`.
+- **Verification:** New `AuthInterceptorTest` (fake `SyncApi` throwing on
+  refresh + a fake refresh that yields no new token) asserts the returned
+  `Response` is not closed and its body reads back cleanly. Compiles under
+  `kotlinc` with okhttp/mockk stubs.
+
+## 3. [HIGH] Backend CORS wildcard + credentials
+
+- **Trigger:** `create_app()` always set `allow_credentials=True`, while
+  `Settings` defaulted `cors_origins` to `["*"]`.
+- **Failure / gap:** Browsers reject credentialed requests against a wildcard
+  origin; shipping both is broken and unsafe (origin echo would leak
+  authenticated data).
+- **Fix:** `Settings` gains an `allow_credentials` flag (`FOX_ALLOW_CREDENTIALS`).
+  `create_app()` force-disables credentials whenever the origin list contains a
+  wildcard and logs a hard warning (never silent).
+- **Verification:** New `backend/tests/test_cors.py` asserts the middleware never
+  receives `allow_credentials=True` with `["*"]`, and that the warning is
+  logged. `pytest` = 26 passed; `ruff check` clean.
+
+## 4. [HIGH] Room database exposed to cloud/device backup
+
+- **Trigger:** `android:allowBackup="true"` with no exclusions — the user's
+  journal/drawings/alerts (`foxtrader.db*`) could be copied off-device in
+  plaintext via Auto Backup / device transfer.
+- **Fix (option b — minimum viable):** Kept `allowBackup` true so the
+  already-encrypted `EncryptedSharedPreferences` can still be restored, and
+  added `@xml/backup_rules` (API 23–30) + `@xml/data_extraction_rules` (API 31+)
+  excluding `foxtrader.db`, `-wal`, `-shm` from both cloud backup and
+  device-to-device transfer. SQLCipher (option a) was not chosen because it
+  requires a native dependency that could not be fetched/verified in this
+  sandbox; option b fully closes the exposure with no runtime dependency.
+- **Verification:** Manifest + XML reviewed; referenced resources resolve.
+
+## 5. [HIGH] Turn on real CI/CD gates
+
+- **Fix:** `detekt { ignoreFailures = false }` and `ktlint { ignoreFailures.set(false) }`
+  in `app/build.gradle.kts`; `android.yml` runs `./gradlew detekt ktlintCheck`
+  before the build and adds a non-blocking OWASP `dependencyCheckAnalyze` step.
+  New `backend.yml` runs ruff + pytest on push/PR (required check) with a
+  non-blocking `pip-audit` report. OWASP Dependency-Check plugin wired via
+  version catalog.
+- **Gap/note:** a fresh detekt baseline should be generated from a clean CI run
+  (`./gradlew detektBaseline`) to cover any historical violations; my changed
+  files are clean per static review.
+
+## 6. [MEDIUM] `DukascopyAdapter` silently substituted providers
+
+- **Trigger:** `fetchHistory()` returned `emptyList()`, whose KDoc claimed it
+  "causes the repository to fall back to alternative providers".
+- **Failure / gap:** Contradicted the fail-loud principle in `DataProvider.kt` —
+  a caller could believe it was looking at Dukascopy data when it was actually
+  Binance/synthetic.
+- **Fix:** `fetchHistory()` now throws `ProviderNotImplementedException`
+  (matching the rest of the codebase), and the KDoc no longer claims a silent
+  fallback. `DataProvider.DUKASCOPY` already documents the stub.
+- **Verification:** Compiles under `kotlinc`.
+
+## 7. [MEDIUM] Missing auth/sync backend silently 404s
+
+- **Fix:** Added clearly-flagged "⚠️ Not implemented yet — auth & cloud-sync
+  endpoints" sections to `README.md` and `backend/README.md` listing
+  `/api/v1/auth/*` and `/api/v1/sync/*` as client-contract-only (referenced by
+  `SyncApi.kt`, no server implementation in this repo).
+
+## 8. [LOW / hardening]
+
+- **Certificate pinning:** the main backend `OkHttpClient` now applies a
+  `CertificatePinner` driven by `FOXTRADER_CERT_PINS` (build-config), only
+  active for non-local backend hosts; inert by default so local dev
+  (`10.0.2.2`) is unaffected. Pinner logic compiles under `kotlinc`.
+- **Release signing:** `release.yml` now FAILS the job with a clear error when
+  the keystore secrets are absent, instead of silently producing a debug-signed
+  artifact.
+
+## Verification
+
+| Check | Result |
+|---|---|
+| Backend `pytest backend/tests` | **26 passed** (23 baseline + 3 new CORS) |
+| Backend `ruff check app tests` | **pass** |
+| Workflow YAML (`android.yml`, `backend.yml`, `release.yml`) | parse OK |
+| Kotlin domain/auth/provider changes (`kotlinc` + stubs) | compile-clean |
+| `./gradlew :app:assembleDebug :app:testDebugUnitTest` | not runnable here — see env note |
+
+### Environment note
+
+As in the previous pass, this sandbox has **no Android SDK and no usable JDK
+toolchain** (Gradle distribution, Maven Central, and GitHub release assets are
+all network-blocked), so `./gradlew :app:testDebugUnitTest :app:assembleDebug`
+could not be executed. Kotlin changes were instead **type-checked** with the
+Kotlin compiler against stubbed coroutines/inject/serialization/okhttp/mockk,
+and the backend suite was run for real. A CI run of the Android tasks is still
+required to confirm the full `assembleDebug`/unit-test path and the
+detekt/ktlint gates.
+
+## New / changed test files
+
+- `domain/usecase/orders/PaperTradingSessionTest.kt` (extended: risk-gate rejection, filled volume)
+- `data/auth/AuthInterceptorTest.kt` (new)
+- `backend/tests/test_cors.py` (new)
+- removed `domain/usecase/orders/RiskGatedOrderServiceTest.kt` (service deleted)
+
+---
+
+# Backend Integration Pass — 2026-08-13
+
+Scope: implement the backend auth + cloud-sync endpoints that the Android
+client's `SyncApi.kt` referenced but which had no server implementation
+(previously documented as "not implemented yet"); fix a broken CI step found
+along the way. Method: trigger → gap → fix → verification.
+
+## 1. Missing auth + sync backend now implemented
+
+- **Trigger:** The Android client (`SyncApi.kt`, `AuthRepositoryImpl`,
+  `CloudSyncRepositoryImpl`) calls `/api/v1/auth/*` and `/api/v1/sync/*`, but
+  the FastAPI backend only served market candles — every login/sync request
+  404'd.
+- **Gap:** Login/register/refresh/logout and push/pull had **no server
+  implementation**, so the app's auth and cloud-sync flows could never work.
+- **Fix:**
+  - `backend/app/core/auth.py` — pure `AuthService`: PBKDF2-HMAC-SHA256 password
+    hashing with per-user salt; opaque access tokens (15-min TTL) + rotated
+    refresh tokens (7-day TTL); duplicate-email / bad-credentials / invalid-token
+    errors.
+  - `backend/app/core/sync_store.py` — pure `SyncStore`: per-user
+    last-write-wins merge on `updatedAt`, pull window (`since`) + type filter.
+  - `backend/app/routers/auth.py` — `POST /register|/login|/refresh` returning
+    the exact camelCase `AuthResponse` (`tokens`, `user`) the client's
+    kotlinx.serialization expects; `POST /logout` revokes the access token (204).
+  - `backend/app/routers/sync.py` — `POST /push` (204) and `GET /pull`, both
+    gated on a valid `Authorization: Bearer <accessToken>`; camelCase
+    `SyncPullResponse` (`items`, `serverTimestamp`, `hasMore`).
+  - `backend/app/api.py` — wires the stores onto `app.state` and includes both
+    routers.
+- **Verification:** End-to-end smoke test confirms register → push → pull →
+  refresh → token rotation → 401-on-reuse all return the client contract.
+  Storage is in-memory (documented); durable persistence (PostgreSQL/Redis)
+  remains on the roadmap.
+
+## 2. Backend CI pytest path was broken
+
+- **Trigger:** `backend.yml` (added in the prior pass) ran `pytest backend/tests`
+  with `working-directory: backend`, resolving to a non-existent
+  `backend/backend/tests`.
+- **Fix:** Changed the step to `pytest tests` (pyproject already sets
+  `testpaths = ["tests"]`).
+- **Verification:** Workflow YAML re-validated; `pytest tests` from `backend/`
+  runs the full 47-test suite.
+
+## Verification
+
+| Check | Result |
+|---|---|
+| `pytest backend/tests` | **47 passed** (26 prior + 21 new: auth core 6, sync core 4, auth http 6, sync http 5) |
+| `ruff check app tests` | **pass** |
+| OpenAPI route registration | all auth + sync + market + health paths present |
+| End-to-end smoke (register→push→pull→refresh→logout) | camelCase contract verified |
+
+## New backend files
+
+- `backend/app/core/auth.py`
+- `backend/app/core/sync_store.py`
+- `backend/app/routers/auth.py`
+- `backend/app/routers/sync.py`
+- `backend/tests/test_auth_core.py`
+- `backend/tests/test_sync_core.py`
+- `backend/tests/test_auth_http.py`
+- `backend/tests/test_sync_http.py`
+
+---
+
+# Engineering-Org Hardening & Roadmap Pass — 2026-08-13
+
+Scope: durable persistence, production hardening, real market-data providers,
+CI/CD finalization, and auth-interceptor test coverage. Method: gap → fix →
+verification for each.
+
+## 1. Durable persistence for auth + cloud sync
+
+- **Gap:** auth accounts, tokens, and sync items were in-memory only — lost on
+  restart.
+- **Fix:** pluggable `AuthStore`/`SyncStore` seam (`app/core/persistence.py`).
+  `SqliteStore` (WAL, connection-per-op, thread-safe) is the default via
+  `FOX_STORE=sqlite`; `MemoryStore` kept for tests/stateless deploys.
+  `AuthService`/`SyncStore` now delegate to the store; routers unchanged.
+  `FOX_DB_PATH` selects the file; Dockerfile + docker-compose mount a volume.
+- **Verification:** 5 persistence tests (restart survival, LWW, windows, type
+  filter, unknown-backend, memory ephemerality) + a real two-process restart
+  smoke test confirmed login + sync items persist.
+
+## 2. Backend production hardening
+
+- **Fix:** auth/sync rate limiting per client IP (fixed-window, `429` +
+  `Retry-After`); structured request logging (method/path/status/duration/client,
+  never tokens/bodies); registration validates email + enforces an 8-char
+  password minimum; `create_app` rejects an unknown store backend at startup;
+  `/health` reports the store backend.
+- **Verification:** 10 new tests (limiter 5, HTTP 429/validation/opt-out 5);
+  structured log lines verified in a live smoke run.
+
+## 3. Real market-data providers
+
+- **Gap:** only the offline `sample` provider existed.
+- **Fix:** `RESTProvider` base (stdlib urllib) + `TwelveDataProvider` and
+  `PolygonProvider` behind the provider seam, selectable via `FOX_PROVIDER`,
+  keyed via `FOX_TWELVE_DATA_KEY`/`FOX_POLYGON_KEY`. Missing key → `503`,
+  upstream failure → `502` (clear messages, not a bare 500). `before_ms` paging
+  honoured (Polygon via from/to window; Twelve Data filters the fetched window).
+- **Verification:** 13 provider tests (mapping, sorting, `before_ms`,
+  malformed-row skip, limit, missing-key, 503 route) with a stubbed HTTP layer.
+
+## 4. CI/CD
+
+- **Status:** `android.yml` (detekt+ktlint gate, non-blocking OWASP scan),
+  `backend.yml` (ruff+pytest, pip-audit), `release.yml` (fail without keystore)
+  are finalized and validated, but **not pushed**: the GitHub App token lacks the
+  `workflows` permission, so any push touching `.github/workflows/*` is refused.
+  Grant that permission, then `git add .github/workflows && git commit && git push`.
+- **Note:** the detekt baseline should be regenerated from a clean CI run
+  (`./gradlew detektBaseline`) before relying on the gate.
+
+## 5. Android — auth interceptor test coverage
+
+- **Fix:** added `AuthInterceptorTest` cases for the refresh-success path
+  (retry returns the 200, not the closed 401) and the auth-endpoint skip path
+  (response returned unchanged). These complete coverage of the closed-response
+  fix from the prior pass.
+- **Verification:** compiles under `kotlinc` with okhttp/mockk stubs.
+
+## Verification
+
+| Check | Result |
+|---|---|
+| `pytest backend/tests` | **74 passed** |
+| `ruff check app tests` | **pass** |
+| Docker restart durability (two processes) | login + sync items survive |
+| Kotlin auth-interceptor tests | compile-clean |
+
+### Environment note
+
+No Android SDK/JDK-Gradle is available in this sandbox, so `./gradlew`
+(`assembleDebug`, `testDebugUnitTest`, `detekt`, `ktlintCheck`) cannot be run
+here. Android changes are type-checked with `kotlinc` against stubs; the
+`android.yml` CI job remains the authoritative verification path for the Android
+build and the detekt/ktlint gates.

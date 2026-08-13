@@ -1,0 +1,24 @@
+version: "3.9"
+
+# FoxTrader backend local development stack.
+# - API service on :8000
+# - Named volume for durable SQLite auth/sync state.
+
+services:
+  api:
+    build: .
+    image: foxtrader-backend:local
+    ports:
+      - "8000:8000"
+    environment:
+      FOX_PROVIDER: ${FOX_PROVIDER:-sample}
+      FOX_STORE: ${FOX_STORE:-sqlite}
+      FOX_DB_PATH: /srv/data/foxtrader.db
+      FOX_CORS_ORIGINS: ${FOX_CORS_ORIGINS:-*}
+      FOX_TWELVE_DATA_KEY: ${FOX_TWELVE_DATA_KEY:-}
+      FOX_POLYGON_KEY: ${FOX_POLYGON_KEY:-}
+    volumes:
+      - foxtrader-data:/srv/data
+
+volumes:
+  foxtrader-data:

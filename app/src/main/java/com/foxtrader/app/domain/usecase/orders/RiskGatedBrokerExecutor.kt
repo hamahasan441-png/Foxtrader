@@ -14,14 +14,17 @@ import javax.inject.Singleton
 import kotlin.math.abs
 
 /**
- * Risk-gated live broker executor.
+ * Risk-gated broker executor — the single canonical order gate in the app.
  *
- * This service is the live-order counterpart to [RiskGatedOrderService]. It is
- * intentionally explicit about [executionAuthorized] so UI/security layers must
- * complete biometric/device confirmation before any broker adapter is invoked.
+ * Both live execution and [PaperTradingSession] route every order through this
+ * service, so there is exactly one place where risk gating happens: a broker
+ * adapter can never be reached unless [RiskEngine] allows the proposed risk
+ * first. It is intentionally explicit about [executionAuthorized] so UI/security
+ * layers must complete biometric/device confirmation before any live broker
+ * adapter is invoked.
  *
  * Broker adapters should remain dumb transport adapters; this domain service is
- * the canonical risk/authorization gate for live execution.
+ * the canonical risk/authorization gate for execution.
  */
 @Singleton
 class RiskGatedBrokerExecutor @Inject constructor(
