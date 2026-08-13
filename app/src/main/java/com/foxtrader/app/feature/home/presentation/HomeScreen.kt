@@ -36,7 +36,6 @@ import com.foxtrader.app.domain.usecase.home.ClassifiedInsight
 import com.foxtrader.app.domain.usecase.home.InsightKind
 import com.foxtrader.app.ui.components.FoxBadge
 import com.foxtrader.app.ui.components.FoxBanner
-import com.foxtrader.app.ui.components.FoxBannerTone
 import com.foxtrader.app.ui.components.FoxDirectionBadge
 import com.foxtrader.app.ui.components.FoxEmptyState
 import com.foxtrader.app.ui.components.FoxErrorState

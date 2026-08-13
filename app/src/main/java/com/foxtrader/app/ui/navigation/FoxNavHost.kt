@@ -113,7 +113,7 @@ private val bottomTabs = listOf(
     BottomNavTab(FoxRoutes.HOME, "Home", Icons.Outlined.Home, Icons.Filled.Home),
     BottomNavTab(FoxRoutes.CHART, "Chart", Icons.Outlined.ShowChart, Icons.Filled.ShowChart),
     BottomNavTab(FoxRoutes.MARKETS, "Markets", Icons.Outlined.GridView, Icons.Filled.GridView),
-    BottomNavTab(FoxRoutes.BACKTEST_LAB, "Lab", Icons.Outlined.Science, Icons.Filled.Science),
+    BottomNavTab(FoxRoutes.BACKTEST_LAB, "Lab", Icons.Outlined.Insights, Icons.Filled.Insights),
     BottomNavTab(FoxRoutes.MORE, "More", Icons.Outlined.Apps, Icons.Filled.Apps),
 )
 

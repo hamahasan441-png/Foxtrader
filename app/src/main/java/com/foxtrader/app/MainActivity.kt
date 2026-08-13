@@ -118,6 +118,8 @@ private fun FoxTraderAppContent(
     darkMode: Boolean,
     showDisclaimer: Boolean,
     onAcknowledgeDisclaimer: () -> Unit,
+    showOnboarding: Boolean,
+    onFinishOnboarding: (com.foxtrader.app.domain.model.WorkspaceProfile) -> Unit,
     locked: Boolean,
     onAuthenticate: suspend () -> Boolean,
     onUnlock: () -> Unit,
@@ -131,6 +133,7 @@ private fun FoxTraderAppContent(
                 // First-run gate: nothing else renders until the educational
                 // disclaimer is acknowledged.
                 showDisclaimer -> DisclaimerScreen(onAcknowledge = onAcknowledgeDisclaimer)
+                showOnboarding -> OnboardingScreen(onFinished = onFinishOnboarding)
                 locked -> LockScreen(onAuthenticate = onAuthenticate, onUnlock = onUnlock)
                 else -> FoxNavHost()
             }

@@ -615,6 +615,11 @@ class AppPreferences @Inject constructor(
         val KEY_MULTI_CHART_STATE = stringPreferencesKey("multi_chart_state")
         val KEY_CRASH_REPORTING_ENABLED = booleanPreferencesKey("crash_reporting_enabled")
         val KEY_DISCLAIMER_ACKNOWLEDGED = booleanPreferencesKey("disclaimer_acknowledged")
+        val KEY_WORKSPACE_PROFILE = stringPreferencesKey("workspace_profile")
+        val KEY_SUBSCRIPTION = stringPreferencesKey("subscription_state")
+        val KEY_SMC_VISUAL_MODE = stringPreferencesKey("smc_visual_mode")
+        val KEY_STRATEGY_BLUEPRINTS = stringPreferencesKey("strategy_blueprints")
+        const val DEFAULT_TRIAL_DURATION_MS = 14L * 24L * 60L * 60L * 1000L
         val KEY_TRADEPRO_CONFIG = stringPreferencesKey("tradepro_config")
         val KEY_LITX_CONFIG = stringPreferencesKey("litx_config")
         val KEY_TRADEPRO_ALERT_RULES = stringPreferencesKey("tradepro_alert_rules")

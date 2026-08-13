@@ -345,8 +345,6 @@ emulator URL is `http://10.0.2.2:8000/`.
 - [x] SMC/ICT concepts (order blocks, FVGs, liquidity sweeps, BOS/CHOCH)
 - [x] Technical indicators (EMA, Bollinger, SuperTrend, PSAR, Ichimoku, VWAP)
 - [x] Offline-first with Room + sample data seeding
-- [x] Live WebSocket data feed (Binance + provider-awar, PSAR, Ichimoku, VWAP)
-- [x] Offline-first with Room + sample data seeding
 - [x] Live WebSocket data feed (Binance + provider-aware routing)
 - [x] Drawing tools (trend lines, Fibonacci, horizontals)
 - [x] Bar-by-bar replay engine and backtesting engine
