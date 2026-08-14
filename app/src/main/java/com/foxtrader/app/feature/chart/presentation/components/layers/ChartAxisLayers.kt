@@ -23,7 +23,6 @@ import com.foxtrader.app.ui.theme.FoxNeutral5
 import com.foxtrader.app.ui.theme.FoxNeutral60
 import java.util.Locale
 import kotlin.math.abs
-import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 
@@ -63,21 +62,18 @@ internal fun DrawScope.drawPriceScale(
         strokeWidth = 0.5f,
     )
 
-    val step = viewport.niceStep(6)
-    if (step > 0.0) {
-        var level = ceil(viewport.priceLow / step) * step
-        while (level <= viewport.priceHigh) {
-            val y = viewport.yForPrice(level, ch)
-            if (y in 0f..ch) {
-                val label = viewport.formatPrice(level)
-                drawContext.canvas.nativeCanvas.drawText(
-                    label,
-                    totalW - 6f,
-                    y + paint.textSize / 3f,
-                    paint,
-                )
-            }
-            level += step
+    val priceLevelCount = viewport.priceGridLevelCount(6)
+    for (levelIndex in 0 until priceLevelCount) {
+        val level = viewport.priceGridLevel(levelIndex)
+        val y = viewport.yForPrice(level, ch)
+        if (y in 0f..ch) {
+            val label = viewport.formatPrice(level)
+            drawContext.canvas.nativeCanvas.drawText(
+                label,
+                totalW - 6f,
+                y + paint.textSize / 3f,
+                paint,
+            )
         }
     }
 

@@ -851,3 +851,12 @@ advisory during the burn-down, while the Jacoco domain report expands from a
 hand-picked engine list to `com.foxtrader.app.domain.**` with a 25% starter
 floor. Chart coverage remains a separate focused gate so the rendering hot path
 keeps its stronger signal.
+
+### Sprint 16 — chart polish foundation *(status: source-implemented, CI pending)*
+
+The chart now has a compact latest-bar data window, discoverable mobile zoom and
+reset controls, persisted linear/logarithmic price-scale mode, and cached
+logarithmic 1/2/5 grid levels. Log mode is rejected for non-positive prices and
+all camera controls reuse the existing viewport invariants. This establishes the
+visual/interaction polish track without changing the chart's allocation-free
+rendering contract.

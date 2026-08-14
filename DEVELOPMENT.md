@@ -5062,3 +5062,29 @@ small hand-picked list of engines.
 
 This is a build-level hardening change: no production behavior changes, and the
 existing no-TODO, no-placeholder and four-invariant contracts remain intact.
+
+# Appendix AN: Chart polish — data window, mobile navigation, and scale modes
+
+This pass starts the chart-focused polish track requested by the masterplan's
+mobile/chart-depth goals and informed by the interaction patterns users expect
+from professional chart terminals: visible OHLC data, discoverable touch zoom
+controls, a reset-to-latest action, and auto/logarithmic price-scale switching.
+
+## What changed
+
+- `ChartOhlcLegend` keeps the latest bar's O/H/L/C, change, volume, and
+  LIVE/CACHED/SIM source badge visible above the canvas with TalkBack text.
+- `ChartNavigationControls` adds accessible Zoom In, Zoom Out, Reset to Latest,
+  and Auto/Log scale actions. They reuse `ChartViewport` camera math, so button
+  and gesture behavior cannot drift apart.
+- `ChartViewport` now supports persisted linear/logarithmic scale mode,
+  validates that logarithmic mode is only available for strictly positive data,
+  and uses cached 1/2/5 decade levels for log grids without allocating in the
+  draw loop.
+- Chart viewport tests cover log transform round-trips, invalid-price rejection,
+  scale-mode persistence, and decade-friendly grid levels.
+
+This is the first polish slice, not a claim of feature parity with a commercial
+terminal. The next chart slices should add screenshot baselines, drawing
+selection/edit handles, and measured gesture/frame benchmarks before more visual
+layers are added.

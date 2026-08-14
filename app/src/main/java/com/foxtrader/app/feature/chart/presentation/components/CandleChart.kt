@@ -8,10 +8,13 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -23,6 +26,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalDensity
@@ -39,6 +43,7 @@ import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.analysis.FibonacciEngine
 import com.foxtrader.app.domain.usecase.analysis.MarketProfile
 import com.foxtrader.app.domain.usecase.analysis.SupportResistanceDetector
+import com.foxtrader.app.domain.usecase.chart.ChartScaleMode
 import com.foxtrader.app.domain.usecase.chart.ChartViewportState
 import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
 import com.foxtrader.app.feature.chart.presentation.CandleSeries
@@ -188,6 +193,11 @@ fun CandleChart(
 
     // Redraw trigger — bumped after every gesture frame.
     var invalidateTick by remember { mutableIntStateOf(0) }
+    var scaleModeTick by remember { mutableIntStateOf(0) }
+
+    // Measured outside the draw pass so the floating navigation controls can
+    // invoke the same camera math as touch gestures without reading Canvas size.
+    var chartAreaWidthPx by remember { mutableFloatStateOf(1f) }
 
     // Bumped when a fling starts, which is what launches the animation loop.
     var flingTick by remember { mutableIntStateOf(0) }
@@ -301,6 +311,44 @@ fun CandleChart(
     val rescaleState = rememberUpdatedState(rescaleCurrent)
     val rescale: () -> Unit = { rescaleState.value() }
 
+    fun finishCameraAction() {
+        viewport.clamp(candles.size)
+        if (autoScaleEnabled) rescale()
+        followLiveEdge[0] = viewport.isAtRightEdge(candles.size)
+        publishViewportState()
+        invalidateTick++
+    }
+
+    val zoomIn = {
+        if (candles.isNotEmpty()) {
+            viewport.zoomBy(1.25f, chartAreaWidthPx / 2f, chartAreaWidthPx, candles.size)
+            finishCameraAction()
+        }
+    }
+    val zoomOut = {
+        if (candles.isNotEmpty()) {
+            viewport.zoomBy(0.8f, chartAreaWidthPx / 2f, chartAreaWidthPx, candles.size)
+            finishCameraAction()
+        }
+    }
+    val resetToLatest = {
+        if (candles.isNotEmpty()) {
+            viewport.resetToLatest(candles.size)
+            finishCameraAction()
+        }
+    }
+    val toggleScaleMode = {
+        val nextMode = if (viewport.scaleMode == ChartScaleMode.LINEAR) {
+            ChartScaleMode.LOGARITHMIC
+        } else {
+            ChartScaleMode.LINEAR
+        }
+        if (viewport.setScaleMode(nextMode, candles)) {
+            scaleModeTick++
+            finishCameraAction()
+        }
+    }
+
     // Initialise the viewport when data arrives or grows.
     remember(candles.size, seriesKey, initialViewportState) {
         if (viewport.visibleBars <= 0f || viewportSeriesKey != seriesKey) {
@@ -411,10 +459,17 @@ fun CandleChart(
     // not on every tick or indicator recompute. This eliminates the crash where
     // mid-gesture handler restart causes NPE/IndexOutOfBounds.
     val stableGestureKey = remember(seriesKey) { seriesKey }
+    // Read the tick so the rail reflects plain viewport mutations immediately.
+    val currentScaleMode = if (scaleModeTick >= 0) viewport.scaleMode else ChartScaleMode.LINEAR
 
-    Canvas(
-        modifier = modifier
-            .background(FoxNeutral0)
+    Box(modifier = modifier) {
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .onSizeChanged { size ->
+                    chartAreaWidthPx = viewport.chartWidth(size.width.toFloat())
+                }
+                .background(FoxNeutral0)
             // A11y (R7): the Canvas is opaque to TalkBack, so expose a spoken
             // one-line summary of what the chart is currently showing.
             .semantics { chartContentDescription?.let { contentDescription = it } }
@@ -773,6 +828,18 @@ fun CandleChart(
         // Close the frame: records the duration, recomputes adaptive quality for
         // the next frame, and publishes a throttled snapshot to the debug HUD.
         performanceMonitor?.endFrame()
+        }
+
+        if (candles.isNotEmpty()) {
+            ChartNavigationControls(
+                onZoomIn = zoomIn,
+                onZoomOut = zoomOut,
+                onResetToLatest = resetToLatest,
+                scaleMode = currentScaleMode,
+                onToggleScaleMode = toggleScaleMode,
+                logScaleAvailable = candles.supportsLogScale,
+            )
+        }
     }
 }
 

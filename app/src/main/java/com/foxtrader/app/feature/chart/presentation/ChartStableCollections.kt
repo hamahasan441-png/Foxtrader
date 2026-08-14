@@ -15,6 +15,9 @@ class CandleSeries internal constructor(
 ) : AbstractList<Candle>() {
     override val size: Int get() = backing.size
 
+    /** Cached once per immutable series so log-scale controls never scan on draw. */
+    val supportsLogScale: Boolean = backing.all { it.low > 0.0 && it.low.isFinite() }
+
     override fun get(index: Int): Candle = backing[index]
 
     override fun equals(other: Any?): Boolean =

@@ -74,6 +74,7 @@ import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.ui.theme.FoxWarning
 import com.foxtrader.app.feature.chart.presentation.components.CandleChart
 import com.foxtrader.app.feature.chart.presentation.components.ChartAnalysisSheet
+import com.foxtrader.app.feature.chart.presentation.components.ChartOhlcLegend
 import com.foxtrader.app.feature.chart.presentation.components.DrawingManagerDialog
 import com.foxtrader.app.feature.chart.presentation.components.DrawingPalette
 import com.foxtrader.app.feature.chart.presentation.components.IndicatorPanel
@@ -316,7 +317,8 @@ fun ChartScreen(
                     contentAlignment = Alignment.Center,
                 ) {
                     when {
-                        state.hasData -> CandleChart(
+                        state.hasData -> Box(Modifier.fillMaxSize()) {
+                            CandleChart(
                             // `PERF` Stable CandleSeries so Compose can skip the
                             // chart when inputs are unchanged (R5). Shared with the
                             // volume pane for index alignment (R3).
@@ -381,6 +383,15 @@ fun ChartScreen(
                                 state.timeframe.label,
                             ),
                         )
+                        ChartOhlcLegend(
+                            candle = displayCandles.lastOrNull(),
+                            previousCandle = displayCandles.getOrNull(displayCandles.lastIndex - 1),
+                            source = state.dataSource,
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(8.dp),
+                        )
+                        }
                         state.isLoading -> CircularProgressIndicator(color = FoxAmber50)
                         state.error != null -> Text(
                             text = state.error ?: "",

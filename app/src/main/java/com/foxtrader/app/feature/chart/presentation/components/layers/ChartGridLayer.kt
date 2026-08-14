@@ -23,7 +23,6 @@ import com.foxtrader.app.ui.theme.FoxNeutral5
 import com.foxtrader.app.ui.theme.FoxNeutral60
 import java.util.Locale
 import kotlin.math.abs
-import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 
@@ -48,20 +47,17 @@ internal fun DrawScope.drawGridLayer(
     // TradingView uses very subtle grid lines (~8% opacity)
     val gridColor = Color(0x14FFFFFF)
 
-    val step = viewport.niceStep(6)
-    if (step > 0.0) {
-        var level = ceil(viewport.priceLow / step) * step
-        while (level <= viewport.priceHigh) {
-            val y = viewport.yForPrice(level, ch)
-            if (y in 0f..ch) {
-                drawLine(
-                    color = gridColor,
-                    start = Offset(0f, y),
-                    end = Offset(totalW, y),
-                    strokeWidth = 0.5f,
-                )
-            }
-            level += step
+    val priceLevelCount = viewport.priceGridLevelCount(6)
+    for (levelIndex in 0 until priceLevelCount) {
+        val level = viewport.priceGridLevel(levelIndex)
+        val y = viewport.yForPrice(level, ch)
+        if (y in 0f..ch) {
+            drawLine(
+                color = gridColor,
+                start = Offset(0f, y),
+                end = Offset(totalW, y),
+                strokeWidth = 0.5f,
+            )
         }
     }
 
