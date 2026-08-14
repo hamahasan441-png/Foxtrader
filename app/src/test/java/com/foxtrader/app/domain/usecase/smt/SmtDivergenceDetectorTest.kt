@@ -38,6 +38,28 @@ class SmtDivergenceDetectorTest {
         assertEquals(SmtDivergenceDetector.SmtType.PEER_SWEEP_PRIMARY_FAIL, smt?.type)
     }
 
+    @Test
+    fun `aligns timestamps correctly even when peer has extra unaligned historical bars`() {
+        val primary = primaryHigherHigh()
+        // Peer has 20 older bars before primary start
+        val olderBars = (0 until 20).map { i ->
+            val ts = -((20 - i) * 60_000L)
+            Candle(timestamp = ts, open = 99.0, high = 99.5, low = 98.5, close = 99.0, volume = 100.0)
+        }
+        val peerWithHistory = olderBars + peerLowerHigh()
+
+        val result = detector.detect(
+            primarySymbol = "EURUSD",
+            primaryCandles = primary,
+            correlatedCandles = mapOf("GBPUSD" to peerWithHistory),
+        )
+
+        val smt = result.firstOrNull { it.direction == Direction.BEARISH }
+        assertTrue("Expected bearish SMT with timestamp alignment", smt != null)
+        assertEquals(60, smt?.primaryIndex)
+        assertEquals(80, smt?.peerIndex) // 20 older bars offset + index 60 = 80
+    }
+
     private fun primaryHigherHigh(): List<Candle> = baseCandles { index, high, low ->
         val adjustedHigh = when (index) {
             30 -> 110.0

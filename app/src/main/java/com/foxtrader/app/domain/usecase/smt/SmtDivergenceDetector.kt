@@ -15,8 +15,10 @@ import kotlin.math.sqrt
  * - Bearish SMT: one symbol sweeps / prints a higher high while the peer holds
  *   a lower high (buy-side liquidity was taken without broad confirmation).
  *
- * Non-repainting: only confirmed swing points are compared. The most recent
- * `swingLookback` bars are not treated as swings until enough future bars exist.
+ * Non-repainting & Real Time Synchronized:
+ * - Aligns primary and peer series by exact candle timestamp (inner time join).
+ * - Only confirmed swing points are compared (last `swingLookback` bars excluded).
+ * - Gaps and market holidays in either instrument are handled cleanly.
  */
 class SmtDivergenceDetector @Inject constructor() {
 
@@ -71,20 +73,39 @@ class SmtDivergenceDetector @Inject constructor() {
         swingLookback: Int,
         minCorrelation: Double,
     ): List<SmtDivergence> {
-        val size = minOf(primaryCandles.size, peerCandles.size, period)
-        if (size < MIN_BARS) return emptyList()
+        if (primaryCandles.isEmpty() || peerCandles.isEmpty()) return emptyList()
 
-        val primaryOffset = primaryCandles.size - size
-        val peerOffset = peerCandles.size - size
-        val primary = primaryCandles.takeLast(size)
-        val peer = peerCandles.takeLast(size)
-        val correlation = correlation(primary, peer)
+        // 1. Map timestamps to (originalIndex, Candle)
+        val primaryMap = HashMap<Long, Pair<Int, Candle>>(primaryCandles.size)
+        for (i in primaryCandles.indices) {
+            primaryMap[primaryCandles[i].timestamp] = i to primaryCandles[i]
+        }
+
+        val peerMap = HashMap<Long, Pair<Int, Candle>>(peerCandles.size)
+        for (i in peerCandles.indices) {
+            peerMap[peerCandles[i].timestamp] = i to peerCandles[i]
+        }
+
+        // 2. Intersect timestamps chronologically ascending
+        val commonTimestamps = primaryCandles.map { it.timestamp }
+            .filter { peerMap.containsKey(it) }
+            .takeLast(period)
+
+        if (commonTimestamps.size < MIN_BARS) return emptyList()
+
+        val alignedPrimaryWithIdx = commonTimestamps.map { primaryMap.getValue(it) }
+        val alignedPeerWithIdx = commonTimestamps.map { peerMap.getValue(it) }
+
+        val alignedPrimaryCandles = alignedPrimaryWithIdx.map { it.second }
+        val alignedPeerCandles = alignedPeerWithIdx.map { it.second }
+
+        val correlation = correlation(alignedPrimaryCandles, alignedPeerCandles)
         if (correlation < minCorrelation) return emptyList()
 
-        val primaryHighs = findSwings(primary, swingLookback, isHigh = true).takeLast(2)
-        val primaryLows = findSwings(primary, swingLookback, isHigh = false).takeLast(2)
-        val peerHighs = findSwings(peer, swingLookback, isHigh = true).takeLast(2)
-        val peerLows = findSwings(peer, swingLookback, isHigh = false).takeLast(2)
+        val primaryHighs = findSwings(alignedPrimaryCandles, swingLookback, isHigh = true).takeLast(2)
+        val primaryLows = findSwings(alignedPrimaryCandles, swingLookback, isHigh = false).takeLast(2)
+        val peerHighs = findSwings(alignedPeerCandles, swingLookback, isHigh = true).takeLast(2)
+        val peerLows = findSwings(alignedPeerCandles, swingLookback, isHigh = false).takeLast(2)
 
         val result = mutableListOf<SmtDivergence>()
 
@@ -93,24 +114,27 @@ class SmtDivergenceDetector @Inject constructor() {
             val p1 = primaryLows[1]
             val q0 = peerLows[0]
             val q1 = peerLows[1]
-            val primarySweptLow = primary[p1].low < primary[p0].low
-            val peerHeldLow = peer[q1].low >= peer[q0].low
-            val peerSweptLow = peer[q1].low < peer[q0].low
-            val primaryHeldLow = primary[p1].low >= primary[p0].low
+            val primarySweptLow = alignedPrimaryCandles[p1].low < alignedPrimaryCandles[p0].low
+            val peerHeldLow = alignedPeerCandles[q1].low >= alignedPeerCandles[q0].low
+            val peerSweptLow = alignedPeerCandles[q1].low < alignedPeerCandles[q0].low
+            val primaryHeldLow = alignedPrimaryCandles[p1].low >= alignedPrimaryCandles[p0].low
+
+            val originalPrimaryIdx = alignedPrimaryWithIdx[p1].first
+            val originalPeerIdx = alignedPeerWithIdx[q1].first
 
             if (primarySweptLow && peerHeldLow) {
                 result += buildDivergence(
                     primarySymbol, peerSymbol, Direction.BULLISH,
-                    SmtType.PRIMARY_SWEEP_PEER_FAIL, p1 + primaryOffset, q1 + peerOffset,
-                    primary[p1].low, peer[q1].low, correlation,
+                    SmtType.PRIMARY_SWEEP_PEER_FAIL, originalPrimaryIdx, originalPeerIdx,
+                    alignedPrimaryCandles[p1].low, alignedPeerCandles[q1].low, correlation,
                     "$primarySymbol swept sell-side while $peerSymbol held its prior low",
                 )
             }
             if (peerSweptLow && primaryHeldLow) {
                 result += buildDivergence(
                     primarySymbol, peerSymbol, Direction.BULLISH,
-                    SmtType.PEER_SWEEP_PRIMARY_FAIL, p1 + primaryOffset, q1 + peerOffset,
-                    primary[p1].low, peer[q1].low, correlation,
+                    SmtType.PEER_SWEEP_PRIMARY_FAIL, originalPrimaryIdx, originalPeerIdx,
+                    alignedPrimaryCandles[p1].low, alignedPeerCandles[q1].low, correlation,
                     "$peerSymbol swept sell-side while $primarySymbol held its prior low",
                 )
             }
@@ -121,24 +145,27 @@ class SmtDivergenceDetector @Inject constructor() {
             val p1 = primaryHighs[1]
             val q0 = peerHighs[0]
             val q1 = peerHighs[1]
-            val primarySweptHigh = primary[p1].high > primary[p0].high
-            val peerHeldHigh = peer[q1].high <= peer[q0].high
-            val peerSweptHigh = peer[q1].high > peer[q0].high
-            val primaryHeldHigh = primary[p1].high <= primary[p0].high
+            val primarySweptHigh = alignedPrimaryCandles[p1].high > alignedPrimaryCandles[p0].high
+            val peerHeldHigh = alignedPeerCandles[q1].high <= alignedPeerCandles[q0].high
+            val peerSweptHigh = alignedPeerCandles[q1].high > alignedPeerCandles[q0].high
+            val primaryHeldHigh = alignedPrimaryCandles[p1].high <= alignedPrimaryCandles[p0].high
+
+            val originalPrimaryIdx = alignedPrimaryWithIdx[p1].first
+            val originalPeerIdx = alignedPeerWithIdx[q1].first
 
             if (primarySweptHigh && peerHeldHigh) {
                 result += buildDivergence(
                     primarySymbol, peerSymbol, Direction.BEARISH,
-                    SmtType.PRIMARY_SWEEP_PEER_FAIL, p1 + primaryOffset, q1 + peerOffset,
-                    primary[p1].high, peer[q1].high, correlation,
+                    SmtType.PRIMARY_SWEEP_PEER_FAIL, originalPrimaryIdx, originalPeerIdx,
+                    alignedPrimaryCandles[p1].high, alignedPeerCandles[q1].high, correlation,
                     "$primarySymbol swept buy-side while $peerSymbol failed to confirm the high",
                 )
             }
             if (peerSweptHigh && primaryHeldHigh) {
                 result += buildDivergence(
                     primarySymbol, peerSymbol, Direction.BEARISH,
-                    SmtType.PEER_SWEEP_PRIMARY_FAIL, p1 + primaryOffset, q1 + peerOffset,
-                    primary[p1].high, peer[q1].high, correlation,
+                    SmtType.PEER_SWEEP_PRIMARY_FAIL, originalPrimaryIdx, originalPeerIdx,
+                    alignedPrimaryCandles[p1].high, alignedPeerCandles[q1].high, correlation,
                     "$peerSymbol swept buy-side while $primarySymbol failed to confirm the high",
                 )
             }

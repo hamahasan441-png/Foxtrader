@@ -21,6 +21,25 @@ import com.foxtrader.app.ui.theme.FoxBullish
 
 private val SignalDash = PathEffect.dashPathEffect(floatArrayOf(10f, 8f), 0f)
 
+// Reusable native Paint instances for zero-allocation rendering in draw loop
+private val LiveSignalLabelPaint = Paint().apply {
+    color = android.graphics.Color.WHITE
+    textSize = 18f
+    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+    isAntiAlias = true
+    textAlign = Paint.Align.CENTER
+    alpha = (0.9f * 255).toInt()
+}
+
+private val HistorySignalLabelPaint = Paint().apply {
+    color = android.graphics.Color.WHITE
+    textSize = 18f
+    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+    isAntiAlias = true
+    textAlign = Paint.Align.CENTER
+    alpha = (0.3f * 255).toInt()
+}
+
 /**
  * Draws LIT X signal overlays on the chart when a validated signal exists.
  *
@@ -83,18 +102,17 @@ internal fun DrawScope.drawLitXSignals(
     // Direction arrow (triangle) at the right edge near entry price
     val arrowSize = 10f
     val arrowX = cw - 16f
-    val arrowPath = Path().apply {
-        if (signal.direction == Direction.BULLISH) {
-            moveTo(arrowX, entryY - arrowSize)
-            lineTo(arrowX - arrowSize / 2f, entryY + arrowSize / 2f)
-            lineTo(arrowX + arrowSize / 2f, entryY + arrowSize / 2f)
-        } else {
-            moveTo(arrowX, entryY + arrowSize)
-            lineTo(arrowX - arrowSize / 2f, entryY - arrowSize / 2f)
-            lineTo(arrowX + arrowSize / 2f, entryY - arrowSize / 2f)
-        }
-        close()
+    val arrowPath = Path()
+    if (signal.direction == Direction.BULLISH) {
+        arrowPath.moveTo(arrowX, entryY - arrowSize)
+        arrowPath.lineTo(arrowX - arrowSize / 2f, entryY + arrowSize / 2f)
+        arrowPath.lineTo(arrowX + arrowSize / 2f, entryY + arrowSize / 2f)
+    } else {
+        arrowPath.moveTo(arrowX, entryY + arrowSize)
+        arrowPath.lineTo(arrowX - arrowSize / 2f, entryY - arrowSize / 2f)
+        arrowPath.lineTo(arrowX + arrowSize / 2f, entryY - arrowSize / 2f)
     }
+    arrowPath.close()
     drawPath(arrowPath, color = dirColor.copy(alpha = 0.95f), style = Fill)
 }
 
@@ -155,20 +173,6 @@ internal fun DrawScope.drawSmtDivergences(
 }
 
 /**
- * Creates a fresh [Paint] for signal marker labels on each call to avoid
- * shared mutable state across concurrent DrawScope invocations. The alpha
- * is set at creation time so no mutation occurs after construction.
- */
-private fun signalMarkerLabelPaint(alpha: Float): Paint = Paint().apply {
-    color = android.graphics.Color.WHITE
-    textSize = 18f
-    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-    isAntiAlias = true
-    textAlign = Paint.Align.CENTER
-    this.alpha = (alpha * 255).toInt()
-}
-
-/**
  * Draws unified signal markers on the chart for both live and history signals.
  *
  * - Live signals: filled circle at full opacity (alpha=0.9)
@@ -224,7 +228,7 @@ internal fun DrawScope.drawSignalMarkers(
             SignalSource.SMT -> "S"
             SignalSource.STRATEGY -> "X"
         }
-        val labelPaint = signalMarkerLabelPaint(alpha)
+        val labelPaint = if (signal.isLive) LiveSignalLabelPaint else HistorySignalLabelPaint
         drawContext.canvas.nativeCanvas.drawText(
             letter,
             x,
@@ -233,8 +237,7 @@ internal fun DrawScope.drawSignalMarkers(
         )
 
         // For the live signal, project the actual trade levels to the right of
-        // the marker. Without these a marker tells the trader a setup exists
-        // but not where to enter, stop, or target — which is the whole point.
+        // the marker.
         if (signal.isLive && signal.sl != 0.0 && signal.tp != 0.0) {
             drawSignalLevels(signal, viewport, x, cw, ch, color)
         }

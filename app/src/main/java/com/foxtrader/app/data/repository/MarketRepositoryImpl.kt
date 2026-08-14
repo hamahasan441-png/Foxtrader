@@ -12,6 +12,7 @@ import com.foxtrader.app.data.remote.api.MarketApi
 import com.foxtrader.app.data.remote.api.OkxDataSource
 import com.foxtrader.app.data.remote.api.PolygonDataSource
 import com.foxtrader.app.data.remote.api.TwelveDataDataSource
+import com.foxtrader.app.data.remote.dukascopy.DukascopyDataSource
 import com.foxtrader.app.di.IoDispatcher
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.CandleSource
@@ -48,6 +49,7 @@ class MarketRepositoryImpl @Inject constructor(
     private val alphaVantage: AlphaVantageDataSource,
     private val twelveData: TwelveDataDataSource,
     private val polygon: PolygonDataSource,
+    private val dukascopy: DukascopyDataSource,
     private val appPreferences: AppPreferences,
     @IoDispatcher private val io: CoroutineDispatcher,
 ) : MarketRepository {
@@ -136,6 +138,14 @@ class MarketRepositoryImpl @Inject constructor(
                         )
                     }
                 }
+                selectedProvider == DataProvider.DUKASCOPY -> {
+                    dukascopy.fetchCandles(symbol, timeframe, limit).ifEmpty {
+                        throw IllegalStateException(
+                            "Dukascopy returned no candle data for $symbol ${timeframe.label}. " +
+                                "Check instrument availability and market trading hours."
+                        )
+                    }
+                }
                 !selectedProvider.implemented -> throw ProviderNotImplementedException(
                     selectedProvider.displayName
                 )
@@ -188,6 +198,8 @@ class MarketRepositoryImpl @Inject constructor(
                 }
                 DataProvider.BINANCE ->
                     binance.fetchCandles(CRYPTO_TEST_SYMBOL, Timeframe.H1, TEST_LIMIT).size
+                DataProvider.DUKASCOPY ->
+                    dukascopy.fetchCandles(FX_TEST_SYMBOL, Timeframe.H1, TEST_LIMIT).size
                 DataProvider.BYBIT ->
                     bybit.fetchCandles(CRYPTO_TEST_SYMBOL, Timeframe.H1, TEST_LIMIT).size
                 DataProvider.OKX ->
@@ -301,6 +313,8 @@ class MarketRepositoryImpl @Inject constructor(
                     }
                     polygon.fetchCandlesBefore(symbol, timeframe, beforeTimestamp, limit, polygonKey)
                 }
+                selectedProvider == DataProvider.DUKASCOPY ->
+                    dukascopy.fetchCandlesBefore(symbol, timeframe, beforeTimestamp, limit)
                 else -> fetchDefaultCandlesBefore(symbol, timeframe, beforeTimestamp, limit)
             }
 

@@ -33,8 +33,8 @@ enum class DataProvider(
     BYBIT("Bybit", supportsLive = true, requiresApiKey = false, implemented = true),
     OKX("OKX", supportsLive = false, requiresApiKey = false, implemented = true),
     KUCOIN("KuCoin", supportsLive = false, requiresApiKey = false, implemented = true),
-    // DukascopyAdapter is a stub — binary tick parsing is not implemented.
-    DUKASCOPY("Dukascopy", supportsLive = false, requiresApiKey = false),
+    // Dukascopy forex/CFD tick history pipeline.
+    DUKASCOPY("Dukascopy", supportsLive = false, requiresApiKey = false, implemented = true),
     ALPHA_VANTAGE(
         "Alpha Vantage",
         supportsLive = false,
