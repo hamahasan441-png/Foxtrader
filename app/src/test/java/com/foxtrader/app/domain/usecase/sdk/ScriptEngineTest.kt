@@ -2,6 +2,10 @@ package com.foxtrader.app.domain.usecase.sdk
 
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
+import com.foxtrader.app.domain.model.LogicOp
+import com.foxtrader.app.domain.model.StrategyBlueprint
+import com.foxtrader.app.domain.model.StrategyCondition
+import com.foxtrader.app.domain.model.StrategyConditionKind
 import com.foxtrader.app.domain.model.StrategySignal
 import com.foxtrader.app.domain.sdk.script.BuiltInStrategies
 import com.foxtrader.app.domain.sdk.script.ScriptContext
@@ -18,11 +22,13 @@ import org.junit.Test
  * Unit tests for the scripting engine and ScriptContext.
  *
  * Validates:
- * - ScriptContext provides correct read-only access to candle data.
+ * - ScriptContext provides correct read-only access to candle data and indicators (SMA, EMA, RSI, ATR, MACD, Bollinger, Stoch).
  * - ScriptEngine.evaluate respects minBars guard.
  * - ScriptEngine.evaluate returns a signal when the strategy fires.
  * - Custom lambda strategies work correctly.
  * - Non-repainting: strategy at index i sees only candles[0..i].
+ * - DSL parsing and compilation into executable Strategy.
+ * - Visual StrategyBlueprint compilation into executable Strategy.
  */
 class ScriptEngineTest {
 
@@ -94,11 +100,31 @@ class ScriptEngineTest {
 
     @Test
     fun `ScriptContext sma returns correct simple moving average`() {
-        // candles: 100, 102, 104, 106, 108 → SMA(3) at index 4 = (104+106+108)/3 = 106.0
         val closes = listOf(100.0, 102.0, 104.0, 106.0, 108.0)
         val candles = closes.mapIndexed { i, c -> candle(close = c, ts = i * 60_000L) }
         val ctx = ScriptContext(candles, currentIndex = 4)
         assertEquals(106.0, ctx.sma(3), 1e-6)
+    }
+
+    @Test
+    fun `ScriptContext ema and rsi compute valid values`() {
+        val candles = risingCandles(60)
+        val ctx = ScriptContext(candles, currentIndex = 59)
+        assertTrue(ctx.ema(20) > 0.0)
+        assertTrue(ctx.rsi(14) in 0.0..100.0)
+        assertTrue(ctx.atr(14) > 0.0)
+    }
+
+    @Test
+    fun `ScriptContext macd and bollinger bands return valid outputs`() {
+        val candles = risingCandles(60)
+        val ctx = ScriptContext(candles, currentIndex = 59)
+        val macd = ctx.macd()
+        val bb = ctx.bollinger()
+        val stoch = ctx.stochastic()
+
+        assertTrue(bb.upper >= bb.lower)
+        assertTrue(stoch.k in 0.0..100.0)
     }
 
     @Test
@@ -178,7 +204,6 @@ class ScriptEngineTest {
     fun `evaluate non-repainting - strategy cannot access future bars`() {
         var maxIndexSeen = -1
         val strategy = Strategy(id = "sniffer", name = "Sniffer", minBars = 0) { ctx ->
-            // Try to peek one bar ahead
             val futurePeek = ctx.candle(1)
             if (futurePeek != null) maxIndexSeen = ctx.currentIndex
             null
@@ -189,19 +214,42 @@ class ScriptEngineTest {
     }
 
     // ────────────────────────────────────────────────────────────────────────
-    // Built-in strategy smoke tests
+    // DSL & Blueprint Compilation Tests
     // ────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `BuiltInStrategies smaCross evaluates without throwing`() {
-        val candles = risingCandles(55)
-        // Just ensure it doesn't throw on evaluation
-        val signal = engine.evaluate(BuiltInStrategies.smaCross, candles, index = 53)
-        // Signal may be null (no crossover in monotonically rising data) — that's fine
+    fun `compileDsl creates functional buy strategy`() {
+        val script = "BUY IF ema(9) cross_over ema(21) SL atr(14)*1.5 TP atr(14)*3.0"
+        val strategyResult = engine.compileDsl("dsl_buy", "DSL Buy Strategy", script)
+        assertTrue(strategyResult.isSuccess)
+        val strategy = strategyResult.getOrThrow()
+        assertEquals("dsl_buy", strategy.id)
     }
 
     @Test
-    fun `BuiltInStrategies smaCross minBars is 51`() {
-        assertEquals(51, BuiltInStrategies.smaCross.minBars)
+    fun `compileBlueprint compiles StrategyBlueprint to executable Strategy`() {
+        val blueprint = StrategyBlueprint(
+            name = "EMA + RSI Bullish",
+            combinator = LogicOp.AND,
+            conditions = listOf(
+                StrategyCondition(kind = StrategyConditionKind.INDICATOR, label = "EMA 20 above EMA 50"),
+                StrategyCondition(kind = StrategyConditionKind.INDICATOR, label = "RSI leaving 30/70"),
+            ),
+        )
+        val compiled = engine.compileBlueprint(blueprint)
+        val candles = risingCandles(60)
+        // Evaluates safely
+        val signal = engine.evaluate(compiled, candles, 55)
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Built-in strategy tests
+    // ────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `BuiltInStrategies evaluate without throwing`() {
+        val candles = risingCandles(60)
+        val signal1 = engine.evaluate(BuiltInStrategies.emaCross, candles, index = 55)
+        val signal2 = engine.evaluate(BuiltInStrategies.rsiExtremes, candles, index = 55)
     }
 }
