@@ -28,8 +28,13 @@ class BacktestEngineSlippageTest {
 
     private fun flat(t: Long, p: Double) =
         Candle(t, p, p + 0.0001, p - 0.0001, p, 500.0)
+    // TP-sweep candles must NOT touch the stop level: the engine checks SL
+    // before TP on the same bar, so a candle whose low reaches the SL would
+    // correctly exit at SL and the TP fill could never be observed.
     private fun tpBull(t: Long, tp: Double) =
-        Candle(t, tp - 0.01, tp + 0.01, tp - 0.02, tp, 1_000.0)
+        Candle(t, tp - 0.01, tp + 0.01, tp - 0.015, tp, 1_000.0)
+    private fun tpBear(t: Long, tp: Double) =
+        Candle(t, tp + 0.01, tp + 0.015, tp - 0.01, tp, 1_000.0)
     private fun slBull(t: Long, sl: Double) =
         Candle(t, sl + 0.01, sl + 0.02, sl - 0.01, sl, 1_000.0)
 
@@ -55,6 +60,16 @@ class BacktestEngineSlippageTest {
         val t = engine(candles, strategy(60, 1.1, 1.09, 1.12), "EURUSD", Timeframe.H1).trades[0]
         assertEquals(ExitReason.SL, t.exitReason)
         assertEquals(1.09 - SLIP, t.exitPrice, 1e-9)
+    }
+
+    @Test fun `bearish TP exit price is increased by slippage`() {
+        val candles = warmup(60, 1.1) +
+            flat(60 * 3_600_000L, 1.1) + tpBear(61 * 3_600_000L, 1.09)
+        val t = engine(candles, strategy(60, 1.1, 1.11, 1.09, Direction.BEARISH),
+            "EURUSD", Timeframe.H1).trades[0]
+        assertEquals(ExitReason.TP, t.exitReason)
+        assertEquals(1.09 + SLIP, t.exitPrice, 1e-9)   // TP slip applied
+        assertEquals(1.1  - SLIP, t.entryPrice, 1e-9)  // entry slip applied
     }
 
     @Test fun `net PnL is lower with slippage than without on winning trade`() {
