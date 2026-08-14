@@ -23,7 +23,7 @@
 | Backtesting (bar-by-bar, no look-ahead; spread/commission/slippage; AI-gated) | ✅ Wired | `BacktestEngine` / `AiScoredBacktestEngine` |
 | Scanner · Journal · Portfolio · Alerts · Calculator | ✅ Wired | Real screens + tests |
 | Data layer: offline-first Room v7, provenance (`CandleSource`), non-destructive migrations, synthetic-data veto, cache pruning | ✅ Wired | Room is the SSOT |
-| Live market data | ⚠️ Partial | **Real:** Binance, Bybit (crypto), Alpha Vantage, Twelve Data, and Polygon.io historical aggregates. Polygon covers keyed stocks/forex/indices/crypto; unsupported providers still use clearly-labelled **synthetic fallback** |
+| Live market data | ⚠️ Partial | **Real:** Binance, Bybit (crypto), Alpha Vantage, Twelve Data, and Polygon.io historical aggregates + authenticated minute WebSocket. Polygon covers keyed stocks/forex/indices/crypto; unsupported providers still use clearly-labelled **synthetic fallback** |
 | TRADEPRO order-flow/auction framework — core (Flip Zone, Buy/Sell-Hold, imbalance, absorption, signal engine, risk guard, reversal/range bars, sanitizer) | ✅ Wired | On `main` via #47/#48/#49 |
 | TRADEPRO — scanner signals + backtest template + chart overlays + trend/regime filter | 🔜 In review | PR #50 (recovers commits orphaned by an early #47 merge) |
 | External LLM provider | 🟡 Seam only | `NoOpAiProviderClient`; the deterministic engine holds all trade authority — narration seam is intentionally future work |
@@ -4939,8 +4939,50 @@ validation. No network or Android dependency is used.
 
 ## Integrity notes
 
-Polygon's historical aggregate path is deliberately separate from the existing
-Binance/Bybit live WebSocket path. The chart's LIVE toggle remains provider-aware:
-Polygon currently supplies historical bars, while its live capability remains a
-future provider-stream task. Provenance is assigned only at the repository write
-boundary, preserving the existing synthetic-data veto and `CandleSource` contract.
+Polygon's historical aggregate path remains deliberately separate from the
+existing Binance/Bybit sockets, while the provider-aware router now also owns
+Polygon's authenticated live stream. Provenance is assigned only at the
+repository write boundary, preserving the existing synthetic-data veto and
+`CandleSource` contract.
+
+# Appendix AI: Polygon.io live minute aggregates — authenticated WebSocket
+
+This continuation completes the live portion of the Polygon provider planned in
+Sprint 6.3. Polygon is no longer exposed as historical-only: the provider-aware
+WebSocket router now sends Polygon subscriptions through a dedicated authenticated
+feed while keeping Binance and Bybit behavior unchanged.
+
+## What landed
+
+- `PolygonWebSocketProtocol` is a pure codec for Polygon auth, subscribe/
+  unsubscribe commands, status responses, and stock/forex/crypto aggregate
+  payloads. It normalizes incoming pairs through the same `PolygonTicker` seam
+  used by REST history.
+- `PolygonCandleAggregator` consumes Polygon minute aggregates and emits the
+  requested FoxTrader timeframe. It seals a bucket only when a later bucket
+  arrives, rejects late bars, preserves gaps instead of fabricating candles, and
+  handles Polygon's cumulative forming-minute volume correctly.
+- `PolygonWebSocket` owns one resilient session per Polygon market cluster
+  (stocks, forex, crypto, or indices), authenticates with the encrypted user key,
+  subscribes after `auth_success`, reconnects with bounded backoff, sends
+  keepalive pings, and stops reconnecting on an authentication rejection.
+- `ProviderMarketWebSocket` now routes `DataProvider.POLYGON` to the new socket.
+  `DataProvider.POLYGON.supportsLive` is true only because the WebSocket path is
+  now present.
+- `NetworkModule` provides a dedicated no-logging Polygon WebSocket client. API
+  keys never enter URLs or HTTP logging interceptors.
+
+## Testing
+
+Pure JVM tests cover shared ticker normalization, auth/subscription command
+serialization, status and aggregate parsing, malformed-message rejection,
+minute-to-H1 aggregation, cumulative-volume replacement, UTC daily bucketing,
+late-bar rejection, and the no-fabricated-gap invariant.
+
+## Provider boundary
+
+Polygon WebSocket availability and recency still depend on the user's Polygon
+plan. The app reports connection/authentication state rather than claiming a
+real-time entitlement the provider may not grant. Historical REST remains the
+fallback for refresh and older-page requests; live ticks are still written
+through the existing Room/provenance path.

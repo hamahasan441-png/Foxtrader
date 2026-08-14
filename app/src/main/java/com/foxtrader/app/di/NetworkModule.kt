@@ -67,6 +67,11 @@ annotation class TwelveDataRetrofit
 @Retention(AnnotationRetention.BINARY)
 annotation class PolygonRetrofit
 
+/** Qualifier for the Polygon.io WebSocket client (no credential logging). */
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class PolygonMarketDataClient
+
 @Module
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
@@ -450,4 +455,20 @@ object NetworkModule {
     @Singleton
     fun providePolygonApi(@PolygonRetrofit retrofit: Retrofit): PolygonApi =
         retrofit.create(PolygonApi::class.java)
+
+    /**
+     * Polygon WebSocket traffic carries the API key in an auth message. Keep
+     * this client separate from the general public client so no interceptor can
+     * log that frame or accidentally attach FoxTrader bearer credentials.
+     */
+    @Provides
+    @Singleton
+    @PolygonMarketDataClient
+    fun providePolygonMarketDataClient(): OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
+        .readTimeout(READ_TIMEOUT, TimeUnit.SECONDS)
+        .writeTimeout(WRITE_TIMEOUT, TimeUnit.SECONDS)
+        .callTimeout(CALL_TIMEOUT, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(false)
+        .build()
 }

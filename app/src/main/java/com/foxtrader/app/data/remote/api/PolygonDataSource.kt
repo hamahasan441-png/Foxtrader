@@ -94,7 +94,7 @@ class PolygonDataSource @Inject constructor(
     ): List<Candle> {
         val aggregation = aggregationFor(timeframe)
         val response = api.aggregateBars(
-            ticker = normalizeTicker(symbol),
+            ticker = PolygonTicker.normalize(symbol),
             multiplier = aggregation.multiplier,
             timespan = aggregation.timespan,
             from = fromTimestamp,
@@ -158,31 +158,6 @@ class PolygonDataSource @Inject constructor(
         return from..endTimestamp
     }
 
-    /** Translate FoxTrader symbols into Polygon asset-prefixed tickers. */
-    internal fun normalizeTicker(symbol: String): String {
-        val compact = symbol.trim().uppercase().replace("/", "")
-        require(compact.isNotEmpty()) { "Polygon symbol must not be blank." }
-        if (compact.startsWith("C:") || compact.startsWith("X:") || compact.startsWith("I:")) {
-            return compact
-        }
-
-        INDEX_TICKERS[compact]?.let { return "I:$it" }
-        if (isForexPair(compact)) return "C:$compact"
-
-        val cryptoQuote = CRYPTO_QUOTES.firstOrNull { compact.endsWith(it) && compact.length > it.length }
-        if (cryptoQuote != null) {
-            val base = compact.removeSuffix(cryptoQuote)
-            val quote = if (cryptoQuote == "USDT" || cryptoQuote == "BUSD") "USD" else cryptoQuote
-            return "X:$base$quote"
-        }
-        return compact
-    }
-
-    private fun isForexPair(symbol: String): Boolean =
-        symbol.length == 6 &&
-            COMMON_CURRENCIES.contains(symbol.substring(0, 3)) &&
-            COMMON_CURRENCIES.contains(symbol.substring(3))
-
     private data class Aggregation(
         val multiplier: Int,
         val timespan: String,
@@ -208,20 +183,5 @@ class PolygonDataSource @Inject constructor(
         const val MAX_REQUEST_LIMIT = 50_000
         const val RANGE_BUFFER_MULTIPLIER = 3L
 
-        val COMMON_CURRENCIES = setOf(
-            "USD", "EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "NZD",
-            "SEK", "NOK", "DKK", "SGD", "HKD", "ZAR", "MXN", "TRY",
-        )
-        val CRYPTO_QUOTES = listOf("USDT", "USDC", "BUSD", "USD", "EUR", "BTC", "ETH")
-        val INDEX_TICKERS = mapOf(
-            "US500" to "SPX",
-            "SPX" to "SPX",
-            "NAS100" to "NDX",
-            "NDX" to "NDX",
-            "US30" to "DJI",
-            "DJI" to "DJI",
-            "GER40" to "DAX",
-            "DAX" to "DAX",
-        )
     }
 }

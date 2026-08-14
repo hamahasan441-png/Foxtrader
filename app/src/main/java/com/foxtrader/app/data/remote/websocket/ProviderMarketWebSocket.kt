@@ -26,14 +26,15 @@ import javax.inject.Singleton
  *
  * The chart depends on the stable [MarketWebSocket] interface while Settings can
  * switch providers. This router delegates subscriptions to the currently
- * selected, implemented live provider (Binance or Bybit today) and forwards only
- * the active provider's ticks/connection state.
+ * selected, implemented live provider (Binance, Bybit, or Polygon) and forwards
+ * only the active provider's ticks/connection state.
  */
 @Singleton
 class ProviderMarketWebSocket @Inject constructor(
     private val appPreferences: AppPreferences,
     private val binanceWebSocket: BinanceWebSocket,
     private val bybitWebSocket: BybitWebSocket,
+    private val polygonWebSocket: PolygonWebSocket,
     @IoDispatcher io: CoroutineDispatcher,
 ) : MarketWebSocket {
 
@@ -56,6 +57,7 @@ class ProviderMarketWebSocket @Inject constructor(
     init {
         forward(binanceWebSocket)
         forward(bybitWebSocket)
+        forward(polygonWebSocket)
         observeProviderChanges()
     }
 
@@ -93,6 +95,7 @@ class ProviderMarketWebSocket @Inject constructor(
             subscriptions.clear()
             binanceWebSocket.disconnectAll()
             bybitWebSocket.disconnectAll()
+            polygonWebSocket.disconnectAll()
             activeSocket = null
             _connectionState.value = ConnectionState.DISCONNECTED
         }
@@ -160,6 +163,7 @@ class ProviderMarketWebSocket @Inject constructor(
     private fun socketFor(provider: DataProvider): MarketWebSocket? = when (provider) {
         DataProvider.BINANCE -> binanceWebSocket
         DataProvider.BYBIT -> bybitWebSocket
+        DataProvider.POLYGON -> polygonWebSocket
         else -> null
     }
 }
