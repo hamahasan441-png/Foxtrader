@@ -579,12 +579,14 @@ private fun ChartTopBar(
     val live = connectionState == ConnectionState.CONNECTED
     val liveError = connectionState == ConnectionState.ERROR
     val liveLabel = when {
+        !state.liveAvailable && !state.liveEnabled -> stringResource(R.string.chart_live_unavailable)
         live -> stringResource(R.string.chart_live_connected)
         liveError -> stringResource(R.string.chart_live_error)
         state.liveEnabled -> stringResource(R.string.chart_live_connecting)
         else -> stringResource(R.string.chart_live_off)
     }
     val liveStateDescription = when {
+        !state.liveAvailable && !state.liveEnabled -> stringResource(R.string.chart_live_unavailable_state)
         live -> stringResource(R.string.chart_live_connected_state)
         liveError -> stringResource(R.string.chart_live_error_state)
         else -> stringResource(R.string.chart_live_disconnected_state)
@@ -639,7 +641,12 @@ private fun ChartTopBar(
                     }
                 )
                 .clickable(
-                    onClickLabel = if (state.liveEnabled) stringResource(R.string.chart_disconnect_live_feed) else stringResource(R.string.chart_connect_live_feed),
+                    enabled = state.liveAvailable || state.liveEnabled,
+                    onClickLabel = if (state.liveEnabled) {
+                        stringResource(R.string.chart_disconnect_live_feed)
+                    } else {
+                        stringResource(R.string.chart_connect_live_feed)
+                    },
                     onClick = onLiveToggle,
                 )
                 .padding(horizontal = 6.dp, vertical = 3.dp)

@@ -50,6 +50,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
@@ -202,6 +203,21 @@ class ChartViewModel @Inject constructor(
         multiChartController.syncMultiChartPanelsToPrimary()
         webSocket.connectionState
             .onEach { cs -> _uiState.value = _uiState.value.copy(connectionState = cs) }
+            .launchIn(viewModelScope)
+        // Do not let the chart claim LIVE when the selected provider is
+        // historical-only or its required credential has not been entered.
+        combine(appPreferences.dataProvider, appPreferences.apiKeys) { _, _ ->
+            appPreferences.canGoLive()
+        }
+            .distinctUntilChanged()
+            .onEach { available ->
+                val wasLive = _uiState.value.liveEnabled
+                _uiState.value = _uiState.value.copy(
+                    liveAvailable = available,
+                    liveEnabled = if (available) _uiState.value.liveEnabled else false,
+                )
+                if (wasLive && !available) dataController.disconnectLive()
+            }
             .launchIn(viewModelScope)
         // Apply the user's chart performance mode (quality ceiling), live.
         appPreferences.performanceMode
@@ -443,8 +459,10 @@ class ChartViewModel @Inject constructor(
     }
 
     fun toggleLive() {
-        val enabled = !_uiState.value.liveEnabled
-        _uiState.value = _uiState.value.copy(liveEnabled = enabled)
+        val current = _uiState.value
+        if (!current.liveAvailable && !current.liveEnabled) return
+        val enabled = !current.liveEnabled
+        _uiState.value = current.copy(liveEnabled = enabled)
         dataController.toggleLive(!enabled)
     }
 

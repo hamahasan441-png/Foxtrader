@@ -174,6 +174,8 @@ data class ChartUiState(
     /** Active (default) watchlist id, or null before the first emission. */
     val activeWatchlistId: String? = null,
     val connectionState: ConnectionState = ConnectionState.DISCONNECTED,
+    /** True only when the selected provider has a working live feed and credentials. */
+    val liveAvailable: Boolean = false,
     val liveEnabled: Boolean = false,
 
     // --- Loading / error ---

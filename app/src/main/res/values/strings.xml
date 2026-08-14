@@ -44,6 +44,8 @@
     <string name="chart_live_error">ERROR</string>
     <string name="chart_live_connecting">CONNECTING</string>
     <string name="chart_live_off">OFF</string>
+    <string name="chart_live_unavailable">UNAVAILABLE</string>
+    <string name="chart_live_unavailable_state">Live feed unavailable for this provider. Add credentials or select a live provider.</string>
     <string name="chart_disconnect_live_feed">Disconnect live feed</string>
     <string name="chart_connect_live_feed">Connect live feed</string>
     <string name="chart_live_connected_state">Live feed connected</string>

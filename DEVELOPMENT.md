@@ -5016,3 +5016,17 @@ plan. The app reports connection/authentication state rather than claiming a
 real-time entitlement the provider may not grant. Historical REST remains the
 fallback for refresh and older-page requests; live ticks are still written
 through the existing Room/provenance path.
+
+# Appendix AK: Honest live-feed availability in the chart
+
+The chart's `LIVE` control now follows the same provider-capability contract as
+Settings and the WebSocket router. `ChartViewModel` derives `liveAvailable` from
+the selected provider and its encrypted credential state. The control is
+visibly marked `UNAVAILABLE` and disabled for historical-only providers or
+missing keys, rather than toggling optimistically and leaving the user with a
+silent connection error.
+
+If a provider or key changes while a live session is active, the ViewModel
+clears the live state and disconnects the feed. The availability flag participates
+in `ChartUiState` equality, and a regression test protects StateFlow emission
+when it changes.

@@ -63,6 +63,14 @@ class ChartUiStateTest {
     }
 
     @Test
+    fun `live availability participates in equality for StateFlow emissions`() {
+        val base = ChartUiState(isLoading = false)
+        val liveCapable = base.copy(liveAvailable = true)
+
+        assertNotEquals(base, liveCapable)
+    }
+
+    @Test
     fun `synced crosshair timestamp participates in equality for StateFlow emissions`() {
         val base = ChartUiState(isLoading = false)
         val withSyncedCrosshair = base.copy(syncedCrosshairTimestamp = 1_700_000_000_000L)
