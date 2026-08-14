@@ -4945,6 +4945,36 @@ Polygon's authenticated live stream. Provenance is assigned only at the
 repository write boundary, preserving the existing synthetic-data veto and
 `CandleSource` contract.
 
+# Appendix AJ: Bounded candle observation and periodic retention
+
+This pass closes the remaining Sprint 6.4 cache-retention gap exposed by the
+new Polygon live stream. Refreshes already called `prune`, but a long-running
+WebSocket session could keep appending newly closed bars between refreshes, and
+an unbounded Room observer would still re-emit the entire series if pruning was
+missed.
+
+## What changed
+
+- `CandleDao.observe` and `getAll` now select only the newest configured window
+  and return it in ascending chart order. The inner timestamp query chooses the
+  newest rows; the outer query restores chronological order.
+- `CandleDao.seriesKeys` exposes only distinct existing series identifiers, so
+  retention work never needs to load candle payloads into memory.
+- `CandleRetentionWorker` applies `AppPreferences.maxCachedBars` to every series
+  and retries on transient failures.
+- `CandleRetentionScheduler` installs an idempotent six-hour WorkManager job at
+  application startup. Existing refresh-time pruning remains in place for fast
+  convergence; the worker is the long-session safety net.
+- Scanner one-shot reads now use the same bounded window as chart observation,
+  preventing an accidental unbounded read from bypassing the retention policy.
+
+## Integrity and performance contract
+
+No candle is fabricated or relabelled. Retention deletes only derived market
+cache rows; journal, drawings, alerts, watchlists, and LIT X signal tables are
+untouched. The chart still receives ascending candles, and the DB/Flow payload
+is bounded even if a provider remains connected for days.
+
 # Appendix AI: Polygon.io live minute aggregates — authenticated WebSocket
 
 This continuation completes the live portion of the Polygon provider planned in

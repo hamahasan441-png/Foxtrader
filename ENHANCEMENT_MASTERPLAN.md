@@ -190,9 +190,14 @@ aggregates with bounded reconnects and local no-repaint timeframe aggregation.
 `DataProvider.POLYGON` is selectable and advertises live support.
 
 **6.4 Cache retention policy.**
-`CandleDao.pruneOlderThan(symbol, timeframe, keepCount)` executed after each
-refresh and on a periodic WorkManager job; `observe()` gains a bounded
-`LIMIT`/window. Cap per series (proposal: 5,000 bars hot, older bars evicted).
+`CandleDao.prune(symbol, timeframe, keepCount)` executes after each refresh and
+on a periodic WorkManager job; `observe()` and one-shot reads use a bounded
+newest-window query. Cap per series through the persisted cache ceiling; older
+bars are evicted without touching user-authored tables.
+
+**Status update (2026-08-14):** `CandleRetentionWorker` and
+`CandleRetentionScheduler` now provide the periodic safety net, while chart and
+scanner reads remain bounded and ascending.
 
 **Definition of done:** synthetic data is visually and algorithmically
 quarantined; no code path can drop a user table; provider list matches reality;

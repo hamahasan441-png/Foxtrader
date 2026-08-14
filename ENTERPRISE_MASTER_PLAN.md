@@ -819,3 +819,17 @@ reconnect-safe aggregation, and cumulative volume handling.
 - [x] Provenance remains assigned by the repository (`LIVE` on successful provider writes).
 - [x] Unit tests use fakes/pure codecs with no Android/network dependency.
 - [ ] CI build + unit tests green — must be confirmed by GitHub Actions.
+
+### Sprint 13 — bounded candle observation and retention *(status: source-implemented, CI pending)*
+
+The next data-integrity/performance item is now addressed. `CandleDao.observe`
+and one-shot reads select only the newest configured window in ascending order,
+while `seriesKeys()` lets a periodic Hilt WorkManager worker prune every cached
+series without loading candle payloads. `CandleRetentionScheduler` installs the
+six-hour safety net at application startup; refresh-time pruning remains the
+fast path. This protects long Polygon/Binance/Bybit live sessions from an
+unbounded Room cache and full-series Flow emissions.
+
+No user-authored tables are touched, and provenance is preserved on all retained
+rows. CI remains the authoritative verification path for Room query validation,
+Hilt worker wiring, and unit tests.

@@ -53,13 +53,14 @@ class MarketRepositoryImpl @Inject constructor(
 ) : MarketRepository {
 
     override fun observeCandles(symbol: String, timeframe: Timeframe): Flow<List<Candle>> =
-        dao.observe(symbol, timeframe.label).map { list -> list.map { it.toDomain() } }
+        dao.observe(symbol, timeframe.label, appPreferences.maxCachedBars.value)
+            .map { list -> list.map { it.toDomain() } }
 
     override fun observeSourcedCandles(
         symbol: String,
         timeframe: Timeframe,
     ): Flow<SourcedCandles> =
-        dao.observe(symbol, timeframe.label).map { list ->
+        dao.observe(symbol, timeframe.label, appPreferences.maxCachedBars.value).map { list ->
             SourcedCandles(
                 candles = list.map { it.toDomain() },
                 source = list.provenance(),
@@ -247,7 +248,7 @@ class MarketRepositoryImpl @Inject constructor(
         symbol: String,
         timeframe: Timeframe,
     ): SourcedCandles = withContext(io) {
-        val cached = dao.getAll(symbol, timeframe.label)
+        val cached = dao.getAll(symbol, timeframe.label, appPreferences.maxCachedBars.value)
         if (cached.isNotEmpty()) {
             SourcedCandles(cached.map { it.toDomain() }, cached.provenance())
         } else {
