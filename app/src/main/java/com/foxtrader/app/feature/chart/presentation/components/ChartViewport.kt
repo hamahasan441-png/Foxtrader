@@ -294,10 +294,18 @@ class ChartViewport(
             if (candles[i].low < lo) lo = candles[i].low
         }
         if (hi == Double.NEGATIVE_INFINITY) return
-        val range = (hi - lo).coerceAtLeast(1e-9)
-        val padding = range * pad
-        priceHigh = hi + padding
-        priceLow = lo - padding
+        if (scaleMode == ChartScaleMode.LOGARITHMIC && lo > 0.0) {
+            // Log space needs multiplicative headroom; additive padding could
+            // push a low-priced series through zero and invalidate the scale.
+            val factor = (1.0 + pad).coerceAtLeast(1.0)
+            priceHigh = hi * factor
+            priceLow = lo / factor
+        } else {
+            val range = (hi - lo).coerceAtLeast(1e-9)
+            val padding = range * pad
+            priceHigh = hi + padding
+            priceLow = lo - padding
+        }
     }
 
     // ========================================================================

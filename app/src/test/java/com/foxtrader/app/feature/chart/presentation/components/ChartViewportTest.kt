@@ -31,6 +31,13 @@ class ChartViewportTest {
         )
     }
 
+    private fun logarithmicCandles(): List<Candle> = listOf(
+        Candle(1L, 1.0, 2.0, 1.0, 1.5, 1.0),
+        Candle(2L, 10.0, 20.0, 10.0, 15.0, 1.0),
+        Candle(3L, 100.0, 200.0, 100.0, 150.0, 1.0),
+        Candle(4L, 500.0, 1_000.0, 500.0, 800.0, 1.0),
+    )
+
     // ========================================================================
     // COORDINATE TRANSFORMS
     // ========================================================================
@@ -59,7 +66,7 @@ class ChartViewportTest {
     @Test
     fun `logarithmic scale keeps price transforms invertible`() {
         val vp = ChartViewport(priceHigh = 1_000.0, priceLow = 1.0)
-        assertTrue(vp.setScaleMode(ChartScaleMode.LOGARITHMIC, candles(20)))
+        assertTrue(vp.setScaleMode(ChartScaleMode.LOGARITHMIC, logarithmicCandles()))
 
         for (price in doubleArrayOf(1.0, 10.0, 100.0, 1_000.0)) {
             val y = vp.yForPrice(price, chartHeight)
@@ -81,7 +88,7 @@ class ChartViewportTest {
     @Test
     fun `snapshot and restore preserve scale mode`() {
         val vp = ChartViewport(priceHigh = 100.0, priceLow = 1.0)
-        assertTrue(vp.setScaleMode(ChartScaleMode.LOGARITHMIC, candles(20)))
+        assertTrue(vp.setScaleMode(ChartScaleMode.LOGARITHMIC, logarithmicCandles()))
 
         val restored = ChartViewport()
         restored.restoreState(vp.snapshotState(), total = 20)
@@ -92,7 +99,7 @@ class ChartViewportTest {
     @Test
     fun `logarithmic grid uses decade-friendly levels`() {
         val vp = ChartViewport(priceHigh = 1_000.0, priceLow = 1.0)
-        assertTrue(vp.setScaleMode(ChartScaleMode.LOGARITHMIC, candles(20)))
+        assertTrue(vp.setScaleMode(ChartScaleMode.LOGARITHMIC, logarithmicCandles()))
 
         val count = vp.priceGridLevelCount()
         val levels = (0 until count).map(vp::priceGridLevel)
