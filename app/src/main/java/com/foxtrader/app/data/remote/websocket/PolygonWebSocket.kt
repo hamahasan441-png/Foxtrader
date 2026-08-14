@@ -117,7 +117,7 @@ class PolygonWebSocket @Inject constructor(
             if (session.authenticated && !sameTickerStillNeeded) {
                 sendUnsubscribeLocked(session, listOf(removed))
             }
-            if (subscriptions.none { it.market == removed.market }) {
+            if (subscriptions.values.none { it.market == removed.market }) {
                 stopSessionLocked(session)
                 sessions.remove(removed.market)
             }
@@ -274,7 +274,7 @@ class PolygonWebSocket @Inject constructor(
         "${subscription.market.topicPrefix}.${PolygonTicker.subscriptionSymbol(subscription.ticker, subscription.market)}"
 
     private fun scheduleReconnectLocked(session: Session) {
-        if (!session.shouldReconnect || subscriptions.none { it.market == session.market }) {
+        if (!session.shouldReconnect || subscriptions.values.none { it.market == session.market }) {
             refreshConnectionStateLocked()
             return
         }
