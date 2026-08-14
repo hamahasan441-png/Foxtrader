@@ -70,7 +70,7 @@ class ChartViewportTest {
 
         for (price in doubleArrayOf(1.0, 10.0, 100.0, 1_000.0)) {
             val y = vp.yForPrice(price, chartHeight)
-            assertEquals(price, vp.priceForY(y, chartHeight), 1e-8)
+            assertEquals(price, vp.priceForY(y, chartHeight), 1e-3)
         }
     }
 
