@@ -20,10 +20,12 @@ import com.foxtrader.app.domain.model.OrderBlock
 import com.foxtrader.app.domain.model.SessionRange
 import com.foxtrader.app.domain.model.tradepro.TradeProAnalysis
 import com.foxtrader.app.domain.usecase.ai.MarketExplanation
+import com.foxtrader.app.domain.model.StrategyType
 import com.foxtrader.app.domain.model.StructureBreak
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.analysis.FibonacciEngine
 import com.foxtrader.app.domain.usecase.analysis.MarketProfile
+import com.foxtrader.app.domain.usecase.indicators.PivotPoints
 import com.foxtrader.app.domain.usecase.analysis.SupportResistanceDetector
 import com.foxtrader.app.domain.usecase.mtf.ConfluenceEngine
 import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
@@ -43,6 +45,12 @@ data class IndicatorToggles(
     val vwap: Boolean = false,
     val anchoredVwap: Boolean = false,
     val ichimoku: Boolean = false,
+    /** Keltner Channels (EMA ± ATR×mult) — volatility envelope overlay. */
+    val keltner: Boolean = false,
+    /** Donchian Channels (highest high / lowest low) — breakout envelope overlay. */
+    val donchian: Boolean = false,
+    /** Daily floor-trader pivot levels (P / R1-R3 / S1-S3) — overlay. */
+    val pivotPoints: Boolean = false,
     val volumeProfile: Boolean = false,
     val marketProfile: Boolean = false,
     val supportResistance: Boolean = false,
@@ -62,7 +70,22 @@ data class IndicatorToggles(
     val rsi: Boolean = false,
     val macd: Boolean = false,
     val volume: Boolean = false,
+    /** Stochastic oscillator (%K/%D) pane. */
+    val stochastic: Boolean = false,
+    /** On-Balance Volume pane — cumulative volume pressure. */
+    val obv: Boolean = false,
+    /** Money Flow Index pane — volume-weighted RSI. */
+    val moneyFlowIndex: Boolean = false,
     val smcVisualMode: SmcVisualMode = SmcVisualMode.PROFESSIONAL,
+
+    /**
+     * The strategy currently plotted on the chart, or null for none.
+     *
+     * Exactly one strategy is active at a time: running all nine would both
+     * bury the price action in markers and cost far more than the frame budget
+     * allows, since several strategies re-run full SMC detection per bar.
+     */
+    val activeStrategy: StrategyType? = null,
 )
 
 /**
@@ -103,6 +126,13 @@ data class ChartUiState(
     val ichimokuSenkouA: ImmutableDoubleSeries? = null,
     val ichimokuSenkouB: ImmutableDoubleSeries? = null,
     val ichimokuChikou: ImmutableDoubleSeries? = null,
+    val keltnerUpper: ImmutableDoubleSeries? = null,
+    val keltnerMiddle: ImmutableDoubleSeries? = null,
+    val keltnerLower: ImmutableDoubleSeries? = null,
+    val donchianUpper: ImmutableDoubleSeries? = null,
+    val donchianMiddle: ImmutableDoubleSeries? = null,
+    val donchianLower: ImmutableDoubleSeries? = null,
+    val pivotLevels: PivotPoints.PivotLevels? = null,
 
     // --- Smart Money Concepts ---
     val orderBlocks: ImmutableList<OrderBlock> = persistentListOf(),
@@ -163,6 +193,10 @@ data class ChartUiState(
     val macdLine: ImmutableDoubleSeries? = null,
     val macdSignal: ImmutableDoubleSeries? = null,
     val macdHistogram: ImmutableDoubleSeries? = null,
+    val stochasticK: ImmutableDoubleSeries? = null,
+    val stochasticD: ImmutableDoubleSeries? = null,
+    val obv: ImmutableDoubleSeries? = null,
+    val moneyFlowIndex: ImmutableDoubleSeries? = null,
 ) {
     val lastPrice: Double? get() = candles.lastOrNull()?.close
     val hasData: Boolean get() = candles.isNotEmpty()

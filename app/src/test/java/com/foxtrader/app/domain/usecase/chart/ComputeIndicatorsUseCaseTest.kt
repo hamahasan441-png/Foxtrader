@@ -6,6 +6,10 @@ import com.foxtrader.app.domain.usecase.analysis.FibonacciEngine
 import com.foxtrader.app.domain.usecase.analysis.MarketProfile
 import com.foxtrader.app.domain.usecase.analysis.SupportResistanceDetector
 import com.foxtrader.app.domain.usecase.indicators.BollingerBands
+import com.foxtrader.app.domain.usecase.indicators.ChannelIndicators
+import com.foxtrader.app.domain.usecase.indicators.PivotPoints
+import com.foxtrader.app.domain.usecase.indicators.StochasticOscillator
+import com.foxtrader.app.domain.usecase.indicators.VolumeIndicators
 import com.foxtrader.app.domain.usecase.indicators.IchimokuCloud
 import com.foxtrader.app.domain.usecase.indicators.ParabolicSar
 import com.foxtrader.app.domain.usecase.indicators.SuperTrend
@@ -43,6 +47,10 @@ class ComputeIndicatorsUseCaseTest {
             marketProfile = MarketProfile(),
             supportResistanceDetector = SupportResistanceDetector(),
             fibonacciEngine = FibonacciEngine(),
+            channelIndicators = ChannelIndicators(),
+            stochasticOscillator = StochasticOscillator(),
+            volumeIndicators = VolumeIndicators(),
+            pivotPoints = PivotPoints(),
         )
     }
 
