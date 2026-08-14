@@ -85,8 +85,14 @@ class BacktestEngine @Inject constructor() {
                 // CRITICAL: pass only candles up to and including i (no look-ahead)
                 val signal = strategy(candles.subList(0, i + 1), i)
                 if (signal != null) {
-                    val volume = signal.volume ?: calculateVolume(balance, signal)
-                    openTrade = signal to volume
+                    // Apply entry-side slippage: BUY fills above ask, SELL below bid.
+                    val slippedSignal = if (signal.direction == Direction.BULLISH) {
+                        signal.copy(entry = signal.entry + config.slippage)
+                    } else {
+                        signal.copy(entry = signal.entry - config.slippage)
+                    }
+                    val volume = slippedSignal.volume ?: calculateVolume(balance, slippedSignal)
+                    openTrade = slippedSignal to volume
                 }
             }
 
@@ -149,14 +155,16 @@ class BacktestEngine @Inject constructor() {
                 return (signal.stopLoss - config.slippage) to ExitReason.SL
             }
             if (candle.high >= signal.takeProfit) {
-                return signal.takeProfit to ExitReason.TP
+                // Slippage reduces profit on TP: filled slightly below TP price.
+                return (signal.takeProfit - config.slippage) to ExitReason.TP
             }
         } else {
             if (candle.high + spread >= signal.stopLoss) {
                 return (signal.stopLoss + config.slippage) to ExitReason.SL
             }
             if (candle.low <= signal.takeProfit) {
-                return signal.takeProfit to ExitReason.TP
+                // Slippage reduces profit on TP: filled slightly above TP price.
+                return (signal.takeProfit + config.slippage) to ExitReason.TP
             }
         }
         return null

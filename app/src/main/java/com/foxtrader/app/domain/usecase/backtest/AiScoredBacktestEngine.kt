@@ -21,13 +21,12 @@ import javax.inject.Inject
  *   - The signal grade ([BacktestTrade.aiGrade])
  *   - The aggregate confidence and confluence count
  *
- * The result also carries:
- *   - Overall AI approval rate (% of trades the AI agreed with)
- *   - Filtered metrics for AI-approved trades only (the "what if we only took
- *     AI-approved setups?" comparison)
- *
- * NON-REPAINTING: uses the same `subList(0, entryIndex+1)` window the standard
- * backtester enforces — the AI sees only confirmed data at entry time.
+ * NON-REPAINTING guarantees:
+ *   - Primary candles: trimmed to [0..entryIndex] (inclusive).
+ *   - HTF candles: trimmed so that only CLOSED bars whose open time + bar
+ *     duration ≤ decision timestamp are visible. A bar that was still forming
+ *     at the decision moment is excluded entirely, matching how live trading
+ *     works — a higher-timeframe bar is not readable until it closes.
  *
  * Pure domain logic — no Android dependencies.
  */
@@ -37,24 +36,9 @@ class AiScoredBacktestEngine @Inject constructor(
     private val decisionEngine: MasterDecisionEngine,
 ) {
 
-    fun updateConfig(config: BacktestConfig) {
-        backtestEngine.updateConfig(config)
-    }
-
+    fun updateConfig(config: BacktestConfig) { backtestEngine.updateConfig(config) }
     fun getConfig(): BacktestConfig = backtestEngine.getConfig()
 
-    /**
-     * Run a standard backtest AND score every trade with the AI pipeline.
-     *
-     * @param candles Full candle series.
-     * @param strategy Strategy function (same contract as [BacktestEngine]).
-     * @param symbol Symbol being backtested.
-     * @param timeframe Execution timeframe.
-     * @param htfCandles Optional HTF candles for the AI agents' MTF context.
-     * @param dataSource Provenance of [candles]. Passed to the decision engine
-     *   so an AI-gated backtest over synthetic bars reports an honest 0%
-     *   approval rate rather than a fabricated edge.
-     */
     operator fun invoke(
         candles: List<Candle>,
         strategy: StrategyFunction,
@@ -63,25 +47,21 @@ class AiScoredBacktestEngine @Inject constructor(
         htfCandles: Map<Timeframe, List<Candle>> = emptyMap(),
         dataSource: CandleSource = CandleSource.LIVE,
     ): BacktestResult {
-        // 1. Run the standard backtest first to get all trades.
         val baseResult = backtestEngine(candles, strategy, symbol, timeframe)
 
         if (baseResult.trades.isEmpty()) {
             return baseResult.copy(aiScoringEnabled = true, aiApprovalRate = null)
         }
 
-        // 2. Score each trade entry with the AI pipeline.
         val scoredTrades = baseResult.trades.map { trade ->
             scoreTradeEntry(trade, candles, symbol, timeframe, htfCandles, dataSource)
         }
 
-        // 3. Compute AI-filtered summary.
         val approved = scoredTrades.filter { it.aiApproved == true }
         val approvalRate = if (scoredTrades.isNotEmpty()) {
             (approved.size.toDouble() / scoredTrades.size) * 100.0
         } else null
 
-        // Recompute metrics for AI-approved trades only (if any).
         val filteredMetrics = if (approved.size >= 2) {
             computeFilteredMetrics(approved, baseResult.config.initialBalance)
         } else null
@@ -94,9 +74,6 @@ class AiScoredBacktestEngine @Inject constructor(
         )
     }
 
-    /**
-     * Run the AI pipeline at the entry bar of a trade and annotate it.
-     */
     private fun scoreTradeEntry(
         trade: BacktestTrade,
         candles: List<Candle>,
@@ -105,17 +82,23 @@ class AiScoredBacktestEngine @Inject constructor(
         htfCandles: Map<Timeframe, List<Candle>>,
         dataSource: CandleSource,
     ): BacktestTrade {
-        // Non-repainting: give the AI only candles [0..entryIndex].
         val visibleCandles = candles.subList(0, (trade.entryIndex + 1).coerceAtMost(candles.size))
-        if (visibleCandles.size < MIN_BARS_FOR_AI) {
-            return trade // Not enough data — leave AI fields null.
-        }
+        if (visibleCandles.size < MIN_BARS_FOR_AI) return trade
+
+        // Point-in-time HTF filter: the AI may only see HTF bars that had
+        // CLOSED at or before the moment the entry bar closed.
+        // Formula: bar.timestamp + htf.minutes*60_000 <= entryTime + ltf.minutes*60_000
+        val decisionTimestamp = trade.entryTime + timeframe.minutes * 60_000L
+        val pointInTimeHtf = htfCandles.mapValues { (htf, bars) ->
+            val htfBarMs = htf.minutes * 60_000L
+            bars.filter { bar -> bar.timestamp + htfBarMs <= decisionTimestamp }
+        }.filterValues { it.isNotEmpty() }
 
         val context = AgentContext(
             symbol = symbol,
             timeframe = timeframe,
             candles = visibleCandles,
-            mtfCandles = htfCandles,
+            mtfCandles = pointInTimeHtf,
         )
         val orchestratorResult = orchestrator.analyze(context)
         val decision = decisionEngine.evaluate(orchestratorResult, dataSource)
@@ -128,57 +111,40 @@ class AiScoredBacktestEngine @Inject constructor(
         )
     }
 
-    /**
-     * Lightweight metrics computation for the AI-filtered subset.
-     * Reuses the trade P&L data to compute win rate, profit factor, and expectancy
-     * without a full re-simulation (trades already have their P&L from the base run).
-     */
     private fun computeFilteredMetrics(
         trades: List<BacktestTrade>,
         initialBalance: Double,
     ): com.foxtrader.app.domain.model.BacktestMetrics {
-        val wins = trades.filter { it.netPnL > 0 }
+        val wins   = trades.filter { it.netPnL > 0 }
         val losses = trades.filter { it.netPnL <= 0 }
         val grossProfit = wins.sumOf { it.netPnL }
-        val grossLoss = kotlin.math.abs(losses.sumOf { it.netPnL })
-        val netProfit = grossProfit - grossLoss
-        val winRate = if (trades.isNotEmpty()) (wins.size.toDouble() / trades.size) * 100.0 else 0.0
-        val avgWin = if (wins.isNotEmpty()) grossProfit / wins.size else 0.0
-        val avgLoss = if (losses.isNotEmpty()) grossLoss / losses.size else 0.0
-        val profitFactor = if (grossLoss > 0) grossProfit / grossLoss else if (grossProfit > 0) Double.MAX_VALUE else 0.0
-        val expectancy = (winRate / 100.0) * avgWin - ((100.0 - winRate) / 100.0) * avgLoss
+        val grossLoss   = kotlin.math.abs(losses.sumOf { it.netPnL })
+        val netProfit   = grossProfit - grossLoss
+        val winRate     = if (trades.isNotEmpty()) (wins.size.toDouble() / trades.size) * 100.0 else 0.0
+        val avgWin      = if (wins.isNotEmpty()) grossProfit / wins.size else 0.0
+        val avgLoss     = if (losses.isNotEmpty()) grossLoss / losses.size else 0.0
+        val profitFactor = if (grossLoss > 0) grossProfit / grossLoss
+                           else if (grossProfit > 0) Double.MAX_VALUE else 0.0
+        val expectancy   = (winRate / 100.0) * avgWin - ((100.0 - winRate) / 100.0) * avgLoss
+        val safeDenom    = if (initialBalance > 0.0) initialBalance else 1.0
 
         return com.foxtrader.app.domain.model.BacktestMetrics(
-            netProfit = netProfit,
-            grossProfit = grossProfit,
-            grossLoss = grossLoss,
-            totalTrades = trades.size,
-            winningTrades = wins.size,
-            losingTrades = losses.size,
-            winRate = winRate,
-            profitFactor = profitFactor,
-            expectancy = expectancy,
+            netProfit = netProfit, grossProfit = grossProfit, grossLoss = grossLoss,
+            totalTrades = trades.size, winningTrades = wins.size, losingTrades = losses.size,
+            winRate = winRate, profitFactor = profitFactor, expectancy = expectancy,
             averageTrade = if (trades.isNotEmpty()) netProfit / trades.size else 0.0,
-            averageWin = avgWin,
-            averageLoss = avgLoss,
-            largestWin = wins.maxOfOrNull { it.netPnL } ?: 0.0,
+            averageWin = avgWin, averageLoss = avgLoss,
+            largestWin  = wins.maxOfOrNull { it.netPnL } ?: 0.0,
             largestLoss = losses.minOfOrNull { it.netPnL } ?: 0.0,
-            maxDrawdown = 0.0,           // simplified — full DD requires equity re-simulation
-            maxDrawdownPercent = 0.0,
-            sharpeRatio = 0.0,
-            sortinoRatio = 0.0,
-            calmarRatio = 0.0,
-            recoveryFactor = 0.0,
+            maxDrawdown = 0.0, maxDrawdownPercent = 0.0,
+            sharpeRatio = 0.0, sortinoRatio = 0.0, calmarRatio = 0.0, recoveryFactor = 0.0,
             avgHoldingBars = trades.sumOf { it.holdingBars }.toDouble() / trades.size,
-            maxConsecutiveWins = 0,
-            maxConsecutiveLosses = 0,
-            finalBalance = initialBalance + netProfit,
-            returnPercent = (netProfit / initialBalance) * 100.0,
+            maxConsecutiveWins = 0, maxConsecutiveLosses = 0,
+            finalBalance  = initialBalance + netProfit,
+            returnPercent = (netProfit / safeDenom) * 100.0,
             totalCommission = trades.sumOf { it.commission },
         )
     }
 
-    private companion object {
-        const val MIN_BARS_FOR_AI = 50
-    }
+    private companion object { const val MIN_BARS_FOR_AI = 50 }
 }
