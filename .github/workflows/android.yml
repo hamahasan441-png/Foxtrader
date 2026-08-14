@@ -62,6 +62,12 @@ jobs:
       - name: Run unit tests
         run: ./gradlew :app:testDebugUnitTest --stacktrace --no-daemon --no-configuration-cache
 
+      # Migration and UI tests live in androidTest; compiling this source set
+      # prevents assembleDebug from overstating green coverage when a new
+      # instrumentation dependency or Hilt binding is broken.
+      - name: Compile instrumentation tests
+        run: ./gradlew :app:assembleDebugAndroidTest --stacktrace --no-daemon --no-configuration-cache
+
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
