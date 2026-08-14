@@ -4,6 +4,7 @@
 // Target: Android 10+ (API 29), compile/target 34
 // ============================================================================
 
+import org.gradle.api.tasks.bundling.Zip
 import org.gradle.testing.jacoco.tasks.JacocoCoverageVerification
 import org.gradle.testing.jacoco.tasks.JacocoReport
 import org.jlleitschuh.gradle.ktlint.reporter.ReporterType
@@ -157,6 +158,23 @@ android {
         warningsAsErrors = false
     }
 }
+
+// CI-only extraction aid: Room generates the authoritative current schema during
+// KSP. The debug APK artifact carries this zip so a build-capable runner can
+// publish the generated JSON for review/commit without hand-authoring identity
+// hashes. This task can be removed once app/schemas contains the generated file.
+val exportRoomSchemasArtifact by tasks.registering(Zip::class) {
+    group = "verification"
+    description = "Packages generated Room schemas for CI retrieval."
+    from("$projectDir/schemas") {
+        include("*.json")
+    }
+    archiveFileName.set("room-schemas.apk")
+    destinationDirectory.set(layout.buildDirectory.dir("outputs/apk/debug"))
+}
+
+tasks.matching { it.name == "assembleDebug" }
+    .configureEach { finalizedBy(exportRoomSchemasArtifact) }
 
 composeCompiler {
     reportsDestination = layout.buildDirectory.dir("reports/compose")
