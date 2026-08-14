@@ -6,6 +6,10 @@ import com.foxtrader.app.domain.usecase.analysis.FibonacciEngine
 import com.foxtrader.app.domain.usecase.analysis.MarketProfile
 import com.foxtrader.app.domain.usecase.analysis.SupportResistanceDetector
 import com.foxtrader.app.domain.usecase.indicators.BollingerBands
+import com.foxtrader.app.domain.usecase.indicators.ChannelIndicators
+import com.foxtrader.app.domain.usecase.indicators.PivotPoints
+import com.foxtrader.app.domain.usecase.indicators.StochasticOscillator
+import com.foxtrader.app.domain.usecase.indicators.VolumeIndicators
 import com.foxtrader.app.domain.usecase.indicators.IchimokuCloud
 import com.foxtrader.app.domain.usecase.indicators.ParabolicSar
 import com.foxtrader.app.domain.usecase.indicators.AnchoredVwap
@@ -39,6 +43,10 @@ class ComputeIndicatorsUseCase @Inject constructor(
     private val marketProfile: MarketProfile,
     private val supportResistanceDetector: SupportResistanceDetector,
     private val fibonacciEngine: FibonacciEngine,
+    private val channelIndicators: ChannelIndicators,
+    private val stochasticOscillator: StochasticOscillator,
+    private val volumeIndicators: VolumeIndicators,
+    private val pivotPoints: PivotPoints,
 ) {
 
     /**
@@ -72,6 +80,17 @@ class ComputeIndicatorsUseCase @Inject constructor(
         val macdLine: DoubleArray?,
         val macdSignal: DoubleArray?,
         val macdHistogram: DoubleArray?,
+        val stochasticK: DoubleArray?,
+        val stochasticD: DoubleArray?,
+        val obv: DoubleArray?,
+        val moneyFlowIndex: DoubleArray?,
+        val keltnerUpper: DoubleArray?,
+        val keltnerMiddle: DoubleArray?,
+        val keltnerLower: DoubleArray?,
+        val donchianUpper: DoubleArray?,
+        val donchianMiddle: DoubleArray?,
+        val donchianLower: DoubleArray?,
+        val pivotLevels: PivotPoints.PivotLevels?,
         val orderBlocks: List<com.foxtrader.app.domain.model.OrderBlock>,
         val fairValueGaps: List<com.foxtrader.app.domain.model.FairValueGap>,
         val liquidityPools: List<com.foxtrader.app.domain.model.LiquidityPool>,
@@ -108,6 +127,17 @@ class ComputeIndicatorsUseCase @Inject constructor(
                 macdLine.contentEquals(other.macdLine) &&
                 macdSignal.contentEquals(other.macdSignal) &&
                 macdHistogram.contentEquals(other.macdHistogram) &&
+                stochasticK.contentEquals(other.stochasticK) &&
+                stochasticD.contentEquals(other.stochasticD) &&
+                obv.contentEquals(other.obv) &&
+                moneyFlowIndex.contentEquals(other.moneyFlowIndex) &&
+                keltnerUpper.contentEquals(other.keltnerUpper) &&
+                keltnerMiddle.contentEquals(other.keltnerMiddle) &&
+                keltnerLower.contentEquals(other.keltnerLower) &&
+                donchianUpper.contentEquals(other.donchianUpper) &&
+                donchianMiddle.contentEquals(other.donchianMiddle) &&
+                donchianLower.contentEquals(other.donchianLower) &&
+                pivotLevels == other.pivotLevels &&
                 orderBlocks == other.orderBlocks &&
                 fairValueGaps == other.fairValueGaps &&
                 liquidityPools == other.liquidityPools &&
@@ -143,6 +173,17 @@ class ComputeIndicatorsUseCase @Inject constructor(
             h = 31 * h + macdLine.contentHashCode()
             h = 31 * h + macdSignal.contentHashCode()
             h = 31 * h + macdHistogram.contentHashCode()
+            h = 31 * h + stochasticK.contentHashCode()
+            h = 31 * h + stochasticD.contentHashCode()
+            h = 31 * h + obv.contentHashCode()
+            h = 31 * h + moneyFlowIndex.contentHashCode()
+            h = 31 * h + keltnerUpper.contentHashCode()
+            h = 31 * h + keltnerMiddle.contentHashCode()
+            h = 31 * h + keltnerLower.contentHashCode()
+            h = 31 * h + donchianUpper.contentHashCode()
+            h = 31 * h + donchianMiddle.contentHashCode()
+            h = 31 * h + donchianLower.contentHashCode()
+            h = 31 * h + (pivotLevels?.hashCode() ?: 0)
             h = 31 * h + orderBlocks.hashCode()
             h = 31 * h + fairValueGaps.hashCode()
             h = 31 * h + liquidityPools.hashCode()
@@ -175,6 +216,19 @@ class ComputeIndicatorsUseCase @Inject constructor(
             TechnicalIndicators.calculateRSI(candles, 14) else null
         val macd = if (toggles.macd && candles.size >= 35)
             TechnicalIndicators.calculateMACD(candles) else null
+        val stoch = if (toggles.stochastic && candles.size >= STOCHASTIC_MIN_BARS)
+            stochasticOscillator.calculate(candles) else null
+        val obv = if (toggles.obv && candles.size >= 2)
+            volumeIndicators.obv(candles) else null
+        val mfi = if (toggles.moneyFlowIndex && candles.size >= MFI_MIN_BARS)
+            volumeIndicators.moneyFlowIndex(candles) else null
+        val keltner = if (toggles.keltner && candles.size >= KELTNER_MIN_BARS)
+            channelIndicators.keltner(candles) else null
+        val donchian = if (toggles.donchian && candles.size >= DONCHIAN_MIN_BARS)
+            channelIndicators.donchian(candles) else null
+        // Daily pivots need two distinct UTC days of bars; calculateDaily
+        // returns null when that is not satisfied, so no extra guard is needed.
+        val pivots = if (toggles.pivotPoints) pivotPoints.calculateDaily(candles) else null
 
         val ichimoku = if (toggles.ichimoku && candles.size >= 52)
             ichimokuCloud.calculate(candles) else null
@@ -232,6 +286,17 @@ class ComputeIndicatorsUseCase @Inject constructor(
             macdLine = macd?.macd,
             macdSignal = macd?.signal,
             macdHistogram = macd?.histogram,
+            stochasticK = stoch?.percentK,
+            stochasticD = stoch?.percentD,
+            obv = obv,
+            moneyFlowIndex = mfi,
+            keltnerUpper = keltner?.upper,
+            keltnerMiddle = keltner?.middle,
+            keltnerLower = keltner?.lower,
+            donchianUpper = donchian?.upper,
+            donchianMiddle = donchian?.middle,
+            donchianLower = donchian?.lower,
+            pivotLevels = pivots,
             ichimokuTenkan = ichimoku?.tenkan,
             ichimokuKijun = ichimoku?.kijun,
             ichimokuSenkouA = ichimoku?.senkouA,
@@ -279,6 +344,20 @@ class ComputeIndicatorsUseCase @Inject constructor(
             TechnicalIndicators.calculateRSI(candles, 14) else null
         val macd = if (toggles.macd && candles.size >= 35)
             TechnicalIndicators.calculateMACD(candles) else null
+        // These are all O(n) single-pass (or small-window) computations, so a
+        // full recompute stays well inside the frame budget and avoids the
+        // seam artefacts an incremental patch would risk.
+        val stoch = if (toggles.stochastic && candles.size >= STOCHASTIC_MIN_BARS)
+            stochasticOscillator.calculate(candles) else null
+        val obv = if (toggles.obv && candles.size >= 2)
+            volumeIndicators.obv(candles) else null
+        val mfi = if (toggles.moneyFlowIndex && candles.size >= MFI_MIN_BARS)
+            volumeIndicators.moneyFlowIndex(candles) else null
+        val keltner = if (toggles.keltner && candles.size >= KELTNER_MIN_BARS)
+            channelIndicators.keltner(candles) else null
+        val donchian = if (toggles.donchian && candles.size >= DONCHIAN_MIN_BARS)
+            channelIndicators.donchian(candles) else null
+        val pivots = if (toggles.pivotPoints) pivotPoints.calculateDaily(candles) else null
 
         return previous.copy(
             emaShort = emaShort,
@@ -297,6 +376,17 @@ class ComputeIndicatorsUseCase @Inject constructor(
             macdLine = macd?.macd,
             macdSignal = macd?.signal,
             macdHistogram = macd?.histogram,
+            stochasticK = stoch?.percentK,
+            stochasticD = stoch?.percentD,
+            obv = obv,
+            moneyFlowIndex = mfi,
+            keltnerUpper = keltner?.upper,
+            keltnerMiddle = keltner?.middle,
+            keltnerLower = keltner?.lower,
+            donchianUpper = donchian?.upper,
+            donchianMiddle = donchian?.middle,
+            donchianLower = donchian?.lower,
+            pivotLevels = pivots,
             ichimokuTenkan = ichimoku?.tenkan,
             ichimokuKijun = ichimoku?.kijun,
             ichimokuSenkouA = ichimoku?.senkouA,
@@ -380,5 +470,9 @@ class ComputeIndicatorsUseCase @Inject constructor(
         const val AUTO_FIB_MIN_BARS = 30
         const val AUTO_FIB_MIN_SWING_BARS = 6
         const val ANCHORED_VWAP_MIN_BARS = 20
+        const val STOCHASTIC_MIN_BARS = 15
+        const val MFI_MIN_BARS = 15
+        const val KELTNER_MIN_BARS = 20
+        const val DONCHIAN_MIN_BARS = 20
     }
 }

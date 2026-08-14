@@ -15,10 +15,36 @@ data class ChartSignal(
     val timestamp: Long,
     val confidence: Double,
     val isLive: Boolean,
-)
+    /**
+     * Optional human-readable origin of the signal (e.g. the strategy name
+     * "SMC Order Block Retest"). Rendered in the signal history panel so a
+     * trader can tell *which* rule fired, not just which engine.
+     */
+    val label: String? = null,
+) {
+    /** Risk (entry → stop) in price units, or null when no stop is defined. */
+    val risk: Double? get() = if (sl == 0.0) null else kotlin.math.abs(entry - sl)
+
+    /** Reward (entry → target) in price units, or null when no target is defined. */
+    val reward: Double? get() = if (tp == 0.0) null else kotlin.math.abs(tp - entry)
+
+    /**
+     * Realised reward-to-risk multiple of the signal, or null when either leg
+     * is undefined (e.g. SMT markers carry no SL/TP).
+     */
+    val riskReward: Double?
+        get() {
+            val r = risk ?: return null
+            val rw = reward ?: return null
+            return if (r <= 0.0) null else rw / r
+        }
+}
 
 enum class SignalSource {
     LITX,
     TRADEPRO,
     SMT,
+
+    /** A rule from the backtestable [com.foxtrader.app.domain.usecase.strategies.StrategyLibrary]. */
+    STRATEGY,
 }

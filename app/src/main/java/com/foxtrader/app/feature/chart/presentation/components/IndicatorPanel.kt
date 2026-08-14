@@ -18,6 +18,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Modifier
 import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.SmcVisualMode
+import com.foxtrader.app.domain.model.StrategyType
 import com.foxtrader.app.feature.chart.presentation.IndicatorToggles
 import com.foxtrader.app.ui.components.FoxChip
 import com.foxtrader.app.ui.theme.FoxTheme
@@ -56,14 +57,19 @@ fun IndicatorPanel(
             Group("Momentum") {
                 Chip("RSI", toggles.rsi) { onToggle { it.copy(rsi = !it.rsi) } }
                 Chip("MACD", toggles.macd) { onToggle { it.copy(macd = !it.macd) } }
+                Chip("Stochastic", toggles.stochastic) { onToggle { it.copy(stochastic = !it.stochastic) } }
             }
             Group("Volatility") {
                 Chip(stringResource(R.string.chart_indicator_bollinger), toggles.bollinger) { onToggle { it.copy(bollinger = !it.bollinger) } }
+                Chip("Keltner", toggles.keltner) { onToggle { it.copy(keltner = !it.keltner) } }
+                Chip("Donchian", toggles.donchian) { onToggle { it.copy(donchian = !it.donchian) } }
             }
             Group("Volume") {
                 Chip(stringResource(R.string.chart_pane_volume_title), toggles.volume) { onToggle { it.copy(volume = !it.volume) } }
                 Chip(stringResource(R.string.chart_indicator_vwap), toggles.vwap) { onToggle { it.copy(vwap = !it.vwap) } }
                 Chip("Anchored VWAP", toggles.anchoredVwap) { onToggle { it.copy(anchoredVwap = !it.anchoredVwap) } }
+                Chip("OBV", toggles.obv) { onToggle { it.copy(obv = !it.obv) } }
+                Chip("MFI", toggles.moneyFlowIndex) { onToggle { it.copy(moneyFlowIndex = !it.moneyFlowIndex) } }
                 Chip(stringResource(R.string.chart_indicator_volume_profile), toggles.volumeProfile) { onToggle { it.copy(volumeProfile = !it.volumeProfile) } }
                 Chip(stringResource(R.string.chart_indicator_market_profile), toggles.marketProfile) { onToggle { it.copy(marketProfile = !it.marketProfile) } }
             }
@@ -72,6 +78,7 @@ fun IndicatorPanel(
                 Chip(stringResource(R.string.chart_indicator_support_resistance), toggles.supportResistance) { onToggle { it.copy(supportResistance = !it.supportResistance) } }
                 Chip(stringResource(R.string.chart_indicator_fibonacci), toggles.fibonacci) { onToggle { it.copy(fibonacci = !it.fibonacci) } }
                 Chip(stringResource(R.string.chart_indicator_sessions), toggles.sessions) { onToggle { it.copy(sessions = !it.sessions) } }
+                Chip("Pivots", toggles.pivotPoints) { onToggle { it.copy(pivotPoints = !it.pivotPoints) } }
                 Chip(stringResource(R.string.chart_indicator_confluence), toggles.confluence) { onToggle { it.copy(confluence = !it.confluence) } }
             }
             Group("Smart money") {
@@ -81,6 +88,21 @@ fun IndicatorPanel(
                 Chip("LIT X", toggles.litX) { onToggle { it.copy(litX = !it.litX) } }
                 Chip("SMT", toggles.smt) { onToggle { it.copy(smt = !it.smt) } }
                 Chip("TradePro", toggles.tradePro) { onToggle { it.copy(tradePro = !it.tradePro) } }
+            }
+            // Strategies are single-select: each plots the same rule set the
+            // Backtest Lab measures, and running several at once would bury the
+            // price action in markers.
+            Group("Strategy signals") {
+                Chip("Off", toggles.activeStrategy == null) { onToggle { it.copy(activeStrategy = null) } }
+                StrategyType.entries.forEach { type ->
+                    Chip(type.label, toggles.activeStrategy == type) {
+                        onToggle { current ->
+                            current.copy(
+                                activeStrategy = if (current.activeStrategy == type) null else type,
+                            )
+                        }
+                    }
+                }
             }
             Group("Visual intensity") {
                 SmcVisualMode.entries.forEach { mode ->

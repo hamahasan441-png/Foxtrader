@@ -58,7 +58,10 @@ import com.foxtrader.app.feature.chart.presentation.components.layers.drawCrossh
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawSyncedCrosshairLayer
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawGridLayer
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawMarketProfile
+import com.foxtrader.app.feature.chart.presentation.components.layers.drawDonchianChannel
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawIchimoku
+import com.foxtrader.app.feature.chart.presentation.components.layers.drawKeltnerChannel
+import com.foxtrader.app.feature.chart.presentation.components.layers.drawPivotLevels
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawIndicatorLayer
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawLineSeries
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawLivePriceLine
@@ -132,6 +135,13 @@ fun CandleChart(
     ichimokuSenkouA: ImmutableDoubleSeries? = null,
     ichimokuSenkouB: ImmutableDoubleSeries? = null,
     ichimokuChikou: ImmutableDoubleSeries? = null,
+    keltnerUpper: ImmutableDoubleSeries? = null,
+    keltnerMiddle: ImmutableDoubleSeries? = null,
+    keltnerLower: ImmutableDoubleSeries? = null,
+    donchianUpper: ImmutableDoubleSeries? = null,
+    donchianMiddle: ImmutableDoubleSeries? = null,
+    donchianLower: ImmutableDoubleSeries? = null,
+    pivotLevels: com.foxtrader.app.domain.usecase.indicators.PivotPoints.PivotLevels? = null,
     orderBlocks: ImmutableList<com.foxtrader.app.domain.model.OrderBlock> = persistentListOf(),
     fairValueGaps: ImmutableList<com.foxtrader.app.domain.model.FairValueGap> = persistentListOf(),
     liquidityPools: ImmutableList<com.foxtrader.app.domain.model.LiquidityPool> = persistentListOf(),
@@ -216,6 +226,18 @@ fun CandleChart(
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             isAntiAlias = true
             textAlign = Paint.Align.CENTER
+        }
+    }
+    // Pivot level tags (P/R1/S1...) are drawn hard against the left gutter, so
+    // they need their own LEFT-aligned paint rather than the CENTER-aligned
+    // structure label paint.
+    val pivotLabelPaint = remember {
+        Paint().apply {
+            color = AxisLabelArgb
+            textSize = with(density) { 8.dp.toPx() }
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            isAntiAlias = true
+            textAlign = Paint.Align.LEFT
         }
     }
     // OHLC readout shown next to the crosshair (left-aligned monospace).
@@ -638,6 +660,15 @@ fun CandleChart(
             }
             if (ichimokuTenkan != null && ichimokuKijun != null && ichimokuSenkouA != null && ichimokuSenkouB != null && ichimokuChikou != null) {
                 drawIchimoku(viewport, cw, ch, ichimokuTenkan, ichimokuKijun, ichimokuSenkouA, ichimokuSenkouB, ichimokuChikou)
+            }
+            if (keltnerUpper != null && keltnerMiddle != null && keltnerLower != null) {
+                drawKeltnerChannel(viewport, cw, ch, keltnerUpper, keltnerMiddle, keltnerLower)
+            }
+            if (donchianUpper != null && donchianMiddle != null && donchianLower != null) {
+                drawDonchianChannel(viewport, cw, ch, donchianUpper, donchianMiddle, donchianLower)
+            }
+            if (pivotLevels != null) {
+                drawPivotLevels(pivotLevels, viewport, cw, ch, pivotLabelPaint)
             }
         }
 

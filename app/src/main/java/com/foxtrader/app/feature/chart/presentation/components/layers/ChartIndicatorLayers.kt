@@ -260,3 +260,97 @@ internal fun DrawScope.drawIchimoku(
     drawLineSeries(viewport, cw, ch, senkouA, Color(0xFF66BB6A), 1f)
     drawLineSeries(viewport, cw, ch, senkouB, Color(0xFFEF5350), 1f)
 }
+
+// ============================================================================
+// Channel overlays (Keltner / Donchian) and daily pivot levels.
+//
+// These reuse drawLineSeries so they inherit the same viewport culling and
+// per-frame cost profile as the existing overlays.
+// ============================================================================
+
+private val KeltnerBandColor = Color(0x6620C997)
+private val KeltnerMidColor = Color(0xAA20C997)
+private val DonchianBandColor = Color(0x66FF9F43)
+private val DonchianMidColor = Color(0x88FF9F43)
+
+/**
+ * Keltner Channels — EMA midline with ATR-scaled envelope.
+ *
+ * Drawn in teal so it stays visually distinct from Bollinger's blue: the two
+ * are frequently displayed together in a squeeze setup, and identical colours
+ * would make the bands impossible to tell apart.
+ */
+internal fun DrawScope.drawKeltnerChannel(
+    viewport: ChartViewport,
+    cw: Float,
+    ch: Float,
+    upper: ImmutableDoubleSeries,
+    middle: ImmutableDoubleSeries,
+    lower: ImmutableDoubleSeries,
+) {
+    drawLineSeries(viewport, cw, ch, upper, KeltnerBandColor, 1.2f)
+    drawLineSeries(viewport, cw, ch, lower, KeltnerBandColor, 1.2f)
+    drawLineSeries(viewport, cw, ch, middle, KeltnerMidColor, 1f)
+}
+
+/** Donchian Channels — highest-high / lowest-low breakout envelope (amber). */
+internal fun DrawScope.drawDonchianChannel(
+    viewport: ChartViewport,
+    cw: Float,
+    ch: Float,
+    upper: ImmutableDoubleSeries,
+    middle: ImmutableDoubleSeries,
+    lower: ImmutableDoubleSeries,
+) {
+    drawLineSeries(viewport, cw, ch, upper, DonchianBandColor, 1.2f)
+    drawLineSeries(viewport, cw, ch, lower, DonchianBandColor, 1.2f)
+    drawLineSeries(viewport, cw, ch, middle, DonchianMidColor, 0.9f)
+}
+
+/**
+ * Daily pivot levels (P / R1-R3 / S1-S3) as labelled horizontal rays.
+ *
+ * Levels are price-absolute rather than per-bar, so each is a single full-width
+ * line. Off-screen levels are skipped so a wide pivot range on a zoomed-in
+ * chart costs nothing.
+ */
+internal fun DrawScope.drawPivotLevels(
+    levels: com.foxtrader.app.domain.usecase.indicators.PivotPoints.PivotLevels,
+    viewport: ChartViewport,
+    cw: Float,
+    ch: Float,
+    labelPaint: Paint,
+) {
+    val pivotColor = Color(0xCCFFD166)
+    val resistanceColor = Color(0x99FF6B6B)
+    val supportColor = Color(0x9951CF66)
+
+    val rows = listOf(
+        Triple("R3", levels.r3, resistanceColor),
+        Triple("R2", levels.r2, resistanceColor),
+        Triple("R1", levels.r1, resistanceColor),
+        Triple("P", levels.pivot, pivotColor),
+        Triple("S1", levels.s1, supportColor),
+        Triple("S2", levels.s2, supportColor),
+        Triple("S3", levels.s3, supportColor),
+    )
+
+    for ((label, price, color) in rows) {
+        if (!price.isFinite()) continue
+        val y = viewport.yForPrice(price, ch)
+        // Cull levels outside the canvas so zoomed-in charts stay cheap.
+        if (y < 0f || y > ch) continue
+
+        val isPivot = label == "P"
+        drawLine(
+            color = color,
+            start = Offset(0f, y),
+            end = Offset(cw, y),
+            strokeWidth = if (isPivot) 1.6f else 1f,
+            pathEffect = if (isPivot) null else PivotDash,
+        )
+        drawContext.canvas.nativeCanvas.drawText(label, 6f, y - 4f, labelPaint)
+    }
+}
+
+private val PivotDash = PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f)

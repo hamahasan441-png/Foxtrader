@@ -39,6 +39,8 @@ import com.foxtrader.app.domain.usecase.replay.ReplayEngine
 import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
 import com.foxtrader.app.domain.usecase.litx.LitXEngine
 import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
+import com.foxtrader.app.domain.usecase.strategies.LiveStrategyEngine
+import com.foxtrader.app.domain.model.StrategyType
 import com.foxtrader.app.feature.chart.presentation.components.ChartPerformanceMonitor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.toPersistentList
@@ -53,6 +55,7 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /**
@@ -84,6 +87,7 @@ class ChartViewModel @Inject constructor(
     private val heikinAshiTransformer: HeikinAshiTransformer,
     private val candleRenkoBuilder: CandleRenkoBuilder,
     private val signalComputer: SignalComputer,
+    private val liveStrategyEngine: LiveStrategyEngine,
     private val paperTradingSession: PaperTradingSession,
     profiler: PerformanceProfiler,
     qualityController: AdaptiveQualityController,
@@ -273,6 +277,16 @@ class ChartViewModel @Inject constructor(
             smtDivergenceDetector.detect(symbol, displayCandles, emptyMap())
         } else emptyList()
 
+        // Evaluate the selected strategy over the visible series. This is the
+        // same StrategyFunction the Backtest Lab measures, so plotted markers
+        // and backtest results can never diverge. Runs on the default
+        // dispatcher because several strategies re-run SMC detection per bar.
+        val strategySignals = ind.activeStrategy?.let { type ->
+            withContext(defaultDispatcher) {
+                liveStrategyEngine.evaluate(type, displayCandles)
+            }
+        }.orEmpty()
+
         _uiState.value = _uiState.value.withComputation(
             candles = displayCandles,
             source = source,
@@ -283,7 +297,13 @@ class ChartViewModel @Inject constructor(
             smtDivergences = smtDivergences,
             barMode = barMode,
         ).copy(
-            signals = signalComputer.computeSignals(litXAnalysis, tradeProAnalysis, smtDivergences, displayCandles),
+            signals = signalComputer.computeSignals(
+                litXAnalysis = litXAnalysis,
+                tradeProAnalysis = tradeProAnalysis,
+                smtDivergences = smtDivergences,
+                candles = displayCandles,
+                strategySignals = strategySignals,
+            ),
         )
 
         aiCoordinator.runAiDecision(
@@ -333,6 +353,18 @@ class ChartViewModel @Inject constructor(
 
     fun toggleSignalHistory() {
         _uiState.value = _uiState.value.copy(showSignalHistory = !_uiState.value.showSignalHistory)
+    }
+
+    /**
+     * Select the strategy plotted on the chart, or pass null to clear it.
+     * Selecting the already-active strategy toggles it off, which matches how
+     * the indicator chips behave.
+     */
+    fun selectStrategy(type: StrategyType?) {
+        val current = _uiState.value.indicators.activeStrategy
+        val next = if (type == current) null else type
+        if (next == current) return
+        updateIndicators { it.copy(activeStrategy = next) }
     }
 
     fun updateIndicators(transform: (IndicatorToggles) -> IndicatorToggles) {

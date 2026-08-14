@@ -39,10 +39,16 @@ class SignalComputer @Inject constructor() {
         smtDivergences: List<SmtDivergenceDetector.SmtDivergence>,
         candles: List<Candle>,
         currentTimeMillis: Long = System.currentTimeMillis(),
+        strategySignals: List<ChartSignal> = emptyList(),
     ): List<ChartSignal> {
         if (candles.isEmpty()) return emptyList()
 
         val signals = mutableListOf<ChartSignal>()
+
+        // Strategy-library signals are already fully-formed ChartSignals with
+        // correct bar indices and live/history flags, so they only need to join
+        // the confluence pass alongside the engine-derived signals.
+        signals += strategySignals
 
         // LIT X signal
         litXAnalysis?.signal?.let { signal ->
@@ -119,12 +125,18 @@ class SignalComputer @Inject constructor() {
     private fun applyConfluence(signals: List<ChartSignal>): List<ChartSignal> {
         if (signals.size < 2) return signals
 
-        val distinctSourcesByDirection: Map<Direction, Set<SignalSource>> =
-            signals.groupBy { it.direction }
+        // Only *live* signals represent the current read of the market, so only
+        // they may vouch for one another. Historical markers (a strategy's past
+        // setups, superseded SMT divergences) describe bars that have already
+        // closed and must not inflate the confidence of a signal firing now.
+        val liveSourcesByDirection: Map<Direction, Set<SignalSource>> =
+            signals.filter { it.isLive }
+                .groupBy { it.direction }
                 .mapValues { (_, group) -> group.map { it.source }.toSet() }
 
         return signals.map { signal ->
-            val agreeing = distinctSourcesByDirection[signal.direction].orEmpty()
+            if (!signal.isLive) return@map signal
+            val agreeing = liveSourcesByDirection[signal.direction].orEmpty()
             val otherSources = (agreeing - signal.source).size
             if (otherSources <= 0) {
                 signal

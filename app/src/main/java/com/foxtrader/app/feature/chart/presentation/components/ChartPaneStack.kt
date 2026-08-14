@@ -55,6 +55,10 @@ fun ChartPaneStack(
     macdLine: ImmutableDoubleSeries?,
     macdSignal: ImmutableDoubleSeries?,
     macdHistogram: ImmutableDoubleSeries?,
+    stochasticK: ImmutableDoubleSeries? = null,
+    stochasticD: ImmutableDoubleSeries? = null,
+    obv: ImmutableDoubleSeries? = null,
+    moneyFlowIndex: ImmutableDoubleSeries? = null,
     viewportFlow: StateFlow<ChartViewportState?>,
     fallbackViewport: ChartViewportState?,
     modifier: Modifier = Modifier,
@@ -82,6 +86,40 @@ fun ChartPaneStack(
                     macdLine = macdLine,
                     macdSignal = macdSignal,
                     macdHistogram = macdHistogram,
+                    startIndex = startIndex,
+                    visibleBars = visibleBars,
+                    canvasHeight = h,
+                )
+            }
+        }
+
+        if (indicators.stochastic && stochasticK != null && stochasticD != null) {
+            ResizablePane(paneKey = "stochastic", paneName = "Stochastic") { h ->
+                StochasticSubChart(
+                    percentK = stochasticK,
+                    percentD = stochasticD,
+                    startIndex = startIndex,
+                    visibleBars = visibleBars,
+                    canvasHeight = h,
+                )
+            }
+        }
+
+        if (indicators.obv && obv != null) {
+            ResizablePane(paneKey = "obv", paneName = "OBV") { h ->
+                ObvSubChart(
+                    obv = obv,
+                    startIndex = startIndex,
+                    visibleBars = visibleBars,
+                    canvasHeight = h,
+                )
+            }
+        }
+
+        if (indicators.moneyFlowIndex && moneyFlowIndex != null) {
+            ResizablePane(paneKey = "mfi", paneName = "MFI") { h ->
+                MoneyFlowSubChart(
+                    mfi = moneyFlowIndex,
                     startIndex = startIndex,
                     visibleBars = visibleBars,
                     canvasHeight = h,

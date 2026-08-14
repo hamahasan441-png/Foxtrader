@@ -110,6 +110,14 @@ private fun SignalRow(signal: ChartSignal) {
             }
         }
 
+        signal.label?.takeIf { it.isNotBlank() }?.let { name ->
+            Text(
+                text = name,
+                style = MaterialTheme.typography.labelSmall,
+                color = FoxNeutral60,
+            )
+        }
+
         if (signal.entry != 0.0) {
             MetricRow("Entry", formatPrice(signal.entry))
         }
@@ -118,6 +126,9 @@ private fun SignalRow(signal: ChartSignal) {
         }
         if (signal.tp != 0.0) {
             MetricRow("TP", formatPrice(signal.tp))
+        }
+        signal.riskReward?.let { rr ->
+            MetricRow("R:R", String.format(Locale.US, "%.2fR", rr))
         }
     }
 }
@@ -128,6 +139,7 @@ private fun SourceBadge(source: SignalSource) {
         SignalSource.LITX -> "LIT X" to FoxAmber50
         SignalSource.TRADEPRO -> "TradePro" to FoxBullishText
         SignalSource.SMT -> "SMT" to FoxBearishText
+        SignalSource.STRATEGY -> "Strategy" to FoxAmber50
     }
     Text(
         text = label,

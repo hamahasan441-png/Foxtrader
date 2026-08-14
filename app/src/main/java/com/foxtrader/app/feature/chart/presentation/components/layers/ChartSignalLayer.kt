@@ -3,6 +3,7 @@ package com.foxtrader.app.feature.chart.presentation.components.layers
 import android.graphics.Paint
 import android.graphics.Typeface
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -221,6 +222,7 @@ internal fun DrawScope.drawSignalMarkers(
             SignalSource.LITX -> "L"
             SignalSource.TRADEPRO -> "T"
             SignalSource.SMT -> "S"
+            SignalSource.STRATEGY -> "X"
         }
         val labelPaint = signalMarkerLabelPaint(alpha)
         drawContext.canvas.nativeCanvas.drawText(
@@ -229,5 +231,49 @@ internal fun DrawScope.drawSignalMarkers(
             y + labelPaint.textSize / 3f,
             labelPaint,
         )
+
+        // For the live signal, project the actual trade levels to the right of
+        // the marker. Without these a marker tells the trader a setup exists
+        // but not where to enter, stop, or target — which is the whole point.
+        if (signal.isLive && signal.sl != 0.0 && signal.tp != 0.0) {
+            drawSignalLevels(signal, viewport, x, cw, ch, color)
+        }
     }
+}
+
+/**
+ * Draws the entry / stop / target rays for a live signal, starting at the
+ * signal bar and extending to the right edge, plus tinted risk and reward
+ * zones so the R:R is readable at a glance.
+ */
+private fun DrawScope.drawSignalLevels(
+    signal: ChartSignal,
+    viewport: ChartViewport,
+    markerX: Float,
+    cw: Float,
+    ch: Float,
+    dirColor: androidx.compose.ui.graphics.Color,
+) {
+    val entryY = viewport.yForPrice(signal.entry, ch)
+    val slY = viewport.yForPrice(signal.sl, ch)
+    val tpY = viewport.yForPrice(signal.tp, ch)
+    val left = markerX.coerceIn(0f, cw)
+    val width = (cw - left).coerceAtLeast(0f)
+    if (width <= 0f) return
+
+    // Reward zone (entry → target) and risk zone (entry → stop).
+    drawRect(
+        color = FoxBullish.copy(alpha = 0.10f),
+        topLeft = Offset(left, minOf(entryY, tpY)),
+        size = Size(width, kotlin.math.abs(tpY - entryY)),
+    )
+    drawRect(
+        color = FoxBearish.copy(alpha = 0.10f),
+        topLeft = Offset(left, minOf(entryY, slY)),
+        size = Size(width, kotlin.math.abs(slY - entryY)),
+    )
+
+    drawLine(dirColor.copy(alpha = 0.95f), Offset(left, entryY), Offset(cw, entryY), strokeWidth = 2f)
+    drawLine(FoxBearish.copy(alpha = 0.85f), Offset(left, slY), Offset(cw, slY), strokeWidth = 1.4f, pathEffect = SignalDash)
+    drawLine(FoxBullish.copy(alpha = 0.85f), Offset(left, tpY), Offset(cw, tpY), strokeWidth = 1.4f, pathEffect = SignalDash)
 }
