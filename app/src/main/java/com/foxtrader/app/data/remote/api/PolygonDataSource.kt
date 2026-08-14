@@ -53,7 +53,7 @@ class PolygonDataSource @Inject constructor(
             limit = safeLimit,
             apiKey = apiKey,
             fromTimestamp = range.first,
-            toTimestamp = range.second,
+            toTimestamp = range.last,
         ).takeLast(safeLimit)
     }
 
