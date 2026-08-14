@@ -9,6 +9,7 @@ import com.foxtrader.app.data.remote.api.BybitApi
 import com.foxtrader.app.data.remote.api.KuCoinApi
 import com.foxtrader.app.data.remote.api.MarketApi
 import com.foxtrader.app.data.remote.api.OkxApi
+import com.foxtrader.app.data.remote.api.PolygonApi
 import com.foxtrader.app.data.remote.api.SyncApi
 import com.foxtrader.app.data.remote.api.TwelveDataApi
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
@@ -61,6 +62,16 @@ annotation class AlphaVantageRetrofit
 @Retention(AnnotationRetention.BINARY)
 annotation class TwelveDataRetrofit
 
+/** Qualifier for the Polygon.io Retrofit instance. */
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class PolygonRetrofit
+
+/** Qualifier for the Polygon.io WebSocket client (no credential logging). */
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class PolygonMarketDataClient
+
 @Module
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
@@ -94,6 +105,8 @@ object NetworkModule {
     private const val ALPHA_VANTAGE_BASE_URL = "https://www.alphavantage.co/"
     /** Twelve Data public API base URL. */
     private const val TWELVE_DATA_BASE_URL = "https://api.twelvedata.com/"
+    /** Polygon.io REST API base URL. */
+    private const val POLYGON_BASE_URL = "https://api.polygon.io/"
 
     // Shared timeout constants (seconds).
     private const val CONNECT_TIMEOUT = 15L
@@ -408,4 +421,54 @@ object NetworkModule {
     @Singleton
     fun provideTwelveDataApi(@TwelveDataRetrofit retrofit: Retrofit): TwelveDataApi =
         retrofit.create(TwelveDataApi::class.java)
+
+    // ========================================================================
+    // POLYGON.IO PUBLIC API (stocks, forex, indices, and crypto aggregates)
+    // ========================================================================
+
+    /**
+     * Polygon keys are query parameters, so this client intentionally has no
+     * logging interceptor — even debug BASIC logging would expose the key in
+     * the request URL. The data source still receives the key explicitly at
+     * the repository boundary and never stores it in the network layer.
+     */
+    @Provides
+    @Singleton
+    @PolygonRetrofit
+    fun providePolygonRetrofit(json: Json): Retrofit {
+        val client = OkHttpClient.Builder()
+            .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
+            .readTimeout(READ_TIMEOUT, TimeUnit.SECONDS)
+            .writeTimeout(WRITE_TIMEOUT, TimeUnit.SECONDS)
+            .callTimeout(CALL_TIMEOUT, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(false)
+            .build()
+        val contentType = "application/json".toMediaType()
+        return Retrofit.Builder()
+            .baseUrl(POLYGON_BASE_URL)
+            .client(client)
+            .addConverterFactory(json.asConverterFactory(contentType))
+            .build()
+    }
+
+    @Provides
+    @Singleton
+    fun providePolygonApi(@PolygonRetrofit retrofit: Retrofit): PolygonApi =
+        retrofit.create(PolygonApi::class.java)
+
+    /**
+     * Polygon WebSocket traffic carries the API key in an auth message. Keep
+     * this client separate from the general public client so no interceptor can
+     * log that frame or accidentally attach FoxTrader bearer credentials.
+     */
+    @Provides
+    @Singleton
+    @PolygonMarketDataClient
+    fun providePolygonMarketDataClient(): OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
+        .readTimeout(READ_TIMEOUT, TimeUnit.SECONDS)
+        .writeTimeout(WRITE_TIMEOUT, TimeUnit.SECONDS)
+        .callTimeout(CALL_TIMEOUT, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(false)
+        .build()
 }

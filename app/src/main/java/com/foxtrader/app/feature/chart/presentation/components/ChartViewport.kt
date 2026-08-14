@@ -3,13 +3,16 @@ package com.foxtrader.app.feature.chart.presentation.components
 import androidx.compose.runtime.Stable
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.usecase.chart.ChartScaleMode
 import com.foxtrader.app.domain.usecase.chart.ChartViewportState
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import kotlin.math.abs
+import kotlin.math.exp
 import kotlin.math.floor
+import kotlin.math.ln
 import kotlin.math.log10
 import kotlin.math.max
 import kotlin.math.min
@@ -46,6 +49,20 @@ class ChartViewport(
     var priceHigh: Double = 1.0,
     var priceLow: Double = 0.0,
 ) {
+    /** Linear by default; logarithmic mode is useful for multi-order-of-magnitude assets. */
+    var scaleMode: ChartScaleMode = ChartScaleMode.LINEAR
+        private set
+
+    /** Switch scale mode only when every visible price is strictly positive. */
+    fun setScaleMode(mode: ChartScaleMode, candles: List<Candle>): Boolean {
+        if (mode == ChartScaleMode.LOGARITHMIC && candles.any { it.low <= 0.0 || !it.low.isFinite() }) {
+            return false
+        }
+        scaleMode = mode
+        autoScale(candles)
+        return true
+    }
+
     // ========================================================================
     // LAYOUT CONSTANTS (dp-independent pixel values set by the composable)
     // ========================================================================
@@ -173,8 +190,11 @@ class ChartViewport(
 
     /** Map a price to y pixel within the CHART AREA (excludes time axis). */
     fun yForPrice(price: Double, chartAreaHeight: Float): Float {
-        val range = (priceHigh - priceLow).coerceAtLeast(1e-9)
-        return (((priceHigh - price) / range) * chartAreaHeight).toFloat()
+        val high = scaleValue(priceHigh)
+        val low = scaleValue(priceLow)
+        val value = scaleValue(price)
+        val range = (high - low).coerceAtLeast(1e-9)
+        return (((high - value) / range) * chartAreaHeight).toFloat()
     }
 
     /** Map an x pixel (in chart area) back to a bar index. */
@@ -183,8 +203,11 @@ class ChartViewport(
 
     /** Map a y pixel (in chart area) back to a price. */
     fun priceForY(y: Float, chartAreaHeight: Float): Double {
-        val range = (priceHigh - priceLow).coerceAtLeast(1e-9)
-        return priceHigh - (y / chartAreaHeight) * range
+        val high = scaleValue(priceHigh)
+        val low = scaleValue(priceLow)
+        val range = (high - low).coerceAtLeast(1e-9)
+        val value = high - (y / chartAreaHeight) * range
+        return unscaleValue(value)
     }
 
     /** Pixel width of a single bar within the chart area. */
@@ -271,10 +294,18 @@ class ChartViewport(
             if (candles[i].low < lo) lo = candles[i].low
         }
         if (hi == Double.NEGATIVE_INFINITY) return
-        val range = (hi - lo).coerceAtLeast(1e-9)
-        val padding = range * pad
-        priceHigh = hi + padding
-        priceLow = lo - padding
+        if (scaleMode == ChartScaleMode.LOGARITHMIC && lo > 0.0) {
+            // Log space needs multiplicative headroom; additive padding could
+            // push a low-priced series through zero and invalidate the scale.
+            val factor = (1.0 + pad).coerceAtLeast(1.0)
+            priceHigh = hi * factor
+            priceLow = lo / factor
+        } else {
+            val range = (hi - lo).coerceAtLeast(1e-9)
+            val padding = range * pad
+            priceHigh = hi + padding
+            priceLow = lo - padding
+        }
     }
 
     // ========================================================================
@@ -309,6 +340,64 @@ class ChartViewport(
         }
         return niceNorm * mag
     }
+
+    private var priceGridCacheHigh = Double.NaN
+    private var priceGridCacheLow = Double.NaN
+    private var priceGridCacheMode = ChartScaleMode.LINEAR
+    private var priceGridCacheTarget = 0
+    private val priceGridScratch = DoubleArray(MAX_PRICE_GRID_LEVELS)
+    private var priceGridCount = 0
+
+    /**
+     * Rebuilds a preallocated, human-friendly level buffer for both scale modes.
+     * Logarithmic mode uses 1/2/5 levels per decade instead of pretending that
+     * equal arithmetic steps are visually equal distances. The draw pass gets
+     * an index/count API so this stays allocation-free.
+     */
+    fun priceGridLevelCount(targetLines: Int = 6): Int {
+        if (
+            priceGridCacheHigh == priceHigh &&
+            priceGridCacheLow == priceLow &&
+            priceGridCacheMode == scaleMode &&
+            priceGridCacheTarget == targetLines
+        ) return priceGridCount
+
+        var count = 0
+        if (scaleMode == ChartScaleMode.LOGARITHMIC && priceLow > 0.0) {
+            val minExponent = floor(log10(priceLow)).toInt() - 1
+            val maxExponent = kotlin.math.ceil(log10(priceHigh)).toInt() + 1
+            for (exponent in minExponent..maxExponent) {
+                val base = 10.0.pow(exponent)
+                for (multiplierIndex in 0..2) {
+                    val multiplier = when (multiplierIndex) {
+                        0 -> 1.0
+                        1 -> 2.0
+                        else -> 5.0
+                    }
+                    val level = base * multiplier
+                    if (level in priceLow..priceHigh && count < priceGridScratch.size) {
+                        priceGridScratch[count++] = level
+                    }
+                }
+            }
+        } else {
+            val step = niceStep(targetLines)
+            if (step > 0.0) {
+                val first = kotlin.math.ceil(priceLow / step) * step
+                val possible = ((priceHigh - first) / step).toInt().coerceAtLeast(0) + 1
+                count = possible.coerceAtMost(priceGridScratch.size)
+                for (index in 0 until count) priceGridScratch[index] = first + index * step
+            }
+        }
+        priceGridCacheHigh = priceHigh
+        priceGridCacheLow = priceLow
+        priceGridCacheMode = scaleMode
+        priceGridCacheTarget = targetLines
+        priceGridCount = count
+        return count
+    }
+
+    fun priceGridLevel(index: Int): Double = priceGridScratch[index]
 
     /**
      * "Nice" round time step for time-axis labels (in number of bars).
@@ -359,6 +448,12 @@ class ChartViewport(
         return sdf.format(scratchDate)
     }
 
+    private fun scaleValue(value: Double): Double =
+        if (scaleMode == ChartScaleMode.LOGARITHMIC && value > 0.0) ln(value) else value
+
+    private fun unscaleValue(value: Double): Double =
+        if (scaleMode == ChartScaleMode.LOGARITHMIC) exp(value) else value
+
     // ========================================================================
     // SNAPSHOT / RESTORE
     // ========================================================================
@@ -368,6 +463,7 @@ class ChartViewport(
         visibleBars = visibleBars,
         priceHigh = priceHigh,
         priceLow = priceLow,
+        scaleMode = scaleMode,
     )
 
     fun restoreState(state: ChartViewportState, total: Int) {
@@ -375,12 +471,15 @@ class ChartViewport(
         visibleBars = state.visibleBars
         priceHigh = state.priceHigh
         priceLow = state.priceLow
+        scaleMode = state.scaleMode
         clamp(total)
         stopFling()
     }
 
     fun copyState(): ChartViewport =
-        ChartViewport(startIndex, visibleBars, priceHigh, priceLow)
+        ChartViewport(startIndex, visibleBars, priceHigh, priceLow).also {
+            it.scaleMode = scaleMode
+        }
 
     companion object {
         /** Max zoom-in: never fewer than this many bars on screen. */
@@ -406,5 +505,8 @@ class ChartViewport(
 
         /** Clamp for a single integration step (guards against frame stalls). */
         const val MAX_FLING_STEP_SECONDS = 0.05f
+
+        /** Preallocated scale-level capacity for normal and logarithmic modes. */
+        private const val MAX_PRICE_GRID_LEVELS = 64
     }
 }

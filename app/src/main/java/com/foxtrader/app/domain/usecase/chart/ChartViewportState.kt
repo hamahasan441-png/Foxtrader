@@ -10,9 +10,16 @@ import kotlinx.serialization.Serializable
  * multi-chart sessions.
  */
 @Serializable
+enum class ChartScaleMode {
+    LINEAR,
+    LOGARITHMIC,
+}
+
+@Serializable
 data class ChartViewportState(
     val startIndex: Float = 0f,
     val visibleBars: Float = 100f,
     val priceHigh: Double = 1.0,
     val priceLow: Double = 0.0,
+    val scaleMode: ChartScaleMode = ChartScaleMode.LINEAR,
 )

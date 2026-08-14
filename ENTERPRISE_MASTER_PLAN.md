@@ -15,6 +15,8 @@ FoxTrader is a **genuinely strong, well-architected native Android trading-analy
 
 The project is **not** held back by missing features. It is held back by **four structural issues** that now dominate the risk profile:
 
+> **Provider update (2026-08-14):** Polygon.io historical aggregates and authenticated minute WebSocket feeds are now wired through the existing client-side seams, alongside Twelve Data. Live-data breadth remains partial because provider entitlements vary and Dukascopy/OANDA/Alpaca/IB remain gated.
+
 1. **A large orphaned subsystem.** The new `data/market/*` real-time engine (19 production + 16 test files) has **zero wiring** into the app. It is the exact "dead capability" anti-pattern the previous plan warned against — recreated at scale. Decision required: **finish it or delete it.** Leaving it is the single biggest source of technical debt in the repo.
 2. **A god-object ViewModel.** `ChartViewModel` is 1,388 lines with 17+ injected dependencies and 44 functions. It is the maintainability bottleneck of the whole chart feature and the highest-value refactor.
 3. **A correctness bug in the risk core.** `RiskEngine` hardcodes the forex standard-lot contract size (`* 100_000`) in every sizing path. Position size, risk amount, and every downstream risk gate are **wrong for crypto, stocks, indices, and metals** — instruments the app explicitly supports. For a tool whose entire value proposition is disciplined risk, this is the most important non-cosmetic defect.
@@ -34,7 +36,7 @@ The project is **not** held back by missing features. It is held back by **four 
 | **Chart / rendering** | Production-grade | `ChartViewport` pure math; fling frame-rate independent; anchored zoom; prepend paging; adaptive quality; layer split |
 | **Domain / trading logic** | High | `SmcDetector`, `RiskEngine`, `MasterDecisionEngine`, `AgentOrchestrator` — pure, non-repainting, deterministic, tested |
 | **Data integrity** | High | Provenance (`CandleSource`), non-destructive migrations (DB v6), pruning, provider gating, synthetic-data veto |
-| **Live data breadth** | Alpha | Real: Binance, Bybit (crypto), Alpha Vantage. Forex/stocks depend on a **non-existent** backend → synthetic fallback |
+| **Live data breadth** | Beta/partial | Real: Binance/Bybit (crypto) plus Polygon authenticated minute aggregates for stocks/forex/crypto/indices. Alpha Vantage and Twelve Data provide historical multi-asset data; entitlements and unsupported providers remain limited |
 | **AI** | Deterministic-rules mature; ML absent | 10 heuristic agents + master gate. No machine learning, no real LLM provider (NoOp only) |
 | **Testing** | Good, unevenly distributed | 68 unit files, migration test, 10 smoke tests, 8 macrobenchmarks. Coverage gate is chart-only (25% floor) |
 | **Engineering hygiene** | Partial | detekt + ktlint + jacoco exist but **scoped to the chart package only**; not app-wide |
@@ -65,7 +67,7 @@ The project is **not** held back by missing features. It is held back by **four 
 | W5 | **No concrete LLM provider** — only `NoOpAiProviderClient` implements `AiProviderClient` | `di/AiModule.kt` | Medium |
 | W6 | **`NewsAgent` votes with no news source** — an AI confluence dimension that is structurally inert | `NewsEngine` dead + no news fetch path | Medium |
 | W7 | **Schemas not committed** — `exportSchema = true` and migration tests reference `app/schemas`, but 0 schema files are tracked | `git ls-files app/schemas` = 0 | **High (test integrity)** |
-| W8 | **No backend for non-crypto** — forex/stocks route to a FastAPI backend that does not exist → synthetic fallback | `MarketRepositoryImpl.fetchDefaultCandles` → `api.getCandles`; README roadmap "FastAPI backend" unchecked | Medium |
+| W8 | **Non-crypto live breadth remains partial** — Polygon now has an authenticated minute stream, while Twelve Data/Alpha Vantage remain historical-only and unsupported providers remain gated | `PolygonWebSocket`; `MarketRepositoryImpl` provider branches | Medium |
 | W9 | **Hygiene gates are chart-scoped** — detekt/ktlint sources and jacoco includes cover only chart+indicator packages | `app/build.gradle.kts` detekt/ktlint `source`/`filter` blocks | Medium |
 | W10 | **Manifest requires GLES 3.0** (`required="true"`) but the chart is Compose Canvas, not GL — needlessly excludes devices and misrepresents the renderer | `AndroidManifest.xml` `uses-feature glEsVersion=0x00030000` | Low–Medium |
 | W11 | **Partial string externalization** — ~34 hardcoded `text = "…"` literals remain in feature screens | grep of `feature/**` | Low |
@@ -199,7 +201,7 @@ Ranked by carrying cost:
 ### Implement (new work that closes a real gap)
 - **Instrument/contract-spec model** for `RiskEngine` (fixes R1 forex-only math).
 - **Commit Room schemas v1–v6** and make migration tests real (D1).
-- **One real market-data provider** for non-crypto behind the existing adapter (Polygon or Twelve Data) — delivers forex/stock data with no backend (W8).
+- **Additional non-crypto providers** behind the existing adapter seam (OANDA/Alpaca/Interactive Brokers) — Polygon REST + minute WebSocket and Twelve Data history now exist; no server is required (W8).
 - **App-wide hygiene + coverage gates** (extend detekt/ktlint/jacoco beyond chart) (W9, T1).
 - **Committed baseline profile** + benchmark-in-CI (P1, P3).
 - **One real `AiProviderClient`** (narration-only) *or* formally descope the feature (AI1).
@@ -370,7 +372,7 @@ Global Definition of Done (applies to every task): compiles; unit tests green; n
 | Committed Room schemas | 0 | 6 (v1–v6) |
 | Coverage gate scope | chart only (25%) | `domain/` floor (ratcheting) |
 | Live TODOs in `app/src/main` | 2 | 0 |
-| Real non-crypto data provider | 0 (backend absent) | ≥ 1 (client-side) |
+| Real non-crypto data provider | 2 historical + Polygon minute live | ≥ 3 client-side or broader live coverage |
 | Committed baseline profile | no | yes |
 | Release signing | debug | release keystore |
 | Crash reporting | none | opt-in, no-PII |
@@ -794,3 +796,67 @@ All guards fail fast in debug, are cheap in release (no allocations on the happy
 - [x] All referenced `Timeframe` enum values (M1..MN) exist; `Candle` constructor order matches.
 - [x] No TODOs / placeholders / empty stubs; live Dukascopy transport gap documented, not faked.
 - [x] **CI build + unit tests green** — confirmed by GitHub Actions on the PR (build + 19 new tests pass).
+
+### Sprint 12 — Polygon.io provider *(status: implemented, CI pending)*
+
+The next provider item from the enhancement roadmap is wired end to end on the
+existing client-side seams. `PolygonApi` and `PolygonDataSource` translate
+FoxTrader symbols/timeframes into Polygon aggregate-bar requests, parse
+ascending OHLCV data, support strict-before history paging, and reject provider
+errors without fabricating bars. `PolygonWebSocket` adds authenticated minute
+aggregates for stock, forex, crypto, and index clusters; higher chart timeframes
+are aggregated locally with no fabricated gaps. `MarketRepositoryImpl` routes
+refresh, paging, and Settings connectivity checks through Polygon, while
+`ProviderMarketWebSocket` routes live subscriptions.
+
+Dedicated REST and WebSocket clients have no logging interceptors because Polygon
+credentials are sent in query/auth frames. Tests cover ticker mapping, parsing,
+asset prefixes, errors, paging, auth/subscription protocol, malformed messages,
+reconnect-safe aggregation, and cumulative volume handling.
+
+**Definition of Done status:**
+- [x] Provider API, adapter, repository routing, connectivity check, Settings gating, and live routing wired.
+- [x] Provenance remains assigned by the repository (`LIVE` on successful provider writes).
+- [x] Unit tests use fakes/pure codecs with no Android/network dependency.
+- [ ] CI build + unit tests green — must be confirmed by GitHub Actions.
+
+### Sprint 13 — bounded candle observation and retention *(status: source-implemented, CI pending)*
+
+The next data-integrity/performance item is now addressed. `CandleDao.observe`
+and one-shot reads select only the newest configured window in ascending order,
+while `seriesKeys()` lets a periodic Hilt WorkManager worker prune every cached
+series without loading candle payloads. `CandleRetentionScheduler` installs the
+six-hour safety net at application startup; refresh-time pruning remains the
+fast path. This protects long Polygon/Binance/Bybit live sessions from an
+unbounded Room cache and full-series Flow emissions.
+
+No user-authored tables are touched, and provenance is preserved on all retained
+rows. CI remains the authoritative verification path for Room query validation,
+Hilt worker wiring, and unit tests.
+
+### Sprint 14 — Room v7 migration coverage *(status: source-implemented, CI pending)*
+
+The migration suite now explicitly covers the current v6→v7 `litx_signals`
+transition and upgrades the full-chain Room-open test from v6 to v7. The new
+case verifies additive table creation, journal/drawing survival, raw-row shape,
+and a write through the generated LIT X DAO after Room validates the migrated
+schema. This closes the latest migration coverage gap while committed schema
+JSON remains a build-environment task.
+
+### Sprint 15 — app-wide hygiene and domain coverage ratchet *(status: source-implemented, CI pending)*
+
+The Engineering Hardening phase now runs the full main-source detekt and ktlint
+checks before debug assemble and JVM unit-test tasks. Existing violations stay
+advisory during the burn-down, while the Jacoco domain report expands from a
+hand-picked engine list to `com.foxtrader.app.domain.**` with a 25% starter
+floor. Chart coverage remains a separate focused gate so the rendering hot path
+keeps its stronger signal.
+
+### Sprint 16 — chart polish foundation *(status: source-implemented, CI pending)*
+
+The chart now has a compact latest-bar data window, discoverable mobile zoom and
+reset controls, persisted linear/logarithmic price-scale mode, and cached
+logarithmic 1/2/5 grid levels. Log mode is rejected for non-positive prices and
+all camera controls reuse the existing viewport invariants. This establishes the
+visual/interaction polish track without changing the chart's allocation-free
+rendering contract.

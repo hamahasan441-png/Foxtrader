@@ -178,9 +178,10 @@ Additional selectable chart/data providers now include:
 - **Twelve Data**
 - **Interactive Brokers**
 
-Alpha Vantage historical candle fetching is available today. Binance and Bybit crypto symbols support public historical candles plus live WebSocket kline updates through the chart **LIVE** toggle.
+Alpha Vantage and Polygon.io historical candle fetching are available today. Polygon also supports authenticated minute-aggregate WebSocket updates for stocks, forex, indices, and crypto; enter a Polygon.io key in Settings → Data Provider. Binance and Bybit crypto symbols support public historical candles plus live WebSocket kline updates through the chart **LIVE** toggle.
 
 Official Alpha Vantage API documentation: https://www.alphavantage.co/documentation/
+Official Polygon.io aggregate-bars documentation: https://polygon.io/docs/rest/stocks/aggregates-custom-bars
 Official Bybit V5 API documentation: https://bybit-exchange.github.io/docs/v5/intro
 
 ### Open in Android Studio

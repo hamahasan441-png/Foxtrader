@@ -10,6 +10,7 @@ import com.foxtrader.app.data.remote.api.BybitDataSource
 import com.foxtrader.app.data.remote.api.KuCoinDataSource
 import com.foxtrader.app.data.remote.api.MarketApi
 import com.foxtrader.app.data.remote.api.OkxDataSource
+import com.foxtrader.app.data.remote.api.PolygonDataSource
 import com.foxtrader.app.data.remote.api.TwelveDataDataSource
 import com.foxtrader.app.di.IoDispatcher
 import com.foxtrader.app.domain.model.Candle
@@ -46,18 +47,20 @@ class MarketRepositoryImpl @Inject constructor(
     private val kucoin: KuCoinDataSource,
     private val alphaVantage: AlphaVantageDataSource,
     private val twelveData: TwelveDataDataSource,
+    private val polygon: PolygonDataSource,
     private val appPreferences: AppPreferences,
     @IoDispatcher private val io: CoroutineDispatcher,
 ) : MarketRepository {
 
     override fun observeCandles(symbol: String, timeframe: Timeframe): Flow<List<Candle>> =
-        dao.observe(symbol, timeframe.label).map { list -> list.map { it.toDomain() } }
+        dao.observe(symbol, timeframe.label, appPreferences.maxCachedBars.value)
+            .map { list -> list.map { it.toDomain() } }
 
     override fun observeSourcedCandles(
         symbol: String,
         timeframe: Timeframe,
     ): Flow<SourcedCandles> =
-        dao.observe(symbol, timeframe.label).map { list ->
+        dao.observe(symbol, timeframe.label, appPreferences.maxCachedBars.value).map { list ->
             SourcedCandles(
                 candles = list.map { it.toDomain() },
                 source = list.provenance(),
@@ -72,6 +75,7 @@ class MarketRepositoryImpl @Inject constructor(
         runCatching {
             val selectedProvider = appPreferences.dataProvider.value
             val alphaKey = appPreferences.getApiKey(DataProvider.ALPHA_VANTAGE).orEmpty()
+            val polygonKey = appPreferences.getApiKey(DataProvider.POLYGON).orEmpty()
 
             // SAMPLE is an explicit user choice to run on synthetic data. Write
             // it tagged and return early — it must never masquerade as a
@@ -121,6 +125,17 @@ class MarketRepositoryImpl @Inject constructor(
                         )
                     }
                 }
+                selectedProvider == DataProvider.POLYGON -> {
+                    require(polygonKey.isNotBlank()) {
+                        "Polygon.io API key is required. Navigate to Settings → Data Provider and enter your API key."
+                    }
+                    polygon.fetchCandles(symbol, timeframe, limit, polygonKey).ifEmpty {
+                        throw IllegalStateException(
+                            "Polygon.io returned no candle data for $symbol ${timeframe.label}. " +
+                                "Check the ticker, market entitlement, API key validity, and rate limits."
+                        )
+                    }
+                }
                 !selectedProvider.implemented -> throw ProviderNotImplementedException(
                     selectedProvider.displayName
                 )
@@ -165,6 +180,11 @@ class MarketRepositoryImpl @Inject constructor(
                     val key = appPreferences.getApiKey(DataProvider.TWELVE_DATA).orEmpty()
                     require(key.isNotBlank()) { "Twelve Data API key is not set." }
                     twelveData.fetchCandles(FX_TEST_SYMBOL, Timeframe.H1, TEST_LIMIT, key).size
+                }
+                DataProvider.POLYGON -> {
+                    val key = appPreferences.getApiKey(DataProvider.POLYGON).orEmpty()
+                    require(key.isNotBlank()) { "Polygon.io API key is not set." }
+                    polygon.fetchCandles(POLYGON_TEST_SYMBOL, Timeframe.D1, TEST_LIMIT, key).size
                 }
                 DataProvider.BINANCE ->
                     binance.fetchCandles(CRYPTO_TEST_SYMBOL, Timeframe.H1, TEST_LIMIT).size
@@ -228,7 +248,7 @@ class MarketRepositoryImpl @Inject constructor(
         symbol: String,
         timeframe: Timeframe,
     ): SourcedCandles = withContext(io) {
-        val cached = dao.getAll(symbol, timeframe.label)
+        val cached = dao.getAll(symbol, timeframe.label, appPreferences.maxCachedBars.value)
         if (cached.isNotEmpty()) {
             SourcedCandles(cached.map { it.toDomain() }, cached.provenance())
         } else {
@@ -250,6 +270,7 @@ class MarketRepositoryImpl @Inject constructor(
         runCatching {
             val selectedProvider = appPreferences.dataProvider.value
             val alphaKey = appPreferences.getApiKey(DataProvider.ALPHA_VANTAGE).orEmpty()
+            val polygonKey = appPreferences.getApiKey(DataProvider.POLYGON).orEmpty()
 
             val source = when {
                 selectedProvider == DataProvider.SAMPLE || !selectedProvider.implemented -> CandleSource.SYNTHETIC
@@ -274,6 +295,12 @@ class MarketRepositoryImpl @Inject constructor(
                     }
                     twelveData.fetchCandlesBefore(symbol, timeframe, beforeTimestamp, limit, tdKey)
                 }
+                selectedProvider == DataProvider.POLYGON -> {
+                    require(polygonKey.isNotBlank()) {
+                        "Polygon.io API key is required. Navigate to Settings → Data Provider and enter your API key."
+                    }
+                    polygon.fetchCandlesBefore(symbol, timeframe, beforeTimestamp, limit, polygonKey)
+                }
                 else -> fetchDefaultCandlesBefore(symbol, timeframe, beforeTimestamp, limit)
             }
 
@@ -294,6 +321,7 @@ class MarketRepositoryImpl @Inject constructor(
         // Canonical instruments for one-shot connection tests.
         const val FX_TEST_SYMBOL = "EURUSD"
         const val CRYPTO_TEST_SYMBOL = "BTCUSDT"
+        const val POLYGON_TEST_SYMBOL = "AAPL"
         const val TEST_LIMIT = 3
     }
 }

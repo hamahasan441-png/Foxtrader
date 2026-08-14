@@ -44,9 +44,11 @@ enum class DataProvider(
     ),
     POLYGON(
         "Polygon.io",
+        // REST aggregates and authenticated minute-aggregate WebSocket are wired.
         supportsLive = true,
         requiresApiKey = true,
         apiKeyLabel = "Polygon.io API Key",
+        implemented = true,
     ),
     OANDA(
         "OANDA",

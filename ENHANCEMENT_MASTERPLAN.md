@@ -179,14 +179,25 @@ Add `DataProvider.implemented: Boolean`. Settings renders unimplemented
 providers disabled with a "coming soon" affordance instead of accepting an API
 key that goes nowhere. `MarketRepositoryImpl` throws a typed
 `ProviderNotImplementedException` rather than silently degrading. Then
-implement **Polygon.io** (REST aggregates + WebSocket) end to end as the first
-real non-crypto provider, behind the existing `DataProviderAdapter` SDK
-interface so the next five are a config exercise.
+implement **Polygon.io** REST aggregates + authenticated minute WebSocket end
+to end as an additional real non-crypto provider, behind the existing provider
+seams. Higher timeframes must be aggregated locally without fabricating gaps.
+
+**Status update (2026-08-14):** `PolygonApi`/`PolygonDataSource` cover refresh,
+strict-before history paging, provider testing, and repository routing.
+`PolygonWebSocket` now covers authenticated stock/forex/crypto/index minute
+aggregates with bounded reconnects and local no-repaint timeframe aggregation.
+`DataProvider.POLYGON` is selectable and advertises live support.
 
 **6.4 Cache retention policy.**
-`CandleDao.pruneOlderThan(symbol, timeframe, keepCount)` executed after each
-refresh and on a periodic WorkManager job; `observe()` gains a bounded
-`LIMIT`/window. Cap per series (proposal: 5,000 bars hot, older bars evicted).
+`CandleDao.prune(symbol, timeframe, keepCount)` executes after each refresh and
+on a periodic WorkManager job; `observe()` and one-shot reads use a bounded
+newest-window query. Cap per series through the persisted cache ceiling; older
+bars are evicted without touching user-authored tables.
+
+**Status update (2026-08-14):** `CandleRetentionWorker` and
+`CandleRetentionScheduler` now provide the periodic safety net, while chart and
+scanner reads remain bounded and ascending.
 
 **Definition of done:** synthetic data is visually and algorithmically
 quarantined; no code path can drop a user table; provider list matches reality;

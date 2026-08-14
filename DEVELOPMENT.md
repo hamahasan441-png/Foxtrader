@@ -22,8 +22,8 @@
 | Risk engine (6 sizing + 4 stop methods, **asset-class-correct** contract sizes, pre-trade gates, auto-halt, Kelly) | ✅ Wired | `InstrumentTypeResolver` drives contract size |
 | Backtesting (bar-by-bar, no look-ahead; spread/commission/slippage; AI-gated) | ✅ Wired | `BacktestEngine` / `AiScoredBacktestEngine` |
 | Scanner · Journal · Portfolio · Alerts · Calculator | ✅ Wired | Real screens + tests |
-| Data layer: offline-first Room v6, provenance (`CandleSource`), non-destructive migrations, synthetic-data veto, cache pruning | ✅ Wired | Room is the SSOT |
-| Live market data | ⚠️ Partial | **Real:** Binance, Bybit (crypto), Alpha Vantage. Forex/stocks/indices have no backend → clearly-labelled **synthetic fallback** |
+| Data layer: offline-first Room v7, provenance (`CandleSource`), non-destructive migrations, synthetic-data veto, cache pruning | ✅ Wired | Room is the SSOT |
+| Live market data | ⚠️ Partial | **Real:** Binance, Bybit (crypto), Alpha Vantage, Twelve Data, and Polygon.io historical aggregates + authenticated minute WebSocket. Polygon covers keyed stocks/forex/indices/crypto; unsupported providers still use clearly-labelled **synthetic fallback** |
 | TRADEPRO order-flow/auction framework — core (Flip Zone, Buy/Sell-Hold, imbalance, absorption, signal engine, risk guard, reversal/range bars, sanitizer) | ✅ Wired | On `main` via #47/#48/#49 |
 | TRADEPRO — scanner signals + backtest template + chart overlays + trend/regime filter | 🔜 In review | PR #50 (recovers commits orphaned by an early #47 merge) |
 | External LLM provider | 🟡 Seam only | `NoOpAiProviderClient`; the deterministic engine holds all trade authority — narration seam is intentionally future work |
@@ -4896,3 +4896,195 @@ watchdog re-pings every `heartbeatIntervalMs`, a `timeout` larger than the
 detected. `RealtimeConnection` therefore `require`s
 `heartbeatTimeoutMs <= heartbeatIntervalMs` and documents it, rather than shipping
 a silent never-times-out footgun.
+
+# Appendix AH: Polygon.io historical aggregates — next real non-crypto provider
+
+This pass implements the next provider surface called out in the enhancement
+masterplan: a client-side Polygon.io adapter behind the existing provider seam,
+extending the already-wired Twelve Data path.
+It closes the gap where Settings could collect a Polygon key but
+`MarketRepositoryImpl` had no Polygon fetch path and would route the request to
+an unrelated backend or synthetic fallback.
+
+## What landed
+
+- `PolygonApi` wraps Polygon's v2 aggregate-bars endpoint and keeps the response
+  as `JsonElement` so optional provider fields do not leak into the domain model.
+- `PolygonDataSource` owns the provider boundary:
+  - maps FoxTrader timeframes to Polygon multiplier/timespan pairs,
+  - normalizes forex (`EURUSD` → `C:EURUSD`), crypto (`BTCUSDT` → `X:BTCUSD`),
+    and common indices (`US500` → `I:SPX`) while leaving equities such as
+    `AAPL` unchanged,
+  - parses epoch-millisecond OHLCV results in ascending order,
+  - rejects provider errors and malformed bars without fabricating values,
+  - supports strict-before history paging for the chart,
+  - requests a wider calendar range to account for weekends and market
+    holidays, then applies the caller's bar limit.
+- `NetworkModule` provides a dedicated Polygon Retrofit client with no logging
+  interceptor. Polygon credentials are query parameters, so even debug BASIC
+  request logging would expose a user's API key.
+- `MarketRepositoryImpl` now routes refresh, older-history paging, and provider
+  connectivity checks through Polygon. A successful response is tagged `LIVE`;
+  a failed/empty response follows the existing honest error and synthetic-cache
+  policy.
+- `DataProvider.POLYGON.implemented` is now true, so Settings exposes it as a
+  selectable provider rather than a misleading "coming soon" entry.
+
+## Testing
+
+`PolygonDataSourceTest` covers the provider contract with a hand-written fake
+API: ticker and timeframe mapping, ascending sorting, asset-class normalization,
+provider errors, malformed rows, missing volume, strict-before paging, and input
+validation. No network or Android dependency is used.
+
+## Integrity notes
+
+Polygon's historical aggregate path remains deliberately separate from the
+existing Binance/Bybit sockets, while the provider-aware router now also owns
+Polygon's authenticated live stream. Provenance is assigned only at the
+repository write boundary, preserving the existing synthetic-data veto and
+`CandleSource` contract.
+
+# Appendix AJ: Bounded candle observation and periodic retention
+
+This pass closes the remaining Sprint 6.4 cache-retention gap exposed by the
+new Polygon live stream. Refreshes already called `prune`, but a long-running
+WebSocket session could keep appending newly closed bars between refreshes, and
+an unbounded Room observer would still re-emit the entire series if pruning was
+missed.
+
+## What changed
+
+- `CandleDao.observe` and `getAll` now select only the newest configured window
+  and return it in ascending chart order. The inner timestamp query chooses the
+  newest rows; the outer query restores chronological order.
+- `CandleDao.seriesKeys` exposes only distinct existing series identifiers, so
+  retention work never needs to load candle payloads into memory.
+- `CandleRetentionWorker` applies `AppPreferences.maxCachedBars` to every series
+  and retries on transient failures.
+- `CandleRetentionScheduler` installs an idempotent six-hour WorkManager job at
+  application startup. Existing refresh-time pruning remains in place for fast
+  convergence; the worker is the long-session safety net.
+- Scanner one-shot reads now use the same bounded window as chart observation,
+  preventing an accidental unbounded read from bypassing the retention policy.
+
+## Integrity and performance contract
+
+No candle is fabricated or relabelled. Retention deletes only derived market
+cache rows; journal, drawings, alerts, watchlists, and LIT X signal tables are
+untouched. The chart still receives ascending candles, and the DB/Flow payload
+is bounded even if a provider remains connected for days.
+
+# Appendix AI: Polygon.io live minute aggregates — authenticated WebSocket
+
+This continuation completes the live portion of the Polygon provider planned in
+Sprint 6.3. Polygon is no longer exposed as historical-only: the provider-aware
+WebSocket router now sends Polygon subscriptions through a dedicated authenticated
+feed while keeping Binance and Bybit behavior unchanged.
+
+## What landed
+
+- `PolygonWebSocketProtocol` is a pure codec for Polygon auth, subscribe/
+  unsubscribe commands, status responses, and stock/forex/crypto aggregate
+  payloads. It normalizes incoming pairs through the same `PolygonTicker` seam
+  used by REST history.
+- `PolygonCandleAggregator` consumes Polygon minute aggregates and emits the
+  requested FoxTrader timeframe. It seals a bucket only when a later bucket
+  arrives, rejects late bars, preserves gaps instead of fabricating candles, and
+  handles Polygon's cumulative forming-minute volume correctly.
+- `PolygonWebSocket` owns one resilient session per Polygon market cluster
+  (stocks, forex, crypto, or indices), authenticates with the encrypted user key,
+  subscribes after `auth_success`, reconnects with bounded backoff, sends
+  keepalive pings, and stops reconnecting on an authentication rejection.
+- `ProviderMarketWebSocket` now routes `DataProvider.POLYGON` to the new socket.
+  `DataProvider.POLYGON.supportsLive` is true only because the WebSocket path is
+  now present.
+- `NetworkModule` provides a dedicated no-logging Polygon WebSocket client. API
+  keys never enter URLs or HTTP logging interceptors.
+
+## Testing
+
+Pure JVM tests cover shared ticker normalization, auth/subscription command
+serialization, status and aggregate parsing, malformed-message rejection,
+minute-to-H1 aggregation, cumulative-volume replacement, UTC daily bucketing,
+late-bar rejection, and the no-fabricated-gap invariant.
+
+## Provider boundary
+
+Polygon WebSocket availability and recency still depend on the user's Polygon
+plan. The app reports connection/authentication state rather than claiming a
+real-time entitlement the provider may not grant. Historical REST remains the
+fallback for refresh and older-page requests; live ticks are still written
+through the existing Room/provenance path.
+
+# Appendix AK: Honest live-feed availability in the chart
+
+The chart's `LIVE` control now follows the same provider-capability contract as
+Settings and the WebSocket router. `ChartViewModel` derives `liveAvailable` from
+the selected provider and its encrypted credential state. The control is
+visibly marked `UNAVAILABLE` and disabled for historical-only providers or
+missing keys, rather than toggling optimistically and leaving the user with a
+silent connection error.
+
+If a provider or key changes while a live session is active, the ViewModel
+clears the live state and disconnects the feed. The availability flag participates
+in `ChartUiState` equality, and a regression test protects StateFlow emission
+when it changes.
+
+# Appendix AL: Room v7 migration coverage
+
+The migration suite now covers the latest schema transition as well as the
+legacy user-data chain. A dedicated 6→7 case verifies that the additive
+`litx_signals` table is created, journal and drawing values survive intact, and
+rows can be written with the expected shape. The full-chain test now opens a
+v1 database through all migrations to v7 and exercises both the alert and LIT X
+DAOs through Room, not only raw SQLite.
+
+# Appendix AM: App-wide hygiene and domain coverage ratchet
+
+This pass starts the next major Engineering Hardening item from the enterprise
+masterplan. Detekt and ktlint were already configured across the app, but only
+detekt was pulled into the debug build and the Jacoco domain slice measured a
+small hand-picked list of engines.
+
+## What changed
+
+- `appWideHygiene` now runs the full main-source detekt and ktlint checks before
+  both `assembleDebug` and `testDebugUnitTest`. Existing violations remain
+  advisory during the burn-down (`ignoreFailures = true`); reports are produced
+  consistently instead of a formatter task that no build path invoked.
+- The domain Jacoco report now inventories `com.foxtrader.app.domain.**`, not
+  only Risk/SMC/AI/backtest/calculator classes. A 25% starter floor protects the
+  broader surface and is explicitly intended to ratchet upward as coverage is
+  burned down.
+- Chart coverage remains a separate focused report and gate, preserving the
+  stronger signal for the rendering hot path.
+
+This is a build-level hardening change: no production behavior changes, and the
+existing no-TODO, no-placeholder and four-invariant contracts remain intact.
+
+# Appendix AN: Chart polish — data window, mobile navigation, and scale modes
+
+This pass starts the chart-focused polish track requested by the masterplan's
+mobile/chart-depth goals and informed by the interaction patterns users expect
+from professional chart terminals: visible OHLC data, discoverable touch zoom
+controls, a reset-to-latest action, and auto/logarithmic price-scale switching.
+
+## What changed
+
+- `ChartOhlcLegend` keeps the latest bar's O/H/L/C, change, volume, and
+  LIVE/CACHED/SIM source badge visible above the canvas with TalkBack text.
+- `ChartNavigationControls` adds accessible Zoom In, Zoom Out, Reset to Latest,
+  and Auto/Log scale actions. They reuse `ChartViewport` camera math, so button
+  and gesture behavior cannot drift apart.
+- `ChartViewport` now supports persisted linear/logarithmic scale mode,
+  validates that logarithmic mode is only available for strictly positive data,
+  and uses cached 1/2/5 decade levels for log grids without allocating in the
+  draw loop.
+- Chart viewport tests cover log transform round-trips, invalid-price rejection,
+  scale-mode persistence, and decade-friendly grid levels.
+
+This is the first polish slice, not a claim of feature parity with a commercial
+terminal. The next chart slices should add screenshot baselines, drawing
+selection/edit handles, and measured gesture/frame benchmarks before more visual
+layers are added.
