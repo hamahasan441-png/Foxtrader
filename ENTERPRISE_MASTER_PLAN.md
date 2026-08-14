@@ -15,6 +15,8 @@ FoxTrader is a **genuinely strong, well-architected native Android trading-analy
 
 The project is **not** held back by missing features. It is held back by **four structural issues** that now dominate the risk profile:
 
+> **Provider update (2026-08-14):** Polygon.io historical aggregates are now wired through the existing client-side adapter seam, alongside Twelve Data. The live-data breadth remains partial because Polygon's live stream is not yet connected and Dukascopy/OANDA/Alpaca/IB remain gated.
+
 1. **A large orphaned subsystem.** The new `data/market/*` real-time engine (19 production + 16 test files) has **zero wiring** into the app. It is the exact "dead capability" anti-pattern the previous plan warned against — recreated at scale. Decision required: **finish it or delete it.** Leaving it is the single biggest source of technical debt in the repo.
 2. **A god-object ViewModel.** `ChartViewModel` is 1,388 lines with 17+ injected dependencies and 44 functions. It is the maintainability bottleneck of the whole chart feature and the highest-value refactor.
 3. **A correctness bug in the risk core.** `RiskEngine` hardcodes the forex standard-lot contract size (`* 100_000`) in every sizing path. Position size, risk amount, and every downstream risk gate are **wrong for crypto, stocks, indices, and metals** — instruments the app explicitly supports. For a tool whose entire value proposition is disciplined risk, this is the most important non-cosmetic defect.
@@ -34,7 +36,7 @@ The project is **not** held back by missing features. It is held back by **four 
 | **Chart / rendering** | Production-grade | `ChartViewport` pure math; fling frame-rate independent; anchored zoom; prepend paging; adaptive quality; layer split |
 | **Domain / trading logic** | High | `SmcDetector`, `RiskEngine`, `MasterDecisionEngine`, `AgentOrchestrator` — pure, non-repainting, deterministic, tested |
 | **Data integrity** | High | Provenance (`CandleSource`), non-destructive migrations (DB v6), pruning, provider gating, synthetic-data veto |
-| **Live data breadth** | Alpha | Real: Binance, Bybit (crypto), Alpha Vantage. Forex/stocks depend on a **non-existent** backend → synthetic fallback |
+| **Live data breadth** | Alpha | Real: Binance/Bybit (crypto) plus Alpha Vantage, Twelve Data, and Polygon.io historical aggregates. Live non-crypto streaming remains limited |
 | **AI** | Deterministic-rules mature; ML absent | 10 heuristic agents + master gate. No machine learning, no real LLM provider (NoOp only) |
 | **Testing** | Good, unevenly distributed | 68 unit files, migration test, 10 smoke tests, 8 macrobenchmarks. Coverage gate is chart-only (25% floor) |
 | **Engineering hygiene** | Partial | detekt + ktlint + jacoco exist but **scoped to the chart package only**; not app-wide |
@@ -65,7 +67,7 @@ The project is **not** held back by missing features. It is held back by **four 
 | W5 | **No concrete LLM provider** — only `NoOpAiProviderClient` implements `AiProviderClient` | `di/AiModule.kt` | Medium |
 | W6 | **`NewsAgent` votes with no news source** — an AI confluence dimension that is structurally inert | `NewsEngine` dead + no news fetch path | Medium |
 | W7 | **Schemas not committed** — `exportSchema = true` and migration tests reference `app/schemas`, but 0 schema files are tracked | `git ls-files app/schemas` = 0 | **High (test integrity)** |
-| W8 | **No backend for non-crypto** — forex/stocks route to a FastAPI backend that does not exist → synthetic fallback | `MarketRepositoryImpl.fetchDefaultCandles` → `api.getCandles`; README roadmap "FastAPI backend" unchecked | Medium |
+| W8 | **Non-crypto live breadth remains partial** — Polygon/Twelve Data now cover keyed historical aggregates, but live non-crypto streams still have no client path and unsupported providers remain gated | `MarketRepositoryImpl` provider branches; `DataProvider.implemented` | Medium |
 | W9 | **Hygiene gates are chart-scoped** — detekt/ktlint sources and jacoco includes cover only chart+indicator packages | `app/build.gradle.kts` detekt/ktlint `source`/`filter` blocks | Medium |
 | W10 | **Manifest requires GLES 3.0** (`required="true"`) but the chart is Compose Canvas, not GL — needlessly excludes devices and misrepresents the renderer | `AndroidManifest.xml` `uses-feature glEsVersion=0x00030000` | Low–Medium |
 | W11 | **Partial string externalization** — ~34 hardcoded `text = "…"` literals remain in feature screens | grep of `feature/**` | Low |
@@ -199,7 +201,7 @@ Ranked by carrying cost:
 ### Implement (new work that closes a real gap)
 - **Instrument/contract-spec model** for `RiskEngine` (fixes R1 forex-only math).
 - **Commit Room schemas v1–v6** and make migration tests real (D1).
-- **One real market-data provider** for non-crypto behind the existing adapter (Polygon or Twelve Data) — delivers forex/stock data with no backend (W8).
+- **Additional non-crypto providers** behind the existing adapter seam (OANDA/Alpaca/Interactive Brokers or a Polygon live stream) — historical Polygon and Twelve Data paths now exist; no server is required (W8).
 - **App-wide hygiene + coverage gates** (extend detekt/ktlint/jacoco beyond chart) (W9, T1).
 - **Committed baseline profile** + benchmark-in-CI (P1, P3).
 - **One real `AiProviderClient`** (narration-only) *or* formally descope the feature (AI1).
@@ -370,7 +372,7 @@ Global Definition of Done (applies to every task): compiles; unit tests green; n
 | Committed Room schemas | 0 | 6 (v1–v6) |
 | Coverage gate scope | chart only (25%) | `domain/` floor (ratcheting) |
 | Live TODOs in `app/src/main` | 2 | 0 |
-| Real non-crypto data provider | 0 (backend absent) | ≥ 1 (client-side) |
+| Real non-crypto data provider | 2 historical (Twelve Data + Polygon.io) | ≥ 3 client-side or one non-crypto live stream |
 | Committed baseline profile | no | yes |
 | Release signing | debug | release keystore |
 | Crash reporting | none | opt-in, no-PII |
@@ -794,3 +796,25 @@ All guards fail fast in debug, are cheap in release (no allocations on the happy
 - [x] All referenced `Timeframe` enum values (M1..MN) exist; `Candle` constructor order matches.
 - [x] No TODOs / placeholders / empty stubs; live Dukascopy transport gap documented, not faked.
 - [x] **CI build + unit tests green** — confirmed by GitHub Actions on the PR (build + 19 new tests pass).
+
+### Sprint 12 — Polygon.io historical provider *(status: source-implemented, CI pending)*
+
+The next provider item from the enhancement roadmap is now wired end to end on
+the existing client-side seam. `PolygonApi` and `PolygonDataSource` translate
+FoxTrader symbols/timeframes into Polygon aggregate-bar requests, parse
+ascending OHLCV data, support strict-before history paging, and reject provider
+errors without fabricating bars. `MarketRepositoryImpl` routes refresh, paging,
+and the Settings connectivity check through Polygon; `DataProvider.POLYGON` is
+now selectable because it has a real fetch path.
+
+A dedicated Retrofit client has no HTTP logging interceptor because Polygon API
+keys are query parameters. `PolygonDataSourceTest` covers mapping, sorting,
+asset prefixes, error/malformed response handling, paging, and input validation
+with a fake API. Polygon's historical path is deliberately not advertised as a
+live WebSocket stream yet; the existing Binance/Bybit live path remains separate.
+
+**Definition of Done status:**
+- [x] Provider API, adapter, repository routing, connectivity check, and Settings gating wired.
+- [x] Provenance remains assigned by the repository (`LIVE` on successful provider writes).
+- [x] Unit tests use a fake API with no Android/network dependency.
+- [ ] CI build + unit tests green — must be confirmed by GitHub Actions.

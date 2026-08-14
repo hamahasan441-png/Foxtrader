@@ -179,9 +179,15 @@ Add `DataProvider.implemented: Boolean`. Settings renders unimplemented
 providers disabled with a "coming soon" affordance instead of accepting an API
 key that goes nowhere. `MarketRepositoryImpl` throws a typed
 `ProviderNotImplementedException` rather than silently degrading. Then
-implement **Polygon.io** (REST aggregates + WebSocket) end to end as the first
-real non-crypto provider, behind the existing `DataProviderAdapter` SDK
-interface so the next five are a config exercise.
+implement **Polygon.io** REST aggregates end to end as an additional real
+non-crypto historical provider, behind the existing `DataProviderAdapter` SDK
+interface. Its live WebSocket path remains a follow-up; do not advertise live
+capability until that stream is wired.
+
+**Status update (2026-08-14):** `PolygonApi`/`PolygonDataSource` now cover
+refresh, strict-before history paging, provider testing, and repository routing.
+`DataProvider.POLYGON` is selectable and marked implemented, with
+`supportsLive = false` until the WebSocket portion is complete.
 
 **6.4 Cache retention policy.**
 `CandleDao.pruneOlderThan(symbol, timeframe, keepCount)` executed after each

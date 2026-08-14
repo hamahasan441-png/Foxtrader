@@ -44,9 +44,12 @@ enum class DataProvider(
     ),
     POLYGON(
         "Polygon.io",
-        supportsLive = true,
+        // Historical aggregates are implemented; Polygon live streaming is
+        // intentionally not advertised until its WebSocket path is wired.
+        supportsLive = false,
         requiresApiKey = true,
         apiKeyLabel = "Polygon.io API Key",
+        implemented = true,
     ),
     OANDA(
         "OANDA",

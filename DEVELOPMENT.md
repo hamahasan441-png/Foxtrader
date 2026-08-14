@@ -22,8 +22,8 @@
 | Risk engine (6 sizing + 4 stop methods, **asset-class-correct** contract sizes, pre-trade gates, auto-halt, Kelly) | ✅ Wired | `InstrumentTypeResolver` drives contract size |
 | Backtesting (bar-by-bar, no look-ahead; spread/commission/slippage; AI-gated) | ✅ Wired | `BacktestEngine` / `AiScoredBacktestEngine` |
 | Scanner · Journal · Portfolio · Alerts · Calculator | ✅ Wired | Real screens + tests |
-| Data layer: offline-first Room v6, provenance (`CandleSource`), non-destructive migrations, synthetic-data veto, cache pruning | ✅ Wired | Room is the SSOT |
-| Live market data | ⚠️ Partial | **Real:** Binance, Bybit (crypto), Alpha Vantage. Forex/stocks/indices have no backend → clearly-labelled **synthetic fallback** |
+| Data layer: offline-first Room v7, provenance (`CandleSource`), non-destructive migrations, synthetic-data veto, cache pruning | ✅ Wired | Room is the SSOT |
+| Live market data | ⚠️ Partial | **Real:** Binance, Bybit (crypto), Alpha Vantage, Twelve Data, and Polygon.io historical aggregates. Polygon covers keyed stocks/forex/indices/crypto; unsupported providers still use clearly-labelled **synthetic fallback** |
 | TRADEPRO order-flow/auction framework — core (Flip Zone, Buy/Sell-Hold, imbalance, absorption, signal engine, risk guard, reversal/range bars, sanitizer) | ✅ Wired | On `main` via #47/#48/#49 |
 | TRADEPRO — scanner signals + backtest template + chart overlays + trend/regime filter | 🔜 In review | PR #50 (recovers commits orphaned by an early #47 merge) |
 | External LLM provider | 🟡 Seam only | `NoOpAiProviderClient`; the deterministic engine holds all trade authority — narration seam is intentionally future work |
@@ -4896,3 +4896,51 @@ watchdog re-pings every `heartbeatIntervalMs`, a `timeout` larger than the
 detected. `RealtimeConnection` therefore `require`s
 `heartbeatTimeoutMs <= heartbeatIntervalMs` and documents it, rather than shipping
 a silent never-times-out footgun.
+
+# Appendix AH: Polygon.io historical aggregates — next real non-crypto provider
+
+This pass implements the next provider surface called out in the enhancement
+masterplan: a client-side Polygon.io adapter behind the existing provider seam,
+extending the already-wired Twelve Data path.
+It closes the gap where Settings could collect a Polygon key but
+`MarketRepositoryImpl` had no Polygon fetch path and would route the request to
+an unrelated backend or synthetic fallback.
+
+## What landed
+
+- `PolygonApi` wraps Polygon's v2 aggregate-bars endpoint and keeps the response
+  as `JsonElement` so optional provider fields do not leak into the domain model.
+- `PolygonDataSource` owns the provider boundary:
+  - maps FoxTrader timeframes to Polygon multiplier/timespan pairs,
+  - normalizes forex (`EURUSD` → `C:EURUSD`), crypto (`BTCUSDT` → `X:BTCUSD`),
+    and common indices (`US500` → `I:SPX`) while leaving equities such as
+    `AAPL` unchanged,
+  - parses epoch-millisecond OHLCV results in ascending order,
+  - rejects provider errors and malformed bars without fabricating values,
+  - supports strict-before history paging for the chart,
+  - requests a wider calendar range to account for weekends and market
+    holidays, then applies the caller's bar limit.
+- `NetworkModule` provides a dedicated Polygon Retrofit client with no logging
+  interceptor. Polygon credentials are query parameters, so even debug BASIC
+  request logging would expose a user's API key.
+- `MarketRepositoryImpl` now routes refresh, older-history paging, and provider
+  connectivity checks through Polygon. A successful response is tagged `LIVE`;
+  a failed/empty response follows the existing honest error and synthetic-cache
+  policy.
+- `DataProvider.POLYGON.implemented` is now true, so Settings exposes it as a
+  selectable provider rather than a misleading "coming soon" entry.
+
+## Testing
+
+`PolygonDataSourceTest` covers the provider contract with a hand-written fake
+API: ticker and timeframe mapping, ascending sorting, asset-class normalization,
+provider errors, malformed rows, missing volume, strict-before paging, and input
+validation. No network or Android dependency is used.
+
+## Integrity notes
+
+Polygon's historical aggregate path is deliberately separate from the existing
+Binance/Bybit live WebSocket path. The chart's LIVE toggle remains provider-aware:
+Polygon currently supplies historical bars, while its live capability remains a
+future provider-stream task. Provenance is assigned only at the repository write
+boundary, preserving the existing synthetic-data veto and `CandleSource` contract.

@@ -6,9 +6,10 @@ package com.foxtrader.app.domain.model
  *
  * This is deliberately a hard failure. The previous behaviour was to fall
  * through to the default fetch path, fail, and land in the synthetic-data
- * seeder — so selecting "Polygon.io" and pasting a paid API key produced a
- * chart of fabricated prices that looked exactly like real ones. Failing
- * loudly with an actionable message is strictly safer than degrading quietly.
+ * seeder — so selecting an unimplemented provider and pasting a paid API key
+ * produced a chart of fabricated prices that looked exactly like real ones.
+ * Failing loudly with an actionable message is strictly safer than degrading
+ * quietly.
  */
 class ProviderNotImplementedException(
     providerName: String,
