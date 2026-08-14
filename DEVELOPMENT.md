@@ -5016,15 +5016,3 @@ plan. The app reports connection/authentication state rather than claiming a
 real-time entitlement the provider may not grant. Historical REST remains the
 fallback for refresh and older-page requests; live ticks are still written
 through the existing Room/provenance path.
-
-# Appendix AK: Instrumentation source-set compilation in CI
-
-The masterplan's migration-test follow-up is now enforced by the pull-request
-workflow. After the debug APK and JVM unit tests, CI runs
-`:app:assembleDebugAndroidTest`, which compiles the Room migration tests and
-Compose smoke tests against the same generated Hilt/Room graph.
-
-This is intentionally a compile gate rather than an emulator execution claim:
-the existing sandbox runner does not provision a device. It closes the previous
-false-green path where `assembleDebug` and `testDebugUnitTest` could pass while
-`app/src/androidTest` contained an unresolved dependency or stale migration test.
