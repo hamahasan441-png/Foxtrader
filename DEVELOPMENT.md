@@ -5039,3 +5039,26 @@ legacy user-data chain. A dedicated 6→7 case verifies that the additive
 rows can be written with the expected shape. The full-chain test now opens a
 v1 database through all migrations to v7 and exercises both the alert and LIT X
 DAOs through Room, not only raw SQLite.
+
+# Appendix AM: App-wide hygiene and domain coverage ratchet
+
+This pass starts the next major Engineering Hardening item from the enterprise
+masterplan. Detekt and ktlint were already configured across the app, but only
+detekt was pulled into the debug build and the Jacoco domain slice measured a
+small hand-picked list of engines.
+
+## What changed
+
+- `appWideHygiene` now runs the full main-source detekt and ktlint checks before
+  both `assembleDebug` and `testDebugUnitTest`. Existing violations remain
+  advisory during the burn-down (`ignoreFailures = true`); reports are produced
+  consistently instead of a formatter task that no build path invoked.
+- The domain Jacoco report now inventories `com.foxtrader.app.domain.**`, not
+  only Risk/SMC/AI/backtest/calculator classes. A 25% starter floor protects the
+  broader surface and is explicitly intended to ratchet upward as coverage is
+  burned down.
+- Chart coverage remains a separate focused report and gate, preserving the
+  stronger signal for the rendering hot path.
+
+This is a build-level hardening change: no production behavior changes, and the
+existing no-TODO, no-placeholder and four-invariant contracts remain intact.

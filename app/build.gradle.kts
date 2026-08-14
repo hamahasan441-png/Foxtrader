@@ -292,25 +292,20 @@ val jacocoChartCoverageVerification by tasks.registering(JacocoCoverageVerificat
 }
 
 // ---------------------------------------------------------------------------
-// Domain layer coverage gate (risk, SMC, AI, backtest, calculator)
+// App-wide domain coverage gate (Sprint 10 ratchet)
 // ---------------------------------------------------------------------------
 
+// The first rollout only measured a handful of critical engines. That let an
+// untested domain package grow without affecting the reported ratio. The gate
+// now inventories every pure domain class; the 25% starter floor is deliberately
+// conservative and is ratcheted upward as the existing characterization suite
+// expands. Chart-specific coverage remains a separate, stricter slice above.
 val domainCoverageIncludes = listOf(
-    "com/foxtrader/app/domain/usecase/risk/RiskEngine*",
-    "com/foxtrader/app/domain/usecase/smc/SmcDetector*",
-    "com/foxtrader/app/domain/usecase/ai/MasterDecisionEngine*",
-    "com/foxtrader/app/domain/usecase/ai/AgentOrchestrator*",
-    "com/foxtrader/app/domain/usecase/backtest/BacktestEngine*",
-    "com/foxtrader/app/domain/usecase/calculator/PositionCalculator*",
-    "com/foxtrader/app/domain/usecase/calculator/InstrumentTypeResolver*",
+    "com/foxtrader/app/domain/**",
 )
 
 val domainCoverageSourceDirs = files(
-    "src/main/java/com/foxtrader/app/domain/usecase/risk",
-    "src/main/java/com/foxtrader/app/domain/usecase/smc",
-    "src/main/java/com/foxtrader/app/domain/usecase/ai",
-    "src/main/java/com/foxtrader/app/domain/usecase/backtest",
-    "src/main/java/com/foxtrader/app/domain/usecase/calculator",
+    "src/main/java/com/foxtrader/app/domain",
 )
 
 val domainCoverageClassDirs = files(
@@ -334,7 +329,7 @@ val domainCoverageExecutionData = fileTree(buildDir) {
 
 val jacocoDomainCoverageReport by tasks.registering(JacocoReport::class) {
     group = "verification"
-    description = "Generates a focused Jacoco report for the domain layer coverage gate."
+    description = "Generates the app-wide domain Jacoco coverage report."
     dependsOn("testDebugUnitTest")
     classDirectories.setFrom(domainCoverageClassDirs)
     sourceDirectories.setFrom(domainCoverageSourceDirs)
@@ -349,7 +344,7 @@ val jacocoDomainCoverageReport by tasks.registering(JacocoReport::class) {
 
 val jacocoDomainCoverageVerification by tasks.registering(JacocoCoverageVerification::class) {
     group = "verification"
-    description = "Verifies domain layer line coverage at 40% floor."
+    description = "Verifies app-wide domain line coverage at the 25% starter floor."
     dependsOn("testDebugUnitTest")
     classDirectories.setFrom(domainCoverageClassDirs)
     sourceDirectories.setFrom(domainCoverageSourceDirs)
@@ -359,7 +354,7 @@ val jacocoDomainCoverageVerification by tasks.registering(JacocoCoverageVerifica
             limit {
                 counter = "LINE"
                 value = "COVEREDRATIO"
-                minimum = "0.40".toBigDecimal()
+                minimum = "0.25".toBigDecimal()
             }
         }
     }
@@ -378,6 +373,12 @@ val chartFormatAudit by tasks.registering {
     dependsOn("ktlintMainSourceSetCheck")
 }
 
+val appWideHygiene by tasks.registering {
+    group = "verification"
+    description = "Runs the app-wide detekt and ktlint rollout before build/test tasks."
+    dependsOn(chartStaticAnalysis, chartFormatAudit)
+}
+
 tasks.matching {
     it.name == "ktlintKotlinScriptCheck" ||
         it.name == "ktlintKotlinScriptFormat" ||
@@ -391,7 +392,7 @@ tasks.matching {
 
 tasks.matching { it.name == "assembleDebug" || it.name == "testDebugUnitTest" }
     .configureEach {
-        dependsOn(chartStaticAnalysis)
+        dependsOn(appWideHygiene)
     }
 
 tasks.matching { it.name == "testDebugUnitTest" }

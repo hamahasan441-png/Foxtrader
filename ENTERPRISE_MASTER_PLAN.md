@@ -842,3 +842,12 @@ case verifies additive table creation, journal/drawing survival, raw-row shape,
 and a write through the generated LIT X DAO after Room validates the migrated
 schema. This closes the latest migration coverage gap while committed schema
 JSON remains a build-environment task.
+
+### Sprint 15 — app-wide hygiene and domain coverage ratchet *(status: source-implemented, CI pending)*
+
+The Engineering Hardening phase now runs the full main-source detekt and ktlint
+checks before debug assemble and JVM unit-test tasks. Existing violations stay
+advisory during the burn-down, while the Jacoco domain report expands from a
+hand-picked engine list to `com.foxtrader.app.domain.**` with a 25% starter
+floor. Chart coverage remains a separate focused gate so the rendering hot path
+keeps its stronger signal.
