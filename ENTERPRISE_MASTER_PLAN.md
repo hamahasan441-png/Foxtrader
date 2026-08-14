@@ -833,3 +833,12 @@ unbounded Room cache and full-series Flow emissions.
 No user-authored tables are touched, and provenance is preserved on all retained
 rows. CI remains the authoritative verification path for Room query validation,
 Hilt worker wiring, and unit tests.
+
+### Sprint 14 — Room v7 migration coverage *(status: source-implemented, CI pending)*
+
+The migration suite now explicitly covers the current v6→v7 `litx_signals`
+transition and upgrades the full-chain Room-open test from v6 to v7. The new
+case verifies additive table creation, journal/drawing survival, raw-row shape,
+and a write through the generated LIT X DAO after Room validates the migrated
+schema. This closes the latest migration coverage gap while committed schema
+JSON remains a build-environment task.

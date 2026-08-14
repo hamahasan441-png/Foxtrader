@@ -5030,3 +5030,12 @@ If a provider or key changes while a live session is active, the ViewModel
 clears the live state and disconnects the feed. The availability flag participates
 in `ChartUiState` equality, and a regression test protects StateFlow emission
 when it changes.
+
+# Appendix AL: Room v7 migration coverage
+
+The migration suite now covers the latest schema transition as well as the
+legacy user-data chain. A dedicated 6→7 case verifies that the additive
+`litx_signals` table is created, journal and drawing values survive intact, and
+rows can be written with the expected shape. The full-chain test now opens a
+v1 database through all migrations to v7 and exercises both the alert and LIT X
+DAOs through Room, not only raw SQLite.

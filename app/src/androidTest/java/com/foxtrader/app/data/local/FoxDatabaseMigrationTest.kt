@@ -7,6 +7,7 @@ import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.foxtrader.app.data.local.entity.LitXSignalEntity
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -294,7 +295,44 @@ class FoxDatabaseMigrationTest {
     }
 
     @Test
-    fun fullChain1To6_thenRoomOpensWithoutFallback() {
+    fun migration6To7_addsLitxSignals_andPreservesUserData() {
+        val db = createV3WithUserData()
+        db.execSQL(INSERT_JOURNAL)
+        db.execSQL(INSERT_DRAWING)
+        FoxDatabase.MIGRATION_3_4.migrate(db)
+        FoxDatabase.MIGRATION_4_5.migrate(db)
+        FoxDatabase.MIGRATION_5_6.migrate(db)
+
+        FoxDatabase.MIGRATION_6_7.migrate(db)
+
+        assertEquals(0, db.countOf("litx_signals"))
+        db.query("SELECT notes FROM journal_entries WHERE id = 'j1'").use { c ->
+            assertTrue("journal entry was lost during 6->7", c.moveToFirst())
+            assertEquals("runner", c.getString(0))
+        }
+        db.query("SELECT label FROM chart_drawings WHERE id = 'd1'").use { c ->
+            assertTrue("drawing was lost during 6->7", c.moveToFirst())
+            assertEquals("resistance", c.getString(0))
+        }
+
+        db.execSQL(
+            "INSERT INTO litx_signals " +
+                "(id, symbol, timeframe, direction, grade, score, entry, stopLoss, " +
+                "takeProfit1, takeProfit2, riskReward, rationale, createdAt) " +
+                "VALUES ('s1', 'EURUSD', '15m', 'BULLISH', 'A_PLUS', 92, 1.1, " +
+                "1.09, 1.12, 1.14, 3.0, 'liquidity sweep', 2000)"
+        )
+        db.query("SELECT symbol, score, rationale FROM litx_signals WHERE id = 's1'").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals("EURUSD", c.getString(0))
+            assertEquals(92, c.getInt(1))
+            assertEquals("liquidity sweep", c.getString(2))
+        }
+        db.close()
+    }
+
+    @Test
+    fun fullChain1To7_thenRoomOpensWithoutFallback() {
         val db = openRaw(1) { d ->
             d.execSQL(DDL_CANDLES_V1)
             d.execSQL(DDL_CANDLES_INDEX_V1)
@@ -332,6 +370,25 @@ class FoxDatabaseMigrationTest {
             // The v5 table is queryable through its DAO, which also proves the
             // migrated shape matches AlertEntity.
             room.alertDao().acknowledgeAll()
+
+            // v7 is also opened through the generated DAO, not only raw SQL.
+            room.litXSignalDao().upsert(
+                LitXSignalEntity(
+                    id = "s1",
+                    symbol = "EURUSD",
+                    timeframe = "15m",
+                    direction = "BULLISH",
+                    grade = "A_PLUS",
+                    score = 92,
+                    entry = 1.1,
+                    stopLoss = 1.09,
+                    takeProfit1 = 1.12,
+                    takeProfit2 = 1.14,
+                    riskReward = 3.0,
+                    rationale = "migration smoke",
+                    createdAt = 2000,
+                )
+            )
         }
         assertTrue("Room could not open the migrated database", room.isOpen)
         room.close()
