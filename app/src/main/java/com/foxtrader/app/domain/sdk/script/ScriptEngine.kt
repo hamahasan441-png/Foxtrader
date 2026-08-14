@@ -7,6 +7,8 @@ import com.foxtrader.app.domain.model.StrategyBlueprint
 import com.foxtrader.app.domain.model.StrategyConditionKind
 import com.foxtrader.app.domain.model.StrategySignal
 import com.foxtrader.app.domain.usecase.backtest.StrategyFunction
+import com.foxtrader.app.domain.usecase.indicators.BollingerBands
+import com.foxtrader.app.domain.usecase.indicators.StochasticOscillator
 import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -258,7 +260,7 @@ class ScriptContext(
     /** Bollinger Bands at current bar. */
     fun bollinger(period: Int = 20, multiplier: Double = 2.0): BollingerOutput {
         val slice = candles.subList(0, currentIndex + 1)
-        val res = TechnicalIndicators.calculateBollingerBands(slice, period, multiplier)
+        val res = BollingerBands().calculate(slice, period, multiplier)
         val lastIdx = res.upper.lastIndex
         return if (lastIdx >= 0) {
             BollingerOutput(res.upper[lastIdx], res.middle[lastIdx], res.lower[lastIdx])
@@ -270,10 +272,10 @@ class ScriptContext(
     /** Stochastic Oscillator at current bar. */
     fun stochastic(kPeriod: Int = 14, dPeriod: Int = 3): StochasticOutput {
         val slice = candles.subList(0, currentIndex + 1)
-        val res = TechnicalIndicators.calculateStochastic(slice, kPeriod, dPeriod)
-        val lastIdx = res.k.lastIndex
+        val res = StochasticOscillator().calculate(slice, kPeriod, dPeriod)
+        val lastIdx = res.percentK.lastIndex
         return if (lastIdx >= 0) {
-            StochasticOutput(res.k[lastIdx], res.d[lastIdx])
+            StochasticOutput(res.percentK[lastIdx], res.percentD[lastIdx])
         } else {
             StochasticOutput(50.0, 50.0)
         }
