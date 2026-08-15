@@ -30,9 +30,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -352,14 +354,10 @@ fun SettingsScreen(
                 // Min free margin
                 Text("Minimum free margin (account currency; 0 = off)", fontSize = 13.sp, color = FoxNeutral60)
                 Spacer(Modifier.height(4.dp))
-                OutlinedTextField(
-                    value = if (state.mt4MinFreeMargin > 0) formatDecimal(state.mt4MinFreeMargin) else "0",
-                    onValueChange = { value ->
-                        viewModel.setMt4MinFreeMargin(value.toDoubleOrNull() ?: 0.0)
-                    },
+                DecimalAmountField(
+                    value = state.mt4MinFreeMargin,
+                    onValueChange = viewModel::setMt4MinFreeMargin,
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 )
 
                 Spacer(Modifier.height(12.dp))
@@ -367,14 +365,10 @@ fun SettingsScreen(
                 // Max daily loss
                 Text("Max daily loss (account currency; 0 = off)", fontSize = 13.sp, color = FoxNeutral60)
                 Spacer(Modifier.height(4.dp))
-                OutlinedTextField(
-                    value = if (state.mt4MaxDailyLoss > 0) formatDecimal(state.mt4MaxDailyLoss) else "0",
-                    onValueChange = { value ->
-                        viewModel.setMt4MaxDailyLoss(value.toDoubleOrNull() ?: 0.0)
-                    },
+                DecimalAmountField(
+                    value = state.mt4MaxDailyLoss,
+                    onValueChange = viewModel::setMt4MaxDailyLoss,
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
@@ -826,8 +820,39 @@ private fun SliderSetting(
     }
 }
 
+/**
+ * Decimal text field backed by a raw string so the user can actually type a
+ * decimal (e.g. "1.5") without the field reformatting after each keystroke and
+ * eating the separator. The parsed value is pushed up only when valid; blank is
+ * treated as 0. External [value] resets the field only when it no longer matches
+ * what was typed (e.g. after leaving/re-entering the screen).
+ */
+@Composable
+private fun DecimalAmountField(
+    value: Double,
+    onValueChange: (Double) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var text by rememberSaveable { mutableStateOf(formatDecimal(value)) }
+    LaunchedEffect(value) {
+        val current = text.toDoubleOrNull()
+        if (current != value) text = formatDecimal(value)
+    }
+    OutlinedTextField(
+        value = text,
+        onValueChange = { newText ->
+            text = newText
+            onValueChange(newText.toDoubleOrNull() ?: 0.0)
+        },
+        modifier = modifier,
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+    )
+}
+
 /** Renders a Double setting as a compact decimal string (no trailing zeros). */
 private fun formatDecimal(value: Double): String {
+    if (value <= 0.0) return "0"
     if (value == value.toLong().toDouble()) return value.toLong().toString()
     return "%.2f".format(value).trimEnd('0').trimEnd('.')
 }

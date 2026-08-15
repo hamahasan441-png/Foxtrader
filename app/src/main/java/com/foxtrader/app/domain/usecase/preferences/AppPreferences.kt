@@ -383,8 +383,15 @@ class AppPreferences @Inject constructor(
         }
     }
 
-    /** Retrieve the currently stored MetaApi token (null if not set). */
-    fun getMetaApiToken(): String? = _metaApiToken.value
+    /**
+     * Retrieve the currently stored MetaApi token (null if not set).
+     *
+     * Read directly from the synchronous encrypted prefs rather than the
+     * asynchronously-populated StateFlow so callers (e.g. the MT4 repository at
+     * app start) see the persisted value even before the background load runs.
+     */
+    fun getMetaApiToken(): String? =
+        securePrefs.getString(SECURE_KEY_META_API_TOKEN, null)?.trim()?.takeIf { it.isNotBlank() }
 
     /**
      * Persist the MetaApi account ID to encrypted shared preferences.
@@ -402,7 +409,8 @@ class AppPreferences @Inject constructor(
     }
 
     /** Retrieve the currently cached MetaApi account ID (null if none). */
-    fun getMetaApiAccountId(): String? = _metaApiAccountId.value
+    fun getMetaApiAccountId(): String? =
+        securePrefs.getString(SECURE_KEY_META_API_ACCOUNT_ID, null)?.trim()?.takeIf { it.isNotBlank() }
 
     /** Persist the last connected MT4 login for prefilling the login form. */
     fun setMetaApiLastLogin(login: Int?) {
@@ -416,7 +424,8 @@ class AppPreferences @Inject constructor(
     }
 
     /** The MT4 login used for the most recent connection, or null. */
-    fun getMetaApiLastLogin(): Int? = _metaApiLastLogin.value
+    fun getMetaApiLastLogin(): Int? =
+        securePrefs.getInt(SECURE_KEY_META_API_LAST_LOGIN, -1).takeIf { it > 0 }
 
     /** Persist the last connected MT4 server for prefilling the login form. */
     fun setMetaApiLastServer(server: String?) {
@@ -430,7 +439,8 @@ class AppPreferences @Inject constructor(
     }
 
     /** The MT4 server used for the most recent connection, or null. */
-    fun getMetaApiLastServer(): String? = _metaApiLastServer.value
+    fun getMetaApiLastServer(): String? =
+        securePrefs.getString(SECURE_KEY_META_API_LAST_SERVER, null)?.trim()?.takeIf { it.isNotBlank() }
 
     /** Persist the connected account display name for showing in the account screen. */
     fun setMetaApiAccountName(name: String?) {
@@ -444,7 +454,8 @@ class AppPreferences @Inject constructor(
     }
 
     /** The connected account display name, or null. */
-    fun getMetaApiAccountName(): String? = _metaApiAccountName.value
+    fun getMetaApiAccountName(): String? =
+        securePrefs.getString(SECURE_KEY_META_API_ACCOUNT_NAME, null)?.trim()?.takeIf { it.isNotBlank() }
 
     /**
      * Persisted live-MT4-execution switch. Callers must read this to build the
@@ -637,7 +648,13 @@ class AppPreferences @Inject constructor(
         _apiKeys.value = updatedKeys.toMap()
     }
 
-    fun getApiKey(provider: DataProvider): String? = _apiKeys.value[provider]
+    /**
+     * Retrieve a provider API key directly from the synchronous encrypted prefs
+     * so it is available immediately at app start (the StateFlow is populated
+     * asynchronously).
+     */
+    fun getApiKey(provider: DataProvider): String? =
+        securePrefs.getString(apiKeyPreferenceName(provider), null)?.trim()?.takeIf { it.isNotBlank() }
 
     fun setMultiChartPreferences(state: PersistedMultiChartState) {
         _multiChartPreferences.value = state
