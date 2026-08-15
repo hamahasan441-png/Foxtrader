@@ -56,31 +56,32 @@ class SuperTrend @Inject constructor() {
             previous = null,
             recomputeFrom = recomputeFrom,
         )
-        val startIndex = if (previous != null && recomputeFrom > 0) {
+        val requestedStart = if (previous != null && recomputeFrom > 0) {
             maxOf(0, recomputeFrom - 1)
         } else {
             0
         }
-        if (
-            previous != null &&
-            startIndex > 0 &&
-            previous.values.size >= startIndex &&
-            previous.direction.size >= startIndex &&
-            previous.finalUpperBands.size >= startIndex &&
-            previous.finalLowerBands.size >= startIndex
-        ) {
+        // `SAFETY` Resume only when the previous snapshot covers the resume
+        // point. A short/stale snapshot previously left startIndex > 0 with a
+        // zeroed prefix: no crash, but the loop then seeded dir[i-1] = 0 and
+        // band state 0.0, silently drawing a wrong SuperTrend line. Fall back
+        // to a full recompute instead.
+        val canReuse = previous != null &&
+            requestedStart > 0 &&
+            previous.values.size >= requestedStart &&
+            previous.direction.size >= requestedStart &&
+            previous.finalUpperBands.size >= requestedStart &&
+            previous.finalLowerBands.size >= requestedStart
+        val startIndex = if (canReuse) requestedStart else 0
+        if (canReuse && previous != null) {
             System.arraycopy(previous.values, 0, st, 0, startIndex)
             System.arraycopy(previous.direction, 0, dir, 0, startIndex)
             System.arraycopy(previous.finalUpperBands, 0, finalUpperBands, 0, startIndex)
             System.arraycopy(previous.finalLowerBands, 0, finalLowerBands, 0, startIndex)
         }
 
-        var finalUpper = if (
-            startIndex > 0 && previous != null && previous.finalUpperBands.size >= startIndex
-        ) previous.finalUpperBands[startIndex - 1] else 0.0
-        var finalLower = if (
-            startIndex > 0 && previous != null && previous.finalLowerBands.size >= startIndex
-        ) previous.finalLowerBands[startIndex - 1] else 0.0
+        var finalUpper = if (canReuse && previous != null) previous.finalUpperBands[startIndex - 1] else 0.0
+        var finalLower = if (canReuse && previous != null) previous.finalLowerBands[startIndex - 1] else 0.0
 
         for (i in startIndex until n) {
             val hl2 = (candles[i].high + candles[i].low) / 2.0

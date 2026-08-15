@@ -91,7 +91,16 @@ data class IndicatorToggles(
     val activeStrategy: StrategyType? = null,
     /** When true, scan every strategy and render all their markers at once. */
     val allStrategies: Boolean = false,
-)
+) {
+    /** True when any study/overlay/strategy is enabled (drives "Clear all"). */
+    val anyActive: Boolean
+        get() = ema || bollinger || superTrend || parabolicSar || vwap || anchoredVwap ||
+            ichimoku || keltner || donchian || pivotPoints || volumeProfile || marketProfile ||
+            supportResistance || fibonacci || confluence || orderBlocks || fairValueGaps ||
+            liquidity || sessions || structure || litX || smt || tradePro ||
+            rsi || macd || volume || stochastic || obv || moneyFlowIndex ||
+            activeStrategy != null || allStrategies
+}
 
 /**
  * Immutable UI state for the Chart screen (MVVM).

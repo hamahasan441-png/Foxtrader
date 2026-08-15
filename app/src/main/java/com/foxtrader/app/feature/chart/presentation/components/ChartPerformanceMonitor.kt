@@ -64,6 +64,25 @@ class ChartPerformanceMonitor(
         qualityController.setQualityCeiling(mode.ceiling)
     }
 
+    /**
+     * The user changed what the chart should draw (indicator toggles, strategy
+     * selection). Restore full quality (bounded by the ceiling) and clear the
+     * stale frame history so the *new* overlay set is measured from scratch.
+     *
+     * Why this exists: adaptive quality only re-evaluates inside draw frames,
+     * and an idle chart draws no frames. Without this reset, a single heavy
+     * recompute could degrade to MINIMAL (indicators skipped entirely) and
+     * then stay there indefinitely — the user toggles Bollinger on and simply
+     * never sees it. Explicit intent ("show me this overlay") must always get
+     * a fresh chance to render; if the device genuinely cannot keep up, the
+     * controller will degrade again within a few frames.
+     */
+    fun onOverlayConfigChanged() {
+        profiler.reset()
+        qualityController.reset()
+        quality = qualityController.getSettings()
+    }
+
     /** Mark the start of a draw pass. */
     fun beginFrame() {
         frameStartNanos = System.nanoTime()

@@ -6,6 +6,7 @@ import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.model.SourcedCandles
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.repository.MarketRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -66,7 +67,18 @@ internal class ChartDataController(
                 currentObservedCandles = sourced
                 rebuildMergedVisibleCandles()
                 scope.launch {
-                    onMergedCandlesChanged(sourced.source, true)
+                    // `CRASH-SAFETY` This launch has no caller to propagate into:
+                    // an escaped exception here is an unhandled coroutine failure
+                    // that takes down the whole app (the historical "chart crashes
+                    // while I touch things mid-refresh" bug). Contain everything
+                    // except cancellation; the next emission retries cleanly.
+                    try {
+                        onMergedCandlesChanged(sourced.source, true)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        // Keep the last good frame; a later emission recomputes.
+                    }
                 }
             }
             .launchIn(scope)
@@ -77,7 +89,15 @@ internal class ChartDataController(
             .onEach { tick ->
                 if (tick.symbol == symbolFlow.value && tick.timeframe == timeframeFlow.value) {
                     scope.launch {
-                        onUpsertTick(tick.symbol, tick.timeframe, tick.candle)
+                        // Same containment rationale as observeMarket: a transient
+                        // DB write failure on one tick must not crash the app.
+                        try {
+                            onUpsertTick(tick.symbol, tick.timeframe, tick.candle)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            // Drop the tick; the next one supersedes it anyway.
+                        }
                     }
                 }
             }

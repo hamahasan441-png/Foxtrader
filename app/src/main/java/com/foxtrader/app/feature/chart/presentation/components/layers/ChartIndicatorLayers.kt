@@ -56,14 +56,17 @@ internal fun DrawScope.drawIndicatorLayer(
     val start = max(0, viewport.startIndex.toInt())
     val end = min(candles.size, (viewport.startIndex + viewport.visibleBars).toInt() + 1)
 
-    // Draw EMA short (e.g., 20-period) — amber
-    if (emaShort != null && emaShort.size >= end) {
-        drawEmaLine(viewport, cw, ch, emaShort, start, end, FoxAmber50.copy(alpha = 0.85f))
+    // `RENDER` The end index is clamped per-series instead of requiring
+    // `size >= end`. The old all-or-nothing guard made the whole EMA vanish
+    // whenever the overlay array was even one bar shorter than the candle list
+    // — routine during live tick appends, where the candle arrives one frame
+    // before the recomputed overlays — which read as "EMA doesn't show up".
+    if (emaShort != null) {
+        drawEmaLine(viewport, cw, ch, emaShort, start, min(end, emaShort.size), FoxAmber50.copy(alpha = 0.85f))
     }
 
-    // Draw EMA long (e.g., 50-period) — neutral blue-gray
-    if (emaLong != null && emaLong.size >= end) {
-        drawEmaLine(viewport, cw, ch, emaLong, start, end, FoxNeutral60.copy(alpha = 0.7f))
+    if (emaLong != null) {
+        drawEmaLine(viewport, cw, ch, emaLong, start, min(end, emaLong.size), FoxNeutral60.copy(alpha = 0.7f))
     }
 }
 

@@ -404,3 +404,92 @@ No Android SDK/JDK-Gradle is available in this sandbox, so `./gradlew`
 here. Android changes are type-checked with `kotlinc` against stubs; the
 `android.yml` CI job remains the authoritative verification path for the Android
 build and the detekt/ktlint gates.
+
+---
+
+# Chart stability & rendering pass (2026-08-15)
+
+User-reported symptoms: (1) app sometimes crashes when touching indicator
+chips, (2) candles render as "two thin lines" instead of candlesticks,
+(3) several indicators/strategies never appear on the chart after toggling.
+
+## 1. Crash class: unhandled exceptions on the flow-driven compute path
+
+The candle-processing pipeline (`observeMarket → onMergedCandlesChanged →
+ChartViewModel.processCandles`) ran inside `scope.launch` blocks with **no**
+containment. Any exception from an indicator/strategy/SMC engine — including
+the reproducible `ArrayIndexOutOfBounds` below — became an unhandled
+coroutine failure and killed the whole app. Toggling an indicator forces a
+full recompute concurrently with live emissions, which is exactly when stale
+incremental snapshots race with fresh candles.
+
+Fixes:
+- `ChartDataController.observeMarket` / `observeWebSocketTicks`: contained
+  per-emission (`CancellationException` always rethrown).
+- `ChartViewModel.processCandles`: the indicator coordinator plus each of
+  TradePro / LIT X / SMT / strategy engines individually contained; a failing
+  engine degrades its own overlay for one frame instead of crashing.
+- `ChartAiCoordinator`: the fire-and-forget AI coroutine wrapped; failure
+  resets the fingerprint so the next data change retries.
+
+## 2. Crash root cause: stale-snapshot incremental resume
+
+`IchimokuCloud.calculateIncremental` fed `System.arraycopy` a prefix length
+taken from `recomputeFrom` without checking the `previous` arrays actually
+cover it → hard `ArrayIndexOutOfBoundsException` on a background thread
+during rapid toggles/timeframe switches. Fixed with a `canReuse` guard that
+falls back to a full recompute.
+
+The sibling engines (SuperTrend, Bollinger, ParabolicSar, VWAP, MACD signal,
+ATR) had the *silent* variant: a short snapshot skipped the copy but kept a
+positive resume index, seeding the recursion from a zeroed prefix — wrong
+lines (bands at price 0, VWAP pinned to the chart floor). All now fall back
+to a full recompute. Pinned by `IncrementalResumeGuardTest` and
+`IchimokuIncrementalGuardTest`.
+
+## 3. "Two-line candlesticks"
+
+`drawCandleLayer` floored the body width at 2px even when the bar slot was
+narrower (zoomed out past ~3px/bar), so every candle drew as two overlapping
+thin lines and neighbours smeared together. The layer now switches to clean
+single high-low bars below 3px/bar (TradingView behaviour), and at normal
+zoom the body caps at `barWidth - 1px` so adjacent bodies never fuse.
+
+## 4. Indicators/strategies not appearing
+
+- **Adaptive-quality trap:** a degraded session could reach MINIMAL (all
+  indicator layers skipped) and only recover after 60 consecutive excellent
+  frames — an idle chart draws no frames, so it never recovered. Indicator
+  toggles now call `ChartPerformanceMonitor.onOverlayConfigChanged()`, which
+  resets quality/profiler so an explicitly requested overlay always gets a
+  fresh chance to render.
+- **SMT toggle was a permanent no-op:** `processCandles` passed a hard-coded
+  `emptyMap()` of peer candles. Now wired to
+  `MtfContextProvider.getCorrelatedContext` (cached per symbol|timeframe).
+- **EMA all-or-nothing draw guard:** `drawIndicatorLayer` required
+  `series.size >= end`, so a series one bar shorter than the candle list
+  (routine during live appends) hid the entire line. Now clamps per-series.
+- **Auto-scale ignored newer overlays:** Keltner/Donchian/anchored-VWAP were
+  not included in the visible-range fit, so they could render entirely
+  off-screen. Now included (NaN-safe).
+- **Renko froze the chart:** the default 10.0 brick on a ~1.08-priced pair
+  produces zero bricks → `processCandles` bailed and the chart stayed on
+  stale bars. An ATR-derived auto-brick now kicks in and is published back to
+  UI state. `CandleRenkoBuilder` additionally rejects NaN/∞ bricks and caps
+  output at 50k bricks (OOM guard) — pinned by `CandleRenkoBuilderSafetyTest`.
+- **Sub-pane misalignment:** oscillator panes used a 56dp price gutter vs the
+  main chart's 64dp, shearing every RSI/MACD/volume bar off its candle.
+  `ChartDimens.subPaneScaleWidth` now equals `priceScaleWidth`.
+
+## 5. Enhancements
+
+- "Clear all" quick action in the indicator panel (one tap back to a clean
+  chart, preserves the SMC visual-intensity preference).
+- Heavy TradePro/LIT X/SMT analyses moved off the caller's context onto the
+  default dispatcher.
+
+### Environment note
+
+No JDK/Android SDK is available in this sandbox; changes were reviewed
+statically and covered with JVM unit tests. The `android.yml` CI job remains
+the authoritative build/test gate.

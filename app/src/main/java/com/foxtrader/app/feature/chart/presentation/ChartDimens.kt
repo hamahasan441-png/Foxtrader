@@ -23,8 +23,14 @@ object ChartDimens {
     /** Bottom gutter reserved for the time (X) axis labels. */
     val timeAxisHeight = 24.dp
 
-    /** Narrower price-scale gutter used by the compact oscillator/volume panes. */
-    val subPaneScaleWidth = 56.dp
+    /**
+     * Price-scale gutter for the oscillator/volume panes. Deliberately equal to
+     * [priceScaleWidth]: the panes map bar index → x across `width - gutter`,
+     * so any difference between the two gutters horizontally shears every
+     * sub-pane bar/line off its candle above (previously 56dp vs 64dp, an
+     * ~8dp drift that grew across the pane). TradingView keeps these equal.
+     */
+    val subPaneScaleWidth = priceScaleWidth
 
     // --- Stacked sub-panes (RSI / MACD / Volume) ---
     /** Header strip (indicator name + latest value) above each pane's canvas. */

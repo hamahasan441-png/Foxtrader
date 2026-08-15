@@ -73,7 +73,19 @@ class IchimokuCloud @Inject constructor() {
         } else {
             0
         }
-        if (previous != null && startIndex > 0) {
+        // `SAFETY` Mirror the size guards Bollinger/SuperTrend already have: a
+        // previous result shorter than the resume point (stale snapshot after a
+        // rapid toggle/timeframe race) must fall back to a full recompute, not
+        // throw ArrayIndexOutOfBounds from arraycopy on a background thread.
+        val canReuse = previous != null &&
+            startIndex > 0 &&
+            previous.tenkan.size >= startIndex &&
+            previous.kijun.size >= startIndex &&
+            previous.senkouA.size >= startIndex &&
+            previous.senkouB.size >= startIndex &&
+            previous.chikou.size >= startIndex
+        val resumeFrom = if (canReuse) startIndex else 0
+        if (canReuse && previous != null) {
             System.arraycopy(previous.tenkan, 0, tenkan, 0, startIndex)
             System.arraycopy(previous.kijun, 0, kijun, 0, startIndex)
             System.arraycopy(previous.senkouA, 0, senkouA, 0, startIndex)
@@ -81,7 +93,7 @@ class IchimokuCloud @Inject constructor() {
             System.arraycopy(previous.chikou, 0, chikou, 0, startIndex)
         }
 
-        for (i in startIndex until n) {
+        for (i in resumeFrom until n) {
             tenkan[i] = midpoint(candles, i, tenkanPeriod)
             kijun[i] = midpoint(candles, i, kijunPeriod)
             senkouA[i] = (tenkan[i] + kijun[i]) / 2.0

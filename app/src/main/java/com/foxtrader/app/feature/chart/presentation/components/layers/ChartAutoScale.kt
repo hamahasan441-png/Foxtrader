@@ -52,6 +52,13 @@ internal fun autoScaleToVisibleContent(
     ichimokuSenkouA: ImmutableDoubleSeries?,
     ichimokuSenkouB: ImmutableDoubleSeries?,
     ichimokuChikou: ImmutableDoubleSeries?,
+    anchoredVwap: ImmutableDoubleSeries? = null,
+    anchoredVwapUpper: ImmutableDoubleSeries? = null,
+    anchoredVwapLower: ImmutableDoubleSeries? = null,
+    keltnerUpper: ImmutableDoubleSeries? = null,
+    keltnerLower: ImmutableDoubleSeries? = null,
+    donchianUpper: ImmutableDoubleSeries? = null,
+    donchianLower: ImmutableDoubleSeries? = null,
     orderBlocks: List<com.foxtrader.app.domain.model.OrderBlock>,
     fairValueGaps: List<com.foxtrader.app.domain.model.FairValueGap>,
     liquidityPools: List<com.foxtrader.app.domain.model.LiquidityPool>,
@@ -97,6 +104,17 @@ internal fun autoScaleToVisibleContent(
     includeSeries(ichimokuSenkouA)
     includeSeries(ichimokuSenkouB)
     includeSeries(ichimokuChikou)
+    // Newer overlays (R8): a toggled-on channel or anchored VWAP band must pull
+    // the price window with it, otherwise it renders off-screen and the user
+    // reads it as "the indicator never appeared". `include` is NaN-safe, so the
+    // anchored VWAP's pre-anchor NaN prefix is skipped naturally.
+    includeSeries(anchoredVwap)
+    includeSeries(anchoredVwapUpper)
+    includeSeries(anchoredVwapLower)
+    includeSeries(keltnerUpper)
+    includeSeries(keltnerLower)
+    includeSeries(donchianUpper)
+    includeSeries(donchianLower)
 
     orderBlocks.forEach { block ->
         if (block.endIndex >= start && block.startIndex < end) {

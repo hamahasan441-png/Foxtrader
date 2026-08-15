@@ -41,6 +41,8 @@ import kotlin.math.min
  * - Wider bodies with thinner wicks for clear price action
  * - Doji candles rendered as visible horizontal lines
  * - Body width scales smoothly with zoom level
+ * - Below ~3px/bar, candles degrade to single high-low bars (never the
+ *   ambiguous "two thin lines" artefact of a body drawn at wick width)
  */
 internal fun DrawScope.drawCandleLayer(
     candles: List<Candle>,
@@ -52,11 +54,34 @@ internal fun DrawScope.drawCandleLayer(
     val end = min(candles.size, (viewport.startIndex + viewport.visibleBars).toInt() + 1)
     val barWidth = viewport.barWidthPx(cw)
 
+    // `RENDER` Below ~3px/bar a body rectangle cannot be drawn distinctly from
+    // its own wick: the old code floored the body at 2px while the bar slot was
+    // narrower, so every candle degenerated into two overlapping thin lines and
+    // neighbouring candles smeared into each other ("I see 2 lines instead of a
+    // candlestick"). In that regime TradingView-style engines switch to a clean
+    // single high-low bar per candle — one crisp line, colored by direction.
+    if (barWidth < THIN_BAR_THRESHOLD_PX) {
+        val lineWidth = barWidth.coerceIn(0.5f, 1.5f)
+        for (i in start until end) {
+            val c = candles[i]
+            val cx = viewport.xForIndex(i + 0.5f, cw)
+            val color = if (c.isBullish) FoxBullish else FoxBearish
+            drawLine(
+                color = color,
+                start = Offset(cx, viewport.yForPrice(c.high, ch)),
+                end = Offset(cx, viewport.yForPrice(c.low, ch)),
+                strokeWidth = lineWidth,
+                cap = StrokeCap.Butt,
+            )
+        }
+        return
+    }
+
     // TradingView-style proportions:
-    // - Body takes 75% of bar width (wider = cleaner at all zoom levels)
+    // - Body takes ~80% of the bar slot but always leaves a >=1px gap to the
+    //   next candle so adjacent bodies never fuse into a solid block
     // - Wick is always thin (1-2px) regardless of zoom
-    // - Minimum body width of 2px ensures candles are always visible
-    val bodyWidth = (barWidth * 0.75f).coerceAtLeast(2f)
+    val bodyWidth = min(barWidth * 0.8f, barWidth - 1f).coerceAtLeast(2f)
     val wickWidth = (barWidth * 0.08f).coerceIn(1f, 2.5f)
 
     // Minimum body height so doji and very-small-range candles are visible
@@ -97,3 +122,10 @@ internal fun DrawScope.drawCandleLayer(
         )
     }
 }
+
+/**
+ * Bar width (px) below which body+wick rendering is replaced by single-line
+ * bars. At 3px there is no visual room for a body rectangle distinct from the
+ * wick, so drawing both only produces the "two thin lines" artefact.
+ */
+private const val THIN_BAR_THRESHOLD_PX = 3f

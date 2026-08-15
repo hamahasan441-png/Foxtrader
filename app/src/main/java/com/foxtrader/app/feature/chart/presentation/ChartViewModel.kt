@@ -44,6 +44,7 @@ import com.foxtrader.app.domain.model.StrategyType
 import com.foxtrader.app.feature.chart.presentation.components.ChartPerformanceMonitor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.toPersistentList
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -127,6 +128,13 @@ class ChartViewModel @Inject constructor(
      */
     private var htfContextKey: String? = null
     private var htfContextCache: Map<Timeframe, List<Candle>> = emptyMap()
+
+    /**
+     * Cached same-timeframe correlated-peer candles (e.g. GBPUSD/AUDUSD for a
+     * EURUSD chart) used by the SMT divergence detector. Refreshed together
+     * with [htfContextCache] under the same "symbol|timeframe" key.
+     */
+    private var correlatedContextCache: Map<String, List<Candle>> = emptyMap()
 
     /**
      * Generation counter for the candle-computation pipeline. Rapid indicator
@@ -262,7 +270,21 @@ class ChartViewModel @Inject constructor(
         val displayCandles = when (barMode) {
             ChartBarMode.TIME -> candles
             ChartBarMode.HEIKIN_ASHI -> heikinAshiTransformer.transform(candles)
-            ChartBarMode.RENKO -> candleRenkoBuilder.build(candles, _uiState.value.renkoSize)
+            ChartBarMode.RENKO -> {
+                val bricks = candleRenkoBuilder.build(candles, _uiState.value.renkoSize)
+                if (bricks.isEmpty()) {
+                    // The configured brick is wrong for this instrument's scale
+                    // (e.g. the 10.0 default on a 1.08-priced forex pair yields
+                    // zero bricks and previously froze the chart on stale bars).
+                    // Derive a sane brick from recent volatility (ATR-style) and
+                    // publish it so the UI reflects the value actually in use.
+                    val autoBrick = autoRenkoBrickSize(candles)
+                    if (autoBrick != null) {
+                        _uiState.value = _uiState.value.copy(renkoSize = autoBrick)
+                        candleRenkoBuilder.build(candles, autoBrick)
+                    } else bricks
+                } else bricks
+            }
         }
         if (displayCandles.isEmpty()) return
 
@@ -272,43 +294,74 @@ class ChartViewModel @Inject constructor(
         // does NOT replay historical candles through stop/target logic.)
         paperTradingSession.onPrice(symbol, displayCandles.last().close)
 
-        val c = indicatorCoordinator.processCandles(
-            candles = displayCandles, source = source, toggles = ind,
-            symbol = symbol, timeframe = timeframe, preferIncremental = preferIncremental,
-        )
+        // `CRASH-SAFETY` This pipeline is reached from the flow-driven data path
+        // (observeMarket → onMergedCandlesChanged) where an uncaught exception
+        // is an unhandled coroutine failure that kills the whole app — the
+        // "touch an indicator and it crashes" class of bug. Every engine below
+        // is therefore individually contained: one misbehaving engine degrades
+        // its own overlay for this frame and the rest of the chart still
+        // renders. CancellationException is always rethrown so structured
+        // concurrency stays intact.
+        val c = try {
+            indicatorCoordinator.processCandles(
+                candles = displayCandles, source = source, toggles = ind,
+                symbol = symbol, timeframe = timeframe, preferIncremental = preferIncremental,
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // Keep the last good frame on screen; the next data emission (or the
+            // next toggle, which forces a full recompute) retries cleanly.
+            return
+        }
 
         // Refresh the HTF context only when the symbol/timeframe changes so the
         // TRADEPRO read is validated against higher-timeframe bias without
         // hitting the DB on every tick.
         val htfKey = "$symbol|$timeframe"
         if (htfKey != htfContextKey) {
+            // MtfContextProvider already degrades to empty maps on repository
+            // errors, so no extra containment is needed around these calls.
             htfContextCache = mtfContextProvider.getHtfContext(symbol, timeframe)
+            correlatedContextCache = mtfContextProvider.getCorrelatedContext(symbol, timeframe)
             htfContextKey = htfKey
         }
 
         // TradePro analysis is only computed while its overlay is enabled. It is
         // comparatively expensive, so running it on every frame for a hidden
-        // overlay would waste the frame budget.
+        // overlay would waste the frame budget. All three engines below run on
+        // the default dispatcher: they previously executed on the caller's
+        // (main) context, where a heavy analysis on an indicator toggle froze
+        // the UI — the "touching indicators crashes/hangs the app" report.
         val tradeProAnalysis = if (ind.tradePro) {
-            tradeProEngine.analyze(
-                symbol, displayCandles, appPreferences.tradeProConfig.value, htfContextCache,
-            )
+            withContext(defaultDispatcher) {
+                runCatching {
+                    tradeProEngine.analyze(
+                        symbol, displayCandles, appPreferences.tradeProConfig.value, htfContextCache,
+                    )
+                }.getOrNull()
+            }
         } else null
 
         val litXAnalysis = if (ind.litX) {
-            litXEngine.analyze(symbol, timeframe, displayCandles, appPreferences.litXConfig.value)
+            withContext(defaultDispatcher) {
+                runCatching {
+                    litXEngine.analyze(symbol, timeframe, displayCandles, appPreferences.litXConfig.value)
+                }.getOrNull()
+            }
         } else null
 
         val smtDivergences = if (ind.smt) {
-            // The correlatedCandles map is currently empty because peer-symbol candle
-            // data (e.g. DXY for EURUSD, or GBPUSD for EURUSD) is not yet fetched by
-            // MarketRepository for the current chart symbol. When a peer-data pipeline
-            // is implemented in the data layer (fetching correlated instruments alongside
-            // the primary symbol), that map should be populated here. Until then, the SMT
-            // detector returns an empty list because it early-returns on an empty map.
-            // The toggle remains wired so the UI and layer rendering are ready for when
-            // peer data becomes available.
-            smtDivergenceDetector.detect(symbol, displayCandles, emptyMap())
+            // Peer candles (e.g. GBPUSD/AUDUSD for a EURUSD chart) come from the
+            // same MtfContextProvider the AI pipeline uses, cached per
+            // symbol|timeframe alongside the HTF context. Without peers the
+            // detector early-returns an empty list — previously this was hard-
+            // coded to emptyMap(), which made the SMT toggle a permanent no-op.
+            withContext(defaultDispatcher) {
+                runCatching {
+                    smtDivergenceDetector.detect(symbol, displayCandles, correlatedContextCache)
+                }.getOrElse { emptyList() }
+            }
         } else emptyList()
 
         // Evaluate the selected strategy (or all strategies) over the visible
@@ -317,12 +370,14 @@ class ChartViewModel @Inject constructor(
         // the default dispatcher because several strategies re-run SMC
         // detection per bar. The all-strategies scan is bounded inside
         // LiveStrategyEngine (180 bars / 12 signals per strategy).
+        val activeStrategy = ind.activeStrategy
         val strategySignals = when {
             ind.allStrategies -> withContext(defaultDispatcher) {
-                liveStrategyEngine.evaluateAll(displayCandles)
+                runCatching { liveStrategyEngine.evaluateAll(displayCandles) }.getOrElse { emptyList() }
             }
-            ind.activeStrategy != null -> withContext(defaultDispatcher) {
-                liveStrategyEngine.evaluate(ind.activeStrategy, displayCandles)
+            activeStrategy != null -> withContext(defaultDispatcher) {
+                runCatching { liveStrategyEngine.evaluate(activeStrategy, displayCandles) }
+                    .getOrElse { emptyList() }
             }
             else -> emptyList()
         }
@@ -363,6 +418,33 @@ class ChartViewModel @Inject constructor(
                 confluence = result.confluence,
             )
         }
+    }
+
+    /**
+     * Volatility-derived Renko brick for the charted instrument: half the
+     * average true range of the most recent bars, floored to a tiny fraction
+     * of price so a flat series still produces bricks. Returns null when the
+     * data cannot support any sensible brick (e.g. all-identical prices).
+     */
+    private fun autoRenkoBrickSize(candles: List<Candle>): Double? {
+        if (candles.size < 2) return null
+        val window = candles.subList((candles.size - RENKO_AUTO_ATR_WINDOW).coerceAtLeast(0), candles.size)
+        var trSum = 0.0
+        var count = 0
+        for (i in 1 until window.size) {
+            val c = window[i]
+            val prevClose = window[i - 1].close
+            val tr = maxOf(c.high - c.low, kotlin.math.abs(c.high - prevClose), kotlin.math.abs(c.low - prevClose))
+            if (tr.isFinite()) {
+                trSum += tr
+                count++
+            }
+        }
+        if (count == 0) return null
+        val lastClose = candles.last().close
+        val floor = if (lastClose.isFinite() && lastClose > 0.0) lastClose * RENKO_AUTO_MIN_PRICE_FRACTION else 0.0
+        val brick = ((trSum / count) * RENKO_AUTO_ATR_FRACTION).coerceAtLeast(floor)
+        return if (brick.isFinite() && brick > 0.0) brick else null
     }
 
     // ========================================================================
@@ -429,6 +511,10 @@ class ChartViewModel @Inject constructor(
             indicators = updated,
             confluence = if (updated.confluence) _uiState.value.confluence else null,
         )
+        // The user explicitly asked for a different overlay set: give the render
+        // pipeline a clean quality slate so a previously-degraded session cannot
+        // silently skip the newly enabled indicator (see onOverlayConfigChanged).
+        performanceMonitor.onOverlayConfigChanged()
         viewModelScope.launch {
             try {
                 dataController.processMergedCandles(preferIncremental = false)
@@ -600,5 +686,16 @@ class ChartViewModel @Inject constructor(
             try { webSocket.disconnectAll() } catch (_: Exception) { }
         }
         replayEngine.stop()
+    }
+
+    private companion object {
+        /** Bars sampled when deriving an automatic Renko brick from volatility. */
+        const val RENKO_AUTO_ATR_WINDOW = 100
+
+        /** Brick = ATR × this fraction (half an average bar's range). */
+        const val RENKO_AUTO_ATR_FRACTION = 0.5
+
+        /** Absolute floor as a fraction of price, so flat data still bricks. */
+        const val RENKO_AUTO_MIN_PRICE_FRACTION = 0.0001
     }
 }

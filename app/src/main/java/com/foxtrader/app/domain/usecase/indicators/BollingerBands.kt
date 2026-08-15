@@ -52,12 +52,24 @@ class BollingerBands @Inject constructor() {
         // renders as an invisible/garbage overlay rather than an error.
         @Suppress("NAME_SHADOWING") val period = period.coerceAtLeast(1)
 
-        val startIndex = if (previous != null && recomputeFrom > 0) {
+        val requestedStart = if (previous != null && recomputeFrom > 0) {
             maxOf(0, recomputeFrom - period + 1)
         } else {
             0
         }
-        if (previous != null && previous.middle.size >= startIndex && startIndex > 0) {
+        // `SAFETY` Only resume when the previous snapshot covers the resume
+        // point (and has every band series at that length). A short snapshot
+        // previously skipped the copy but kept startIndex > 0, leaving a
+        // zeroed prefix that rendered bands at price 0 and wrecked auto-scale.
+        val canReuse = previous != null &&
+            requestedStart > 0 &&
+            previous.middle.size >= requestedStart &&
+            previous.upper.size >= requestedStart &&
+            previous.lower.size >= requestedStart &&
+            previous.percentB.size >= requestedStart &&
+            previous.bandwidth.size >= requestedStart
+        val startIndex = if (canReuse) requestedStart else 0
+        if (canReuse && previous != null) {
             System.arraycopy(previous.middle, 0, middle, 0, startIndex)
             System.arraycopy(previous.upper, 0, upper, 0, startIndex)
             System.arraycopy(previous.lower, 0, lower, 0, startIndex)
