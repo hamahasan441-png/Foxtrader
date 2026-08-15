@@ -184,6 +184,22 @@ class AppPreferences @Inject constructor(
     private val _mt4KillSwitch = MutableStateFlow(false)
     val mt4KillSwitch: StateFlow<Boolean> = _mt4KillSwitch.asStateFlow()
 
+    /** Max age (ms) of the reference quote before a live order is rejected. */
+    private val _mt4StaleQuoteTimeoutMs = MutableStateFlow(DEFAULT_MT4_STALE_QUOTE_MS)
+    val mt4StaleQuoteTimeoutMs: StateFlow<Long> = _mt4StaleQuoteTimeoutMs.asStateFlow()
+
+    /** Max age (ms) of the user's order confirmation before it is considered stale. */
+    private val _mt4ConfirmationTimeoutMs = MutableStateFlow(DEFAULT_MT4_CONFIRMATION_MS)
+    val mt4ConfirmationTimeoutMs: StateFlow<Long> = _mt4ConfirmationTimeoutMs.asStateFlow()
+
+    /** Minimum free margin (account currency) required to place a live order; 0 = off. */
+    private val _mt4MinFreeMargin = MutableStateFlow(0.0)
+    val mt4MinFreeMargin: StateFlow<Double> = _mt4MinFreeMargin.asStateFlow()
+
+    /** Ceiling on the day's realized loss (account currency) before live orders block; 0 = off. */
+    private val _mt4MaxDailyLoss = MutableStateFlow(0.0)
+    val mt4MaxDailyLoss: StateFlow<Double> = _mt4MaxDailyLoss.asStateFlow()
+
     init {
         // Load persisted values into StateFlows on init.
         scope.launch {
@@ -275,6 +291,14 @@ class AppPreferences @Inject constructor(
                     ?.takeIf { it.isNotBlank() }
                 _mt4LiveModeEnabled.value = prefs[KEY_MT4_LIVE_MODE] ?: false
                 _mt4KillSwitch.value = prefs[KEY_MT4_KILL_SWITCH] ?: false
+                _mt4StaleQuoteTimeoutMs.value =
+                    (prefs[KEY_MT4_STALE_QUOTE_TIMEOUT] ?: DEFAULT_MT4_STALE_QUOTE_MS)
+                        .coerceIn(MIN_MT4_STALE_QUOTE_MS, MAX_MT4_STALE_QUOTE_MS)
+                _mt4ConfirmationTimeoutMs.value =
+                    (prefs[KEY_MT4_CONFIRMATION_TIMEOUT] ?: DEFAULT_MT4_CONFIRMATION_MS)
+                        .coerceIn(MIN_MT4_CONFIRMATION_MS, MAX_MT4_CONFIRMATION_MS)
+                _mt4MinFreeMargin.value = prefs[KEY_MT4_MIN_FREE_MARGIN] ?: 0.0
+                _mt4MaxDailyLoss.value = prefs[KEY_MT4_MAX_DAILY_LOSS] ?: 0.0
             }
         }
     }
@@ -441,6 +465,42 @@ class AppPreferences @Inject constructor(
     }
 
     fun isMt4KillSwitchEngaged(): Boolean = _mt4KillSwitch.value
+
+    /** Set the max age (ms) of the reference quote before a live order is rejected. */
+    fun setMt4StaleQuoteTimeoutMs(value: Long) {
+        val clamped = value.coerceIn(MIN_MT4_STALE_QUOTE_MS, MAX_MT4_STALE_QUOTE_MS)
+        _mt4StaleQuoteTimeoutMs.value = clamped
+        scope.launch { context.dataStore.edit { it[KEY_MT4_STALE_QUOTE_TIMEOUT] = clamped } }
+    }
+
+    fun getMt4StaleQuoteTimeoutMs(): Long = _mt4StaleQuoteTimeoutMs.value
+
+    /** Set the max age (ms) of the order confirmation before it is considered stale. */
+    fun setMt4ConfirmationTimeoutMs(value: Long) {
+        val clamped = value.coerceIn(MIN_MT4_CONFIRMATION_MS, MAX_MT4_CONFIRMATION_MS)
+        _mt4ConfirmationTimeoutMs.value = clamped
+        scope.launch { context.dataStore.edit { it[KEY_MT4_CONFIRMATION_TIMEOUT] = clamped } }
+    }
+
+    fun getMt4ConfirmationTimeoutMs(): Long = _mt4ConfirmationTimeoutMs.value
+
+    /** Set the minimum free margin (account currency) required to place a live order; 0 = off. */
+    fun setMt4MinFreeMargin(value: Double) {
+        val normalized = if (value.isFinite()) value.coerceAtLeast(0.0) else 0.0
+        _mt4MinFreeMargin.value = normalized
+        scope.launch { context.dataStore.edit { it[KEY_MT4_MIN_FREE_MARGIN] = normalized } }
+    }
+
+    fun getMt4MinFreeMargin(): Double = _mt4MinFreeMargin.value
+
+    /** Set the daily realized-loss ceiling (account currency) before live orders block; 0 = off. */
+    fun setMt4MaxDailyLoss(value: Double) {
+        val normalized = if (value.isFinite()) value.coerceAtLeast(0.0) else 0.0
+        _mt4MaxDailyLoss.value = normalized
+        scope.launch { context.dataStore.edit { it[KEY_MT4_MAX_DAILY_LOSS] = normalized } }
+    }
+
+    fun getMt4MaxDailyLoss(): Double = _mt4MaxDailyLoss.value
 
     fun setDataProvider(provider: DataProvider) {
         _dataProvider.value = provider
@@ -718,6 +778,17 @@ class AppPreferences @Inject constructor(
         val KEY_TRADEPRO_ALERT_RULES = stringPreferencesKey("tradepro_alert_rules")
         val KEY_MT4_LIVE_MODE = booleanPreferencesKey("mt4_live_mode")
         val KEY_MT4_KILL_SWITCH = booleanPreferencesKey("mt4_kill_switch")
+        val KEY_MT4_STALE_QUOTE_TIMEOUT = longPreferencesKey("mt4_stale_quote_timeout")
+        val KEY_MT4_CONFIRMATION_TIMEOUT = longPreferencesKey("mt4_confirmation_timeout")
+        val KEY_MT4_MIN_FREE_MARGIN = doublePreferencesKey("mt4_min_free_margin")
+        val KEY_MT4_MAX_DAILY_LOSS = doublePreferencesKey("mt4_max_daily_loss")
+
+        const val DEFAULT_MT4_STALE_QUOTE_MS = 5_000L
+        const val MIN_MT4_STALE_QUOTE_MS = 500L
+        const val MAX_MT4_STALE_QUOTE_MS = 30_000L
+        const val DEFAULT_MT4_CONFIRMATION_MS = 60_000L
+        const val MIN_MT4_CONFIRMATION_MS = 5_000L
+        const val MAX_MT4_CONFIRMATION_MS = 300_000L
     }
 }
 

@@ -270,10 +270,10 @@ class Mt4RepositoryImpl @Inject constructor(
         liveModeEnabled = appPreferences.isMt4LiveModeEnabled(),
         emergencyKillSwitch = appPreferences.isMt4KillSwitchEngaged(),
         requireFreshConfirmation = true,
-        confirmationMaxAgeMs = CONFIRMATION_MAX_AGE_MS,
-        staleQuoteMaxAgeMs = STALE_QUOTE_MAX_AGE_MS,
-        maxDailyLossInAccountCurrency = 0.0, // daily-loss gate off unless wired to account history
-        minFreeMarginInAccountCurrency = 0.0, // free-margin gate off unless broker margin is populated
+        confirmationMaxAgeMs = appPreferences.getMt4ConfirmationTimeoutMs(),
+        staleQuoteMaxAgeMs = appPreferences.getMt4StaleQuoteTimeoutMs(),
+        maxDailyLossInAccountCurrency = appPreferences.getMt4MaxDailyLoss(),
+        minFreeMarginInAccountCurrency = appPreferences.getMt4MinFreeMargin(),
     )
 
     private suspend fun buildExecutionContext(symbol: String): ExecutionContext {
@@ -287,6 +287,9 @@ class Mt4RepositoryImpl @Inject constructor(
         return ExecutionContext(
             quote = quote,
             freeMargin = accountInfo?.freeMargin,
+            // No authoritative intraday realized P&L is wired yet, so the
+            // max-daily-loss gate stays permissive (null = gate skipped) until a
+            // realized P&L source feeds this. Free margin is populated above.
             dailyLossInAccountCurrency = null,
             accountCurrency = accountInfo?.currency ?: "USD",
             spec = buildInstrumentSpec(symbol, accountInfo?.currency ?: "USD"),
@@ -335,8 +338,6 @@ class Mt4RepositoryImpl @Inject constructor(
     }
 
     private companion object {
-        const val CONFIRMATION_MAX_AGE_MS = 60_000L
-        const val STALE_QUOTE_MAX_AGE_MS = 5_000L
         const val DEFAULT_MIN_VOLUME = 0.01
         const val DEFAULT_MAX_VOLUME = 100.0
         const val DEFAULT_VOLUME_STEP = 0.01

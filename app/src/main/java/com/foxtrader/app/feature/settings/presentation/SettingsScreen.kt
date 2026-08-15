@@ -38,6 +38,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -268,6 +270,117 @@ fun SettingsScreen(
                     selected = state.riskConfig.sizingMethod.name,
                     options = PositionSizingMethod.entries.map { it.name },
                     onSelect = { viewModel.setSizingMethod(PositionSizingMethod.valueOf(it)) },
+                )
+            }
+
+            // === LIVE TRADING (MT4) ===
+            SectionHeader("Live Trading (MT4)")
+
+            SettingsCard {
+                SwitchSetting(
+                    label = "Live mode",
+                    checked = state.mt4LiveModeEnabled,
+                    onCheckedChange = viewModel::setMt4LiveModeEnabled,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "Must be ON to place real MT4 orders. Off by default.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = FoxNeutral60,
+                )
+                if (state.mt4LiveModeEnabled) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "⚠ Live mode is enabled — real orders can be sent to your MT4 broker.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                SwitchSetting(
+                    label = "Emergency kill switch",
+                    checked = state.mt4KillSwitchEngaged,
+                    onCheckedChange = viewModel::setMt4KillSwitch,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = if (state.mt4KillSwitchEngaged) {
+                        "Engaged — all live MT4 orders are blocked."
+                    } else {
+                        "Block all live MT4 orders instantly. Keep this in mind while live mode is on."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (state.mt4KillSwitchEngaged) MaterialTheme.colorScheme.error else FoxNeutral60,
+                )
+
+                Spacer(Modifier.height(12.dp))
+
+                SliderSetting(
+                    label = "Stale quote timeout",
+                    value = (state.mt4StaleQuoteTimeoutMs / 1000f).coerceIn(0.5f, 30f),
+                    range = 0.5f..30f,
+                    suffix = "s",
+                    onValueChange = viewModel::setMt4StaleQuoteTimeoutSec,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "Reject an order if the latest MT4 quote is older than this.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = FoxNeutral60,
+                )
+
+                Spacer(Modifier.height(12.dp))
+
+                SliderSetting(
+                    label = "Confirmation timeout",
+                    value = (state.mt4ConfirmationTimeoutMs / 1000f).coerceIn(5f, 300f),
+                    range = 5f..300f,
+                    suffix = "s",
+                    onValueChange = viewModel::setMt4ConfirmationTimeoutSec,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "A confirmed order older than this is rejected; confirm again.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = FoxNeutral60,
+                )
+
+                Spacer(Modifier.height(12.dp))
+
+                // Min free margin
+                Text("Minimum free margin (account currency; 0 = off)", fontSize = 13.sp, color = FoxNeutral60)
+                Spacer(Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = if (state.mt4MinFreeMargin > 0) formatDecimal(state.mt4MinFreeMargin) else "0",
+                    onValueChange = { value ->
+                        viewModel.setMt4MinFreeMargin(value.toDoubleOrNull() ?: 0.0)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                )
+
+                Spacer(Modifier.height(12.dp))
+
+                // Max daily loss
+                Text("Max daily loss (account currency; 0 = off)", fontSize = 13.sp, color = FoxNeutral60)
+                Spacer(Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = if (state.mt4MaxDailyLoss > 0) formatDecimal(state.mt4MaxDailyLoss) else "0",
+                    onValueChange = { value ->
+                        viewModel.setMt4MaxDailyLoss(value.toDoubleOrNull() ?: 0.0)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "Note: the max-daily-loss gate needs an intraday realized-P&L source; it is currently advisory.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = FoxNeutral60,
                 )
             }
 
@@ -711,6 +824,12 @@ private fun SliderSetting(
             ),
         )
     }
+}
+
+/** Renders a Double setting as a compact decimal string (no trailing zeros). */
+private fun formatDecimal(value: Double): String {
+    if (value == value.toLong().toDouble()) return value.toLong().toString()
+    return "%.2f".format(value).trimEnd('0').trimEnd('.')
 }
 
 private fun formatSliderValue(value: Float, suffix: String): String {
