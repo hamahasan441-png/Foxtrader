@@ -276,12 +276,14 @@ class Mt4RepositoryImpl @Inject constructor(
         minFreeMarginInAccountCurrency = 0.0, // free-margin gate off unless broker margin is populated
     )
 
-    private fun buildExecutionContext(symbol: String): ExecutionContext {
+    private suspend fun buildExecutionContext(symbol: String): ExecutionContext {
         val quote = quoteStream.latestQuote(symbol)
-        val accountInfo = runCatching {
+        val accountInfo = try {
             val token = requireToken()
             if (accountId.isNotBlank()) dataSource.getAccountInfo(token, accountId) else null
-        }.getOrNull()
+        } catch (_: Exception) {
+            null
+        }
         return ExecutionContext(
             quote = quote,
             freeMargin = accountInfo?.freeMargin,

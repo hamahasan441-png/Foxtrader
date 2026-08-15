@@ -61,6 +61,6 @@ data class InstrumentSpec(
 
     private fun Double.roundToLongOrZero(): Long {
         if (!this.isFinite()) return 0L
-        return kotlin.math.round(this)
+        return kotlin.math.round(this).toLong()
     }
 }
