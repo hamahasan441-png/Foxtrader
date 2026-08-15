@@ -15,8 +15,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -35,6 +35,14 @@ import kotlin.math.max
 import kotlin.math.min
 
 private val VolumeLabelArgb = android.graphics.Color.parseColor("#99999F")
+
+// `PERF` Hoisted colors + reusable direction-bucket paths (rewound per frame,
+// never reallocated; single-threaded render). `.copy(alpha=)` per bar
+// previously allocated a Color box for every visible bar every frame.
+private val BullVolumeColor = FoxBullish.copy(alpha = 0.55f)
+private val BearVolumeColor = FoxBearish.copy(alpha = 0.55f)
+private val bullVolPath = Path()
+private val bearVolPath = Path()
 
 /**
  * Volume histogram sub-pane — a separate resizable pane below the price chart
@@ -108,24 +116,24 @@ fun VolumePane(
                 if (candles[i].volume > maxVol) maxVol = candles[i].volume
             }
 
+            // `PERF` Batched: bars are bucketed by direction into two shared
+            // Paths, each filled ONCE — 2 Canvas calls per frame instead of a
+            // drawRect + a Color allocation per visible bar per gesture frame.
             val barWidth = (chartW / visibleBars * 0.7f).coerceAtLeast(1f)
+            val halfBar = barWidth / 2f
+            bullVolPath.rewind()
+            bearVolPath.rewind()
             for (i in visStart until visEnd) {
                 val cx = (i + 0.5f - startIndex) / visibleBars * chartW
                 if (cx < 0f || cx > chartW) continue
                 val candle = candles[i]
                 val volH = (candle.volume / maxVol * chartH).toFloat().coerceAtLeast(1f)
                 val top = chartH - volH
-                val color = if (candle.isBullish) {
-                    FoxBullish.copy(alpha = 0.55f)
-                } else {
-                    FoxBearish.copy(alpha = 0.55f)
-                }
-                drawRect(
-                    color = color,
-                    topLeft = Offset(cx - barWidth / 2f, top),
-                    size = Size(barWidth, volH),
-                )
+                val path = if (candle.isBullish) bullVolPath else bearVolPath
+                path.addRect(Rect(cx - halfBar, top, cx + halfBar, top + volH))
             }
+            if (!bullVolPath.isEmpty) drawPath(bullVolPath, BullVolumeColor)
+            if (!bearVolPath.isEmpty) drawPath(bearVolPath, BearVolumeColor)
 
             val canvas = drawContext.canvas.nativeCanvas
             labelPaint.textAlign = Paint.Align.RIGHT

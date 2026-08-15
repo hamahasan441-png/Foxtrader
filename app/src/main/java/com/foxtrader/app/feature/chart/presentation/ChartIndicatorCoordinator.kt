@@ -58,6 +58,7 @@ internal class ChartIndicatorCoordinator(
             bias = computation.bias,
             structureBreaks = computation.structureBreaks,
             overlays = computation.overlays,
+            marketExplanation = computation.marketExplanation,
         )
 
         return computation
@@ -121,13 +122,23 @@ internal class ChartIndicatorCoordinator(
         val windowCandles = candles.subList(windowStart, size)
         val structure = analyzeStructure(windowCandles)
         val overlays = computeIndicators(windowCandles, toggles)
-        val explanation = if (candles.size >= 50) {
-            marketExplanationEngine.explain(
+        // `PERF` The market-explanation narrative re-runs full structure + SMC
+        // analysis over the whole series — by far the heaviest part of an
+        // incremental frame, and it ran on EVERY intra-bar tick. The narrative
+        // is bar-granular by nature (HTF bias, value zone, liquidity), so
+        // recompute it only when a NEW bar has closed; on last-bar tick updates
+        // reuse the previous explanation. This cuts incremental-frame cost by
+        // roughly the explanation's share (structure+SMC over N bars) at tick
+        // frequency, with zero visible difference until the bar closes.
+        val explanation = when {
+            candles.size < 50 -> null
+            isLastBarUpdate -> previous.marketExplanation
+            else -> marketExplanationEngine.explain(
                 symbol = symbol,
                 timeframe = timeframe,
                 candles = candles.asCandleSeries(),
             )
-        } else null
+        }
 
         return ChartComputation(
             bias = structure.bias,
@@ -249,6 +260,8 @@ internal data class ProcessedSnapshot(
     val bias: Bias,
     val structureBreaks: List<com.foxtrader.app.domain.model.StructureBreak>,
     val overlays: ComputeIndicatorsUseCase.Result,
+    /** Reused on intra-bar ticks so the narrative engine only runs per closed bar. */
+    val marketExplanation: MarketExplanation? = null,
 )
 
 internal data class ChartComputation(

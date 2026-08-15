@@ -16,9 +16,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -39,8 +39,19 @@ private val MacdLineColor = Color(0xFF2196F3)   // Blue MACD line
 private val SignalLineColor = Color(0xFFFF9800)  // Orange signal line
 private val HistPositive = Color(0xFF00C873)     // Green histogram (bullish)
 private val HistNegative = Color(0xFFE8364F)     // Red histogram (bearish)
+// `PERF` Hoisted faded variants — `.copy(alpha=)` per bar allocated a Color
+// box every histogram bar every frame.
+private val HistPositiveFaded = HistPositive.copy(alpha = 0.5f)
+private val HistNegativeFaded = HistNegative.copy(alpha = 0.5f)
 private val ZeroLineColor = Color(0x33FFFFFF)
 private val MacdLabelArgb = android.graphics.Color.parseColor("#99999F")
+
+// `PERF` Reusable histogram bucket paths — rewound each frame, never
+// reallocated. Safe: all drawing happens on the single render thread.
+private val histPosBright = Path()
+private val histPosFaded = Path()
+private val histNegBright = Path()
+private val histNegFaded = Path()
 
 /**
  * MACD oscillator sub-chart — rendered below the main candlestick chart.
@@ -146,8 +157,15 @@ fun MacdSubChart(
                 strokeWidth = 1f,
             )
 
-            // Histogram bars
+            // Histogram bars.
+            // `PERF` Batched: bars are bucketed by their 4 colour variants
+            // (pos/neg × rising/fading) into shared Paths and each bucket is
+            // filled ONCE — 4 Canvas calls per frame instead of one drawRect
+            // (+Offset+Size allocations) per visible bar per gesture frame.
             val barWidth = (chartW / visibleBars * 0.7f).coerceAtLeast(1f)
+            val halfBar = barWidth / 2f
+            histPosBright.rewind(); histPosFaded.rewind()
+            histNegBright.rewind(); histNegFaded.rewind()
             for (i in visStart until visEnd) {
                 if (i >= macdHistogram.size) continue
                 val cx = xForIndex(i + 0.5f)
@@ -156,33 +174,34 @@ fun MacdSubChart(
                 val prevHist = if (i > 0 && i - 1 < macdHistogram.size) macdHistogram[i - 1] else histVal
                 // Brighter when the histogram is expanding in its direction.
                 val rising = abs(histVal) >= abs(prevHist)
-                val baseColor = if (histVal >= 0) HistPositive else HistNegative
-                val color = if (rising) baseColor else baseColor.copy(alpha = 0.5f)
                 val yVal = yForValue(histVal)
                 val top = min(yVal, zeroY)
                 val barH = max(1f, abs(yVal - zeroY))
-                drawRect(
-                    color = color,
-                    topLeft = Offset(cx - barWidth / 2f, top),
-                    size = Size(barWidth, barH),
-                )
+                val path = when {
+                    histVal >= 0 && rising -> histPosBright
+                    histVal >= 0 -> histPosFaded
+                    rising -> histNegBright
+                    else -> histNegFaded
+                }
+                path.addRect(Rect(cx - halfBar, top, cx + halfBar, top + barH))
             }
+            if (!histPosBright.isEmpty) drawPath(histPosBright, HistPositive)
+            if (!histPosFaded.isEmpty) drawPath(histPosFaded, HistPositiveFaded)
+            if (!histNegBright.isEmpty) drawPath(histNegBright, HistNegative)
+            if (!histNegFaded.isEmpty) drawPath(histNegFaded, HistNegativeFaded)
 
             // MACD line + signal line.
-            // `PERF` Coordinates are computed inside drawSeriesLine from scalars
-            // rather than via per-call `(Float)->Float` / `(Double)->Float`
-            // lambdas, which previously allocated four closures every frame
-            // (this pane redraws on every pan/zoom frame via the viewport flow).
+            // `PERF` Each series is a single batched Path stroke (see
+            // drawSeriesLine) — this pane redraws on every pan/zoom frame via
+            // the viewport flow, so per-bar Canvas calls were the hot spot.
             drawSeriesLine(
                 series = macdLine,
-                visStart = visStart, visEnd = visEnd,
                 startIndex = startIndex, visibleBars = visibleBars,
                 chartW = chartW, chartH = chartH, maxAbs = maxAbs,
                 color = MacdLineColor,
             )
             drawSeriesLine(
                 series = macdSignal,
-                visStart = visStart, visEnd = visEnd,
                 startIndex = startIndex, visibleBars = visibleBars,
                 chartW = chartW, chartH = chartH, maxAbs = maxAbs,
                 color = SignalLineColor,
@@ -201,14 +220,12 @@ fun MacdSubChart(
 /**
  * Draw a value series as a connected line, viewport-culled.
  *
- * `PERF` Coordinate math is done inline from scalar params (no `xForIndex` /
- * `yForValue` lambda parameters) so no `Function` objects are allocated per
- * frame. `yForValue` mirrors the panel's symmetric-around-zero mapping.
+ * `PERF` Batched into a single Path stroke via [strokePaneSeries] — one
+ * Canvas call per series instead of one drawLine (+2 Offset allocations)
+ * per visible bar on every pan/zoom frame.
  */
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawSeriesLine(
     series: ImmutableDoubleSeries,
-    visStart: Int,
-    visEnd: Int,
     startIndex: Float,
     visibleBars: Float,
     chartW: Float,
@@ -217,20 +234,12 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawSeriesLine(
     color: Color,
 ) {
     val half = chartH / 2f
-    for (i in visStart until visEnd - 1) {
-        if (i + 1 >= series.size) break
-        val x1 = (i + 0.5f - startIndex) / visibleBars * chartW
-        val x2 = (i + 1.5f - startIndex) / visibleBars * chartW
-        if (x1 > chartW && x2 > chartW) continue
-        if (x1 < 0f && x2 < 0f) continue
-        val y1 = half - (series[i] / maxAbs * half).toFloat()
-        val y2 = half - (series[i + 1] / maxAbs * half).toFloat()
-        drawLine(
-            color = color,
-            start = Offset(x1, y1),
-            end = Offset(x2, y2),
-            strokeWidth = 1.8f,
-            cap = StrokeCap.Round,
-        )
-    }
+    strokePaneSeries(
+        series = series,
+        startIndex = startIndex,
+        visibleBars = visibleBars,
+        chartW = chartW,
+        color = color,
+        strokeWidth = 1.8f,
+    ) { v -> half - (v / maxAbs * half).toFloat() }
 }

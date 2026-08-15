@@ -493,3 +493,62 @@ zoom the body caps at `barWidth - 1px` so adjacent bodies never fuse.
 No JDK/Android SDK is available in this sandbox; changes were reviewed
 statically and covered with JVM unit tests. The `android.yml` CI job remains
 the authoritative build/test gate.
+
+---
+
+# Chart performance pass (2026-08-15, follow-up)
+
+Same hot paths as the stability pass, now optimised. Theme: the draw pass was
+correct but issued *per-bar* Canvas calls and per-frame allocations everywhere;
+everything below batches work into O(1) Canvas calls per layer and removes
+per-frame garbage.
+
+## Draw-pass batching (main chart)
+
+- **Candle layer**: was 2 Compose draw calls + several small allocations per
+  candle. Now: wicks bucketed by direction into reusable float buffers and
+  submitted as TWO native `drawLines` calls; bodies drawn via a shared native
+  Paint (no Offset/Size/brush allocations). Thin-bar mode additionally does
+  min-max pixel-column downsampling, bounding emitted lines by chart width
+  instead of bar count (matters at MAX_VISIBLE_BARS = 100k).
+- **All line overlays** (EMA, VWAP, Bollinger, Keltner, Donchian, Ichimoku
+  lines, anchored VWAP): one `drawLine` per bar → ONE batched Path stroke per
+  series, with ~1-vertex-per-pixel LOD striding and built-in NaN gaps.
+- **SuperTrend**: per-segment colored lines → two direction-bucketed Paths.
+- **Ichimoku Kumo cloud**: one `drawRect` per bar → same-color runs merged
+  into closed quads in two Paths, each filled once.
+- **Parabolic SAR**: one `drawCircle` per dot → ONE native `drawPoints` call
+  with a reusable coordinate buffer.
+
+## Draw-pass batching (sub-panes — redraw on every pan/zoom frame)
+
+- Shared `strokePaneSeries` helper (PanePolyline.kt): RSI (3 zone-colored
+  paths), MACD lines, Stochastic %K/%D, OBV, MFI — all single-path strokes.
+- **MACD histogram**: per-bar `drawRect` + per-bar `Color.copy` → 4
+  color-bucketed Paths filled once each.
+- **Volume pane**: per-bar `drawRect` + per-bar `Color.copy` → 2 direction
+  Paths.
+- Hoisted per-frame allocations: dash `PathEffect`s, `.copy(alpha=)` guide
+  colors.
+
+## Per-frame / per-tick CPU + GC
+
+- **Price-scale labels**: `String.format` per label per frame → cached with
+  the grid-level cache; last-price tag memoised on the close value.
+- **Viewport persistence**: cancel-and-relaunch coroutine per pan/zoom frame
+  (≤120 Job allocations/s while dragging) → single long-lived debounced
+  worker fed by a lock-free `tryEmit`.
+- **Room emission dedup key**: interpolated String per DB emission → value
+  data class compared field-by-field.
+- **CandleSeries.supportsLogScale**: eager O(n) scan per wrap (per tick) →
+  lazy, computed only when the log-scale control reads it.
+- **Market explanation on ticks**: the narrative engine (full structure + SMC
+  over the whole series) ran on every intra-bar tick inside the incremental
+  frame. Now reused from the previous snapshot until a bar closes. Pinned by
+  `ChartIndicatorCoordinatorPerfTest` (same-instance on tick, fresh on close).
+
+### Environment note
+
+No JDK/Android SDK in this sandbox; changes reviewed statically (brace
+balance, import audit, stride-loop and buffer-growth simulation) and covered
+with JVM unit tests. `android.yml` CI remains the authoritative gate.

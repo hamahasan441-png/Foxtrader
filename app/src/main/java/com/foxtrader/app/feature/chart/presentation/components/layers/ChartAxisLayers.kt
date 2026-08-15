@@ -3,26 +3,15 @@ package com.foxtrader.app.feature.chart.presentation.components.layers
 import android.graphics.Paint
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.nativeCanvas
 import com.foxtrader.app.domain.model.Candle
-import com.foxtrader.app.domain.model.Direction
-import com.foxtrader.app.domain.model.StructureBreak
-import com.foxtrader.app.domain.model.StructureBreakType
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.feature.chart.presentation.components.ChartViewport
-import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxBearish
 import com.foxtrader.app.ui.theme.FoxBullish
-import com.foxtrader.app.ui.theme.FoxNeutral10
 import com.foxtrader.app.ui.theme.FoxNeutral20
 import com.foxtrader.app.ui.theme.FoxNeutral5
-import com.foxtrader.app.ui.theme.FoxNeutral60
-import java.util.Locale
-import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
@@ -67,9 +56,10 @@ internal fun DrawScope.drawPriceScale(
         val level = viewport.priceGridLevel(levelIndex)
         val y = viewport.yForPrice(level, ch)
         if (y in 0f..ch) {
-            val label = viewport.formatPrice(level)
+            // `PERF` Cached label — String.format only runs when the grid
+            // levels actually change, not on every frame.
             drawContext.canvas.nativeCanvas.drawText(
-                label,
+                viewport.priceGridLabel(levelIndex),
                 totalW - 6f,
                 y + paint.textSize / 3f,
                 paint,
@@ -94,7 +84,7 @@ internal fun DrawScope.drawPriceScale(
     )
     tagPaint.textAlign = Paint.Align.CENTER
     drawContext.canvas.nativeCanvas.drawText(
-        viewport.formatPrice(last.close),
+        viewport.formatPriceMemo(last.close),
         cw + viewport.priceScaleWidth / 2f,
         (lastY - tagH / 2f).coerceIn(0f, ch - tagH) + tagH * 0.72f,
         tagPaint,

@@ -53,15 +53,42 @@ internal class ChartDataController(
     var loadError: String? = null
         private set
 
+    /**
+     * Cheap value-type change key for Room emissions.
+     *
+     * `PERF` Replaces the previous string-concatenation fingerprint, which
+     * built (and immediately discarded) an interpolated String on every DB
+     * emission — including the no-change emissions Room fires on unrelated
+     * table writes. A data class compares field-by-field with zero transient
+     * allocations beyond the small key object itself.
+     */
+    private data class EmissionKey(
+        val source: CandleSource,
+        val size: Int,
+        val lastTimestamp: Long?,
+        val lastOpen: Double?,
+        val lastHigh: Double?,
+        val lastLow: Double?,
+        val lastClose: Double?,
+        val lastVolume: Double?,
+    )
+
     @OptIn(ExperimentalCoroutinesApi::class)
     fun observeMarket() {
         combine(symbolFlow, timeframeFlow) { symbol, tf -> symbol to tf }
             .flatMapLatest { (symbol, tf) -> repository.observeSourcedCandles(symbol, tf) }
             .distinctUntilChangedBy { sourced ->
-                val list = sourced.candles
-                val last = list.lastOrNull()
-                "${sourced.source}:${list.size}:${last?.timestamp}:${last?.open}:" +
-                    "${last?.high}:${last?.low}:${last?.close}:${last?.volume}"
+                val last = sourced.candles.lastOrNull()
+                EmissionKey(
+                    source = sourced.source,
+                    size = sourced.candles.size,
+                    lastTimestamp = last?.timestamp,
+                    lastOpen = last?.open,
+                    lastHigh = last?.high,
+                    lastLow = last?.low,
+                    lastClose = last?.close,
+                    lastVolume = last?.volume,
+                )
             }
             .onEach { sourced ->
                 currentObservedCandles = sourced

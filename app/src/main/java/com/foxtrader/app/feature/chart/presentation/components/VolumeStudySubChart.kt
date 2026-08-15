@@ -17,8 +17,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -37,6 +35,9 @@ private val ObvLine = Color(0xFF20C997)
 private val MfiLine = Color(0xFFAB47BC)
 private val MfiOverbought = Color(0xFFE53935)
 private val MfiOversold = Color(0xFF43A047)
+// `PERF` Hoisted guide colors — previously allocated per frame via copy(alpha=).
+private val MfiOverboughtGuide = MfiOverbought.copy(alpha = 0.5f)
+private val MfiOversoldGuide = MfiOversold.copy(alpha = 0.5f)
 private val GridLineColor = Color(0x33FFFFFF)
 private val LabelArgb = android.graphics.Color.parseColor("#99999F")
 
@@ -99,30 +100,17 @@ fun ObvSubChart(
             val range = (hi - lo).takeIf { it > 1e-9 } ?: 1.0
 
             fun yFor(value: Double): Float = ((hi - value) / range * chartH).toFloat()
-            fun xForIndex(index: Float): Float = (index - startIndex) / visibleBars * chartW
-
             val midY = yFor(lo + range / 2.0)
             drawLine(
                 GridLineColor,
                 Offset(0f, midY),
                 Offset(chartW, midY),
                 strokeWidth = 0.5f,
-                pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 4f)),
+                pathEffect = PaneDash,
             )
 
-            for (i in visStart until visEnd - 1) {
-                val x1 = xForIndex(i + 0.5f)
-                val x2 = xForIndex(i + 1.5f)
-                if (x1 > chartW && x2 > chartW) continue
-                if (x1 < 0f && x2 < 0f) continue
-                drawLine(
-                    color = ObvLine,
-                    start = Offset(x1, yFor(obv[i])),
-                    end = Offset(x2, yFor(obv[i + 1])),
-                    strokeWidth = 1.8f,
-                    cap = StrokeCap.Round,
-                )
-            }
+            // `PERF` One batched Path stroke instead of a drawLine per bar.
+            strokePaneSeries(obv, startIndex, visibleBars, chartW, ObvLine, 1.8f) { v -> yFor(v) }
 
             val canvas = drawContext.canvas.nativeCanvas
             canvas.drawText(formatCompact(hi), w - 4f, 10f, labelPaint)
@@ -180,31 +168,14 @@ fun MoneyFlowSubChart(
             val chartH = size.height
 
             fun yFor(value: Double): Float = ((100.0 - value) / 100.0 * chartH).toFloat()
-            fun xForIndex(index: Float): Float = (index - startIndex) / visibleBars * chartW
-
-            val dashEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 4f))
+            val dashEffect = PaneDash
             val y80 = yFor(80.0)
             val y20 = yFor(20.0)
-            drawLine(MfiOverbought.copy(alpha = 0.5f), Offset(0f, y80), Offset(chartW, y80), strokeWidth = 1f, pathEffect = dashEffect)
-            drawLine(MfiOversold.copy(alpha = 0.5f), Offset(0f, y20), Offset(chartW, y20), strokeWidth = 1f, pathEffect = dashEffect)
+            drawLine(MfiOverboughtGuide, Offset(0f, y80), Offset(chartW, y80), strokeWidth = 1f, pathEffect = dashEffect)
+            drawLine(MfiOversoldGuide, Offset(0f, y20), Offset(chartW, y20), strokeWidth = 1f, pathEffect = dashEffect)
 
-            if (mfi.size >= 2) {
-                val visStart = max(0, startIndex.toInt())
-                val visEnd = min(mfi.size, (startIndex + visibleBars).toInt() + 1)
-                for (i in visStart until visEnd - 1) {
-                    val x1 = xForIndex(i + 0.5f)
-                    val x2 = xForIndex(i + 1.5f)
-                    if (x1 > chartW && x2 > chartW) continue
-                    if (x1 < 0f && x2 < 0f) continue
-                    drawLine(
-                        color = MfiLine,
-                        start = Offset(x1, yFor(mfi[i])),
-                        end = Offset(x2, yFor(mfi[i + 1])),
-                        strokeWidth = 1.8f,
-                        cap = StrokeCap.Round,
-                    )
-                }
-            }
+            // `PERF` One batched Path stroke instead of a drawLine per bar.
+            strokePaneSeries(mfi, startIndex, visibleBars, chartW, MfiLine, 1.8f) { v -> yFor(v) }
 
             val canvas = drawContext.canvas.nativeCanvas
             canvas.drawText("80", w - 4f, y80 + 4f, labelPaint)
