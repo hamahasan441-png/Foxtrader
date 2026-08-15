@@ -39,8 +39,10 @@ class Settings:
 
     #: Which provider to serve candles from. Only "sample" ships today.
     provider: str = "sample"
-    #: CORS allow-list; "*" in dev.
-    cors_origins: list[str] = field(default_factory=lambda: ["*"])
+    #: CORS allow-list. Defaults to a single local origin rather than "*" so a
+    #: fresh deployment never silently allows any cross-origin site to call the
+    #: API. Operators must explicitly opt in to a wildcard or extra origins.
+    cors_origins: list[str] = field(default_factory=lambda: ["http://localhost"])
     #: Whether credentialed (cookies / Authorization) cross-origin requests are
     #: allowed. The application will only honour this when [cors_origins] is an
     #: explicit non-wildcard allow-list; a wildcard origin can never carry
@@ -65,7 +67,7 @@ class Settings:
     def from_env() -> Settings:
         return Settings(
             provider=os.environ.get("FOX_PROVIDER", "sample").strip() or "sample",
-            cors_origins=_split_csv(os.environ.get("FOX_CORS_ORIGINS", "*")) or ["*"],
+            cors_origins=_split_csv(os.environ.get("FOX_CORS_ORIGINS", "http://localhost")) or ["http://localhost"],
             allow_credentials=_env_bool("FOX_ALLOW_CREDENTIALS", True),
             # Real deployments default to the durable SQLite backend.
             store_backend=(os.environ.get("FOX_STORE", "sqlite").strip() or "sqlite").lower(),

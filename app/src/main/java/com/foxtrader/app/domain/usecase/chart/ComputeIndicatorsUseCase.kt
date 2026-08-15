@@ -204,6 +204,12 @@ class ComputeIndicatorsUseCase @Inject constructor(
      * Safe to call on Dispatchers.Default (CPU-bound, no I/O).
      */
     operator fun invoke(candles: List<Candle>, toggles: IndicatorToggles): Result {
+        // Reject malformed external candles before any indicator math runs. A
+        // non-finite or negative price, or a high below its low, can produce
+        // NaN/Infinity that then poisons every dependent indicator and the
+        // published chart state. Fail closed: return an empty frame instead.
+        if (!areWellFormed(candles)) return emptyResult()
+
         val emaShort = if (toggles.ema && candles.size >= 20)
             TechnicalIndicators.calculateEMA(candles, 20) else null
         val emaLong = if (toggles.ema && candles.size >= 50)
@@ -302,9 +308,12 @@ class ComputeIndicatorsUseCase @Inject constructor(
             ichimokuSenkouA = ichimoku?.senkouA,
             ichimokuSenkouB = ichimoku?.senkouB,
             ichimokuChikou = ichimoku?.chikou,
-            orderBlocks = orderBlocks,
-            fairValueGaps = fairValueGaps,
-            liquidityPools = liquidityPools,
+            // SMC render lists are capped to the most recent items to bound
+            // Canvas/GC work on large charts; the tail is the only part a
+            // renderer actually draws.
+            orderBlocks = capRecent(orderBlocks, SMC_RENDER_CAP),
+            fairValueGaps = capRecent(fairValueGaps, SMC_RENDER_CAP),
+            liquidityPools = capRecent(liquidityPools, SMC_RENDER_CAP),
             volumeProfile = volumeProfile,
             marketProfile = marketProfileResult,
             supportResistanceZones = supportResistanceZones,
@@ -322,6 +331,10 @@ class ComputeIndicatorsUseCase @Inject constructor(
         previous: Result,
         recomputeFrom: Int,
     ): Result {
+        // Preserve the latest valid frame rather than run indicator math on
+        // malformed bars.
+        if (!areWellFormed(candles)) return previous
+
         val emaShort = if (toggles.ema && candles.size >= 20)
             TechnicalIndicators.calculateEMAIncremental(candles, 20, previous.emaShort, recomputeFrom) else null
         val emaLong = if (toggles.ema && candles.size >= 50)
@@ -465,6 +478,65 @@ class ComputeIndicatorsUseCase @Inject constructor(
         val swingLow: Double,
     )
 
+    private fun areWellFormed(candles: List<Candle>): Boolean =
+        candles.all { c ->
+            c.open.isFinite() && c.high.isFinite() && c.low.isFinite() &&
+                c.close.isFinite() && c.volume.isFinite() &&
+                c.open > 0.0 && c.high > 0.0 && c.low > 0.0 && c.close > 0.0 &&
+                c.high >= c.low && c.volume >= 0.0
+        }
+
+    /** Caps a list to its [max] most-recent (trailing) entries. */
+    private fun <T> capRecent(list: List<T>, max: Int): List<T> =
+        if (list.size <= max) list else list.takeLast(max)
+
+    /** A fully-empty result used to fail closed on malformed input. */
+    private fun emptyResult(): Result = Result(
+        emaShort = null,
+        emaLong = null,
+        bollingerUpper = null,
+        bollingerMiddle = null,
+        bollingerLower = null,
+        superTrendValues = null,
+        superTrendDir = null,
+        superTrendFinalUpper = null,
+        superTrendFinalLower = null,
+        parabolicSar = null,
+        vwap = null,
+        anchoredVwap = null,
+        rsi = null,
+        macdLine = null,
+        macdSignal = null,
+        macdHistogram = null,
+        stochasticK = null,
+        stochasticD = null,
+        obv = null,
+        moneyFlowIndex = null,
+        keltnerUpper = null,
+        keltnerMiddle = null,
+        keltnerLower = null,
+        donchianUpper = null,
+        donchianMiddle = null,
+        donchianLower = null,
+        pivotLevels = null,
+        ichimokuTenkan = null,
+        ichimokuKijun = null,
+        ichimokuSenkouA = null,
+        ichimokuSenkouB = null,
+        ichimokuChikou = null,
+        orderBlocks = emptyList(),
+        fairValueGaps = emptyList(),
+        liquidityPools = emptyList(),
+        volumeProfile = null,
+        marketProfile = null,
+        supportResistanceZones = emptyList(),
+        autoFibLevels = emptyList(),
+        autoFibDirection = null,
+        autoFibSwingHigh = null,
+        autoFibSwingLow = null,
+        sessions = emptyList(),
+    )
+
     private companion object {
         const val AUTO_FIB_LOOKBACK = 120
         const val AUTO_FIB_MIN_BARS = 30
@@ -474,5 +546,6 @@ class ComputeIndicatorsUseCase @Inject constructor(
         const val MFI_MIN_BARS = 15
         const val KELTNER_MIN_BARS = 20
         const val DONCHIAN_MIN_BARS = 20
+        const val SMC_RENDER_CAP = 80
     }
 }

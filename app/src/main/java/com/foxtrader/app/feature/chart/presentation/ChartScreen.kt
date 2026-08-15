@@ -180,7 +180,7 @@ fun ChartScreen(
                 onCalculatorClick = viewModel::openCalculator,
                 onSymbolClick = viewModel::openSymbolPicker,
                 onLiveToggle = viewModel::toggleLive,
-                onLitXClick = { onNavigateToLitX(state.symbol, state.timeframe) },
+                onToggleAnalysis = { analysisExpanded = !analysisExpanded },
             )
         }
 
@@ -584,7 +584,7 @@ private fun ChartTopBar(
     onCalculatorClick: () -> Unit,
     onSymbolClick: () -> Unit,
     onLiveToggle: () -> Unit,
-    onLitXClick: () -> Unit,
+    onToggleAnalysis: () -> Unit,
 ) {
     val currentSymbolDescription = stringResource(R.string.chart_current_symbol_cd, state.symbol)
     val live = connectionState == ConnectionState.CONNECTED
@@ -677,10 +677,10 @@ private fun ChartTopBar(
                 modifier = Modifier.size(18.dp),
             )
         }
-        IconButton(onClick = onLitXClick, modifier = Modifier.size(32.dp)) {
+        IconButton(onClick = onToggleAnalysis, modifier = Modifier.size(32.dp)) {
             Icon(
                 Icons.Default.Insights,
-                contentDescription = stringResource(R.string.chart_open_litx),
+                contentDescription = stringResource(R.string.chart_insights),
                 tint = FoxAmber50,
                 modifier = Modifier.size(18.dp),
             )

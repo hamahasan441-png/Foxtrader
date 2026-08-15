@@ -1,13 +1,16 @@
 package com.foxtrader.app.feature.mt4.presentation
 
+import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.Mt4AccountInfo
+import com.foxtrader.app.domain.model.Mt4Broker
 import com.foxtrader.app.domain.model.Mt4Position
+import com.foxtrader.app.domain.model.Mt4Quote
 
 /**
  * UI state for the MT4 connection feature.
  *
  * Represents the full lifecycle: disconnected (login form), connecting (loading),
- * connected (account info + positions), and error states.
+ * connected (account info + positions + live trading), and error states.
  */
 sealed interface Mt4UiState {
 
@@ -24,6 +27,10 @@ sealed interface Mt4UiState {
         val password: String = "",
         val server: String = "",
         val error: String? = null,
+        /** Current broker-search query (for the search field). */
+        val brokerQuery: String = "",
+        /** Broker search results matching [brokerQuery]. */
+        val brokerResults: List<Mt4Broker> = emptyList(),
     ) : Mt4UiState {
         val canSubmit: Boolean
             get() = login.isNotBlank() && password.isNotBlank() && server.isNotBlank()
@@ -35,17 +42,47 @@ sealed interface Mt4UiState {
     data object Connecting : Mt4UiState
 
     /**
-     * Successfully connected; showing account info and positions.
-     *
-     * @param accountInfo The connected account information.
-     * @param positions Currently open positions.
-     * @param isRefreshing True while data is being refreshed.
+     * Successfully connected; showing account info, positions, and live trading.
      */
     data class Connected(
         val accountInfo: Mt4AccountInfo,
         val positions: List<Mt4Position> = emptyList(),
         val isRefreshing: Boolean = false,
-    ) : Mt4UiState
+        // --- Live trading controls ---
+        val liveModeEnabled: Boolean = false,
+        val killSwitchEngaged: Boolean = false,
+        /** Latest quote for [tradeSymbol], used for the live price + stale gate. */
+        val quote: Mt4Quote? = null,
+        /** Symbol being traded (prefilled from the current chart symbol). */
+        val tradeSymbol: String = "EURUSD",
+        val tradeDirection: Direction = Direction.BULLISH,
+        val lotsInput: String = "0.01",
+        val slInput: String = "",
+        val tpInput: String = "",
+        val isPlacing: Boolean = false,
+        /** Non-null while a two-step confirmation dialog is showing. */
+        val pendingOrder: PendingTrade? = null,
+        /** One-shot message for the user (success/error/info). */
+        val notice: String? = null,
+    ) : Mt4UiState {
+        val lastPrice: Double? get() = quote?.let { (it.bid + it.ask) / 2.0 }
+        val lots: Double? get() = lotsInput.toDoubleOrNull()
+    }
+
+    /**
+     * A trade awaiting final confirmation (the two-step flow). The second step
+     * carries [confirmationTimestamp] captured at the moment the user confirms,
+     * which the safety layer checks for freshness.
+     */
+    data class PendingTrade(
+        val symbol: String,
+        val direction: Direction,
+        val lots: Double,
+        val entryPrice: Double,
+        val stopLoss: Double?,
+        val takeProfit: Double?,
+        val confirmationTimestamp: Long = System.currentTimeMillis(),
+    )
 
     /**
      * A fatal error that requires user action (e.g. re-entering credentials).

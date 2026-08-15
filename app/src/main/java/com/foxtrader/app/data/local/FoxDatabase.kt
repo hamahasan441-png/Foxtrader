@@ -7,12 +7,14 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.foxtrader.app.data.local.dao.AlertDao
 import com.foxtrader.app.data.local.dao.CandleDao
 import com.foxtrader.app.data.local.dao.DrawingDao
+import com.foxtrader.app.data.local.dao.ExecutionAuditLogDao
 import com.foxtrader.app.data.local.dao.JournalDao
 import com.foxtrader.app.data.local.dao.LitXSignalDao
 import com.foxtrader.app.data.local.dao.WatchlistDao
 import com.foxtrader.app.data.local.entity.AlertEntity
 import com.foxtrader.app.data.local.entity.CandleEntity
 import com.foxtrader.app.data.local.entity.DrawingEntity
+import com.foxtrader.app.data.local.entity.ExecutionAuditLogEntity
 import com.foxtrader.app.data.local.entity.JournalEntity
 import com.foxtrader.app.data.local.entity.LitXSignalEntity
 import com.foxtrader.app.data.local.entity.WatchlistEntity
@@ -31,6 +33,7 @@ import com.foxtrader.app.data.local.entity.WatchlistSymbolEntity
  * - v5: adds alerts table (dispatched alert history + acknowledgement).
  * - v6: adds watchlists + watchlist_symbols (user-authored, must persist).
  * - v7: adds litx_signals (validated LIT X institutional signal history).
+ * - v8: adds execution_audit_log (append-only record of live MT4 order attempts).
  *
  * `exportSchema = true` writes the schema JSON to app/schemas/, which is what
  * makes MigrationTestHelper possible. Destructive fallback is deliberately NOT
@@ -47,8 +50,9 @@ import com.foxtrader.app.data.local.entity.WatchlistSymbolEntity
         WatchlistEntity::class,
         WatchlistSymbolEntity::class,
         LitXSignalEntity::class,
+        ExecutionAuditLogEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class FoxDatabase : RoomDatabase() {
@@ -58,6 +62,7 @@ abstract class FoxDatabase : RoomDatabase() {
     abstract fun alertDao(): AlertDao
     abstract fun watchlistDao(): WatchlistDao
     abstract fun litXSignalDao(): LitXSignalDao
+    abstract fun executionAuditLogDao(): ExecutionAuditLogDao
 
     companion object {
         const val NAME = "foxtrader.db"
@@ -259,6 +264,44 @@ abstract class FoxDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v7 -> v8: create the execution_audit_log table.
+         *
+         * Additive — no existing table is touched. The DDL must match
+         * [ExecutionAuditLogEntity] exactly (column names/types, NOT NULL,
+         * PRIMARY KEY, and the two indices) or Room's schema validation rejects
+         * the migrated database on open.
+         */
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS execution_audit_log (
+                        idempotencyKey TEXT NOT NULL PRIMARY KEY,
+                        status TEXT NOT NULL,
+                        symbol TEXT NOT NULL,
+                        direction TEXT NOT NULL,
+                        volume REAL NOT NULL,
+                        entryPrice REAL NOT NULL,
+                        stopLoss REAL,
+                        takeProfit REAL,
+                        orderId TEXT,
+                        reasons TEXT NOT NULL,
+                        timestamp INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_execution_audit_log_timestamp " +
+                        "ON execution_audit_log (timestamp)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_execution_audit_log_status " +
+                        "ON execution_audit_log (status)"
+                )
+            }
+        }
+
         val MIGRATIONS = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -266,6 +309,7 @@ abstract class FoxDatabase : RoomDatabase() {
             MIGRATION_4_5,
             MIGRATION_5_6,
             MIGRATION_6_7,
+            MIGRATION_7_8,
         )
     }
 }

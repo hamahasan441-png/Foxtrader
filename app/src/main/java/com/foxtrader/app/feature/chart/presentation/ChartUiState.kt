@@ -38,7 +38,10 @@ import kotlinx.collections.immutable.persistentListOf
  */
 @Immutable
 data class IndicatorToggles(
-    val ema: Boolean = true,
+    // All overlays are OFF by default so the chart opens clean — no EMA, SMC
+    // zones, structure labels, TradePro overlay, or oscillator panes. The user
+    // opts into studies via the indicator panel.
+    val ema: Boolean = false,
     val bollinger: Boolean = false,
     val superTrend: Boolean = false,
     val parabolicSar: Boolean = false,
@@ -56,15 +59,15 @@ data class IndicatorToggles(
     val supportResistance: Boolean = false,
     val fibonacci: Boolean = false,
     val confluence: Boolean = false,
-    val orderBlocks: Boolean = true,
-    val fairValueGaps: Boolean = true,
-    val liquidity: Boolean = true,
+    val orderBlocks: Boolean = false,
+    val fairValueGaps: Boolean = false,
+    val liquidity: Boolean = false,
     val sessions: Boolean = false,
-    val structure: Boolean = true,
+    val structure: Boolean = false,
     // --- Strategy-as-Indicator overlays (gated independently of their engines) ---
     val litX: Boolean = false,
     val smt: Boolean = false,
-    val tradePro: Boolean = true,
+    val tradePro: Boolean = false,
     // --- Separate-pane ("study") indicators, rendered in the resizable pane
     // stack below the price chart rather than as overlays (R3). ---
     val rsi: Boolean = false,
@@ -81,11 +84,13 @@ data class IndicatorToggles(
     /**
      * The strategy currently plotted on the chart, or null for none.
      *
-     * Exactly one strategy is active at a time: running all nine would both
-     * bury the price action in markers and cost far more than the frame budget
-     * allows, since several strategies re-run full SMC detection per bar.
+     * [activeStrategy] and [allStrategies] are mutually exclusive: when
+     * [allStrategies] is true, every strategy is scanned (bounded to
+     * 180 bars / 12 signals each) and their markers are drawn together.
      */
     val activeStrategy: StrategyType? = null,
+    /** When true, scan every strategy and render all their markers at once. */
+    val allStrategies: Boolean = false,
 )
 
 /**

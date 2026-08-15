@@ -29,6 +29,16 @@ FoxTrader is an **educational market-analysis tool**. It visualizes charts, comp
 
 When the user selects a live provider (e.g., Binance, Bybit, Alpha Vantage) and supplies their own API key, the app connects **directly** to that provider to fetch market data. The user's API key is sent only to that provider over HTTPS and is stored encrypted on-device. FoxTrader does not proxy, log, or receive that key. Review each provider's own privacy policy.
 
+## MT4 / MetaApi connectivity and token lifecycle
+
+When the user connects a MetaTrader 4 account, the app talks directly to MetaApi (Agilium Trade) using the user's own MetaApi auth token.
+
+- **Where the token goes:** The MetaApi auth token is sent only to MetaApi's hosts over TLS — both on the provisioning REST API (as an `auth-token` header) and on the streaming WebSocket (as an `auth-token` query parameter, which is MetaApi's required contract for the upgrade). FoxTrader never proxies or receives the token.
+- **No credential logging:** Neither the MetaApi REST client nor the MetaApi WebSocket client installs an HTTP logging interceptor, in debug or release. WebSocket request URLs are only ever rendered through a redactor that replaces the token value with a fixed `[REDACTED]` placeholder, so the live token cannot leak to logcat, crash reports, or diagnostics.
+- **In-memory lifecycle:** The token and account ID are held only while a stream is active and are wiped from memory on disconnect. A credential rejection (HTTP 401/403) stops all reconnection attempts until the user re-authenticates.
+- **On-device storage:** The token is stored with AES-256 via Jetpack Security, the same as other provider keys. Account/position data is fetched from MetaApi on demand and is not retained by FoxTrader beyond what the user's own features keep locally.
+- **What FoxTrader does with it:** Account info, open positions, and quotes are used to render the user's own MT4 view. **Live trading is opt-in and off by default:** only after the user explicitly enables Live mode on the MT4 account screen and confirms each order in a two-step dialog does FoxTrader send a market order to MetaApi for execution on the user's account. Every order attempt is recorded in a local append-only audit log so an ambiguous outcome is reconciled rather than silently re-submitted. FoxTrader does not send this data anywhere else. Review MetaApi's own privacy policy as well.
+
 ## Crash reporting (opt-in, privacy-preserving)
 
 - **Default: OFF.** The user must explicitly enable it in Settings → Privacy.

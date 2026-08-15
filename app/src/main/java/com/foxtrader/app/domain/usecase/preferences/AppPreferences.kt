@@ -165,6 +165,25 @@ class AppPreferences @Inject constructor(
     private val _metaApiAccountId = MutableStateFlow<String?>(null)
     val metaApiAccountId: StateFlow<String?> = _metaApiAccountId.asStateFlow()
 
+    private val _metaApiLastLogin = MutableStateFlow<Int?>(null)
+    private val _metaApiLastServer = MutableStateFlow<String?>(null)
+    private val _metaApiAccountName = MutableStateFlow<String?>(null)
+
+    /**
+     * Whether live MT4 order execution is enabled. Defaults OFF — the user must
+     * explicitly (and deliberately) enable it from the MT4 account screen after
+     * the safety pipeline is in place. A persisted, user-confirmed setting.
+     */
+    private val _mt4LiveModeEnabled = MutableStateFlow(false)
+    val mt4LiveModeEnabled: StateFlow<Boolean> = _mt4LiveModeEnabled.asStateFlow()
+
+    /**
+     * Emergency kill switch. When true, no live MT4 order may be placed. Set by
+     * the UI's kill switch and cleared only by explicit user action.
+     */
+    private val _mt4KillSwitch = MutableStateFlow(false)
+    val mt4KillSwitch: StateFlow<Boolean> = _mt4KillSwitch.asStateFlow()
+
     init {
         // Load persisted values into StateFlows on init.
         scope.launch {
@@ -247,6 +266,15 @@ class AppPreferences @Inject constructor(
                 _metaApiAccountId.value = securePrefs.getString(SECURE_KEY_META_API_ACCOUNT_ID, null)
                     ?.trim()
                     ?.takeIf { it.isNotBlank() }
+                _metaApiLastLogin.value = securePrefs.getInt(SECURE_KEY_META_API_LAST_LOGIN, -1).takeIf { it > 0 }
+                _metaApiLastServer.value = securePrefs.getString(SECURE_KEY_META_API_LAST_SERVER, null)
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+                _metaApiAccountName.value = securePrefs.getString(SECURE_KEY_META_API_ACCOUNT_NAME, null)
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+                _mt4LiveModeEnabled.value = prefs[KEY_MT4_LIVE_MODE] ?: false
+                _mt4KillSwitch.value = prefs[KEY_MT4_KILL_SWITCH] ?: false
             }
         }
     }
@@ -351,6 +379,68 @@ class AppPreferences @Inject constructor(
 
     /** Retrieve the currently cached MetaApi account ID (null if none). */
     fun getMetaApiAccountId(): String? = _metaApiAccountId.value
+
+    /** Persist the last connected MT4 login for prefilling the login form. */
+    fun setMetaApiLastLogin(login: Int?) {
+        val normalized = login?.takeIf { it > 0 }
+        _metaApiLastLogin.value = normalized
+        if (normalized == null) {
+            securePrefs.edit().remove(SECURE_KEY_META_API_LAST_LOGIN).apply()
+        } else {
+            securePrefs.edit().putInt(SECURE_KEY_META_API_LAST_LOGIN, normalized).apply()
+        }
+    }
+
+    /** The MT4 login used for the most recent connection, or null. */
+    fun getMetaApiLastLogin(): Int? = _metaApiLastLogin.value
+
+    /** Persist the last connected MT4 server for prefilling the login form. */
+    fun setMetaApiLastServer(server: String?) {
+        val normalized = server?.trim()?.takeIf { it.isNotBlank() }
+        _metaApiLastServer.value = normalized
+        if (normalized == null) {
+            securePrefs.edit().remove(SECURE_KEY_META_API_LAST_SERVER).apply()
+        } else {
+            securePrefs.edit().putString(SECURE_KEY_META_API_LAST_SERVER, normalized).apply()
+        }
+    }
+
+    /** The MT4 server used for the most recent connection, or null. */
+    fun getMetaApiLastServer(): String? = _metaApiLastServer.value
+
+    /** Persist the connected account display name for showing in the account screen. */
+    fun setMetaApiAccountName(name: String?) {
+        val normalized = name?.trim()?.takeIf { it.isNotBlank() }
+        _metaApiAccountName.value = normalized
+        if (normalized == null) {
+            securePrefs.edit().remove(SECURE_KEY_META_API_ACCOUNT_NAME).apply()
+        } else {
+            securePrefs.edit().putString(SECURE_KEY_META_API_ACCOUNT_NAME, normalized).apply()
+        }
+    }
+
+    /** The connected account display name, or null. */
+    fun getMetaApiAccountName(): String? = _metaApiAccountName.value
+
+    /**
+     * Persisted live-MT4-execution switch. Callers must read this to build the
+     * [com.foxtrader.app.domain.usecase.execution.ExecutionPolicy]; it is the
+     * single persisted "go live" flag.
+     */
+    fun setMt4LiveModeEnabled(enabled: Boolean) {
+        _mt4LiveModeEnabled.value = enabled
+        scope.launch { context.dataStore.edit { it[KEY_MT4_LIVE_MODE] = enabled } }
+    }
+
+    fun isMt4LiveModeEnabled(): Boolean = _mt4LiveModeEnabled.value
+
+    /** Persisted emergency kill switch; true = block all live MT4 orders. */
+    fun setMt4KillSwitch(engaged: Boolean) {
+        _mt4KillSwitch.value = engaged
+        scope.launch { context.dataStore.edit { it[KEY_MT4_KILL_SWITCH] = engaged } }
+    }
+
+    fun isMt4KillSwitchEngaged(): Boolean = _mt4KillSwitch.value
 
     fun setDataProvider(provider: DataProvider) {
         _dataProvider.value = provider
@@ -569,6 +659,9 @@ class AppPreferences @Inject constructor(
         const val SECURE_PREFS_FILE_NAME = "fox_provider_keys"
         const val SECURE_KEY_META_API_TOKEN = "meta_api_token"
         const val SECURE_KEY_META_API_ACCOUNT_ID = "meta_api_account_id"
+        const val SECURE_KEY_META_API_LAST_LOGIN = "meta_api_last_login"
+        const val SECURE_KEY_META_API_LAST_SERVER = "meta_api_last_server"
+        const val SECURE_KEY_META_API_ACCOUNT_NAME = "meta_api_account_name"
         const val MIN_BACKGROUND_SCAN_INTERVAL_MINUTES = 15
         const val MAX_BACKGROUND_SCAN_INTERVAL_MINUTES = 240
         const val DEFAULT_BACKGROUND_SCAN_INTERVAL_MINUTES = 15
@@ -623,6 +716,8 @@ class AppPreferences @Inject constructor(
         val KEY_TRADEPRO_CONFIG = stringPreferencesKey("tradepro_config")
         val KEY_LITX_CONFIG = stringPreferencesKey("litx_config")
         val KEY_TRADEPRO_ALERT_RULES = stringPreferencesKey("tradepro_alert_rules")
+        val KEY_MT4_LIVE_MODE = booleanPreferencesKey("mt4_live_mode")
+        val KEY_MT4_KILL_SWITCH = booleanPreferencesKey("mt4_kill_switch")
     }
 }
 

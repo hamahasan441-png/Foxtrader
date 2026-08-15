@@ -57,6 +57,7 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 
 /**
@@ -126,6 +127,14 @@ class ChartViewModel @Inject constructor(
      */
     private var htfContextKey: String? = null
     private var htfContextCache: Map<Timeframe, List<Candle>> = emptyMap()
+
+    /**
+     * Generation counter for the candle-computation pipeline. Rapid indicator
+     * toggles and live data emissions spawn concurrent compute coroutines; each
+     * captures its generation at start and only the newest may publish its
+     * result, so a stale background frame can never overwrite newer UI state.
+     */
+    private val computationGeneration = AtomicLong(0L)
 
     // --- Controllers (plain classes, NOT @Inject) ---
     private val dataController = ChartDataController(
@@ -238,6 +247,10 @@ class ChartViewModel @Inject constructor(
     // INTERNAL PIPELINE WIRING
     // ========================================================================
     private suspend fun processCandles(source: CandleSource, preferIncremental: Boolean) {
+        // Capture this computation's generation. Only the newest generation may
+        // publish its frame below (see [computationGeneration]).
+        val gen = computationGeneration.incrementAndGet()
+
         val candles = dataController.mergedVisibleCandles
         if (candles.isEmpty()) return // Safety: skip processing when data is being cleared
         val ind = _uiState.value.indicators
@@ -273,9 +286,14 @@ class ChartViewModel @Inject constructor(
             htfContextKey = htfKey
         }
 
-        val tradeProAnalysis = tradeProEngine.analyze(
-            symbol, displayCandles, appPreferences.tradeProConfig.value, htfContextCache,
-        )
+        // TradePro analysis is only computed while its overlay is enabled. It is
+        // comparatively expensive, so running it on every frame for a hidden
+        // overlay would waste the frame budget.
+        val tradeProAnalysis = if (ind.tradePro) {
+            tradeProEngine.analyze(
+                symbol, displayCandles, appPreferences.tradeProConfig.value, htfContextCache,
+            )
+        } else null
 
         val litXAnalysis = if (ind.litX) {
             litXEngine.analyze(symbol, timeframe, displayCandles, appPreferences.litXConfig.value)
@@ -293,15 +311,26 @@ class ChartViewModel @Inject constructor(
             smtDivergenceDetector.detect(symbol, displayCandles, emptyMap())
         } else emptyList()
 
-        // Evaluate the selected strategy over the visible series. This is the
-        // same StrategyFunction the Backtest Lab measures, so plotted markers
-        // and backtest results can never diverge. Runs on the default
-        // dispatcher because several strategies re-run SMC detection per bar.
-        val strategySignals = ind.activeStrategy?.let { type ->
-            withContext(defaultDispatcher) {
-                liveStrategyEngine.evaluate(type, displayCandles)
+        // Evaluate the selected strategy (or all strategies) over the visible
+        // series. This is the same StrategyFunction the Backtest Lab measures,
+        // so plotted markers and backtest results can never diverge. Runs on
+        // the default dispatcher because several strategies re-run SMC
+        // detection per bar. The all-strategies scan is bounded inside
+        // LiveStrategyEngine (180 bars / 12 signals per strategy).
+        val strategySignals = when {
+            ind.allStrategies -> withContext(defaultDispatcher) {
+                liveStrategyEngine.evaluateAll(displayCandles)
             }
-        }.orEmpty()
+            ind.activeStrategy != null -> withContext(defaultDispatcher) {
+                liveStrategyEngine.evaluate(ind.activeStrategy, displayCandles)
+            }
+            else -> emptyList()
+        }
+
+        // Drop stale frames: a newer computation (e.g. from a rapid indicator
+        // toggle) has already started, so publishing this older result would
+        // clobber the newer UI state.
+        if (gen != computationGeneration.get()) return
 
         _uiState.value = _uiState.value.withComputation(
             candles = displayCandles,
@@ -379,8 +408,14 @@ class ChartViewModel @Inject constructor(
     fun selectStrategy(type: StrategyType?) {
         val current = _uiState.value.indicators.activeStrategy
         val next = if (type == current) null else type
-        if (next == current) return
-        updateIndicators { it.copy(activeStrategy = next) }
+        if (next == current && !_uiState.value.indicators.allStrategies) return
+        // Selecting a specific strategy exits "all strategies" mode.
+        updateIndicators { it.copy(activeStrategy = next, allStrategies = false) }
+    }
+
+    /** Toggle "all strategies" mode; mutually exclusive with a single strategy. */
+    fun toggleAllStrategies() {
+        updateIndicators { it.copy(allStrategies = !it.allStrategies, activeStrategy = null) }
     }
 
     fun updateIndicators(transform: (IndicatorToggles) -> IndicatorToggles) {

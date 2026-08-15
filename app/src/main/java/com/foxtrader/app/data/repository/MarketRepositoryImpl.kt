@@ -21,6 +21,7 @@ import com.foxtrader.app.domain.model.ProviderNotImplementedException
 import com.foxtrader.app.domain.model.SourcedCandles
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.repository.MarketRepository
+import com.foxtrader.app.domain.repository.Mt4Repository
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
@@ -50,6 +51,7 @@ class MarketRepositoryImpl @Inject constructor(
     private val twelveData: TwelveDataDataSource,
     private val polygon: PolygonDataSource,
     private val dukascopy: DukascopyDataSource,
+    private val mt4Repository: Mt4Repository,
     private val appPreferences: AppPreferences,
     @IoDispatcher private val io: CoroutineDispatcher,
 ) : MarketRepository {
@@ -146,6 +148,16 @@ class MarketRepositoryImpl @Inject constructor(
                         )
                     }
                 }
+                selectedProvider == DataProvider.MT4 -> {
+                    mt4Repository.getHistoricalCandles(symbol, timeframe, limit)
+                        .getOrElse { throw it }
+                        .ifEmpty {
+                            throw IllegalStateException(
+                                "MetaApi returned no candle data for $symbol ${timeframe.label}. " +
+                                    "Connect your MT4 account first."
+                            )
+                        }
+                }
                 !selectedProvider.implemented -> throw ProviderNotImplementedException(
                     selectedProvider.displayName
                 )
@@ -206,6 +218,9 @@ class MarketRepositoryImpl @Inject constructor(
                     okx.fetchCandles(CRYPTO_TEST_SYMBOL, Timeframe.H1, TEST_LIMIT).size
                 DataProvider.KUCOIN ->
                     kucoin.fetchCandles(CRYPTO_TEST_SYMBOL, Timeframe.H1, TEST_LIMIT).size
+                DataProvider.MT4 ->
+                    mt4Repository.getHistoricalCandles(FX_TEST_SYMBOL, Timeframe.H1, TEST_LIMIT)
+                        .getOrElse { throw it }.size
                 else -> throw ProviderNotImplementedException(provider.displayName)
             }
         }
@@ -315,6 +330,9 @@ class MarketRepositoryImpl @Inject constructor(
                 }
                 selectedProvider == DataProvider.DUKASCOPY ->
                     dukascopy.fetchCandlesBefore(symbol, timeframe, beforeTimestamp, limit)
+                // MT4 older-history paging is not implemented yet; treat deeper
+                // history as exhausted rather than silently mixing in backend data.
+                selectedProvider == DataProvider.MT4 -> emptyList()
                 else -> fetchDefaultCandlesBefore(symbol, timeframe, beforeTimestamp, limit)
             }
 

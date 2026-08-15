@@ -35,6 +35,7 @@ class ProviderMarketWebSocket @Inject constructor(
     private val binanceWebSocket: BinanceWebSocket,
     private val bybitWebSocket: BybitWebSocket,
     private val polygonWebSocket: PolygonWebSocket,
+    private val mt4MarketWebSocket: Mt4MarketWebSocket,
     @IoDispatcher io: CoroutineDispatcher,
 ) : MarketWebSocket {
 
@@ -58,6 +59,7 @@ class ProviderMarketWebSocket @Inject constructor(
         forward(binanceWebSocket)
         forward(bybitWebSocket)
         forward(polygonWebSocket)
+        forward(mt4MarketWebSocket)
         observeProviderChanges()
     }
 
@@ -96,6 +98,7 @@ class ProviderMarketWebSocket @Inject constructor(
             binanceWebSocket.disconnectAll()
             bybitWebSocket.disconnectAll()
             polygonWebSocket.disconnectAll()
+            mt4MarketWebSocket.disconnectAll()
             activeSocket = null
             _connectionState.value = ConnectionState.DISCONNECTED
         }
@@ -164,6 +167,7 @@ class ProviderMarketWebSocket @Inject constructor(
         DataProvider.BINANCE -> binanceWebSocket
         DataProvider.BYBIT -> bybitWebSocket
         DataProvider.POLYGON -> polygonWebSocket
+        DataProvider.MT4 -> mt4MarketWebSocket
         else -> null
     }
 }

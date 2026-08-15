@@ -2,6 +2,7 @@ package com.foxtrader.app.data.remote.api
 
 import com.foxtrader.app.domain.model.Mt4Credentials
 import com.foxtrader.app.domain.model.Mt4OrderType
+import com.foxtrader.app.domain.model.Timeframe
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -130,6 +131,26 @@ class MetaApiDataSourceTest {
     }
 
     @Test
+    fun `historical candles drop non finite and invalid rows`() = runBlocking {
+        val api = FakeMetaApiService(
+            candlesResponse = MetaApiCandlesResponse(
+                candles = listOf(
+                    MetaApiCandleResponse(time = 1L, open = 1.0, high = 1.1, low = 0.9, close = 1.05, tickVolume = 5.0),
+                    MetaApiCandleResponse(time = 2L, open = Double.NaN, high = 1.1, low = 0.9, close = 1.05),
+                    MetaApiCandleResponse(time = 3L, open = 1.0, high = 0.8, low = 0.9, close = 1.05), // high < low
+                    MetaApiCandleResponse(time = 4L, open = -1.0, high = 1.1, low = 0.9, close = 1.05),
+                )
+            )
+        )
+        val dataSource = MetaApiDataSource(api)
+
+        val candles = dataSource.getHistoricalCandles("token", "acc", "EURUSD", Timeframe.H1, 10)
+
+        assertEquals(1, candles.size)
+        assertEquals(1L, candles.single().timestamp)
+    }
+
+    @Test
     fun `executeTrade sends correct action type and returns order ID`() = runBlocking {
         val api = FakeMetaApiService(
             tradeResponse = MetaApiTradeResponse(
@@ -191,6 +212,7 @@ class MetaApiDataSourceTest {
         private val accountInfoResponse: MetaApiAccountInfoResponse = MetaApiAccountInfoResponse(),
         private val positionsResponse: List<MetaApiPositionResponse> = emptyList(),
         private val tradeResponse: MetaApiTradeResponse = MetaApiTradeResponse(orderId = 1),
+        private val candlesResponse: MetaApiCandlesResponse = MetaApiCandlesResponse(),
     ) : MetaApiService {
 
         var lastAuthToken: String? = null
@@ -234,6 +256,19 @@ class MetaApiDataSourceTest {
             lastAccountId = accountId
             lastTradeRequest = request
             return tradeResponse
+        }
+
+        override suspend fun getHistoricalCandles(
+            authToken: String,
+            accountId: String,
+            symbol: String,
+            timeframe: String,
+            startTime: Long?,
+            limit: Int?,
+        ): MetaApiCandlesResponse {
+            lastAuthToken = authToken
+            lastAccountId = accountId
+            return candlesResponse
         }
     }
 }
