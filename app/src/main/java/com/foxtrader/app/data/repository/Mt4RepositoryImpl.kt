@@ -126,7 +126,25 @@ class Mt4RepositoryImpl @Inject constructor(
 
     override fun streamQuotes(symbols: List<String>): Flow<Mt4Quote> {
         symbols.forEach { quoteStream.subscribe(it) }
+        // Ensure the stream is actually connected. On a fresh login this is a
+        // no-op (already connected via connect()), but after an app-restart
+        // restore the stream has never been started, so without this the account
+        // screen would subscribe to a disconnected stream and show no live price.
+        ensureQuoteStreamConnected()
         return quoteStream.quotes
+    }
+
+    /**
+     * Connects the quote stream for the persisted (restored) session. [connect]
+     * is idempotent, so calling it when already connected/connecting is a no-op.
+     */
+    private fun ensureQuoteStreamConnected() {
+        val token = appPreferences.getMetaApiToken()
+            ?: appPreferences.getApiKey(DataProvider.MT4)
+        val id = appPreferences.getMetaApiAccountId()
+        if (!token.isNullOrBlank() && !id.isNullOrBlank()) {
+            quoteStream.connect(token, id)
+        }
     }
 
     // ========================================================================
