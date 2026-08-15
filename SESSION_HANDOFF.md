@@ -178,6 +178,23 @@ Wired via new `AppPreferences` methods/keys and `SettingsViewModel`/`SettingsUiS
 
 ---
 
+## Bug-fix pass (latest session)
+
+- **MT4 session restore across app restarts** — MetaApi token/account-id/server/
+  login and provider API keys are now read synchronously from
+  `EncryptedSharedPreferences` (previously the async-populated StateFlow was
+  usually still empty at app start, so the account was never restored and the
+  token read as "not configured").
+- **MT4 quote stream on restore** — `streamQuotes` now ensures the MetaApi
+  stream is connected for the restored session (`connect` is idempotent), so the
+  account screen shows a live price after a restart instead of "No price".
+- **Settings decimal entry** — new string-backed `DecimalAmountField` lets users
+  actually type decimals (e.g. `1.5`) in the Min free margin / Max daily loss
+  fields; the old Double-derived field reformatted after every keystroke and
+  swallowed the decimal separator.
+
+---
+
 ## Live MT4 trading (enabled this session)
 
 The full safety-gated execution pipeline is now wired and `placeTrade` /
