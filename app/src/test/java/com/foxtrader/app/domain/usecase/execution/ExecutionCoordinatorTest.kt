@@ -15,8 +15,10 @@ class ExecutionCoordinatorTest {
 
     private val safety = ExecutionSafetyLayer()
     private val audit = InMemoryExecutionAuditLog()
-    private val now = 1_000_000L
 
+    // The coordinator evaluates the safety layer with the real wall-clock time
+    // (System.currentTimeMillis), so a confirmation must be stamped with the
+    // current time — otherwise the fresh-confirmation gate always rejects.
     private fun intent() = TradeIntent(
         symbol = "EURUSD",
         direction = Direction.BULLISH,
@@ -24,7 +26,7 @@ class ExecutionCoordinatorTest {
         entryPrice = 1.1000,
         stopLoss = 1.0950,
         takeProfit = 1.1050,
-        confirmationTimestamp = now,
+        confirmationTimestamp = System.currentTimeMillis(),
     )
 
     private val enabledPolicy = ExecutionPolicy(liveModeEnabled = true)
