@@ -164,6 +164,20 @@ New files: `Mt4Broker.kt`, `Mt4BrokerDirectory.kt`, `Mt4MarketWebSocket.kt`,
 
 ---
 
+## Live Trading settings (added this session)
+
+Settings now has a dedicated **Live Trading (MT4)** section exposing the
+execution-policy safety knobs, and `Mt4RepositoryImpl.buildExecutionPolicy()`
+reads them from persisted prefs instead of hardcoded defaults:
+- **Live mode** toggle + **emergency kill switch** toggle (also on the account screen).
+- **Stale quote timeout** (0.5–30s) and **confirmation timeout** (5–300s) sliders.
+- **Minimum free margin** and **Max daily loss** fields (account currency; 0 = off).
+
+Wired via new `AppPreferences` methods/keys and `SettingsViewModel`/`SettingsUiState`/
+`SettingsScreen`. CI (assembleDebug + 1172 unit tests) passes.
+
+---
+
 ## Live MT4 trading (enabled this session)
 
 The full safety-gated execution pipeline is now wired and `placeTrade` /
