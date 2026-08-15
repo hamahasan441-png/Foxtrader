@@ -89,16 +89,22 @@ fun IndicatorPanel(
                 Chip("SMT", toggles.smt) { onToggle { it.copy(smt = !it.smt) } }
                 Chip("TradePro", toggles.tradePro) { onToggle { it.copy(tradePro = !it.tradePro) } }
             }
-            // Strategies are single-select: each plots the same rule set the
-            // Backtest Lab measures, and running several at once would bury the
-            // price action in markers.
+            // Strategies are single-select, plus an "All" mode that scans every
+            // strategy (bounded to 180 bars / 12 signals each). Picking any one
+            // strategy (or Off) exits "All" mode.
             Group("Strategy signals") {
-                Chip("Off", toggles.activeStrategy == null) { onToggle { it.copy(activeStrategy = null) } }
+                Chip("Off", toggles.activeStrategy == null && !toggles.allStrategies) {
+                    onToggle { it.copy(activeStrategy = null, allStrategies = false) }
+                }
+                Chip("All", toggles.allStrategies) {
+                    onToggle { it.copy(allStrategies = !it.allStrategies, activeStrategy = null) }
+                }
                 StrategyType.entries.forEach { type ->
                     Chip(type.label, toggles.activeStrategy == type) {
                         onToggle { current ->
                             current.copy(
                                 activeStrategy = if (current.activeStrategy == type) null else type,
+                                allStrategies = false,
                             )
                         }
                     }

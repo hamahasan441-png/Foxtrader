@@ -7,6 +7,7 @@ import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Path
+import retrofit2.http.Query
 
 /**
  * Retrofit interface for the MetaApi REST API.
@@ -55,6 +56,24 @@ interface MetaApiService {
         @Path("accountId") accountId: String,
         @Body request: MetaApiTradeRequest,
     ): MetaApiTradeResponse
+
+    /**
+     * Fetch historical candles for a symbol/timeframe from the connected MT4
+     * account. Used to seed the chart's history when MT4 is the active provider.
+     *
+     * MetaApi candle response shape: `{"candles":[{"time":...,"open":...,"high":...,
+     * "low":...,"close":...,"tickVolume":..., ...}], "synchronizationMode":"..."}`.
+     * We map defensively and drop non-finite rows.
+     */
+    @GET("/users/current/accounts/{accountId}/historical-candles/{symbol}/{timeframe}")
+    suspend fun getHistoricalCandles(
+        @Header("auth-token") authToken: String,
+        @Path("accountId") accountId: String,
+        @Path("symbol") symbol: String,
+        @Path("timeframe") timeframe: String,
+        @Query("startTime") startTime: Long? = null,
+        @Query("limit") limit: Int? = null,
+    ): MetaApiCandlesResponse
 }
 
 // ============================================================================
@@ -130,4 +149,21 @@ data class MetaApiTradeResponse(
     val stringCode: String = "",
     val orderId: Long = 0,
     val message: String = "",
+)
+
+@Serializable
+data class MetaApiCandlesResponse(
+    val candles: List<MetaApiCandleResponse> = emptyList(),
+    val synchronizationMode: String = "",
+)
+
+@Serializable
+data class MetaApiCandleResponse(
+    val time: Long = 0,
+    val open: Double = 0.0,
+    val high: Double = 0.0,
+    val low: Double = 0.0,
+    val close: Double = 0.0,
+    @SerialName("tickVolume") val tickVolume: Double = 0.0,
+    val volume: Double = 0.0,
 )

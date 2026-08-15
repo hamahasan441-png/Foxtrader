@@ -45,6 +45,8 @@ import com.foxtrader.app.feature.journal.presentation.JournalScreen
 import com.foxtrader.app.feature.litx.presentation.LitXScreen
 import com.foxtrader.app.feature.more.presentation.MoreAction
 import com.foxtrader.app.feature.more.presentation.MoreScreen
+import com.foxtrader.app.feature.mt4.presentation.Mt4AccountScreen
+import com.foxtrader.app.feature.mt4.presentation.Mt4LoginScreen
 import com.foxtrader.app.feature.tradepro.presentation.OpportunityBoardScreen
 import com.foxtrader.app.feature.tradepro.presentation.AlertRulesScreen
 import com.foxtrader.app.feature.tradepro.presentation.CorrelationScreen
@@ -96,6 +98,8 @@ object FoxRoutes {
     const val AI = "ai_workspace"
     const val WATCHLIST = "watchlist"
     const val SUBSCRIPTION = "subscription"
+    const val MT4_LOGIN = "mt4_login"
+    const val MT4_ACCOUNT = "mt4_account"
     const val LITX = "litx/{symbol}/{timeframe}"
 
     fun litx(symbol: String, timeframeLabel: String): String =
@@ -257,8 +261,32 @@ fun FoxNavHost(
                             MoreAction.CORRELATION -> FoxRoutes.CORRELATION
                             MoreAction.SETTINGS -> FoxRoutes.SETTINGS
                             MoreAction.SUBSCRIPTION -> FoxRoutes.SUBSCRIPTION
+                            MoreAction.MT4 -> FoxRoutes.MT4_LOGIN
                         }
                         navController.navigate(route)
+                    },
+                )
+            }
+            composable(FoxRoutes.MT4_LOGIN) {
+                Mt4LoginScreen(
+                    onConnected = {
+                        navController.navigate(FoxRoutes.MT4_ACCOUNT) {
+                            popUpTo(FoxRoutes.MT4_LOGIN) { inclusive = true }
+                        }
+                    },
+                    onDismiss = { navController.popBackStack() },
+                )
+            }
+            composable(FoxRoutes.MT4_ACCOUNT) {
+                Mt4AccountScreen(
+                    onDisconnected = { navController.popBackStack() },
+                    onOpenLiveChart = {
+                        // Return to the chart (MT4 is selected as the provider by
+                        // the user in Settings) so live MT4 quotes feed the chart.
+                        navController.navigate(FoxRoutes.CHART) {
+                            popUpTo(FoxRoutes.HOME) { saveState = true }
+                            launchSingleTop = true
+                        }
                     },
                 )
             }

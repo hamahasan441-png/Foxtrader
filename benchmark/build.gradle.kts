@@ -5,11 +5,11 @@ plugins {
 
 android {
     namespace = "com.foxtrader.app.benchmark"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         minSdk = 29
-        targetSdk = 34
+        targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments["androidx.benchmark.enabledRules"] = "Macrobenchmark,BaselineProfile"
     }

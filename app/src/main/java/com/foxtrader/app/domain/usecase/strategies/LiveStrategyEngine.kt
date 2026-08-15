@@ -103,6 +103,31 @@ class LiveStrategyEngine @Inject constructor(
     }
 
     /**
+     * Evaluates every strategy over the visible series and merges their signals
+     * into a single ascending list.
+     *
+     * Intended for the chart's "All strategies" view. To keep the canvas from
+     * being flooded, the scan is bounded to a short window and each strategy is
+     * capped at a small number of newest signals (see constants). A throwing
+     * strategy is contained and skipped rather than failing the whole view.
+     */
+    fun evaluateAll(
+        candles: List<Candle>,
+        scanWindow: Int = ALL_STRATEGY_SCAN_WINDOW,
+        maxSignalsPerStrategy: Int = ALL_STRATEGY_MAX_SIGNALS_PER_STRATEGY,
+    ): List<ChartSignal> {
+        val definitions = library.all()
+        val merged = ArrayList<ChartSignal>(maxSignalsPerStrategy * definitions.size)
+        for ((type, _) in definitions) {
+            val signals = runCatching {
+                evaluate(type, candles, scanWindow, maxSignalsPerStrategy)
+            }.getOrElse { emptyList() }
+            merged += signals
+        }
+        return merged.sortedBy { it.barIndex }
+    }
+
+    /**
      * Reject setups that cannot be drawn or traded: non-finite prices, a stop
      * on the wrong side of entry, or a zero-distance stop. Filtering here keeps
      * every downstream consumer (renderer, history panel, alerts) simple.
@@ -119,6 +144,15 @@ class LiveStrategyEngine @Inject constructor(
 
         /** Newest-N markers kept so a noisy strategy cannot flood the canvas. */
         const val DEFAULT_MAX_SIGNALS = 40
+
+        /**
+         * Bars back from the live edge scanned in "all strategies" mode. Kept
+         * deliberately short (180) because nine strategies run per bar.
+         */
+        const val ALL_STRATEGY_SCAN_WINDOW = 180
+
+        /** Per-strategy marker cap in "all strategies" mode. */
+        const val ALL_STRATEGY_MAX_SIGNALS_PER_STRATEGY = 12
 
         /** Used when a strategy reports no explicit confidence. */
         const val DEFAULT_CONFIDENCE = 60.0

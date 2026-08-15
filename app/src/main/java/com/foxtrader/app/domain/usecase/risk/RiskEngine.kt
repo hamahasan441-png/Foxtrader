@@ -174,6 +174,53 @@ class RiskEngine @Inject constructor(
         )
     }
 
+    /**
+     * Sizes a live (broker-bound) position from a broker [InstrumentSpec] and an
+     * explicit quote-currency -> account-currency conversion.
+     *
+     * Returns `null` — rather than silently assuming a 1.0 rate — whenever the
+     * quote-currency to account-currency conversion is missing, non-positive, or
+     * non-finite. Assuming 1.0 would size a non-USD-quoted instrument in USD and
+     * be wrong by the FX rate, defeating the risk gates that are meant to keep
+     * the account solvent. Callers must treat `null` as "cannot size, do not
+     * submit".
+     *
+     * @param spec broker-authoritative instrument metadata.
+     * @param entryPrice intended entry price.
+     * @param stopLossPrice stop-loss price.
+     * @param riskAmountInAccountCurrency monetary risk budget, in account currency.
+     * @param quoteToAccountRate account-currency units per 1 quote-currency unit.
+     * @return the volume to submit, or `null` when sizing cannot be performed
+     *   safely.
+     */
+    fun calculateLivePositionSize(
+        spec: InstrumentSpec,
+        entryPrice: Double,
+        stopLossPrice: Double,
+        riskAmountInAccountCurrency: Double,
+        quoteToAccountRate: Double?,
+    ): Double? {
+        // Fail closed on a missing/broken conversion instead of assuming 1.0.
+        if (quoteToAccountRate == null || !quoteToAccountRate.isFinite() || quoteToAccountRate <= 0.0) {
+            return null
+        }
+        require(entryPrice > 0.0) { "Entry price must be positive" }
+        require(stopLossPrice >= 0.0) { "Stop loss price must not be negative" }
+        require(riskAmountInAccountCurrency > 0.0) { "Risk amount must be positive" }
+
+        val stopDistance = abs(entryPrice - stopLossPrice)
+        if (stopDistance <= 0.0) return null
+
+        // Monetary risk per 1.0 volume, expressed in account currency.
+        val riskPerUnitVolume = stopDistance * spec.contractSize * quoteToAccountRate
+        if (!riskPerUnitVolume.isFinite() || riskPerUnitVolume <= 0.0) return null
+
+        val rawVolume = riskAmountInAccountCurrency / riskPerUnitVolume
+        if (!rawVolume.isFinite()) return null
+
+        return spec.sanitizeVolume(rawVolume)
+    }
+
     // ========================================================================
     // STOP LOSS CALCULATION
     // ========================================================================

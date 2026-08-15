@@ -30,14 +30,18 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -268,6 +272,109 @@ fun SettingsScreen(
                     selected = state.riskConfig.sizingMethod.name,
                     options = PositionSizingMethod.entries.map { it.name },
                     onSelect = { viewModel.setSizingMethod(PositionSizingMethod.valueOf(it)) },
+                )
+            }
+
+            // === LIVE TRADING (MT4) ===
+            SectionHeader("Live Trading (MT4)")
+
+            SettingsCard {
+                SwitchSetting(
+                    label = "Live mode",
+                    checked = state.mt4LiveModeEnabled,
+                    onCheckedChange = viewModel::setMt4LiveModeEnabled,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "Must be ON to place real MT4 orders. Off by default.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = FoxNeutral60,
+                )
+                if (state.mt4LiveModeEnabled) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "⚠ Live mode is enabled — real orders can be sent to your MT4 broker.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                SwitchSetting(
+                    label = "Emergency kill switch",
+                    checked = state.mt4KillSwitchEngaged,
+                    onCheckedChange = viewModel::setMt4KillSwitch,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = if (state.mt4KillSwitchEngaged) {
+                        "Engaged — all live MT4 orders are blocked."
+                    } else {
+                        "Block all live MT4 orders instantly. Keep this in mind while live mode is on."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (state.mt4KillSwitchEngaged) MaterialTheme.colorScheme.error else FoxNeutral60,
+                )
+
+                Spacer(Modifier.height(12.dp))
+
+                SliderSetting(
+                    label = "Stale quote timeout",
+                    value = (state.mt4StaleQuoteTimeoutMs / 1000f).coerceIn(0.5f, 30f),
+                    range = 0.5f..30f,
+                    suffix = "s",
+                    onValueChange = viewModel::setMt4StaleQuoteTimeoutSec,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "Reject an order if the latest MT4 quote is older than this.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = FoxNeutral60,
+                )
+
+                Spacer(Modifier.height(12.dp))
+
+                SliderSetting(
+                    label = "Confirmation timeout",
+                    value = (state.mt4ConfirmationTimeoutMs / 1000f).coerceIn(5f, 300f),
+                    range = 5f..300f,
+                    suffix = "s",
+                    onValueChange = viewModel::setMt4ConfirmationTimeoutSec,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "A confirmed order older than this is rejected; confirm again.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = FoxNeutral60,
+                )
+
+                Spacer(Modifier.height(12.dp))
+
+                // Min free margin
+                Text("Minimum free margin (account currency; 0 = off)", fontSize = 13.sp, color = FoxNeutral60)
+                Spacer(Modifier.height(4.dp))
+                DecimalAmountField(
+                    value = state.mt4MinFreeMargin,
+                    onValueChange = viewModel::setMt4MinFreeMargin,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                Spacer(Modifier.height(12.dp))
+
+                // Max daily loss
+                Text("Max daily loss (account currency; 0 = off)", fontSize = 13.sp, color = FoxNeutral60)
+                Spacer(Modifier.height(4.dp))
+                DecimalAmountField(
+                    value = state.mt4MaxDailyLoss,
+                    onValueChange = viewModel::setMt4MaxDailyLoss,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "Note: the max-daily-loss gate needs an intraday realized-P&L source; it is currently advisory.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = FoxNeutral60,
                 )
             }
 
@@ -711,6 +818,43 @@ private fun SliderSetting(
             ),
         )
     }
+}
+
+/**
+ * Decimal text field backed by a raw string so the user can actually type a
+ * decimal (e.g. "1.5") without the field reformatting after each keystroke and
+ * eating the separator. The parsed value is pushed up only when valid; blank is
+ * treated as 0. External [value] resets the field only when it no longer matches
+ * what was typed (e.g. after leaving/re-entering the screen).
+ */
+@Composable
+private fun DecimalAmountField(
+    value: Double,
+    onValueChange: (Double) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var text by rememberSaveable { mutableStateOf(formatDecimal(value)) }
+    LaunchedEffect(value) {
+        val current = text.toDoubleOrNull()
+        if (current != value) text = formatDecimal(value)
+    }
+    OutlinedTextField(
+        value = text,
+        onValueChange = { newText ->
+            text = newText
+            onValueChange(newText.toDoubleOrNull() ?: 0.0)
+        },
+        modifier = modifier,
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+    )
+}
+
+/** Renders a Double setting as a compact decimal string (no trailing zeros). */
+private fun formatDecimal(value: Double): String {
+    if (value <= 0.0) return "0"
+    if (value == value.toLong().toDouble()) return value.toLong().toString()
+    return "%.2f".format(value).trimEnd('0').trimEnd('.')
 }
 
 private fun formatSliderValue(value: Float, suffix: String): String {

@@ -71,6 +71,13 @@ data class SettingsUiState(
     // --- TRADEPRO ---
     val tradeProConfig: TradeProConfig = TradeProConfig(),
     val litXConfig: LitXConfig = LitXConfig(),
+    // --- MT4 Live Trading (safety knobs) ---
+    val mt4LiveModeEnabled: Boolean = false,
+    val mt4KillSwitchEngaged: Boolean = false,
+    val mt4StaleQuoteTimeoutMs: Long = 5_000L,
+    val mt4ConfirmationTimeoutMs: Long = 60_000L,
+    val mt4MinFreeMargin: Double = 0.0,
+    val mt4MaxDailyLoss: Double = 0.0,
     val saved: Boolean = false,
 ) {
     val isLoggedIn: Boolean get() = authState == AuthState.AUTHENTICATED

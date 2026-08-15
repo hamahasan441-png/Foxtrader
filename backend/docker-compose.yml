@@ -14,7 +14,7 @@ services:
       FOX_PROVIDER: ${FOX_PROVIDER:-sample}
       FOX_STORE: ${FOX_STORE:-sqlite}
       FOX_DB_PATH: /srv/data/foxtrader.db
-      FOX_CORS_ORIGINS: ${FOX_CORS_ORIGINS:-*}
+      FOX_CORS_ORIGINS: ${FOX_CORS_ORIGINS:-http://localhost}
       FOX_TWELVE_DATA_KEY: ${FOX_TWELVE_DATA_KEY:-}
       FOX_POLYGON_KEY: ${FOX_POLYGON_KEY:-}
     volumes:

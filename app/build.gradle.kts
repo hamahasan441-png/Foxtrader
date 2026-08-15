@@ -1,7 +1,7 @@
 // ============================================================================
 // FOXTRADER — App module build script
 // Kotlin + Compose + Material3 + Hilt + Room + Retrofit
-// Target: Android 10+ (API 29), compile/target 34
+// Target: Android 10+ (API 29), compile/target 36
 // ============================================================================
 
 import org.gradle.testing.jacoco.tasks.JacocoCoverageVerification
@@ -23,12 +23,12 @@ plugins {
 
 android {
     namespace = "com.foxtrader.app"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.foxtrader.app"
         minSdk = 29          // Android 10+
-        targetSdk = 34
+        targetSdk = 36
         // Version is driven by CI (env or -P property) for reproducible release
         // numbering, with safe local-dev fallbacks so a plain build still works.
         versionCode = (System.getenv("FOXTRADER_VERSION_CODE")

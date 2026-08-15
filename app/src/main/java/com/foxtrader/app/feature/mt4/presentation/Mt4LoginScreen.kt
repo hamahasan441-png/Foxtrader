@@ -1,23 +1,32 @@
 package com.foxtrader.app.feature.mt4.presentation
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.foxtrader.app.domain.model.Mt4Broker
 import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxBearishText
 import com.foxtrader.app.ui.theme.FoxNeutral60
@@ -132,6 +142,17 @@ fun Mt4LoginScreen(
             ),
         )
 
+        Spacer(Modifier.height(12.dp))
+
+        // Broker search — auto-fills the exact server string MetaApi needs.
+        BrokerSearchSection(
+            query = disconnected?.brokerQuery.orEmpty(),
+            results = disconnected?.brokerResults.orEmpty(),
+            enabled = !isConnecting,
+            onQueryChange = viewModel::searchBrokers,
+            onBrokerSelected = viewModel::onBrokerSelected,
+        )
+
         if (disconnected?.error != null) {
             Spacer(Modifier.height(12.dp))
             Text(
@@ -170,6 +191,103 @@ fun Mt4LoginScreen(
 
         TextButton(onClick = onDismiss) {
             Text("Cancel", color = FoxNeutral60)
+        }
+    }
+}
+
+/**
+ * Searchable directory of known MT4 brokers. Typing in the field filters the
+ * list by broker name or server; tapping a result fills the server field with
+ * that broker's exact server string.
+ */
+@Composable
+private fun BrokerSearchSection(
+    query: String,
+    results: List<Mt4Broker>,
+    enabled: Boolean,
+    onQueryChange: (String) -> Unit,
+    onBrokerSelected: (Mt4Broker) -> Unit,
+) {
+    // Run a search on first composition so the directory is populated even when
+    // the field is untouched.
+    LaunchedEffect(Unit) { onQueryChange(query) }
+
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        label = { Text("Search broker") },
+        placeholder = { Text("e.g. IC Markets or ICMarkets-Demo") },
+        singleLine = true,
+        enabled = enabled,
+        modifier = Modifier.fillMaxWidth(),
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.Text,
+            imeAction = ImeAction.Done,
+        ),
+    )
+
+    if (results.isNotEmpty()) {
+        Spacer(Modifier.height(4.dp))
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            ),
+        ) {
+            LazyColumn(modifier = Modifier.heightIn(max = 220.dp)) {
+                items(results, key = { it.name }) { broker ->
+                    BrokerRow(
+                        broker = broker,
+                        onClick = { onBrokerSelected(broker) },
+                    )
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 12.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BrokerRow(
+    broker: Mt4Broker,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = broker.name,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+            if (broker.description.isNotBlank()) {
+                Text(
+                    text = broker.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = FoxNeutral60,
+                )
+            }
+        }
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                text = broker.servers.firstOrNull() ?: "",
+                style = MaterialTheme.typography.bodySmall,
+                color = FoxAmber50,
+                fontWeight = FontWeight.Medium,
+            )
+            if (broker.country.isNotBlank()) {
+                Text(
+                    text = broker.country,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = FoxNeutral60,
+                )
+            }
         }
     }
 }

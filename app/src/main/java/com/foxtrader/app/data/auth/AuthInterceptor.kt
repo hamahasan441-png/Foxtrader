@@ -3,12 +3,15 @@ package com.foxtrader.app.data.auth
 import com.foxtrader.app.domain.model.AuthState
 import com.foxtrader.app.domain.model.RefreshRequest
 import com.foxtrader.app.data.remote.api.SyncApi
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Response
 import okhttp3.ResponseBody
 import okhttp3.ResponseBody.Companion.toResponseBody
+import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Provider
 import javax.inject.Singleton
@@ -40,6 +43,13 @@ class AuthInterceptor @Inject constructor(
     private val tokenManager: TokenManager,
     private val syncApiProvider: Provider<SyncApi>,
 ) : Interceptor {
+
+    /**
+     * Holds the in-flight (or just-completed) token refresh for the current 401
+     * burst. Shared by concurrent interceptor threads so that only one refresh
+     * request is ever issued at a time.
+     */
+    private val inflightRefresh = AtomicReference<Deferred<Boolean>?>(null)
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
@@ -101,7 +111,12 @@ class AuthInterceptor @Inject constructor(
     }
 
     /**
-     * Attempt to refresh the access token. Returns true on success.
+     * Single-flight token refresh. When several in-flight requests 401 at the
+     * same time (a very common pattern after an access token expires), each
+     * would naively trigger its own refresh request. This guards the refresh so
+     * only one network refresh runs per burst and every concurrent caller shares
+     * its outcome — preventing refresh-token churn and redundant calls.
+     *
      * Runs synchronously (blocking) because OkHttp interceptors are synchronous.
      */
     private fun attemptRefresh(): Boolean {
@@ -112,17 +127,29 @@ class AuthInterceptor @Inject constructor(
         }
 
         return runBlocking {
-            try {
-                tokenManager.setAuthState(AuthState.REFRESHING)
-                val api = syncApiProvider.get()
-                val response = api.refresh(RefreshRequest(refreshToken))
-                tokenManager.saveTokens(response.tokens)
-                true
-            } catch (_: Exception) {
-                tokenManager.clearTokens()
-                false
+            // Fast path: reuse a refresh that is already in flight (or just
+            // completed) for this 401 burst instead of issuing another call.
+            inflightRefresh.get()?.let { return@runBlocking it.await() }
+
+            val deferred = async { doRefresh(refreshToken) }
+            if (!inflightRefresh.compareAndSet(null, deferred)) {
+                // Lost the race — another caller won; wait for its result.
+                return@runBlocking inflightRefresh.get()?.await() ?: false
             }
+            deferred.invokeOnCompletion { inflightRefresh.compareAndSet(deferred, null) }
+            deferred.await()
         }
+    }
+
+    private suspend fun doRefresh(refreshToken: String): Boolean = try {
+        tokenManager.setAuthState(AuthState.REFRESHING)
+        val api = syncApiProvider.get()
+        val response = api.refresh(RefreshRequest(refreshToken))
+        tokenManager.saveTokens(response.tokens)
+        true
+    } catch (_: Exception) {
+        tokenManager.clearTokens()
+        false
     }
 
     private companion object {

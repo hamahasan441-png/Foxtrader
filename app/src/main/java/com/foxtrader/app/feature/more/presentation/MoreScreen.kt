@@ -72,6 +72,7 @@ enum class MoreAction {
     CORRELATION,
     SETTINGS,
     SUBSCRIPTION,
+    MT4,
 }
 
 @HiltViewModel
@@ -110,6 +111,9 @@ fun MoreScreen(
         MoreDestination("Trade management", "Open TRADEPRO setups", Icons.Outlined.Calculate, MoreAction.TRADE_MANAGEMENT),
         MoreDestination("Correlation", "Concentration clusters", Icons.Outlined.Hub, MoreAction.CORRELATION, pro = true),
     )
+    val liveTrading = listOf(
+        MoreDestination("MT4 account", "Connect your MT4 broker via MetaApi", Icons.Outlined.ShowChart, MoreAction.MT4),
+    )
     val account = listOf(
         MoreDestination("Settings", "Risk, data, privacy, providers", Icons.Outlined.Settings, MoreAction.SETTINGS),
         MoreDestination("FoxTrader Pro", "Plan, trial, feature map", Icons.Outlined.WorkspacePremium, MoreAction.SUBSCRIPTION),
@@ -145,6 +149,8 @@ fun MoreScreen(
             items(research, key = { it.title }) { dest -> MoreRow(dest, onOpen) }
             item { FoxSectionHeader("Desk") }
             items(desk, key = { it.title }) { dest -> MoreRow(dest, onOpen) }
+            item { FoxSectionHeader("Live trading") }
+            items(liveTrading, key = { it.title }) { dest -> MoreRow(dest, onOpen) }
             item { FoxSectionHeader("Account") }
             items(account, key = { it.title }) { dest -> MoreRow(dest, onOpen) }
         }
