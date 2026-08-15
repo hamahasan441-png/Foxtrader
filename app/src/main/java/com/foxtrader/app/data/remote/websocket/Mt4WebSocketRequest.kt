@@ -1,6 +1,5 @@
 package com.foxtrader.app.data.remote.websocket
 
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 
 /**
@@ -12,6 +11,12 @@ import okhttp3.Request
  * upgrade). That means the raw URL carries a live credential, so it must never
  * be logged or included in crash reports. [redacted] returns a copy of the URL
  * in which the token value is replaced with a fixed placeholder.
+ *
+ * IMPORTANT: okhttp's [okhttp3.HttpUrl] only supports `http`/`https`, so we
+ * build the request through [Request.Builder.url] (which silently rewrites the
+ * `wss:` scheme to `https:` for parsing and back to `wss:` for the actual
+ * socket). We must NOT call `toHttpUrlOrNull()` on the raw `wss:` string —
+ * that returns null and the stream could never connect.
  */
 class Mt4WebSocketRequest private constructor(
     /** The real request sent over the wire. Never log or serialize this. */
@@ -25,7 +30,9 @@ class Mt4WebSocketRequest private constructor(
     companion object {
         internal const val BASE_WS_URL = "wss://mt-client-api-v1.agiliumtrade.agiliumtrade.ai/ws"
         internal const val AUTH_TOKEN_QUERY = "auth-token"
-        internal const val REDACTED = "[REDACTED]"
+        // No brackets/special chars so the placeholder survives URL encoding
+        // untouched and can be asserted in diagnostics/tests.
+        internal const val REDACTED = "REDACTED"
 
         /**
          * Creates a [Mt4WebSocketRequest], or `null` when the token/account are
@@ -37,9 +44,11 @@ class Mt4WebSocketRequest private constructor(
             if (authToken.isBlank() || accountId.isBlank()) return null
 
             val url = "$BASE_WS_URL?$AUTH_TOKEN_QUERY=$authToken&accountId=$accountId"
-                .toHttpUrlOrNull() ?: return null
-
-            val request = Request.Builder().url(url).build()
+            val request = try {
+                Request.Builder().url(url).build()
+            } catch (_: IllegalArgumentException) {
+                return null
+            }
 
             // Build the safe diagnostic URL: keep the account id (not secret)
             // but replace the token value so it can never leak via logs.

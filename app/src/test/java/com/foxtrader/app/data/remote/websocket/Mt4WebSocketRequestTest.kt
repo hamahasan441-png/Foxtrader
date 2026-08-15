@@ -1,6 +1,5 @@
 package com.foxtrader.app.data.remote.websocket
 
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -12,6 +11,11 @@ import org.junit.Test
  * Tests for [Mt4WebSocketRequest]. The central guarantee: a live MetaApi token
  * embedded in the WebSocket URL must never survive into a redacted diagnostic
  * string, and a blank token must prevent connection entirely.
+ *
+ * Note: okhttp's `HttpUrl` only supports http/https, so a `wss:` request URL is
+ * rewritten to `https:` for parsing by [okhttp3.Request.Builder.url]. We assert
+ * on the security-relevant parts (token/account query params) rather than the
+ * scheme.
  */
 class Mt4WebSocketRequestTest {
 
@@ -23,7 +27,6 @@ class Mt4WebSocketRequestTest {
 
         assertNotNull(req)
         val url = req!!.request.url
-        assertEquals("wss", url.scheme)
         assertEquals(realToken, url.queryParameter("auth-token"))
         assertEquals("account-123", url.queryParameter("accountId"))
     }
@@ -35,21 +38,21 @@ class Mt4WebSocketRequestTest {
         val redacted = req.redacted()
 
         assertFalse("Redacted URL must not contain the raw token", redacted.contains(realToken))
-        assertTrue("Token value must be masked", redacted.contains("[REDACTED]"))
+        assertTrue("Token value must be masked", redacted.contains(Mt4WebSocketRequest.REDACTED))
         // The account id is not a secret and stays for diagnostics.
-        assertTrue(redacted.contains("account-123"))
+        assertTrue(redacted.contains("accountId=account-123"))
     }
 
     @Test
     fun `redacted string masks the auth-token query parameter value`() {
         val req = Mt4WebSocketRequest.create(realToken, "account-123")!!
-        val redactedUrl = req.redacted().toHttpUrlOrNull()
+        val redacted = req.redacted()
 
-        // The redacted URL is a valid URL and its auth-token value is the
-        // placeholder, never the live token.
-        assertNotNull(redactedUrl)
-        assertEquals(Mt4WebSocketRequest.REDACTED, redactedUrl!!.queryParameter("auth-token"))
-        assertFalse(redactedUrl.toString().contains(realToken))
+        // The redacted diagnostic string must carry the placeholder for
+        // auth-token and never the live token, while keeping the account id.
+        assertFalse("must not leak the live token", redacted.contains(realToken))
+        assertTrue("must contain the redaction marker", redacted.contains(Mt4WebSocketRequest.REDACTED))
+        assertTrue("must keep the account id", redacted.contains("accountId=account-123"))
     }
 
     @Test
