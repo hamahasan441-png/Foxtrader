@@ -376,14 +376,28 @@ class StrategyLibrary @Inject constructor(
         val atr = TechnicalIndicators.calculateATR(slice, 14)[i]
         if (atr <= 0.0) return@fn null
 
+        // `BUGFIX` This previously required `breakIndex == i`, which is
+        // unsatisfiable: the structure engine only confirms a swing once
+        // rightBars (5) further candles exist, so on a slice ending at bar i
+        // the newest possible breakIndex is i - 5. The strategy therefore
+        // NEVER fired — on the chart, in backtests, or in the scanner.
+        //
+        // A break with breakIndex = s becomes *visible* exactly at bar
+        // s + STRUCTURE_SWING_CONFIRMATION_BARS (when its confirming swing
+        // completes). Firing on that bar keeps the entry non-repainting AND
+        // fires exactly once per break.
         val recentBreak = structure.breaks.lastOrNull {
-            it.confirmed && it.breakIndex == i &&
-                it.type == StructureBreakType.BOS
+            it.confirmed && it.type == StructureBreakType.BOS &&
+                it.breakIndex == i - STRUCTURE_SWING_CONFIRMATION_BARS
         } ?: return@fn null
 
         if (recentBreak.direction != structure.bias.toDirection()) return@fn null
 
         val bar = candles[i]
+        // Skip stale entries: if price has already retraced back through the
+        // broken level by the confirmation bar, the breakout failed.
+        if (recentBreak.direction == Direction.BULLISH && bar.close <= recentBreak.breakPrice) return@fn null
+        if (recentBreak.direction == Direction.BEARISH && bar.close >= recentBreak.breakPrice) return@fn null
         val dir = recentBreak.direction
         val entry = bar.close
         val sl = if (dir == Direction.BULLISH) {
@@ -609,5 +623,15 @@ class StrategyLibrary @Inject constructor(
             }
         }
         null
+    }
+
+    private companion object {
+        /**
+         * Bars needed after a swing before AnalyzeMarketStructureUseCase
+         * confirms it (its `rightBars` default). A structure break with
+         * breakIndex = s first becomes visible on bar s + this value, which is
+         * therefore the exact non-repainting entry bar for breakout logic.
+         */
+        const val STRUCTURE_SWING_CONFIRMATION_BARS = 5
     }
 }

@@ -552,3 +552,45 @@ per-frame garbage.
 No JDK/Android SDK in this sandbox; changes reviewed statically (brace
 balance, import audit, stride-loop and buffer-growth simulation) and covered
 with JVM unit tests. `android.yml` CI remains the authoritative gate.
+
+---
+
+# Strategy & indicator wiring audit (2026-08-15, pass 3)
+
+Full end-to-end audit of every indicator chip and strategy: toggle →
+ComputeIndicatorsUseCase / engine → UI state mapper → ChartScreen wiring →
+renderer. One critical defect found and fixed; everything else verified sound.
+
+## Structure Breakout (BOS) strategy could NEVER fire — fixed
+
+`structureBreakoutFunction` required `breakIndex == i`. Unsatisfiable by
+construction: `AnalyzeMarketStructureUseCase` confirms a swing only after
+`rightBars` (5) more candles exist, so on a slice ending at bar `i` the newest
+possible `breakIndex` is `i - 5`. The strategy was silently dead everywhere it
+is consumed — chart markers, "All strategies" mode, the Backtest Lab, and the
+strategy scanner.
+
+Fix: fire on the exact bar a break becomes *visible*
+(`breakIndex == i - STRUCTURE_SWING_CONFIRMATION_BARS`), which is non-repainting
+and fires exactly once per break, plus a staleness gate (price must still be
+beyond the broken level on the confirmation bar). Verified by simulating the
+full gate chain (swings → breaks → bias → ATR risk gate) over the test fixture:
+old condition = 0 signals, fixed condition = 10 signals, all bullish on the
+uptrending fixture. Pinned by `StructureBreakoutStrategyTest` (fires, valid
+risk geometry, once per break).
+
+## Verified sound (no changes needed)
+
+- **Toggle coverage matrix**: all 29 indicator toggles are consumed by the
+  compute pipeline or an engine gate, mapped into `ChartUiState`, passed by
+  `ChartScreen`, and gated at exactly one render site (overlay layer or pane
+  stack). No orphaned chips; nulls flow correctly when a series is off.
+- **Other 8 strategies**: recency windows all satisfiable given the 5-bar
+  confirmation lag (LIT `breakRecency <= 10` admits [5,10]); crossover/RSI/
+  Ichimoku/confluence/FVG/OB entries all reachable; every signal respects the
+  >= 1.9 R:R test gate.
+- **Signal flow**: strategy markers use display-candle indices, so they align
+  in Time/Heikin-Ashi/Renko modes; deselecting a strategy clears its markers
+  (signals recomputed each frame); one live marker max per source.
+- **Scanner/backtest parity**: same `StrategyLibrary` instance backs the chart,
+  scanner, and Backtest Lab, so the Breakout fix lands in all three.
