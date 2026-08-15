@@ -166,9 +166,10 @@ class Mt4ViewModel @Inject constructor(
                     )
                 }
                 .onFailure {
+                    val base = _uiState.value as? Mt4UiState.Disconnected
                     _uiState.value = Mt4UiState.Disconnected(
-                        login = _uiState.value.login,
-                        server = _uiState.value.server,
+                        login = base?.login.orEmpty(),
+                        server = base?.server.orEmpty(),
                     )
                 }
         }
