@@ -51,26 +51,30 @@ class ParabolicSar @Inject constructor() {
         val epSeries = DoubleArray(n)
         if (n < 2) return SarResult(sar, up, afSeries, epSeries)
 
-        val startIndex = if (previous != null && recomputeFrom > 0) max(0, recomputeFrom - 1) else 0
-        if (
-            previous != null &&
-            startIndex > 0 &&
-            previous.sar.size >= startIndex &&
-            previous.isUptrend.size >= startIndex &&
-            previous.accelerationFactor.size >= startIndex &&
-            previous.extremePoint.size >= startIndex
-        ) {
+        val requestedStart = if (previous != null && recomputeFrom > 0) max(0, recomputeFrom - 1) else 0
+        // `SAFETY` The seed reads previous[startIndex - 1] below, so resuming is
+        // only legal when the previous snapshot actually covers the resume
+        // point. A stale/short snapshot (rapid toggle or timeframe race) must
+        // fall back to a full recompute instead of indexing out of bounds.
+        val canReuse = previous != null &&
+            requestedStart > 0 &&
+            previous.sar.size >= requestedStart &&
+            previous.isUptrend.size >= requestedStart &&
+            previous.accelerationFactor.size >= requestedStart &&
+            previous.extremePoint.size >= requestedStart
+        val startIndex = if (canReuse) requestedStart else 0
+        if (canReuse && previous != null) {
             System.arraycopy(previous.sar, 0, sar, 0, startIndex)
             System.arraycopy(previous.isUptrend, 0, up, 0, startIndex)
             System.arraycopy(previous.accelerationFactor, 0, afSeries, 0, startIndex)
             System.arraycopy(previous.extremePoint, 0, epSeries, 0, startIndex)
         }
 
-        var uptrend = if (startIndex > 0 && previous != null) previous.isUptrend[startIndex - 1]
+        var uptrend = if (canReuse && previous != null) previous.isUptrend[startIndex - 1]
         else candles[1].close >= candles[0].close
-        var af = if (startIndex > 0 && previous != null) previous.accelerationFactor[startIndex - 1]
+        var af = if (canReuse && previous != null) previous.accelerationFactor[startIndex - 1]
         else accelerationStart
-        var ep = if (startIndex > 0 && previous != null) previous.extremePoint[startIndex - 1]
+        var ep = if (canReuse && previous != null) previous.extremePoint[startIndex - 1]
         else if (uptrend) candles[0].high else candles[0].low
 
         if (startIndex == 0) {

@@ -404,3 +404,193 @@ No Android SDK/JDK-Gradle is available in this sandbox, so `./gradlew`
 here. Android changes are type-checked with `kotlinc` against stubs; the
 `android.yml` CI job remains the authoritative verification path for the Android
 build and the detekt/ktlint gates.
+
+---
+
+# Chart stability & rendering pass (2026-08-15)
+
+User-reported symptoms: (1) app sometimes crashes when touching indicator
+chips, (2) candles render as "two thin lines" instead of candlesticks,
+(3) several indicators/strategies never appear on the chart after toggling.
+
+## 1. Crash class: unhandled exceptions on the flow-driven compute path
+
+The candle-processing pipeline (`observeMarket → onMergedCandlesChanged →
+ChartViewModel.processCandles`) ran inside `scope.launch` blocks with **no**
+containment. Any exception from an indicator/strategy/SMC engine — including
+the reproducible `ArrayIndexOutOfBounds` below — became an unhandled
+coroutine failure and killed the whole app. Toggling an indicator forces a
+full recompute concurrently with live emissions, which is exactly when stale
+incremental snapshots race with fresh candles.
+
+Fixes:
+- `ChartDataController.observeMarket` / `observeWebSocketTicks`: contained
+  per-emission (`CancellationException` always rethrown).
+- `ChartViewModel.processCandles`: the indicator coordinator plus each of
+  TradePro / LIT X / SMT / strategy engines individually contained; a failing
+  engine degrades its own overlay for one frame instead of crashing.
+- `ChartAiCoordinator`: the fire-and-forget AI coroutine wrapped; failure
+  resets the fingerprint so the next data change retries.
+
+## 2. Crash root cause: stale-snapshot incremental resume
+
+`IchimokuCloud.calculateIncremental` fed `System.arraycopy` a prefix length
+taken from `recomputeFrom` without checking the `previous` arrays actually
+cover it → hard `ArrayIndexOutOfBoundsException` on a background thread
+during rapid toggles/timeframe switches. Fixed with a `canReuse` guard that
+falls back to a full recompute.
+
+The sibling engines (SuperTrend, Bollinger, ParabolicSar, VWAP, MACD signal,
+ATR) had the *silent* variant: a short snapshot skipped the copy but kept a
+positive resume index, seeding the recursion from a zeroed prefix — wrong
+lines (bands at price 0, VWAP pinned to the chart floor). All now fall back
+to a full recompute. Pinned by `IncrementalResumeGuardTest` and
+`IchimokuIncrementalGuardTest`.
+
+## 3. "Two-line candlesticks"
+
+`drawCandleLayer` floored the body width at 2px even when the bar slot was
+narrower (zoomed out past ~3px/bar), so every candle drew as two overlapping
+thin lines and neighbours smeared together. The layer now switches to clean
+single high-low bars below 3px/bar (TradingView behaviour), and at normal
+zoom the body caps at `barWidth - 1px` so adjacent bodies never fuse.
+
+## 4. Indicators/strategies not appearing
+
+- **Adaptive-quality trap:** a degraded session could reach MINIMAL (all
+  indicator layers skipped) and only recover after 60 consecutive excellent
+  frames — an idle chart draws no frames, so it never recovered. Indicator
+  toggles now call `ChartPerformanceMonitor.onOverlayConfigChanged()`, which
+  resets quality/profiler so an explicitly requested overlay always gets a
+  fresh chance to render.
+- **SMT toggle was a permanent no-op:** `processCandles` passed a hard-coded
+  `emptyMap()` of peer candles. Now wired to
+  `MtfContextProvider.getCorrelatedContext` (cached per symbol|timeframe).
+- **EMA all-or-nothing draw guard:** `drawIndicatorLayer` required
+  `series.size >= end`, so a series one bar shorter than the candle list
+  (routine during live appends) hid the entire line. Now clamps per-series.
+- **Auto-scale ignored newer overlays:** Keltner/Donchian/anchored-VWAP were
+  not included in the visible-range fit, so they could render entirely
+  off-screen. Now included (NaN-safe).
+- **Renko froze the chart:** the default 10.0 brick on a ~1.08-priced pair
+  produces zero bricks → `processCandles` bailed and the chart stayed on
+  stale bars. An ATR-derived auto-brick now kicks in and is published back to
+  UI state. `CandleRenkoBuilder` additionally rejects NaN/∞ bricks and caps
+  output at 50k bricks (OOM guard) — pinned by `CandleRenkoBuilderSafetyTest`.
+- **Sub-pane misalignment:** oscillator panes used a 56dp price gutter vs the
+  main chart's 64dp, shearing every RSI/MACD/volume bar off its candle.
+  `ChartDimens.subPaneScaleWidth` now equals `priceScaleWidth`.
+
+## 5. Enhancements
+
+- "Clear all" quick action in the indicator panel (one tap back to a clean
+  chart, preserves the SMC visual-intensity preference).
+- Heavy TradePro/LIT X/SMT analyses moved off the caller's context onto the
+  default dispatcher.
+
+### Environment note
+
+No JDK/Android SDK is available in this sandbox; changes were reviewed
+statically and covered with JVM unit tests. The `android.yml` CI job remains
+the authoritative build/test gate.
+
+---
+
+# Chart performance pass (2026-08-15, follow-up)
+
+Same hot paths as the stability pass, now optimised. Theme: the draw pass was
+correct but issued *per-bar* Canvas calls and per-frame allocations everywhere;
+everything below batches work into O(1) Canvas calls per layer and removes
+per-frame garbage.
+
+## Draw-pass batching (main chart)
+
+- **Candle layer**: was 2 Compose draw calls + several small allocations per
+  candle. Now: wicks bucketed by direction into reusable float buffers and
+  submitted as TWO native `drawLines` calls; bodies drawn via a shared native
+  Paint (no Offset/Size/brush allocations). Thin-bar mode additionally does
+  min-max pixel-column downsampling, bounding emitted lines by chart width
+  instead of bar count (matters at MAX_VISIBLE_BARS = 100k).
+- **All line overlays** (EMA, VWAP, Bollinger, Keltner, Donchian, Ichimoku
+  lines, anchored VWAP): one `drawLine` per bar → ONE batched Path stroke per
+  series, with ~1-vertex-per-pixel LOD striding and built-in NaN gaps.
+- **SuperTrend**: per-segment colored lines → two direction-bucketed Paths.
+- **Ichimoku Kumo cloud**: one `drawRect` per bar → same-color runs merged
+  into closed quads in two Paths, each filled once.
+- **Parabolic SAR**: one `drawCircle` per dot → ONE native `drawPoints` call
+  with a reusable coordinate buffer.
+
+## Draw-pass batching (sub-panes — redraw on every pan/zoom frame)
+
+- Shared `strokePaneSeries` helper (PanePolyline.kt): RSI (3 zone-colored
+  paths), MACD lines, Stochastic %K/%D, OBV, MFI — all single-path strokes.
+- **MACD histogram**: per-bar `drawRect` + per-bar `Color.copy` → 4
+  color-bucketed Paths filled once each.
+- **Volume pane**: per-bar `drawRect` + per-bar `Color.copy` → 2 direction
+  Paths.
+- Hoisted per-frame allocations: dash `PathEffect`s, `.copy(alpha=)` guide
+  colors.
+
+## Per-frame / per-tick CPU + GC
+
+- **Price-scale labels**: `String.format` per label per frame → cached with
+  the grid-level cache; last-price tag memoised on the close value.
+- **Viewport persistence**: cancel-and-relaunch coroutine per pan/zoom frame
+  (≤120 Job allocations/s while dragging) → single long-lived debounced
+  worker fed by a lock-free `tryEmit`.
+- **Room emission dedup key**: interpolated String per DB emission → value
+  data class compared field-by-field.
+- **CandleSeries.supportsLogScale**: eager O(n) scan per wrap (per tick) →
+  lazy, computed only when the log-scale control reads it.
+- **Market explanation on ticks**: the narrative engine (full structure + SMC
+  over the whole series) ran on every intra-bar tick inside the incremental
+  frame. Now reused from the previous snapshot until a bar closes. Pinned by
+  `ChartIndicatorCoordinatorPerfTest` (same-instance on tick, fresh on close).
+
+### Environment note
+
+No JDK/Android SDK in this sandbox; changes reviewed statically (brace
+balance, import audit, stride-loop and buffer-growth simulation) and covered
+with JVM unit tests. `android.yml` CI remains the authoritative gate.
+
+---
+
+# Strategy & indicator wiring audit (2026-08-15, pass 3)
+
+Full end-to-end audit of every indicator chip and strategy: toggle →
+ComputeIndicatorsUseCase / engine → UI state mapper → ChartScreen wiring →
+renderer. One critical defect found and fixed; everything else verified sound.
+
+## Structure Breakout (BOS) strategy could NEVER fire — fixed
+
+`structureBreakoutFunction` required `breakIndex == i`. Unsatisfiable by
+construction: `AnalyzeMarketStructureUseCase` confirms a swing only after
+`rightBars` (5) more candles exist, so on a slice ending at bar `i` the newest
+possible `breakIndex` is `i - 5`. The strategy was silently dead everywhere it
+is consumed — chart markers, "All strategies" mode, the Backtest Lab, and the
+strategy scanner.
+
+Fix: fire on the exact bar a break becomes *visible*
+(`breakIndex == i - STRUCTURE_SWING_CONFIRMATION_BARS`), which is non-repainting
+and fires exactly once per break, plus a staleness gate (price must still be
+beyond the broken level on the confirmation bar). Verified by simulating the
+full gate chain (swings → breaks → bias → ATR risk gate) over the test fixture:
+old condition = 0 signals, fixed condition = 10 signals, all bullish on the
+uptrending fixture. Pinned by `StructureBreakoutStrategyTest` (fires, valid
+risk geometry, once per break).
+
+## Verified sound (no changes needed)
+
+- **Toggle coverage matrix**: all 29 indicator toggles are consumed by the
+  compute pipeline or an engine gate, mapped into `ChartUiState`, passed by
+  `ChartScreen`, and gated at exactly one render site (overlay layer or pane
+  stack). No orphaned chips; nulls flow correctly when a series is off.
+- **Other 8 strategies**: recency windows all satisfiable given the 5-bar
+  confirmation lag (LIT `breakRecency <= 10` admits [5,10]); crossover/RSI/
+  Ichimoku/confluence/FVG/OB entries all reachable; every signal respects the
+  >= 1.9 R:R test gate.
+- **Signal flow**: strategy markers use display-candle indices, so they align
+  in Time/Heikin-Ashi/Renko modes; deselecting a strategy clears its markers
+  (signals recomputed each frame); one live marker max per source.
+- **Scanner/backtest parity**: same `StrategyLibrary` instance backs the chart,
+  scanner, and Backtest Lab, so the Breakout fix lands in all three.

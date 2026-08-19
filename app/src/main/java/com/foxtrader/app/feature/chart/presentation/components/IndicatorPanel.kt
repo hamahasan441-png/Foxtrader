@@ -48,6 +48,18 @@ fun IndicatorPanel(
                 .padding(horizontal = FoxTheme.spacing.md, vertical = FoxTheme.spacing.sm),
             verticalArrangement = Arrangement.spacedBy(FoxTheme.spacing.sm),
         ) {
+            // One-tap reset back to a clean chart. Traders stack studies fast
+            // while exploring; without this the only way out is toggling each
+            // chip off individually. Preserves the visual-intensity preference.
+            if (toggles.anyActive) {
+                Group("Quick actions") {
+                    Chip("Clear all", active = false) {
+                        onToggle { current ->
+                            IndicatorToggles(smcVisualMode = current.smcVisualMode)
+                        }
+                    }
+                }
+            }
             Group("Trend") {
                 Chip(stringResource(R.string.chart_indicator_ema), toggles.ema) { onToggle { it.copy(ema = !it.ema) } }
                 Chip(stringResource(R.string.chart_indicator_supertrend), toggles.superTrend) { onToggle { it.copy(superTrend = !it.superTrend) } }

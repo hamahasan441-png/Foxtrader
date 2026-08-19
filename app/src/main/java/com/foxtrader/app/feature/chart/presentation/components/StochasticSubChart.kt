@@ -18,8 +18,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -30,14 +28,15 @@ import com.foxtrader.app.feature.chart.presentation.ImmutableDoubleSeries
 import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxNeutral5
 import java.util.Locale
-import kotlin.math.max
-import kotlin.math.min
 
 private val StochOverbought = Color(0xFFE53935)
 private val StochOversold = Color(0xFF43A047)
 private val StochKLine = Color(0xFF42A5F5)
 private val StochDLine = Color(0xFFFF9F43)
 private val StochZoneFill = Color(0x1A42A5F5)
+// `PERF` Hoisted guide colors — previously allocated per frame via copy(alpha=).
+private val StochOverboughtGuide = StochOverbought.copy(alpha = 0.5f)
+private val StochOversoldGuide = StochOversold.copy(alpha = 0.5f)
 private val GridLineColor = Color(0x33FFFFFF)
 private val LabelArgb = android.graphics.Color.parseColor("#99999F")
 
@@ -115,9 +114,7 @@ fun StochasticSubChart(
             val chartH = size.height
 
             fun yFor(value: Double): Float = ((100.0 - value) / 100.0 * chartH).toFloat()
-            fun xForIndex(index: Float): Float = (index - startIndex) / visibleBars * chartW
-
-            val dashEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 4f))
+            val dashEffect = PaneDash
             val y80 = yFor(80.0)
             val y20 = yFor(20.0)
             val y50 = yFor(50.0)
@@ -127,33 +124,15 @@ fun StochasticSubChart(
                 topLeft = Offset(0f, y80),
                 size = Size(chartW, y20 - y80),
             )
-            drawLine(StochOverbought.copy(alpha = 0.5f), Offset(0f, y80), Offset(chartW, y80), strokeWidth = 1f, pathEffect = dashEffect)
-            drawLine(StochOversold.copy(alpha = 0.5f), Offset(0f, y20), Offset(chartW, y20), strokeWidth = 1f, pathEffect = dashEffect)
+            drawLine(StochOverboughtGuide, Offset(0f, y80), Offset(chartW, y80), strokeWidth = 1f, pathEffect = dashEffect)
+            drawLine(StochOversoldGuide, Offset(0f, y20), Offset(chartW, y20), strokeWidth = 1f, pathEffect = dashEffect)
             drawLine(GridLineColor, Offset(0f, y50), Offset(chartW, y50), strokeWidth = 0.5f, pathEffect = dashEffect)
 
-            /** Plots one series, culled to the visible window. */
-            fun drawSeries(values: ImmutableDoubleSeries, color: Color, stroke: Float) {
-                if (values.size < 2) return
-                val visStart = max(0, startIndex.toInt())
-                val visEnd = min(values.size, (startIndex + visibleBars).toInt() + 1)
-                for (i in visStart until visEnd - 1) {
-                    val x1 = xForIndex(i + 0.5f)
-                    val x2 = xForIndex(i + 1.5f)
-                    if (x1 > chartW && x2 > chartW) continue
-                    if (x1 < 0f && x2 < 0f) continue
-                    drawLine(
-                        color = color,
-                        start = Offset(x1, yFor(values[i])),
-                        end = Offset(x2, yFor(values[i + 1])),
-                        strokeWidth = stroke,
-                        cap = StrokeCap.Round,
-                    )
-                }
-            }
-
+            // `PERF` One batched Path stroke per series (strokePaneSeries)
+            // instead of a drawLine per visible bar per gesture frame.
             // %D (signal) sits under %K so the faster line stays readable.
-            drawSeries(percentD, StochDLine, 1.4f)
-            drawSeries(percentK, StochKLine, 2f)
+            strokePaneSeries(percentD, startIndex, visibleBars, chartW, StochDLine, 1.4f) { v -> yFor(v) }
+            strokePaneSeries(percentK, startIndex, visibleBars, chartW, StochKLine, 2f) { v -> yFor(v) }
 
             val canvas = drawContext.canvas.nativeCanvas
             canvas.drawText("80", w - 4f, y80 + 4f, labelPaint)

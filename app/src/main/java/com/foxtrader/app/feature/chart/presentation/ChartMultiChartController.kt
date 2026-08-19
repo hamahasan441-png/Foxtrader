@@ -15,11 +15,14 @@ import com.foxtrader.app.domain.usecase.preferences.PersistedMultiChartState
 import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
@@ -55,6 +58,28 @@ internal class ChartMultiChartController(
     private var lastCrosshairSourcePanelId: String? = null
     private var persistMultiChartJob: Job? = null
     private var hasRestoredMultiChartPreferences: Boolean = false
+
+    /**
+     * `PERF` Persist requests are funneled through a signal flow debounced by a
+     * SINGLE long-lived collector. The previous cancel-and-relaunch pattern
+     * allocated (and cancelled) one coroutine Job per pan/zoom frame — up to
+     * 120 Job allocations/second of pure GC churn while dragging the chart.
+     * extraBufferCapacity=1 + DROP_OLDEST makes tryEmit lock-free and
+     * suspension-free on the render-adjacent path.
+     */
+    private val persistRequests = MutableSharedFlow<Unit>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+
+    @OptIn(FlowPreview::class)
+    fun startPersistWorker() {
+        if (persistMultiChartJob != null) return
+        persistMultiChartJob = persistRequests
+            .debounce(PERSIST_MULTI_CHART_DEBOUNCE_MS)
+            .onEach { writeMultiChartPreferences() }
+            .launchIn(scope)
+    }
 
     fun observePersistedMultiChartPreferences() {
         appPreferences.multiChartPreferences
@@ -110,33 +135,36 @@ internal class ChartMultiChartController(
     }
 
     fun persistMultiChartPreferences() {
-        persistMultiChartJob?.cancel()
-        persistMultiChartJob = scope.launch {
-            delay(PERSIST_MULTI_CHART_DEBOUNCE_MS)
-            val panels = multiChartManager.getPanels()
-            val activeIndex = panels.indexOfFirst { it.isActive }.coerceAtLeast(0)
-            val persistedTs = when (lastCrosshairSource) {
-                PersistedCrosshairSource.PRIMARY -> panelSyncedCrosshairTimestamps.values.firstOrNull()
-                PersistedCrosshairSource.PANEL -> primarySyncedCrosshairTimestamp
-                PersistedCrosshairSource.NONE -> null
-            }
-            val crosshairPanelIdx = if (lastCrosshairSource == PersistedCrosshairSource.PANEL) {
-                panels.indexOfFirst { it.id == lastCrosshairSourcePanelId }.takeIf { it >= 0 }
-            } else null
-            appPreferences.setMultiChartPreferences(PersistedMultiChartState(
-                layout = multiChartManager.getLayout(),
-                linkedToPrimary = multiChartLinkedToPrimary,
-                symbolLinkEnabled = multiChartSymbolLinkEnabled,
-                timeframeLinkEnabled = multiChartTimeframeLinkEnabled,
-                crosshairSyncEnabled = multiChartManager.isCrosshairSynced(),
-                activePanelIndex = activeIndex,
-                primaryViewport = primaryViewportState,
-                syncedCrosshairTimestamp = persistedTs,
-                syncedCrosshairSource = lastCrosshairSource,
-                syncedCrosshairPanelIndex = crosshairPanelIdx,
-                panels = panels.map { PersistedMultiChartPanel(it.symbol, it.timeframe, panelViewportStates[it.id]) },
-            ))
+        // Lazily start the single debounced worker, then signal it. tryEmit is
+        // allocation-free — called on every viewport frame during pan/zoom.
+        startPersistWorker()
+        persistRequests.tryEmit(Unit)
+    }
+
+    private suspend fun writeMultiChartPreferences() {
+        val panels = multiChartManager.getPanels()
+        val activeIndex = panels.indexOfFirst { it.isActive }.coerceAtLeast(0)
+        val persistedTs = when (lastCrosshairSource) {
+            PersistedCrosshairSource.PRIMARY -> panelSyncedCrosshairTimestamps.values.firstOrNull()
+            PersistedCrosshairSource.PANEL -> primarySyncedCrosshairTimestamp
+            PersistedCrosshairSource.NONE -> null
         }
+        val crosshairPanelIdx = if (lastCrosshairSource == PersistedCrosshairSource.PANEL) {
+            panels.indexOfFirst { it.id == lastCrosshairSourcePanelId }.takeIf { it >= 0 }
+        } else null
+        appPreferences.setMultiChartPreferences(PersistedMultiChartState(
+            layout = multiChartManager.getLayout(),
+            linkedToPrimary = multiChartLinkedToPrimary,
+            symbolLinkEnabled = multiChartSymbolLinkEnabled,
+            timeframeLinkEnabled = multiChartTimeframeLinkEnabled,
+            crosshairSyncEnabled = multiChartManager.isCrosshairSynced(),
+            activePanelIndex = activeIndex,
+            primaryViewport = primaryViewportState,
+            syncedCrosshairTimestamp = persistedTs,
+            syncedCrosshairSource = lastCrosshairSource,
+            syncedCrosshairPanelIndex = crosshairPanelIdx,
+            panels = panels.map { PersistedMultiChartPanel(it.symbol, it.timeframe, panelViewportStates[it.id]) },
+        ))
     }
 
     fun currentPrimaryViewportState(): ChartViewportState? = primaryViewportState

@@ -107,12 +107,17 @@ object TechnicalIndicators {
         if (candles.isEmpty()) return vwap
 
         val requestedStart = recomputeFrom.coerceIn(0, candles.lastIndex)
-        val start = findUtcDayStartIndex(candles, requestedStart)
+        val dayAlignedStart = findUtcDayStartIndex(candles, requestedStart)
+        // `SAFETY` If the previous snapshot cannot cover the resume prefix,
+        // recompute from bar 0. Keeping a positive start with no copied prefix
+        // left earlier days flatlined at 0.0, which rendered as a VWAP line
+        // pinned to the bottom of the chart.
+        val start = if (previous != null && previous.size >= dayAlignedStart) dayAlignedStart else 0
         var cumulativeTPV = 0.0
         var cumulativeVolume = 0.0
         var currentDay = -1L
 
-        if (previous != null && previous.size >= start && start > 0) {
+        if (previous != null && start > 0) {
             System.arraycopy(previous, 0, vwap, 0, start)
         }
 
@@ -299,8 +304,11 @@ object TechnicalIndicators {
         val signalLine = DoubleArray(candles.size)
         // signalPeriod == -1 makes k Infinity and NaNs the entire signal line.
         val k = 2.0 / (sanitizePeriod(signalPeriod) + 1)
-        val startIndex = if (previous != null && recomputeFrom > 0) max(0, recomputeFrom - 1) else 0
-        if (previous != null && startIndex > 0 && previous.signal.size >= startIndex) {
+        val requestedSignalStart = if (previous != null && recomputeFrom > 0) max(0, recomputeFrom - 1) else 0
+        // `SAFETY` Resume only when the snapshot covers the prefix; otherwise a
+        // zeroed signalLine[startIndex - 1] seeds the EMA recursion from 0.
+        val startIndex = if (previous != null && previous.signal.size >= requestedSignalStart) requestedSignalStart else 0
+        if (previous != null && startIndex > 0) {
             System.arraycopy(previous.signal, 0, signalLine, 0, startIndex)
         }
         if (candles.isNotEmpty()) {
@@ -345,8 +353,11 @@ object TechnicalIndicators {
         }
 
         if (candles.size >= period) {
-            val startIndex = if (previous != null && recomputeFrom > 0) max(0, recomputeFrom - 1) else 0
-            if (previous != null && startIndex > 0 && previous.size >= startIndex) {
+            val requestedAtrStart = if (previous != null && recomputeFrom > 0) max(0, recomputeFrom - 1) else 0
+            // `SAFETY` A snapshot shorter than the resume point cannot seed the
+            // Wilder recursion — fall back to a full recompute from bar 0.
+            val startIndex = if (previous != null && previous.size >= requestedAtrStart) requestedAtrStart else 0
+            if (previous != null && startIndex > 0) {
                 System.arraycopy(previous, 0, atr, 0, startIndex)
             }
             if (startIndex <= period - 1) {

@@ -348,6 +348,13 @@ class ChartViewport(
     private val priceGridScratch = DoubleArray(MAX_PRICE_GRID_LEVELS)
     private var priceGridCount = 0
 
+    // `PERF` Formatted grid labels, cached with the same key as the levels.
+    // String.format is comparatively expensive (locale lookup + parse of the
+    // format string); re-running it for every label on every frame — including
+    // crosshair-only frames where the price window is unchanged — was wasted
+    // work. Entries are formatted lazily on first read after a rebuild.
+    private val priceGridLabels = arrayOfNulls<String>(MAX_PRICE_GRID_LEVELS)
+
     /**
      * Rebuilds a preallocated, human-friendly level buffer for both scale modes.
      * Logarithmic mode uses 1/2/5 levels per decade instead of pretending that
@@ -394,10 +401,30 @@ class ChartViewport(
         priceGridCacheMode = scaleMode
         priceGridCacheTarget = targetLines
         priceGridCount = count
+        // Invalidate cached labels; they re-format lazily on first read.
+        java.util.Arrays.fill(priceGridLabels, 0, MAX_PRICE_GRID_LEVELS, null)
         return count
     }
 
     fun priceGridLevel(index: Int): Double = priceGridScratch[index]
+
+    /** Formatted label for a grid level, cached until the grid is rebuilt. */
+    fun priceGridLabel(index: Int): String =
+        priceGridLabels[index] ?: formatPrice(priceGridScratch[index]).also { priceGridLabels[index] = it }
+
+    // `PERF` Single-entry memo for the live last-price tag: the close only
+    // changes on a tick, but the tag redraws on every pan/zoom/crosshair frame.
+    private var lastPriceMemoValue = Double.NaN
+    private var lastPriceMemoLabel = ""
+
+    /** Formatted last price, re-formatted only when the value changes. */
+    fun formatPriceMemo(price: Double): String {
+        if (price != lastPriceMemoValue) {
+            lastPriceMemoValue = price
+            lastPriceMemoLabel = formatPrice(price)
+        }
+        return lastPriceMemoLabel
+    }
 
     /**
      * "Nice" round time step for time-axis labels (in number of bars).

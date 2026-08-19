@@ -14,6 +14,7 @@ import com.foxtrader.app.domain.usecase.ai.MarketExplanationEngine
 import com.foxtrader.app.domain.usecase.ai.MasterDecisionEngine
 import com.foxtrader.app.domain.usecase.ai.MtfContextProvider
 import com.foxtrader.app.domain.usecase.mtf.ConfluenceEngine
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -89,63 +90,87 @@ internal class ChartAiCoordinator(
 
         inFlightJob?.cancel()
         inFlightJob = scope.launch {
-            val mtfCandles = mtfContextProvider.getHtfContext(
-                symbol = symbol,
-                executionTimeframe = timeframe,
-            )
-            val correlatedCandles = mtfContextProvider.getCorrelatedContext(
-                symbol = symbol,
-                timeframe = timeframe,
-            )
-            val context = AgentContext(
+            // `CRASH-SAFETY` This coroutine has no awaiting caller: an exception
+            // escaping it is an unhandled failure that kills the app. The AI
+            // read is advisory — a failed run must degrade to "no decision this
+            // frame", never to a crash. Resetting the fingerprint lets the next
+            // data change retry instead of being deduplicated away.
+            try {
+                runAiPipeline(candles, dataSource, symbol, timeframe, confluenceEnabled, symbolFlow, timeframeFlow, onResult)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                lastAiCandlesHash = 0L
+            }
+        }
+    }
+
+    private suspend fun runAiPipeline(
+        candles: List<Candle>,
+        dataSource: CandleSource,
+        symbol: String,
+        timeframe: Timeframe,
+        confluenceEnabled: Boolean,
+        symbolFlow: () -> String,
+        timeframeFlow: () -> Timeframe,
+        onResult: (AiResult) -> Unit,
+    ) {
+        val mtfCandles = mtfContextProvider.getHtfContext(
+            symbol = symbol,
+            executionTimeframe = timeframe,
+        )
+        val correlatedCandles = mtfContextProvider.getCorrelatedContext(
+            symbol = symbol,
+            timeframe = timeframe,
+        )
+        val context = AgentContext(
+            symbol = symbol,
+            timeframe = timeframe,
+            candles = candles.asCandleSeries(),
+            mtfCandles = mtfCandles,
+            correlatedCandles = correlatedCandles,
+        )
+
+        val decision = withContext(defaultDispatcher) {
+            val orchestratorResult = orchestrator.analyze(context)
+            decisionEngine.evaluate(orchestratorResult, dataSource)
+        }
+        val confluence = if (confluenceEnabled) {
+            withContext(defaultDispatcher) {
+                val dataByTimeframe = linkedMapOf(timeframe to candles).apply { putAll(mtfCandles) }
+                val bullish = confluenceEngine.analyze(dataByTimeframe)
+                val bearish = confluenceEngine.analyze(
+                    dataByTimeframe = dataByTimeframe,
+                    primaryDirection = com.foxtrader.app.domain.model.Direction.BEARISH,
+                )
+                when {
+                    bearish.confluenceScore > bullish.confluenceScore -> bearish
+                    bullish.confluenceScore > bearish.confluenceScore -> bullish
+                    bullish.overallBias == Bias.BEARISH -> bearish
+                    else -> bullish
+                }
+            }
+        } else null
+
+        // Drop stale AI results if the user changed chart context while this
+        // background analysis was running.
+        if (symbolFlow() != symbol || timeframeFlow() != timeframe) return
+
+        val htfExplanation = withContext(defaultDispatcher) {
+            marketExplanationEngine.explain(
                 symbol = symbol,
                 timeframe = timeframe,
                 candles = candles.asCandleSeries(),
-                mtfCandles = mtfCandles,
-                correlatedCandles = correlatedCandles,
+                htfCandles = mtfCandles,
             )
+        }
 
-            val decision = withContext(defaultDispatcher) {
-                val orchestratorResult = orchestrator.analyze(context)
-                decisionEngine.evaluate(orchestratorResult, dataSource)
-            }
-            val confluence = if (confluenceEnabled) {
-                withContext(defaultDispatcher) {
-                    val dataByTimeframe = linkedMapOf(timeframe to candles).apply { putAll(mtfCandles) }
-                    val bullish = confluenceEngine.analyze(dataByTimeframe)
-                    val bearish = confluenceEngine.analyze(
-                        dataByTimeframe = dataByTimeframe,
-                        primaryDirection = com.foxtrader.app.domain.model.Direction.BEARISH,
-                    )
-                    when {
-                        bearish.confluenceScore > bullish.confluenceScore -> bearish
-                        bullish.confluenceScore > bearish.confluenceScore -> bullish
-                        bullish.overallBias == Bias.BEARISH -> bearish
-                        else -> bullish
-                    }
-                }
-            } else null
+        onResult(AiResult(decision = decision, marketExplanation = htfExplanation, confluence = confluence))
 
-            // Drop stale AI results if the user changed chart context while this
-            // background analysis was running.
-            if (symbolFlow() != symbol || timeframeFlow() != timeframe) return@launch
-
-            val htfExplanation = withContext(defaultDispatcher) {
-                marketExplanationEngine.explain(
-                    symbol = symbol,
-                    timeframe = timeframe,
-                    candles = candles.asCandleSeries(),
-                    htfCandles = mtfCandles,
-                )
-            }
-
-            onResult(AiResult(decision = decision, marketExplanation = htfExplanation, confluence = confluence))
-
-            // Fire a push alert if the AI approves a signal (cooldown-gated).
-            val alert = aiAlertService.evaluate(decision, symbol)
-            if (alert != null) {
-                alertDispatcher.dispatch(alert)
-            }
+        // Fire a push alert if the AI approves a signal (cooldown-gated).
+        val alert = aiAlertService.evaluate(decision, symbol)
+        if (alert != null) {
+            alertDispatcher.dispatch(alert)
         }
     }
 

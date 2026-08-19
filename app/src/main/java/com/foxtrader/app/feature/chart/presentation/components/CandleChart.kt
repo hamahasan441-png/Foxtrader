@@ -292,6 +292,13 @@ fun CandleChart(
             ichimokuSenkouA = ichimokuSenkouA,
             ichimokuSenkouB = ichimokuSenkouB,
             ichimokuChikou = ichimokuChikou,
+            anchoredVwap = anchoredVwap,
+            anchoredVwapUpper = anchoredVwapUpper,
+            anchoredVwapLower = anchoredVwapLower,
+            keltnerUpper = keltnerUpper,
+            keltnerLower = keltnerLower,
+            donchianUpper = donchianUpper,
+            donchianLower = donchianLower,
             orderBlocks = orderBlocks,
             fairValueGaps = fairValueGaps,
             liquidityPools = liquidityPools,
@@ -702,7 +709,7 @@ fun CandleChart(
                 drawBollinger(viewport, cw, ch, bollingerUpper, bollingerMiddle, bollingerLower)
             }
             if (vwap != null) {
-                drawLineSeries(viewport, cw, ch, vwap, Color(0xFF9C27B0), 1.5f)
+                drawLineSeries(viewport, cw, ch, vwap, com.foxtrader.app.feature.chart.presentation.components.layers.SessionVwapColor, 1.5f)
             }
             if (anchoredVwap != null) {
                 drawAnchoredVwap(viewport, cw, ch, anchoredVwap, anchoredVwapUpper, anchoredVwapLower)

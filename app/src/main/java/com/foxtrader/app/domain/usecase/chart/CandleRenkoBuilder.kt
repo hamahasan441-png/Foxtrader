@@ -30,7 +30,7 @@ class CandleRenkoBuilder @Inject constructor() {
      * @return Renko bricks in order; empty when input is empty or [brickSize] <= 0.
      */
     fun build(candles: List<Candle>, brickSize: Double): List<Candle> {
-        if (candles.isEmpty() || brickSize <= 0.0) return emptyList()
+        if (candles.isEmpty() || brickSize <= 0.0 || !brickSize.isFinite()) return emptyList()
 
         val bricks = ArrayList<Candle>()
         var lastClose = candles.first().close
@@ -40,7 +40,14 @@ class CandleRenkoBuilder @Inject constructor() {
             val price = candle.close
             volumeAccumulator += candle.volume
 
-            while (price - lastClose >= brickSize) {
+            // `SAFETY` A brick size that is tiny relative to the price range
+            // (e.g. the 10.0 default applied to a 100k BTC chart after the user
+            // types 0.0001) can demand millions of bricks from a single candle
+            // — an OOM/ANR, not a chart. Cap the output; the freshest bricks
+            // are the ones that matter, so stop building rather than degrade.
+            if (bricks.size >= MAX_BRICKS) break
+
+            while (price - lastClose >= brickSize && bricks.size < MAX_BRICKS) {
                 val open = lastClose
                 val close = lastClose + brickSize
                 bricks.add(
@@ -57,7 +64,7 @@ class CandleRenkoBuilder @Inject constructor() {
                 volumeAccumulator = 0.0
             }
 
-            while (lastClose - price >= brickSize) {
+            while (lastClose - price >= brickSize && bricks.size < MAX_BRICKS) {
                 val open = lastClose
                 val close = lastClose - brickSize
                 bricks.add(
@@ -76,5 +83,14 @@ class CandleRenkoBuilder @Inject constructor() {
         }
 
         return bricks
+    }
+
+    private companion object {
+        /**
+         * Hard output cap. 50k bricks is far beyond any usable chart depth
+         * (MAX_VISIBLE_BARS is 100k px-wide worst case) while still bounding a
+         * pathological brickSize to a few MB instead of an OOM.
+         */
+        const val MAX_BRICKS = 50_000
     }
 }
