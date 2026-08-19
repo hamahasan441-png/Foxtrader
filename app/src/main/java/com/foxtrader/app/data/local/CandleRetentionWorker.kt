@@ -8,6 +8,7 @@ import com.foxtrader.app.data.local.dao.CandleDao
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlinx.coroutines.CancellationException
 
 /**
  * Periodic safety net for the Room candle cache.
@@ -31,6 +32,8 @@ class CandleRetentionWorker @AssistedInject constructor(
             candleDao.prune(series.symbol, series.timeframe, keepCount)
         }
         Result.success()
+    } catch (cancel: CancellationException) {
+        throw cancel
     } catch (_: Exception) {
         Result.retry()
     }

@@ -93,12 +93,13 @@ class PolygonWebSocket @Inject constructor(
 
             val key = displaySymbol to timeframe
             if (subscriptions.containsKey(key)) return
-            subscriptions[key] = Subscription(displaySymbol, ticker, timeframe, market)
+            val subscription = Subscription(displaySymbol, ticker, timeframe, market)
+            subscriptions[key] = subscription
 
             val session = sessions.getOrPut(market) { Session(market) }
             ensureSessionLocked(session)
             if (session.authenticated) {
-                sendSubscribeLocked(session, listOf(subscriptions[key]!!))
+                sendSubscribeLocked(session, listOf(subscription))
             }
             refreshConnectionStateLocked()
         }

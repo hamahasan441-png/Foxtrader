@@ -129,7 +129,7 @@ fun OnboardingScreen(
                 FoxSectionHeader("Keep nearby")
                 Spacer(Modifier.height(spacing.sm))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(spacing.xs), verticalArrangement = Arrangement.spacedBy(spacing.xs)) {
-                    FavoriteTool.entries.forEach { tool ->
+                    FavoriteTool.entries.filterNot { it == FavoriteTool.JOURNAL }.forEach { tool ->
                         FoxChip(
                             label = tool.name.replace('_', ' '),
                             selected = tool in tools,

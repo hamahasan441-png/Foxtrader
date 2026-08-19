@@ -149,6 +149,9 @@ class AppPreferences @Inject constructor(
     private val _strategyBlueprints = MutableStateFlow<List<StrategyBlueprint>>(emptyList())
     val strategyBlueprints: StateFlow<List<StrategyBlueprint>> = _strategyBlueprints.asStateFlow()
 
+    /** One-shot navigation handoff from Strategy Builder to Backtesting Lab. */
+    private val _requestedBacktestBlueprintId = MutableStateFlow<String?>(null)
+
     private val _tradeProConfig = MutableStateFlow(TradeProConfig())
     val tradeProConfig: StateFlow<TradeProConfig> = _tradeProConfig.asStateFlow()
 
@@ -352,6 +355,13 @@ class AppPreferences @Inject constructor(
     fun deleteStrategyBlueprint(id: String) {
         setStrategyBlueprints(_strategyBlueprints.value.filterNot { it.id == id })
     }
+
+    fun requestBacktestForBlueprint(id: String) {
+        _requestedBacktestBlueprintId.value = id
+    }
+
+    fun consumeRequestedBacktestBlueprintId(): String? =
+        _requestedBacktestBlueprintId.value.also { _requestedBacktestBlueprintId.value = null }
 
     fun setTradeProConfig(config: TradeProConfig) {
         _tradeProConfig.value = config

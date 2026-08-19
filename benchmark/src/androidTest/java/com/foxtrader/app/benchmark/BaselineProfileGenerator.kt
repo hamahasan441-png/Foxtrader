@@ -31,10 +31,7 @@ class BaselineProfileGenerator {
         device.wait(Until.hasObject(By.text("Settings")), 5_000)
 
         device.findObject(By.text("More"))?.click()
-        device.findObject(By.text("Journal"))?.click()
-        device.wait(Until.hasObject(By.text("Journal")), 5_000)
-
-        device.findObject(By.desc("Open portfolio exposure"))?.click()
+        device.findObject(By.text("Portfolio"))?.click()
         device.wait(Until.hasObject(By.text("Portfolio")), 5_000)
         device.pressBack()
 

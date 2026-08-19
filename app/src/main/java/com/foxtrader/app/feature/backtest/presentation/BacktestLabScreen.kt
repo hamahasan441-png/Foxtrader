@@ -187,13 +187,23 @@ private fun ConfigurationCard(
         Text("Strategy Template", fontSize = 12.sp, color = FoxNeutral60)
         ChipRow(
             items = BacktestStrategyTemplate.entries,
-            selected = state.strategy,
+            selected = state.strategy.takeIf { state.selectedBlueprintId == null },
             label = { it.displayName },
             onSelect = viewModel::setStrategy,
         )
+        if (state.strategyBlueprints.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            Text("My Builder Strategies", fontSize = 12.sp, color = FoxNeutral60)
+            ChipRow(
+                items = state.strategyBlueprints,
+                selected = state.selectedBlueprint,
+                label = { it.name },
+                onSelect = { viewModel.setBlueprint(it.id) },
+            )
+        }
         Spacer(Modifier.height(6.dp))
         Text(
-            text = state.strategy.description,
+            text = state.selectedStrategyDescription,
             style = MaterialTheme.typography.bodySmall,
             color = FoxNeutral60,
         )
@@ -441,7 +451,7 @@ private fun MetricTile(label: String, value: String, color: Color, modifier: Mod
 @Composable
 private fun <T> ChipRow(
     items: List<T>,
-    selected: T,
+    selected: T?,
     label: (T) -> String,
     onSelect: (T) -> Unit,
 ) {

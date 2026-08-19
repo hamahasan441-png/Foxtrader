@@ -153,7 +153,7 @@
 
     <!-- Portfolio -->
     <string name="portfolio_no_positions_title">No open positions</string>
-    <string name="portfolio_no_positions_subtitle">Exposure is derived from open trades in your journal. Log a trade without an exit price to track it here.</string>
+    <string name="portfolio_no_positions_subtitle">Open positions from supported trading workflows will appear here.</string>
     <string name="portfolio_synthetic_notice">Priced from simulated data \u2014 correlations and P\u0026L are not real.</string>
     <string name="portfolio_of_equity">of %1$s equity</string>
     <string name="portfolio_lots_at_notional">%1$s lots @ %2$s</string>
@@ -165,7 +165,7 @@
 
     <!-- Settings -->
     <string name="settings_signed_in">Signed in \u2014 cloud sync enabled</string>
-    <string name="settings_sign_in_description">Sign in to back up and sync your journal, drawings, and settings across devices.</string>
+    <string name="settings_sign_in_description">Sign in to back up and sync your drawings, alerts, and settings across devices.</string>
     <string name="settings_biometric_description">Lock the app with your fingerprint, face, or device PIN on launch.</string>
     <string name="settings_biometric_unavailable">Biometric unlock unavailable \u2014 no biometrics or screen lock set up on this device.</string>
     <string name="settings_crash_reporting_label">Share crash diagnostics</string>
@@ -233,7 +233,7 @@
     <string name="disclaimer_point_no_trades">FoxTrader does not place trades and is not connected to any brokerage or live capital.</string>
     <string name="disclaimer_point_simulated">When live data is unavailable, clearly-labelled simulated data is used and AI signals are disabled for it.</string>
     <string name="disclaimer_point_risk">Trading carries substantial risk. You are solely responsible for your own decisions.</string>
-    <string name="disclaimer_point_local">Your journal, drawings, and settings stay on this device. Nothing is uploaded by default.</string>
+    <string name="disclaimer_point_local">Your drawings, alerts, and settings stay on this device. Nothing is uploaded by default.</string>
     <string name="disclaimer_acknowledge">I understand and agree</string>
     <string name="disclaimer_settings_note">You can review this any time in Settings → Privacy.</string>
 
@@ -274,7 +274,4 @@
     <string name="tradepro_backtest_simulated_notice">SIMULATED DATA \u2014 no real feed for this symbol. This report is illustrative of the framework\'s mechanics, not a live edge.</string>
     <string name="tradepro_backtest_select_prompt">Select a symbol to replay the TRADEPRO framework over its history.</string>
 
-    <!-- Journal -->
-    <string name="journal_review_title">Review %1$s</string>
-    <string name="journal_delete_confirm">Delete this trade permanently?</string>
 </resources>

@@ -1,31 +1,9 @@
 package com.foxtrader.app.feature.chart.presentation.components.layers
 
-import android.graphics.Paint
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.nativeCanvas
 import com.foxtrader.app.domain.model.Candle
-import com.foxtrader.app.domain.model.Direction
-import com.foxtrader.app.domain.model.StructureBreak
-import com.foxtrader.app.domain.model.StructureBreakType
-import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.model.ChartSignal
 import com.foxtrader.app.feature.chart.presentation.ImmutableDoubleSeries
-import com.foxtrader.app.feature.chart.presentation.ImmutableIntSeries
 import com.foxtrader.app.feature.chart.presentation.components.ChartViewport
-import com.foxtrader.app.ui.theme.FoxAmber50
-import com.foxtrader.app.ui.theme.FoxBearish
-import com.foxtrader.app.ui.theme.FoxBullish
-import com.foxtrader.app.ui.theme.FoxNeutral10
-import com.foxtrader.app.ui.theme.FoxNeutral20
-import com.foxtrader.app.ui.theme.FoxNeutral5
-import com.foxtrader.app.ui.theme.FoxNeutral60
-import java.util.Locale
-import kotlin.math.abs
-import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 
@@ -47,23 +25,30 @@ internal fun autoScaleToVisibleContent(
     superTrendValues: ImmutableDoubleSeries?,
     parabolicSar: ImmutableDoubleSeries?,
     vwap: ImmutableDoubleSeries?,
+    anchoredVwap: ImmutableDoubleSeries?,
+    anchoredVwapUpper: ImmutableDoubleSeries?,
+    anchoredVwapLower: ImmutableDoubleSeries?,
     ichimokuTenkan: ImmutableDoubleSeries?,
     ichimokuKijun: ImmutableDoubleSeries?,
     ichimokuSenkouA: ImmutableDoubleSeries?,
     ichimokuSenkouB: ImmutableDoubleSeries?,
     ichimokuChikou: ImmutableDoubleSeries?,
-    anchoredVwap: ImmutableDoubleSeries? = null,
-    anchoredVwapUpper: ImmutableDoubleSeries? = null,
-    anchoredVwapLower: ImmutableDoubleSeries? = null,
-    keltnerUpper: ImmutableDoubleSeries? = null,
-    keltnerLower: ImmutableDoubleSeries? = null,
-    donchianUpper: ImmutableDoubleSeries? = null,
-    donchianLower: ImmutableDoubleSeries? = null,
+    keltnerUpper: ImmutableDoubleSeries?,
+    keltnerMiddle: ImmutableDoubleSeries?,
+    keltnerLower: ImmutableDoubleSeries?,
+    donchianUpper: ImmutableDoubleSeries?,
+    donchianMiddle: ImmutableDoubleSeries?,
+    donchianLower: ImmutableDoubleSeries?,
+    pivotLevels: com.foxtrader.app.domain.usecase.indicators.PivotPoints.PivotLevels?,
     orderBlocks: List<com.foxtrader.app.domain.model.OrderBlock>,
     fairValueGaps: List<com.foxtrader.app.domain.model.FairValueGap>,
     liquidityPools: List<com.foxtrader.app.domain.model.LiquidityPool>,
     sessions: List<com.foxtrader.app.domain.model.SessionRange>,
     volumeProfile: com.foxtrader.app.domain.model.VolumeProfile?,
+    marketProfile: com.foxtrader.app.domain.usecase.analysis.MarketProfile.ProfileResult?,
+    supportResistanceZones: List<com.foxtrader.app.domain.usecase.analysis.SupportResistanceDetector.SRZone>,
+    autoFibLevels: List<com.foxtrader.app.domain.usecase.analysis.FibonacciEngine.FibLevel>,
+    signals: List<ChartSignal>,
     pad: Double = 0.08,
 ) {
     if (candles.isEmpty()) return
@@ -75,7 +60,10 @@ internal fun autoScaleToVisibleContent(
     var lo = Double.POSITIVE_INFINITY
 
     fun include(price: Double?) {
-        if (price == null || price.isNaN() || price.isInfinite()) return
+        // Financial-price overlays must never inject NaN, infinity, or an
+        // uninitialised zero into the camera range. One bad prefix value would
+        // otherwise flatten real candles into the reported "two lines" view.
+        if (price == null || !price.isFinite() || price <= 0.0) return
         if (price > hi) hi = price
         if (price < lo) lo = price
     }
@@ -99,22 +87,30 @@ internal fun autoScaleToVisibleContent(
     includeSeries(superTrendValues)
     includeSeries(parabolicSar)
     includeSeries(vwap)
+    includeSeries(anchoredVwap)
+    includeSeries(anchoredVwapUpper)
+    includeSeries(anchoredVwapLower)
     includeSeries(ichimokuTenkan)
     includeSeries(ichimokuKijun)
     includeSeries(ichimokuSenkouA)
     includeSeries(ichimokuSenkouB)
     includeSeries(ichimokuChikou)
-    // Newer overlays (R8): a toggled-on channel or anchored VWAP band must pull
-    // the price window with it, otherwise it renders off-screen and the user
-    // reads it as "the indicator never appeared". `include` is NaN-safe, so the
-    // anchored VWAP's pre-anchor NaN prefix is skipped naturally.
-    includeSeries(anchoredVwap)
-    includeSeries(anchoredVwapUpper)
-    includeSeries(anchoredVwapLower)
     includeSeries(keltnerUpper)
+    includeSeries(keltnerMiddle)
     includeSeries(keltnerLower)
     includeSeries(donchianUpper)
+    includeSeries(donchianMiddle)
     includeSeries(donchianLower)
+
+    pivotLevels?.let { levels ->
+        include(levels.pivot)
+        include(levels.r1)
+        include(levels.r2)
+        include(levels.r3)
+        include(levels.s1)
+        include(levels.s2)
+        include(levels.s3)
+    }
 
     orderBlocks.forEach { block ->
         if (block.endIndex >= start && block.startIndex < end) {
@@ -140,6 +136,23 @@ internal fun autoScaleToVisibleContent(
         }
     }
     volumeProfile?.levels?.forEach { include(it.priceLevel) }
+    marketProfile?.levels?.forEach { include(it.priceLevel) }
+    supportResistanceZones.forEach { zone ->
+        include(zone.upperBound)
+        include(zone.lowerBound)
+    }
+    autoFibLevels.forEach { include(it.price) }
+    signals.forEach { signal ->
+        if (signal.barIndex in start until end) {
+            include(signal.entry)
+            // Historical markers do not render their old trade rays; including
+            // every old SL/TP would unnecessarily squash current price action.
+            if (signal.isLive) {
+                if (signal.sl != 0.0) include(signal.sl)
+                if (signal.tp != 0.0) include(signal.tp)
+            }
+        }
+    }
 
     if (hi == Double.NEGATIVE_INFINITY || lo == Double.POSITIVE_INFINITY) {
         viewport.autoScale(candles)

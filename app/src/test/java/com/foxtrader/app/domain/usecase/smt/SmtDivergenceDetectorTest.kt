@@ -22,6 +22,7 @@ class SmtDivergenceDetectorTest {
         assertTrue("Expected bearish SMT", smt != null)
         assertEquals(SmtDivergenceDetector.SmtType.PRIMARY_SWEEP_PEER_FAIL, smt?.type)
         assertEquals("GBPUSD", smt?.peerSymbol)
+        assertEquals("signal becomes actionable after the right-side swing bars", 63, smt?.confirmationIndex)
         assertTrue("Correlation should be strong", (smt?.correlation ?: 0.0) > 0.9)
     }
 

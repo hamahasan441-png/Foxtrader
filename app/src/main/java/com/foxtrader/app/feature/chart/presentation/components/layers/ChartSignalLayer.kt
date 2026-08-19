@@ -56,6 +56,17 @@ internal fun DrawScope.drawLitXSignals(
     ch: Float,
 ) {
     val signal = analysis.signal ?: return
+    val validPrices = signal.entry.isDrawablePrice() &&
+        signal.stopLoss.isDrawablePrice() &&
+        signal.takeProfit1.isDrawablePrice() &&
+        signal.takeProfit2.isDrawablePrice()
+    val validGeometry = when (signal.direction) {
+        Direction.BULLISH -> signal.stopLoss < signal.entry &&
+            signal.takeProfit1 > signal.entry && signal.takeProfit2 > signal.entry
+        Direction.BEARISH -> signal.stopLoss > signal.entry &&
+            signal.takeProfit1 < signal.entry && signal.takeProfit2 < signal.entry
+    }
+    if (!validPrices || !validGeometry) return
 
     val entryY = viewport.yForPrice(signal.entry, ch)
     val stopY = viewport.yForPrice(signal.stopLoss, ch)
@@ -121,8 +132,13 @@ internal fun DrawScope.drawLitXSignals(
  *
  * For each divergence in the visible range:
  * - Circle marker at the primary swing index at primaryPrice
- * - Dashed connecting line from (primaryIndex, primaryPrice) to (peerIndex, peerPrice)
+ * - Dashed confirmation ray from the swing to the bar where it became knowable
  * - Colored based on direction (bullish = FoxBullish, bearish = FoxBearish)
+ *
+ * Peer prices are intentionally not projected onto the primary chart's Y axis:
+ * EURUSD, DXY, BTC, and an index can have completely different price scales.
+ * Plotting [SmtDivergenceDetector.SmtDivergence.peerPrice] here produced an
+ * invalid line (and frequently sent the endpoint off-screen).
  */
 internal fun DrawScope.drawSmtDivergences(
     divergences: List<SmtDivergenceDetector.SmtDivergence>,
@@ -136,16 +152,21 @@ internal fun DrawScope.drawSmtDivergences(
     val endIdx = (viewport.startIndex + viewport.visibleBars).toInt() + 1
 
     for (div in divergences) {
-        // Only draw divergences that are at least partially visible
-        if (div.primaryIndex > endIdx && div.peerIndex > endIdx) continue
-        if (div.primaryIndex < startIdx && div.peerIndex < startIdx) continue
+        if (
+            div.primaryIndex < 0 ||
+            div.confirmationIndex < div.primaryIndex ||
+            !div.primaryPrice.isDrawablePrice()
+        ) continue
+        // The primary swing and its confirmation span are the only coordinates
+        // that belong to this chart's time/price axes.
+        if (div.primaryIndex > endIdx && div.confirmationIndex > endIdx) continue
+        if (div.primaryIndex < startIdx && div.confirmationIndex < startIdx) continue
 
         val color = if (div.direction == Direction.BULLISH) FoxBullish else FoxBearish
 
         val primaryX = viewport.xForIndex(div.primaryIndex + 0.5f, cw)
         val primaryY = viewport.yForPrice(div.primaryPrice, ch)
-        val peerX = viewport.xForIndex(div.peerIndex + 0.5f, cw)
-        val peerY = viewport.yForPrice(div.peerPrice, ch)
+        val confirmationX = viewport.xForIndex(div.confirmationIndex + 0.5f, cw)
 
         // Circle marker at primary swing point
         drawCircle(
@@ -154,20 +175,22 @@ internal fun DrawScope.drawSmtDivergences(
             center = Offset(primaryX, primaryY),
         )
 
-        // Dashed connecting line from primary to peer level
+        // Horizontal ray shows the non-repainting confirmation delay without
+        // mixing a correlated asset's incompatible price scale into this chart.
         drawLine(
             color = color.copy(alpha = 0.6f),
             start = Offset(primaryX, primaryY),
-            end = Offset(peerX, peerY),
+            end = Offset(confirmationX, primaryY),
             strokeWidth = 1.5f,
             pathEffect = SignalDash,
         )
 
-        // Small circle at peer point
+        // Small ring at the confirmation bar.
         drawCircle(
             color = color.copy(alpha = 0.6f),
             radius = 4f,
-            center = Offset(peerX, peerY),
+            center = Offset(confirmationX, primaryY),
+            style = Stroke(width = 1.5f),
         )
     }
 }
@@ -192,6 +215,7 @@ internal fun DrawScope.drawSignalMarkers(
     val endIdx = (viewport.startIndex + viewport.visibleBars).toInt() + 1
 
     for (signal in signals) {
+        if (signal.barIndex < 0 || !signal.entry.isDrawablePrice()) continue
         // Viewport culling: skip signals outside the visible range
         if (signal.barIndex < startIdx || signal.barIndex > endIdx) continue
 
@@ -257,6 +281,11 @@ private fun DrawScope.drawSignalLevels(
     ch: Float,
     dirColor: androidx.compose.ui.graphics.Color,
 ) {
+    if (
+        !signal.entry.isDrawablePrice() ||
+        !signal.sl.isDrawablePrice() ||
+        !signal.tp.isDrawablePrice()
+    ) return
     val entryY = viewport.yForPrice(signal.entry, ch)
     val slY = viewport.yForPrice(signal.sl, ch)
     val tpY = viewport.yForPrice(signal.tp, ch)
@@ -280,3 +309,5 @@ private fun DrawScope.drawSignalLevels(
     drawLine(FoxBearish.copy(alpha = 0.85f), Offset(left, slY), Offset(cw, slY), strokeWidth = 1.4f, pathEffect = SignalDash)
     drawLine(FoxBullish.copy(alpha = 0.85f), Offset(left, tpY), Offset(cw, tpY), strokeWidth = 1.4f, pathEffect = SignalDash)
 }
+
+private fun Double.isDrawablePrice(): Boolean = isFinite() && this > 0.0

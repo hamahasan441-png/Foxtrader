@@ -6,27 +6,25 @@ import com.foxtrader.app.domain.model.LogicOp
 import com.foxtrader.app.domain.model.StrategyBlueprint
 import com.foxtrader.app.domain.model.StrategyConditionKind
 import com.foxtrader.app.domain.model.StrategySignal
-import com.foxtrader.app.domain.usecase.backtest.StrategyFunction
 import com.foxtrader.app.domain.usecase.indicators.BollingerBands
 import com.foxtrader.app.domain.usecase.indicators.StochasticOscillator
 import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlin.math.abs
 import kotlin.math.max
-import kotlin.math.min
-import kotlin.math.sqrt
 
 /**
- * Sandboxed strategy scripting engine.
+ * Strategy scripting engine.
  *
  * Executes user-authored strategy scripts expressed as a DSL, Kotlin lambda, or [StrategyBlueprint].
  * Scripts receive read-only candle data and can produce non-repainting trade signals.
  *
- * SECURITY:
- * - Pure computation: No filesystem, network, reflection, or OS access.
- * - CPU quota: Bound to [MAX_ITERATIONS] loop iterations per evaluation.
- * - Non-repainting: [ScriptContext] guarantees only bars [0..currentIndex] are readable.
+ * Generated DSL/blueprint strategies are pure computations over [ScriptContext],
+ * and exceptions fail closed. A caller-supplied Kotlin [Strategy] lambda is
+ * trusted in-process code, not an OS/security sandbox and not pre-emptible.
+ * Non-repainting access is enforced by exposing only bars [0..currentIndex].
  */
 @Singleton
 class ScriptEngine @Inject constructor() {
@@ -36,9 +34,17 @@ class ScriptEngine @Inject constructor() {
      * Returns a signal if the strategy triggers, null otherwise.
      */
     fun evaluate(strategy: Strategy, candles: List<Candle>, index: Int): StrategySignal? {
-        if (index < strategy.minBars || index >= candles.size) return null
+        if (index !in candles.indices || index < strategy.minBars.coerceAtLeast(0)) return null
         val ctx = ScriptContext(candles, index)
-        return strategy.evaluate(ctx)
+        return try {
+            strategy.evaluate(ctx)
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (_: Exception) {
+            // User-authored logic is contained like any other plugin boundary:
+            // one bad rule returns no setup instead of crashing chart/backtest.
+            null
+        }
     }
 
     /**
@@ -63,24 +69,44 @@ class ScriptEngine @Inject constructor() {
             minBars = 50,
         ) { ctx ->
             if (blueprint.conditions.isEmpty()) return@Strategy null
+            // The current builder exposes AND/OR only. Legacy/custom payloads
+            // can still contain unary negation or the old NOT combinator, whose
+            // directional meaning is ambiguous (NOT bullish is not proof of a
+            // bearish setup). Reject those states instead of reversing a trade.
+            if (blueprint.combinator == LogicOp.NOT || blueprint.conditions.any { it.negated }) {
+                return@Strategy null
+            }
+            if (
+                !blueprint.action.riskPercent.isFinite() ||
+                blueprint.action.riskPercent <= 0.0 ||
+                blueprint.action.riskPercent > MAX_BLUEPRINT_RISK_PERCENT
+            ) return@Strategy null
 
-            val results = blueprint.conditions.map { cond ->
-                val met = evaluateCondition(cond.kind, cond.label, ctx)
-                if (cond.negated) !met else met
+            val results = blueprint.conditions.map { condition ->
+                evaluateCondition(
+                    kind = condition.kind,
+                    label = condition.label,
+                    ctx = ctx,
+                    riskPercent = blueprint.action.riskPercent,
+                )
             }
 
-            val triggered = when (blueprint.combinator) {
-                LogicOp.AND -> results.all { it }
-                LogicOp.OR -> results.any { it }
-                LogicOp.NOT -> results.none { it }
-            }
-
-            if (!triggered) return@Strategy null
+            // Evaluate bullish and bearish paths independently. The old
+            // implementation collapsed directional rules into one Boolean and
+            // then guessed BUY unless a label happened to contain "sell". A
+            // bearish BOS/liquidity sweep could therefore emit a BUY. Ambiguous
+            // or directionless blueprints now fail closed.
+            val bullish = combine(results.map { it.bullish }, blueprint.combinator)
+            val bearish = combine(results.map { it.bearish }, blueprint.combinator)
+            val hasDirectionalEvidence = results.any { it.directional && it.supported }
+            if (!hasDirectionalEvidence || bullish == bearish) return@Strategy null
 
             val atr = ctx.atr(14)
-            val isBullish = isBullishBlueprint(blueprint)
-            val dir = if (isBullish) Direction.BULLISH else Direction.BEARISH
+            if (!atr.isFinite() || atr <= MIN_RISK_DISTANCE) return@Strategy null
+
+            val dir = if (bullish) Direction.BULLISH else Direction.BEARISH
             val entry = ctx.close
+            if (!entry.isFinite() || entry <= 0.0) return@Strategy null
             val sl = if (dir == Direction.BULLISH) entry - atr * 1.5 else entry + atr * 1.5
             val risk = abs(entry - sl)
             val tp = if (dir == Direction.BULLISH) entry + risk * 2.5 else entry - risk * 2.5
@@ -92,60 +118,162 @@ class ScriptEngine @Inject constructor() {
                 entry = entry,
                 stopLoss = sl,
                 takeProfit = tp,
-                confidence = 75,
+                confidence = (BASE_BLUEPRINT_CONFIDENCE + results.count { it.supported } * CONFIDENCE_PER_RULE)
+                    .coerceAtMost(MAX_BLUEPRINT_CONFIDENCE),
                 setupType = blueprint.name.ifBlank { "BLUEPRINT" },
             )
         }
     }
 
-    private fun evaluateCondition(kind: StrategyConditionKind, label: String, ctx: ScriptContext): Boolean {
+    /**
+     * Evaluate one visual-builder condition for both possible trade directions.
+     *
+     * Returning [DirectionalMatch.unsupported] is intentionally different from
+     * returning a false match: unsupported/unknown labels can never make an AND,
+     * OR, or negated blueprint fire by accident.
+     */
+    private fun evaluateCondition(
+        kind: StrategyConditionKind,
+        label: String,
+        ctx: ScriptContext,
+        riskPercent: Double,
+    ): DirectionalMatch {
         val lower = label.lowercase()
         return when (kind) {
             StrategyConditionKind.INDICATOR -> {
                 when {
                     "ema 20 above ema 50" in lower || "ema 20 > ema 50" in lower ->
-                        ctx.ema(20) > ctx.ema(50)
+                        DirectionalMatch.directional(bullish = ctx.ema(20) > ctx.ema(50))
                     "ema 20 below ema 50" in lower || "ema 20 < ema 50" in lower ->
-                        ctx.ema(20) < ctx.ema(50)
+                        DirectionalMatch.directional(bearish = ctx.ema(20) < ctx.ema(50))
+                    "rsi leaving 30/70" in lower -> {
+                        val current = ctx.rsi(14)
+                        val previous = ctx.rsi(14, offset = 1)
+                        DirectionalMatch.directional(
+                            bullish = previous <= RSI_OVERSOLD && current > RSI_OVERSOLD,
+                            bearish = previous >= RSI_OVERBOUGHT && current < RSI_OVERBOUGHT,
+                        )
+                    }
                     "rsi leaving 30" in lower || "rsi < 30" in lower ->
-                        ctx.rsi(14) < 30.0
+                        DirectionalMatch.directional(bullish = ctx.rsi(14) < RSI_OVERSOLD)
                     "rsi leaving 70" in lower || "rsi > 70" in lower ->
-                        ctx.rsi(14) > 70.0
-                    else -> true
+                        DirectionalMatch.directional(bearish = ctx.rsi(14) > RSI_OVERBOUGHT)
+                    else -> DirectionalMatch.unsupported()
                 }
             }
             StrategyConditionKind.MARKET_STRUCTURE -> {
                 when {
-                    "bos" in lower -> ctx.close > ctx.highest(20, offset = 1) || ctx.close < ctx.lowest(20, offset = 1)
-                    "choch" in lower || "mss" in lower -> ctx.close > ctx.sma(20) && ctx.candle(-1)?.let { it.close <= ctx.sma(20, 1) } == true
-                    else -> true
+                    "bos" in lower -> DirectionalMatch.directional(
+                        bullish = ctx.close > ctx.highest(STRUCTURE_LOOKBACK, offset = 1),
+                        bearish = ctx.close < ctx.lowest(STRUCTURE_LOOKBACK, offset = 1),
+                    )
+                    "choch" in lower || "mss" in lower -> {
+                        val previousClose = ctx.candle(-1)?.close ?: return DirectionalMatch.directional()
+                        DirectionalMatch.directional(
+                            bullish = ctx.close > ctx.sma(20) && previousClose <= ctx.sma(20, offset = 1),
+                            bearish = ctx.close < ctx.sma(20) && previousClose >= ctx.sma(20, offset = 1),
+                        )
+                    }
+                    else -> DirectionalMatch.unsupported()
                 }
             }
             StrategyConditionKind.LIQUIDITY -> {
-                ctx.current.low < ctx.lowest(10, offset = 1) || ctx.current.high > ctx.highest(10, offset = 1)
+                val previousLow = ctx.lowest(LIQUIDITY_LOOKBACK, offset = 1)
+                val previousHigh = ctx.highest(LIQUIDITY_LOOKBACK, offset = 1)
+                DirectionalMatch.directional(
+                    bullish = ctx.current.low < previousLow && ctx.close > previousLow,
+                    bearish = ctx.current.high > previousHigh && ctx.close < previousHigh,
+                )
             }
             StrategyConditionKind.FVG -> {
                 val c0 = ctx.candle(0)
                 val c2 = ctx.candle(-2)
-                if (c0 != null && c2 != null) (c0.low > c2.high) || (c0.high < c2.low) else false
+                if (c0 == null || c2 == null) {
+                    DirectionalMatch.directional()
+                } else {
+                    DirectionalMatch.directional(
+                        bullish = c0.low > c2.high,
+                        bearish = c0.high < c2.low,
+                    )
+                }
             }
             StrategyConditionKind.ORDER_BLOCK -> {
                 val prev = ctx.candle(-1)
-                prev != null && ctx.close > prev.high
+                if (prev == null) {
+                    DirectionalMatch.directional()
+                } else {
+                    DirectionalMatch.directional(
+                        bullish = prev.close < prev.open && ctx.current.low <= prev.high && ctx.close > prev.high,
+                        bearish = prev.close > prev.open && ctx.current.high >= prev.low && ctx.close < prev.low,
+                    )
+                }
             }
-            StrategyConditionKind.SMT -> true
-            StrategyConditionKind.SESSION -> true
-            StrategyConditionKind.RISK -> true
+            // A single-symbol ScriptContext cannot prove cross-symbol SMT.
+            // Treat it as unavailable instead of the former unconditional true.
+            StrategyConditionKind.SMT -> DirectionalMatch.unsupported()
+            StrategyConditionKind.SESSION -> DirectionalMatch.nonDirectional(isKillZone(ctx.current.timestamp))
+            StrategyConditionKind.RISK -> DirectionalMatch.nonDirectional(
+                riskPercent.isFinite() && riskPercent > 0.0 && riskPercent <= MAX_BLUEPRINT_RISK_PERCENT,
+            )
         }
     }
 
-    private fun isBullishBlueprint(blueprint: StrategyBlueprint): Boolean {
-        val combined = blueprint.conditions.joinToString(" ") { it.label }.lowercase()
-        return !combined.contains("bear") && !combined.contains("below") && !combined.contains("sell")
+    private fun combine(values: List<Boolean>, op: LogicOp): Boolean = when (op) {
+        LogicOp.AND -> values.all { it }
+        LogicOp.OR -> values.any { it }
+        LogicOp.NOT -> values.none { it }
+    }
+
+    /** London 07:00-10:00 and New York 12:00-15:00, expressed in UTC. */
+    private fun isKillZone(timestamp: Long): Boolean {
+        val minuteOfDay = Math.floorMod(timestamp, MILLIS_PER_DAY) / MILLIS_PER_MINUTE
+        return minuteOfDay in LONDON_KILL_ZONE || minuteOfDay in NEW_YORK_KILL_ZONE
+    }
+
+    private data class DirectionalMatch(
+        val bullish: Boolean,
+        val bearish: Boolean,
+        val directional: Boolean,
+        val supported: Boolean,
+    ) {
+        companion object {
+            fun directional(bullish: Boolean = false, bearish: Boolean = false) = DirectionalMatch(
+                bullish = bullish,
+                bearish = bearish,
+                directional = true,
+                supported = true,
+            )
+
+            fun nonDirectional(matched: Boolean) = DirectionalMatch(
+                bullish = matched,
+                bearish = matched,
+                directional = false,
+                supported = true,
+            )
+
+            fun unsupported() = DirectionalMatch(
+                bullish = false,
+                bearish = false,
+                directional = false,
+                supported = false,
+            )
+        }
     }
 
     companion object {
-        const val MAX_ITERATIONS = 10_000
+        private const val MIN_RISK_DISTANCE = 1e-12
+        private const val RSI_OVERSOLD = 30.0
+        private const val RSI_OVERBOUGHT = 70.0
+        private const val STRUCTURE_LOOKBACK = 20
+        private const val LIQUIDITY_LOOKBACK = 10
+        private const val MAX_BLUEPRINT_RISK_PERCENT = 5.0
+        private const val BASE_BLUEPRINT_CONFIDENCE = 65
+        private const val CONFIDENCE_PER_RULE = 5
+        private const val MAX_BLUEPRINT_CONFIDENCE = 90
+        private const val MILLIS_PER_MINUTE = 60_000L
+        private const val MILLIS_PER_DAY = 86_400_000L
+        private val LONDON_KILL_ZONE = 7L * 60L until 10L * 60L
+        private val NEW_YORK_KILL_ZONE = 12L * 60L until 15L * 60L
     }
 }
 
@@ -182,8 +310,8 @@ class ScriptContext(
 
     /** Simple moving average of close prices over [period] ending at [offset] bars back. */
     fun sma(period: Int, offset: Int = 0): Double {
-        val endIdx = currentIndex - offset
-        if (endIdx < 0 || period <= 0) return close
+        val endIdx = safeEndIndex(offset) ?: return close
+        if (period <= 0) return close
         val startIdx = (endIdx - period + 1).coerceAtLeast(0)
         var sum = 0.0
         var count = 0
@@ -196,8 +324,8 @@ class ScriptContext(
 
     /** Exponential moving average of close prices over [period] ending at [offset] bars back. */
     fun ema(period: Int, offset: Int = 0): Double {
-        val endIdx = currentIndex - offset
-        if (endIdx < 0 || period <= 0) return close
+        val endIdx = safeEndIndex(offset) ?: return close
+        if (period <= 0) return close
         val slice = candles.subList(0, endIdx + 1)
         val emas = TechnicalIndicators.calculateEMA(slice, period)
         return emas.lastOrNull() ?: close
@@ -205,7 +333,8 @@ class ScriptContext(
 
     /** Relative Strength Index over [period] ending at [offset] bars back. */
     fun rsi(period: Int = 14, offset: Int = 0): Double {
-        val endIdx = currentIndex - offset
+        val endIdx = safeEndIndex(offset) ?: return 50.0
+        if (period <= 0) return 50.0
         if (endIdx < period) return 50.0
         val slice = candles.subList(0, endIdx + 1)
         val rsis = TechnicalIndicators.calculateRSI(slice, period)
@@ -214,7 +343,8 @@ class ScriptContext(
 
     /** Average True Range over [period] ending at [offset] bars back. */
     fun atr(period: Int = 14, offset: Int = 0): Double {
-        val endIdx = currentIndex - offset
+        val endIdx = safeEndIndex(offset) ?: return max(0.0001, high - low)
+        if (period <= 0) return max(0.0001, high - low)
         if (endIdx < 1) return max(0.0001, high - low)
         val slice = candles.subList(0, endIdx + 1)
         val atrs = TechnicalIndicators.calculateATR(slice, period)
@@ -223,8 +353,8 @@ class ScriptContext(
 
     /** Highest high over [period] bars ending at [offset] bars back. */
     fun highest(period: Int, offset: Int = 0): Double {
-        val endIdx = currentIndex - offset
-        if (endIdx < 0) return high
+        val endIdx = safeEndIndex(offset) ?: return high
+        if (period <= 0) return high
         val startIdx = (endIdx - period + 1).coerceAtLeast(0)
         var maxVal = Double.NEGATIVE_INFINITY
         for (i in startIdx..endIdx) {
@@ -235,8 +365,8 @@ class ScriptContext(
 
     /** Lowest low over [period] bars ending at [offset] bars back. */
     fun lowest(period: Int, offset: Int = 0): Double {
-        val endIdx = currentIndex - offset
-        if (endIdx < 0) return low
+        val endIdx = safeEndIndex(offset) ?: return low
+        if (period <= 0) return low
         val startIdx = (endIdx - period + 1).coerceAtLeast(0)
         var minVal = Double.POSITIVE_INFINITY
         for (i in startIdx..endIdx) {
@@ -247,6 +377,9 @@ class ScriptContext(
 
     /** MACD calculation at current bar. */
     fun macd(fast: Int = 12, slow: Int = 26, signal: Int = 9): MacdOutput {
+        if (fast <= 0 || slow <= 0 || signal <= 0 || fast >= slow) {
+            return MacdOutput(0.0, 0.0, 0.0)
+        }
         val slice = candles.subList(0, currentIndex + 1)
         val res = TechnicalIndicators.calculateMACD(slice, fast, slow, signal)
         val lastIdx = res.macd.lastIndex
@@ -259,6 +392,9 @@ class ScriptContext(
 
     /** Bollinger Bands at current bar. */
     fun bollinger(period: Int = 20, multiplier: Double = 2.0): BollingerOutput {
+        if (period <= 0 || !multiplier.isFinite() || multiplier < 0.0) {
+            return BollingerOutput(close, close, close)
+        }
         val slice = candles.subList(0, currentIndex + 1)
         val res = BollingerBands().calculate(slice, period, multiplier)
         val lastIdx = res.upper.lastIndex
@@ -271,6 +407,7 @@ class ScriptContext(
 
     /** Stochastic Oscillator at current bar. */
     fun stochastic(kPeriod: Int = 14, dPeriod: Int = 3): StochasticOutput {
+        if (kPeriod <= 0 || dPeriod <= 0) return StochasticOutput(50.0, 50.0)
         val slice = candles.subList(0, currentIndex + 1)
         val res = StochasticOscillator().calculate(slice, kPeriod, dPeriod)
         val lastIdx = res.percentK.lastIndex
@@ -288,6 +425,18 @@ class ScriptContext(
     /** Cross-under: fast crossed below slow this bar. */
     fun crossUnder(fast: Double, slow: Double, prevFast: Double, prevSlow: Double): Boolean =
         prevFast >= prevSlow && fast < slow
+
+    /**
+     * Resolve a historical offset without ever allowing a negative offset to
+     * expose a future bar. Indicator helpers previously accepted `offset = -1`,
+     * which made their sub-list extend beyond [currentIndex] and broke the
+     * scripting engine's non-repainting contract.
+     */
+    private fun safeEndIndex(offset: Int): Int? {
+        if (offset < 0) return null
+        val endIdx = currentIndex - offset
+        return endIdx.takeIf { it in candles.indices && it <= currentIndex }
+    }
 }
 
 /**

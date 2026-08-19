@@ -3,7 +3,6 @@ package com.foxtrader.app.domain.usecase.home
 import com.foxtrader.app.domain.model.AssetClass
 import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.model.Direction
-import com.foxtrader.app.domain.model.JournalStats
 import com.foxtrader.app.domain.model.ScreenerResult
 import com.foxtrader.app.domain.model.StrategyType
 import com.foxtrader.app.domain.model.WorkspaceProfile
@@ -17,9 +16,8 @@ class HomeInsightComposerTest {
     fun `empty scan is a fact not a forecast`() {
         val insights = HomeInsightComposer.compose(
             results = emptyList(),
-            stats = JournalStats(),
             unreadAlerts = 0,
-            openTrades = 0,
+            openPositions = 0,
             profile = WorkspaceProfile(),
             synthetic = false,
         )
@@ -31,9 +29,8 @@ class HomeInsightComposerTest {
     fun `synthetic scan is labelled as fact`() {
         val insights = HomeInsightComposer.compose(
             results = listOf(sample(score = 80, change = 1.2)),
-            stats = JournalStats(totalTrades = 4, winRate = 50.0, expectancy = 0.2),
             unreadAlerts = 2,
-            openTrades = 1,
+            openPositions = 1,
             profile = WorkspaceProfile(),
             synthetic = true,
         )
@@ -51,9 +48,8 @@ class HomeInsightComposerTest {
                 sample(score = 70, change = 1.0, direction = Direction.BULLISH),
                 sample(score = 40, change = -0.8, direction = Direction.BEARISH, symbol = "GBPUSD"),
             ),
-            stats = JournalStats(),
             unreadAlerts = 0,
-            openTrades = 0,
+            openPositions = 0,
             profile = WorkspaceProfile(),
             synthetic = false,
         )

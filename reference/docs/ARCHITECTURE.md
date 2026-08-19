@@ -39,7 +39,6 @@ Scalable to millions of users.
 | Market Scanner | ai/market-scanner | Ranked opportunities |
 | Trade Planner | ai/trade-planner | Full trade plan gen |
 | Mentor Assistant | ai/mentor-assistant | NLP Q&A like a mentor |
-| Trade Journal | journal/ | Auto-save + AI insights |
 | Replay Engine | replay/ | Tick-Daily + commentary |
 | Backtester | backtest/backtester | Spread/slip/commission |
 | Monte Carlo | backtest/monte-carlo | Risk-of-ruin analysis |
@@ -97,7 +96,7 @@ Risk Engine (position sizing, daily/weekly limits, correlation check)
     ↓
 Execution Engine (order placement, broker adapter)
     ↓
-Auto-Journal (screenshot, indicators, emotion tracking)
+Trade outcome review (risk and execution history)
     ↓
 Alert Engine (push/desktop/telegram/webhook)
 ```

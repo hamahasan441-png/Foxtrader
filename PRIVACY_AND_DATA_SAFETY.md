@@ -20,7 +20,7 @@ FoxTrader is an **educational market-analysis tool**. It visualizes charts, comp
 
 | Data | Where | Purpose | Encryption |
 |---|---|---|---|
-| Journal entries, drawings, watchlists | Room database | Core app features | Android app-sandbox |
+| Legacy trade records, drawings, watchlists | Room database | Portfolio/TradePro compatibility and core app features | Android app-sandbox |
 | Settings/preferences | DataStore | Persist user configuration | Android app-sandbox |
 | Provider API keys | EncryptedSharedPreferences | Authenticate to the user's chosen market-data provider | AES-256 (Jetpack Security) |
 | Crash diagnostics (opt-in only) | `filesDir/crash_logs/` | Let the user share a diagnostic with support | Android app-sandbox |

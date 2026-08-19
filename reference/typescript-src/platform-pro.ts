@@ -1,6 +1,6 @@
 // ============================================================================
 // TRADING PLATFORM PRO - Part 2 Orchestrator
-// Wires together Execution, Risk, AI engines, Journal, Replay, Backtest,
+// Wires together Execution, Risk, AI engines, Replay, Backtest,
 // News, Analytics, Voice, Sync, Customization, and Security into one facade.
 // ============================================================================
 
@@ -15,7 +15,6 @@ import { ConfluenceEngine } from './ai/confluence-engine';
 import { MarketScanner, SymbolAnalysisBundle } from './ai/market-scanner';
 import { TradePlanner, TradePlannerInput } from './ai/trade-planner';
 import { MentorAssistant, MentorContext } from './ai/mentor-assistant';
-import { TradeJournal } from './journal/trade-journal';
 import { ReplayEngine, ReplayCommentator } from './replay/replay-engine';
 import { Backtester, StrategyFunction } from './backtest/backtester';
 import { MonteCarloSimulator, WalkForwardAnalyzer } from './backtest/monte-carlo';
@@ -58,7 +57,6 @@ export class TradingPlatformPro {
   readonly scanner: MarketScanner;
   readonly planner: TradePlanner;
   readonly mentor: MentorAssistant;
-  readonly journal: TradeJournal;
   readonly replay: ReplayEngine;
   readonly replayCommentator: ReplayCommentator;
   readonly backtester: Backtester;
@@ -84,7 +82,6 @@ export class TradingPlatformPro {
     this.scanner = new MarketScanner();
     this.planner = new TradePlanner();
     this.mentor = new MentorAssistant();
-    this.journal = new TradeJournal(this.eventBus);
     this.replay = new ReplayEngine({}, this.eventBus);
     this.replayCommentator = new ReplayCommentator();
     this.backtester = new Backtester();
@@ -140,7 +137,7 @@ export class TradingPlatformPro {
 
   // =========================================================================
   // INTEGRATED TRADE FLOW - the heart of the platform
-  // Combines analysis -> probability -> risk -> execution -> journal
+  // Combines analysis -> probability -> risk -> execution
   // =========================================================================
 
   /**
@@ -215,18 +212,7 @@ export class TradingPlatformPro {
         takeProfits: plan.takeProfits.map((tp, i) => ({ price: tp.price, volumePercent: i === 0 ? 50 : 25 })),
         comment: `${plan.grade} ${plan.probability}%`,
       };
-      const report = this.execution.submitOrder(order);
-
-      // 6. Auto-journal the trade
-      if (report.status === 'FILLED' || report.status === 'WORKING') {
-        this.journal.createEntry({
-          symbol: bundle.symbol, timeframe: bundle.timeframe, direction,
-          entryPrice: plan.entry, stopLoss: plan.stopLoss, volume: sizing.volume,
-          takeProfits: plan.takeProfits.map(t => t.price),
-          setupType: plan.grade, confidence: plan.confidence, plannedRR: plan.riskReward,
-          confluenceFactors: plan.confirmation,
-        });
-      }
+      this.execution.submitOrder(order);
     }
 
     return { approved, reasons, plan, confidence: probability.confidence };
@@ -277,12 +263,9 @@ export class TradingPlatformPro {
     return { result, monteCarlo };
   }
 
-  /** Record a closed trade outcome into the risk engine + journal */
-  recordTradeOutcome(journalId: string, exitPrice: number): void {
-    const entry = this.journal.closeEntry(journalId, exitPrice);
-    if (entry) {
-      this.risk.recordTrade(entry.pnl, entry.symbol);
-    }
+  /** Record a closed trade outcome in the risk engine. */
+  recordTradeOutcome(pnl: number, symbol: string): void {
+    this.risk.recordTrade(pnl, symbol);
   }
 
   /** Get a full platform status snapshot */
@@ -292,7 +275,6 @@ export class TradingPlatformPro {
       risk: this.risk.getRiskStatus(this.execution.getOpenPositions()),
       openPositions: this.execution.getOpenPositions().length,
       workingOrders: this.execution.getWorkingOrders().length,
-      journalStats: this.journal.getStats(),
       syncStatus: this.cloudSync.getStatus(),
       authenticated: this.security.isAuthenticated(),
       activeTheme: this.customization.getActiveTheme().name,

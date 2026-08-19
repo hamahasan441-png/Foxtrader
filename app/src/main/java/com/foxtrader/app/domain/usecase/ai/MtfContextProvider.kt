@@ -3,7 +3,9 @@ package com.foxtrader.app.domain.usecase.ai
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.repository.MarketRepository
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 
 /**
  * Provides multi-timeframe and correlated-symbol candle context for the AI agent system.
@@ -16,13 +18,15 @@ import javax.inject.Inject
  *
  * Design notes:
  * - HTFs are determined relative to the execution TF (always look UP).
- * - Uses the repository's one-shot [MarketRepository.getCandles] (cached /
- *   seeded) so it works offline and never blocks on the network.
+ * - Uses sourced repository reads and rejects synthetic context. Cached real
+ *   bars remain usable offline; an explicit SMT request may refresh a missing
+ *   peer through the configured market provider.
  * - Limits to at most 3 HTFs to bound CPU cost per AI cycle.
  */
 class MtfContextProvider @Inject constructor(
     private val repository: MarketRepository,
 ) {
+    private val peerRefreshAttempts = ConcurrentHashMap<String, Long>()
 
     /**
      * Fetch HTF candle context for [symbol] relative to [executionTimeframe].
@@ -41,19 +45,26 @@ class MtfContextProvider @Inject constructor(
     suspend fun getHtfContext(
         symbol: String,
         executionTimeframe: Timeframe,
-    ): Map<Timeframe, List<Candle>> = runCatching {
-        val htfs = htfLadder(executionTimeframe)
-        val result = LinkedHashMap<Timeframe, List<Candle>>(htfs.size)
-        for (tf in htfs) {
-            // Per-TF errors are suppressed: one failing TF must not cancel the rest.
-            val candles = runCatching { repository.getSourcedCandles(symbol, tf).candles }
-                .getOrElse { emptyList() }
-            if (candles.size >= MIN_BARS) {
-                result[tf] = candles
+    ): Map<Timeframe, List<Candle>> {
+        return try {
+            val htfs = htfLadder(executionTimeframe)
+            val result = LinkedHashMap<Timeframe, List<Candle>>(htfs.size)
+            for (tf in htfs) {
+                // Per-TF errors are suppressed; coroutine cancellation is not.
+                val sourced = repositoryCallOrNull { repository.getSourcedCandles(symbol, tf) }
+                // Synthetic HTF bars must never strengthen or veto a decision
+                // made from real primary prices.
+                if (sourced?.source?.isTrustworthy == true && sourced.candles.size >= MIN_BARS) {
+                    result[tf] = sourced.candles
+                }
             }
+            result
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (_: Exception) {
+            emptyMap()
         }
-        result as Map<Timeframe, List<Candle>>
-    }.getOrElse { emptyMap() }
+    }
 
     /**
      * Fetch same-timeframe correlated symbols for SMT divergence analysis.
@@ -65,18 +76,58 @@ class MtfContextProvider @Inject constructor(
     suspend fun getCorrelatedContext(
         symbol: String,
         timeframe: Timeframe,
-    ): Map<String, List<Candle>> = runCatching {
-        val peers = correlatedPeers(symbol).take(MAX_CORRELATED_PEERS)
-        val result = LinkedHashMap<String, List<Candle>>(peers.size)
-        for (peer in peers) {
-            val candles = runCatching { repository.getSourcedCandles(peer, timeframe).candles }
-                .getOrElse { emptyList() }
-            if (candles.size >= MIN_BARS) {
-                result[peer] = candles
+        refreshMissing: Boolean = false,
+    ): Map<String, List<Candle>> {
+        return try {
+            val peers = correlatedPeers(symbol).take(MAX_CORRELATED_PEERS)
+            val result = LinkedHashMap<String, List<Candle>>(peers.size)
+            for (peer in peers) {
+                var sourced = repositoryCallOrNull { repository.getSourcedCandles(peer, timeframe) }
+                if (refreshMissing && !sourced.isUsableContext() && shouldRefresh(peer, timeframe)) {
+                    // An explicit user SMT request gets one real-provider refresh
+                    // attempt before the peer is rejected as unavailable.
+                    repositoryCallOrNull {
+                        repository.refreshCandles(peer, timeframe, PEER_FETCH_LIMIT)
+                    }
+                    sourced = repositoryCallOrNull { repository.getSourcedCandles(peer, timeframe) }
+                }
+                // A random-walk peer can manufacture a convincing-looking SMT
+                // divergence against real prices. Provenance therefore gates
+                // peer data before it reaches any signal engine.
+                sourced?.takeIf { it.isUsableContext() }?.let { result[peer] = it.candles }
+            }
+            result
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (_: Exception) {
+            emptyMap()
+        }
+    }
+
+    private suspend fun <T> repositoryCallOrNull(block: suspend () -> T): T? = try {
+        block()
+    } catch (cancel: CancellationException) {
+        throw cancel
+    } catch (_: Exception) {
+        null
+    }
+
+    private fun com.foxtrader.app.domain.model.SourcedCandles?.isUsableContext(): Boolean =
+        this != null && source.isTrustworthy && candles.size >= MIN_BARS
+
+    private fun shouldRefresh(symbol: String, timeframe: Timeframe): Boolean {
+        val key = "$symbol|$timeframe"
+        val now = System.currentTimeMillis()
+        return synchronized(peerRefreshAttempts) {
+            val previous = peerRefreshAttempts[key]
+            if (previous != null && now - previous < PEER_REFRESH_COOLDOWN_MS) {
+                false
+            } else {
+                peerRefreshAttempts[key] = now
+                true
             }
         }
-        result as Map<String, List<Candle>>
-    }.getOrElse { emptyMap() }
+    }
 
     /**
      * Returns up to 3 higher timeframes above [tf], ordered from closest to
@@ -113,6 +164,8 @@ class MtfContextProvider @Inject constructor(
         const val MIN_BARS = 50
         const val MAX_HTF_COUNT = 3
         const val MAX_CORRELATED_PEERS = 2
+        const val PEER_FETCH_LIMIT = 240
+        const val PEER_REFRESH_COOLDOWN_MS = 5 * 60_000L
 
         /** Timeframes ordered lowest → highest. */
         val ORDERED_TIMEFRAMES = listOf(

@@ -109,7 +109,7 @@ fun TraderProfileScreen(
                     SectionTitle("Coaching Profile")
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        profile?.headline ?: "Log closed trades in your journal to unlock analytics.",
+                        profile?.headline ?: "Complete managed trades to unlock performance analytics.",
                         color = FoxNeutral60,
                         fontSize = 13.sp,
                     )

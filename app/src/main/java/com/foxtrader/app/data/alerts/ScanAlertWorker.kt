@@ -17,6 +17,7 @@ import com.foxtrader.app.domain.usecase.scanner.ScannerUseCase
 import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlinx.coroutines.CancellationException
 
 /**
  * Background periodic worker that evaluates watchlist symbols through the AI
@@ -57,6 +58,8 @@ class ScanAlertWorker @AssistedInject constructor(
                 evaluateSymbol(item.symbol)
             }
             Result.success()
+        } catch (cancel: CancellationException) {
+            throw cancel
         } catch (_: Exception) {
             // Non-fatal: retry next period. Don't crash the worker.
             Result.retry()

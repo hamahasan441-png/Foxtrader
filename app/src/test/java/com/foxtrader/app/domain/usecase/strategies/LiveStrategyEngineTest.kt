@@ -1,7 +1,9 @@
 package com.foxtrader.app.domain.usecase.strategies
 
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.SignalSource
+import com.foxtrader.app.domain.model.StrategySignal
 import com.foxtrader.app.domain.model.StrategyType
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import com.foxtrader.app.domain.usecase.indicators.IchimokuCloud
@@ -93,12 +95,116 @@ class LiveStrategyEngineTest {
     }
 
     @Test
-    fun `at most one signal is live and it is the most recent one`() {
-        val signals = engine.evaluate(StrategyType.CONFLUENCE, trendingSeries())
+    fun `only a setup on the current bar can be live`() {
+        val candles = trendingSeries()
+        val signals = engine.evaluate(StrategyType.CONFLUENCE, candles)
         assertTrue(signals.isNotEmpty())
 
-        assertEquals(1, signals.count { it.isLive })
-        assertTrue(signals.last().isLive)
+        assertTrue(signals.count { it.isLive } <= 1)
+        signals.singleOrNull { it.isLive }?.let { live ->
+            assertEquals(candles.lastIndex, live.barIndex)
+        }
+    }
+
+    @Test
+    fun `newest historical custom setup is not mislabeled live`() {
+        val candles = trendingSeries()
+        val historicalIndex = candles.lastIndex - 12
+        val signals = engine.evaluateCustom(
+            strategyId = "history_only",
+            strategyName = "History only",
+            minimumBars = 20,
+            function = { series, index ->
+                if (index != historicalIndex) return@evaluateCustom null
+                val entry = series[index].close
+                StrategySignal(
+                    index = index,
+                    timestamp = series[index].timestamp,
+                    direction = Direction.BULLISH,
+                    entry = entry,
+                    stopLoss = entry - 1.0,
+                    takeProfit = entry + 2.0,
+                )
+            },
+            candles = candles,
+        )
+
+        assertEquals(1, signals.size)
+        assertTrue(signals.none { it.isLive })
+    }
+
+    @Test
+    fun `custom setup on current forming bar is live`() {
+        val candles = trendingSeries()
+        val liveIndex = candles.lastIndex
+        val signals = engine.evaluateCustom(
+            strategyId = "current_bar",
+            strategyName = "Current bar",
+            minimumBars = 20,
+            function = { series, index ->
+                if (index != liveIndex) return@evaluateCustom null
+                val entry = series[index].close
+                StrategySignal(
+                    index = index,
+                    timestamp = series[index].timestamp,
+                    direction = Direction.BEARISH,
+                    entry = entry,
+                    stopLoss = entry + 1.0,
+                    takeProfit = entry - 2.0,
+                )
+            },
+            candles = candles,
+        )
+
+        assertEquals(1, signals.size)
+        assertTrue(signals.single().isLive)
+    }
+
+    @Test
+    fun `custom strategy signals with stop and target on wrong sides are rejected`() {
+        val candles = trendingSeries()
+        val liveIndex = candles.lastIndex
+        val signals = engine.evaluateCustom(
+            strategyId = "invalid_risk",
+            strategyName = "Invalid risk",
+            minimumBars = 20,
+            function = { series, index ->
+                if (index != liveIndex) return@evaluateCustom null
+                val entry = series[index].close
+                StrategySignal(
+                    index = index,
+                    timestamp = series[index].timestamp,
+                    direction = Direction.BULLISH,
+                    entry = entry,
+                    stopLoss = entry + 1.0,
+                    takeProfit = entry - 2.0,
+                )
+            },
+            candles = candles,
+        )
+
+        assertTrue(signals.isEmpty())
+    }
+
+    @Test
+    fun `custom strategy receives no future candles`() {
+        val candles = trendingSeries(80)
+        var calls = 0
+
+        engine.evaluateCustom(
+            strategyId = "no_lookahead",
+            strategyName = "No lookahead",
+            minimumBars = 20,
+            function = { visible, index ->
+                calls++
+                assertEquals(index + 1, visible.size)
+                null
+            },
+            candles = candles,
+            scanWindow = candles.size,
+        )
+
+        assertTrue(calls > 0)
     }
 
     @Test

@@ -124,7 +124,6 @@ const DEFAULT_SHORTCUTS: ShortcutBinding[] = [
   { id: 'scanner', action: 'OPEN_SCANNER', keys: 'Ctrl+K', description: 'Open scanner', category: 'ANALYSIS', enabled: true },
   { id: 'analyze', action: 'RUN_ANALYSIS', keys: 'Ctrl+A', description: 'Run AI analysis', category: 'ANALYSIS', enabled: true },
   { id: 'mentor', action: 'ASK_MENTOR', keys: 'Ctrl+M', description: 'Ask AI mentor', category: 'ANALYSIS', enabled: true },
-  { id: 'journal', action: 'OPEN_JOURNAL', keys: 'Ctrl+J', description: 'Open journal', category: 'GENERAL', enabled: true },
   { id: 'voice', action: 'TOGGLE_VOICE', keys: 'Ctrl+V', description: 'Toggle voice assistant', category: 'GENERAL', enabled: true },
 ];
 

@@ -14,7 +14,7 @@ enum class TradingStyle { SCALP, INTRADAY, SWING, POSITION }
 @Serializable
 enum class RiskPreference { CONSERVATIVE, BALANCED, AGGRESSIVE }
 
-/** Tools the user asked to keep near the surface. */
+/** Tools kept near the surface. JOURNAL remains only to decode previously saved profiles. */
 @Serializable
 enum class FavoriteTool { CHART, SMART_MONEY, AI, BACKTEST, JOURNAL }
 

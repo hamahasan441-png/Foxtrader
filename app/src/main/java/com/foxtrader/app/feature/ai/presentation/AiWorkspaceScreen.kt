@@ -20,11 +20,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.foxtrader.app.domain.repository.AlertRepository
-import com.foxtrader.app.domain.repository.JournalRepository
 import com.foxtrader.app.domain.usecase.home.ClassifiedInsight
-import com.foxtrader.app.domain.usecase.home.HomeInsightComposer
 import com.foxtrader.app.domain.usecase.home.InsightKind
-import com.foxtrader.app.domain.usecase.journal.JournalEngine
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.ui.components.FoxBadge
 import com.foxtrader.app.ui.components.FoxBanner
@@ -46,53 +43,30 @@ data class AiWorkspaceState(
 
 @HiltViewModel
 class AiWorkspaceViewModel @Inject constructor(
-    journalRepository: JournalRepository,
     alertRepository: AlertRepository,
-    journalEngine: JournalEngine,
     appPreferences: AppPreferences,
 ) : ViewModel() {
 
-    val uiState = combine(
-        journalRepository.observeEntries(),
-        alertRepository.observeAlerts(),
-        appPreferences.workspaceProfile,
-    ) { entries, alerts, profile ->
-        val stats = journalEngine.computeStats(entries)
+    val uiState = alertRepository.observeAlerts().combine(appPreferences.workspaceProfile) { alerts, profile ->
+        val unread = alerts.count { !it.acknowledged }
         AiWorkspaceState(
-            insights = HomeInsightComposer.compose(
-                results = emptyList(),
-                stats = stats,
-                unreadAlerts = alerts.count { !it.acknowledged },
-                openTrades = entries.count { it.isOpen },
-                profile = profile,
-                synthetic = false,
-            ) + journalInsights(stats),
+            insights = buildList {
+                add(
+                    ClassifiedInsight(
+                        InsightKind.FACT,
+                        if (unread == 0) "No unread signal alerts." else "$unread unread signal alert${if (unread == 1) "" else "s"}.",
+                    ),
+                )
+                add(
+                    ClassifiedInsight(
+                        InsightKind.OPINION,
+                        "Workspace is tuned for ${profile.greetingFocus} research on ${profile.preferredTimeframe.label}.",
+                    ),
+                )
+            },
             alertTitles = alerts.take(6).map { it.title },
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AiWorkspaceState())
-
-    private fun journalInsights(stats: com.foxtrader.app.domain.model.JournalStats): List<ClassifiedInsight> {
-        if (stats.totalTrades < 8) {
-            return listOf(
-                ClassifiedInsight(
-                    InsightKind.FACT,
-                    "Journal sample is ${stats.totalTrades} trades. Pattern claims stay off until the book is larger.",
-                ),
-            )
-        }
-        return listOfNotNull(
-            stats.bestSetupByAverageR?.let {
-                ClassifiedInsight(InsightKind.CALCULATION, "Highest average R in the journal is tagged \"$it\".")
-            },
-            stats.weakestEmotionByWinRate?.let {
-                ClassifiedInsight(InsightKind.CALCULATION, "Weakest emotion tag by win rate: ${it.name.lowercase()}.")
-            },
-            ClassifiedInsight(
-                InsightKind.OPINION,
-                "Use the journal to audit process, not to infer that a setup will keep working.",
-            ),
-        )
-    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

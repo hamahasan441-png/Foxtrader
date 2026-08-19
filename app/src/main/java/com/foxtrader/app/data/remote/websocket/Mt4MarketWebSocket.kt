@@ -156,9 +156,7 @@ class Mt4MarketWebSocket @Inject constructor(
             }
         }
 
-        if (rollover != null) {
-            emitCandle(key, rollover!!, isBarClose = true)
-        }
+        rollover?.let { emitCandle(key, it, isBarClose = true) }
         emitCandle(key, bucket, isBarClose = false)
     }
 

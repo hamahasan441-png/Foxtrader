@@ -230,7 +230,7 @@ private fun OrderTicketCard(state: PaperTradingUiState, viewModel: PaperTradingV
             } else if (state.lastFilledVolume != null) {
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    text = "Filled ${trimZeros(state.lastFilledVolume!!)} (risk-adjusted)",
+                    text = "Filled ${trimZeros(requireNotNull(state.lastFilledVolume))} (risk-adjusted)",
                     color = FoxBullishText,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Medium,

@@ -104,7 +104,7 @@ export const TEST_SUITES: TestSuite[] = [
   {
     name: 'Full Trade Pipeline', category: 'INTEGRATION', module: 'platform-pro',
     tests: [
-      { name: 'analysis → plan → risk → execute → journal', description: 'End-to-end trade flow', expects: 'Trade opened, journal entry created, risk recorded' },
+      { name: 'analysis → plan → risk → execute', description: 'End-to-end trade flow', expects: 'Trade opened and risk recorded' },
       { name: 'risk block prevents execution', description: 'Daily loss exceeded', expects: 'evaluateAndTrade returns approved=false' },
     ],
   },

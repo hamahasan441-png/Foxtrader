@@ -3,9 +3,9 @@
     Auto-backup exclusion rules (API 23–30).
 
     The Room database (foxtrader.db + its -wal / -shm side files) holds
-    user-authored journal entries, chart drawings, alerts and watchlists. It is
+    user-authored trade records, chart drawings, alerts and watchlists. It is
     deliberately excluded from cloud auto-backup so a user's private trading
-    journal is never copied off-device in plaintext via the normal backup path.
+    trading data is never copied off-device in plaintext via the normal backup path.
 
     EncryptedSharedPreferences (which is already at-rest encrypted via Android
     Keystore) is intentionally NOT excluded, so a user who wants their

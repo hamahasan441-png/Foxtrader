@@ -41,8 +41,8 @@ class NavigationBenchmark {
         device.wait(Until.hasObject(By.text("Backtesting Lab")), 5_000)
 
         device.findObject(By.text("More"))?.click()
-        device.findObject(By.text("Journal"))?.click()
-        device.wait(Until.hasObject(By.text("Journal")), 5_000)
+        device.findObject(By.text("Portfolio"))?.click()
+        device.wait(Until.hasObject(By.text("Portfolio")), 5_000)
 
         device.findObject(By.text("Chart"))?.click()
         device.wait(Until.hasObject(By.text("Fox")), 5_000)

@@ -1,6 +1,6 @@
 -- ============================================================================
 -- DATABASE SCHEMAS — PostgreSQL + TimescaleDB
--- Tables: users, market_data (hypertable), trades, positions, journal,
+-- Tables: users, market_data (hypertable), trades, positions,
 -- templates, settings, alerts, watchlists, drawings, sessions
 -- ============================================================================
 
@@ -138,46 +138,6 @@ CREATE TABLE positions (
     opened_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
-
--- ============================================================================
--- TRADE JOURNAL
--- ============================================================================
-
-CREATE TABLE journal_entries (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    trade_id UUID REFERENCES trades(id) ON DELETE SET NULL,
-    symbol VARCHAR(20) NOT NULL,
-    timeframe VARCHAR(5),
-    direction VARCHAR(7),
-    result VARCHAR(10) CHECK (result IN ('WIN', 'LOSS', 'BREAKEVEN', 'OPEN')),
-    entry_price DECIMAL(18,8),
-    exit_price DECIMAL(18,8),
-    stop_loss DECIMAL(18,8),
-    pnl DECIMAL(18,4),
-    pnl_percent DECIMAL(8,4),
-    r_multiple DECIMAL(8,3),
-    setup_type VARCHAR(50),
-    confidence INTEGER,
-    confluence_factors TEXT[],
-    notes TEXT,
-    emotion VARCHAR(20),
-    emotion_before VARCHAR(20),
-    emotion_after VARCHAR(20),
-    mistakes TEXT[],
-    followed_plan BOOLEAN DEFAULT true,
-    screenshot_url TEXT,
-    chart_state JSONB,
-    indicators JSONB,
-    tags TEXT[],
-    entry_time TIMESTAMPTZ,
-    exit_time TIMESTAMPTZ,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX idx_journal_user ON journal_entries (user_id, created_at DESC);
-CREATE INDEX idx_journal_result ON journal_entries (user_id, result);
 
 -- ============================================================================
 -- TEMPLATES & SETTINGS

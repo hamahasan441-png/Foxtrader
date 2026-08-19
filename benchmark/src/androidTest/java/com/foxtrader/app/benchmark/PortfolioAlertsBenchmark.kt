@@ -18,7 +18,7 @@ class PortfolioAlertsBenchmark {
     val benchmarkRule = MacrobenchmarkRule()
 
     @Test
-    fun journalPortfolioAndAlertsJourney() = benchmarkRule.measureRepeated(
+    fun portfolioAndAlertsJourney() = benchmarkRule.measureRepeated(
         packageName = TARGET_PACKAGE,
         metrics = listOf(FrameTimingMetric()),
         iterations = 3,
@@ -31,10 +31,7 @@ class PortfolioAlertsBenchmark {
         },
     ) {
         device.findObject(By.text("More"))?.click()
-        device.findObject(By.text("Journal"))?.click()
-        device.wait(Until.hasObject(By.text("Journal")), 5_000)
-
-        device.findObject(By.desc("Open portfolio exposure"))?.click()
+        device.findObject(By.text("Portfolio"))?.click()
         device.wait(Until.hasObject(By.text("Portfolio")), 5_000)
         device.pressBack()
 

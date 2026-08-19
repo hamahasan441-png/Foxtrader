@@ -1,8 +1,6 @@
 package com.foxtrader.app.domain.usecase.home
 
 import com.foxtrader.app.domain.model.Direction
-import com.foxtrader.app.domain.model.FoxAlert
-import com.foxtrader.app.domain.model.JournalStats
 import com.foxtrader.app.domain.model.ScreenerResult
 import com.foxtrader.app.domain.model.WorkspaceProfile
 
@@ -22,9 +20,8 @@ object HomeInsightComposer {
 
     fun compose(
         results: List<ScreenerResult>,
-        stats: JournalStats,
         unreadAlerts: Int,
-        openTrades: Int,
+        openPositions: Int,
         profile: WorkspaceProfile,
         synthetic: Boolean,
     ): List<ClassifiedInsight> {
@@ -76,17 +73,10 @@ object HomeInsightComposer {
             )
         }
 
-        if (stats.totalTrades > 0) {
+        if (openPositions > 0) {
             insights += ClassifiedInsight(
                 InsightKind.FACT,
-                "Journal: ${stats.totalTrades} trades, win rate ${"%.1f".format(stats.winRate)}%, expectancy ${"%.2f".format(stats.expectancy)}.",
-            )
-        }
-
-        if (openTrades > 0) {
-            insights += ClassifiedInsight(
-                InsightKind.FACT,
-                "$openTrades open journal position${if (openTrades == 1) "" else "s"} feeding portfolio exposure.",
+                "$openPositions open position${if (openPositions == 1) "" else "s"} feeding portfolio exposure.",
             )
         }
 

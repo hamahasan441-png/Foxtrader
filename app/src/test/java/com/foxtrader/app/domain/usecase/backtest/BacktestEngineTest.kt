@@ -131,6 +131,106 @@ class BacktestEngineTest {
         assertEquals(lastClose, trade.exitPrice, 1e-10)
     }
 
+    @Test
+    fun `signal first appearing on final bar is not fabricated into a trade`() {
+        val candles = listOf(
+            candle(timestamp = 1000L, open = 1.1000, high = 1.1010, low = 1.0990, close = 1.1000),
+            candle(timestamp = 2000L, open = 1.1000, high = 1.1020, low = 1.0990, close = 1.1010),
+        )
+        val strategy: StrategyFunction = { bars, index ->
+            if (index == candles.lastIndex) {
+                StrategySignal(
+                    index = index,
+                    timestamp = bars[index].timestamp,
+                    direction = Direction.BULLISH,
+                    entry = bars[index].close,
+                    stopLoss = bars[index].close - 0.0050,
+                    takeProfit = bars[index].close + 0.0100,
+                    volume = 0.1,
+                )
+            } else {
+                null
+            }
+        }
+
+        val result = engine(candles, strategy, "EURUSD", Timeframe.M15)
+
+        assertTrue(result.trades.isEmpty())
+    }
+
+    @Test
+    fun `forced final close is reflected in equity curve and drawdown`() {
+        val candles = listOf(
+            candle(timestamp = 1000L, open = 1.1000, high = 1.1010, low = 1.0990, close = 1.1000),
+            candle(timestamp = 2000L, open = 1.1000, high = 1.1005, low = 1.0890, close = 1.0900),
+        )
+        val strategy: StrategyFunction = { _, index ->
+            if (index == 0) {
+                StrategySignal(
+                    index = 0,
+                    timestamp = 1000L,
+                    direction = Direction.BULLISH,
+                    entry = 1.1000,
+                    stopLoss = 1.0500,
+                    takeProfit = 1.2000,
+                    volume = 0.1,
+                )
+            } else {
+                null
+            }
+        }
+
+        val result = engine(candles, strategy, "EURUSD", Timeframe.M15)
+
+        assertEquals(ExitReason.END, result.trades.single().exitReason)
+        assertEquals(result.metrics.finalBalance, result.equityCurve.last().balance, 1e-9)
+        assertTrue(result.equityCurve.last().drawdown > 0.0)
+        assertEquals(result.equityCurve.last().drawdown, result.metrics.maxDrawdown, 1e-9)
+    }
+
+    @Test
+    fun `malformed strategy output is rejected before pnl math`() {
+        val candles = listOf(
+            candle(timestamp = 1000L, open = 1.1000, high = 1.1010, low = 1.0990, close = 1.1000),
+            candle(timestamp = 2000L, open = 1.1000, high = 1.1020, low = 1.0990, close = 1.1010),
+        )
+        val valid = StrategySignal(
+            index = 0,
+            timestamp = 1000L,
+            direction = Direction.BULLISH,
+            entry = 1.1000,
+            stopLoss = 1.0950,
+            takeProfit = 1.1100,
+            volume = 0.1,
+        )
+        val malformed = listOf(
+            valid.copy(index = 1),
+            valid.copy(timestamp = 999L),
+            valid.copy(entry = Double.NaN),
+            valid.copy(stopLoss = valid.entry),
+            valid.copy(stopLoss = 1.1050),
+            valid.copy(takeProfit = 1.0900),
+            valid.copy(volume = Double.POSITIVE_INFINITY),
+        )
+
+        malformed.forEach { signal ->
+            val result = engine(candles, { _, index -> if (index == 0) signal else null })
+            assertTrue("Malformed signal must not create a trade: $signal", result.trades.isEmpty())
+        }
+    }
+
+    @Test
+    fun `throwing custom strategy is contained without aborting backtest`() {
+        val candles = makeCandles(20, startPrice = 1.1000, step = 0.0010)
+        val result = engine(candles, { _, index ->
+            if (index == 5) error("broken user rule")
+            null
+        })
+
+        assertTrue(result.trades.isEmpty())
+        assertEquals(candles.size, result.equityCurve.size)
+    }
+
     // -------------------------------------------------------------------------
     // EMPTY CANDLE LIST
     // -------------------------------------------------------------------------

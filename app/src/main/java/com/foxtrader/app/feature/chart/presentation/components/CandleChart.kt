@@ -34,7 +34,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.foxtrader.app.R
-import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.ChartSignal
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.LitXAnalysis
@@ -287,23 +286,30 @@ fun CandleChart(
             superTrendValues = superTrendValues,
             parabolicSar = parabolicSar,
             vwap = vwap,
+            anchoredVwap = anchoredVwap,
+            anchoredVwapUpper = anchoredVwapUpper,
+            anchoredVwapLower = anchoredVwapLower,
             ichimokuTenkan = ichimokuTenkan,
             ichimokuKijun = ichimokuKijun,
             ichimokuSenkouA = ichimokuSenkouA,
             ichimokuSenkouB = ichimokuSenkouB,
             ichimokuChikou = ichimokuChikou,
-            anchoredVwap = anchoredVwap,
-            anchoredVwapUpper = anchoredVwapUpper,
-            anchoredVwapLower = anchoredVwapLower,
             keltnerUpper = keltnerUpper,
+            keltnerMiddle = keltnerMiddle,
             keltnerLower = keltnerLower,
             donchianUpper = donchianUpper,
+            donchianMiddle = donchianMiddle,
             donchianLower = donchianLower,
+            pivotLevels = pivotLevels,
             orderBlocks = orderBlocks,
             fairValueGaps = fairValueGaps,
             liquidityPools = liquidityPools,
             sessions = sessions,
             volumeProfile = volumeProfile,
+            marketProfile = marketProfile,
+            supportResistanceZones = supportResistanceZones,
+            autoFibLevels = autoFibLevels,
+            signals = signals,
         )
     }
 
@@ -613,7 +619,7 @@ fun CandleChart(
             }
         }
 
-        if (marketProfile != null && quality.volumeProfile) {
+        if (indicators.marketProfile && marketProfile != null && quality.volumeProfile) {
             clipRect(right = cw, bottom = ch) {
                 drawMarketProfile(marketProfile, viewport, cw, ch)
             }
@@ -743,7 +749,7 @@ fun CandleChart(
             }
         }
 
-        if (autoFibLevels.isNotEmpty()) {
+        if (indicators.fibonacci && autoFibLevels.isNotEmpty()) {
             clipRect(right = cw, bottom = ch) {
                 drawAutoFibonacciLevels(
                     levels = autoFibLevels,

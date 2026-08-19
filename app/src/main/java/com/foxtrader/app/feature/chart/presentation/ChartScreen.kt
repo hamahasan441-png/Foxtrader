@@ -250,6 +250,7 @@ fun ChartScreen(
             IndicatorPanel(
                 visible = true,
                 toggles = state.indicators,
+                strategyBlueprints = state.strategyBlueprints,
                 onToggle = viewModel::updateIndicators,
             )
         }
