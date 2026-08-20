@@ -99,11 +99,9 @@ class RemoteCrashReporter @Inject constructor(
             )
         }
 
-        val causedBy = if (throwable.cause != null && depth < MAX_CAUSE_DEPTH) {
-            sanitize(throwable.cause!!, emptyMap(), depth + 1)
-        } else {
-            null
-        }
+        val causedBy = throwable.cause
+            ?.takeIf { depth < MAX_CAUSE_DEPTH }
+            ?.let { sanitize(it, emptyMap(), depth + 1) }
 
         return SanitizedException(
             type = throwable.javaClass.name,

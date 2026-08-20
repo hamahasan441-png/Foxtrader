@@ -65,7 +65,7 @@ class TradeProJournalBridgeTest {
         assertEquals(12.0, entry.pnl!!, 1e-9)
         assertEquals("TRADEPRO", entry.setupType)
         assertTrue(entry.tags.contains("TRADEPRO"))
-        assertTrue(entry.tags.contains("auto-journaled"))
+        assertTrue(entry.tags.contains("auto-recorded"))
         assertTrue(entry.notes.contains("Runner target hit"))
         assertTrue(entry.notes.contains("FLIP_ZONE"))
     }

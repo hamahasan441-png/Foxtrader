@@ -323,7 +323,7 @@ class TraderCoachingEngine @Inject constructor() {
                 severity = InsightSeverity.WARNING,
                 title = "Discipline needs work",
                 detail = "Emotional entries and/or missing stops are dragging your process score down. " +
-                    "Rebuild the basics: plan, stop, size, execute, journal.",
+                    "Rebuild the basics: plan, stop, size, execute, review.",
                 metric = "discipline $disciplineScore/100",
             )
         }

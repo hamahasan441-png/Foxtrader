@@ -64,11 +64,13 @@ internal class ChartMultiChartController(
      * SINGLE long-lived collector. The previous cancel-and-relaunch pattern
      * allocated (and cancelled) one coroutine Job per pan/zoom frame — up to
      * 120 Job allocations/second of pure GC churn while dragging the chart.
-     * extraBufferCapacity=1 + DROP_OLDEST makes tryEmit lock-free and
-     * suspension-free on the render-adjacent path.
+     * A single replay slot also preserves the first request if it arrives in
+     * the brief interval before the lazily launched collector subscribes.
+     * DROP_OLDEST keeps tryEmit lock-free and suspension-free on the
+     * render-adjacent path.
      */
     private val persistRequests = MutableSharedFlow<Unit>(
-        extraBufferCapacity = 1,
+        replay = 1,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
 

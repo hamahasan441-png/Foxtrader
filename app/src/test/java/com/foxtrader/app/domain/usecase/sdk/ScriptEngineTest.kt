@@ -3,6 +3,7 @@ package com.foxtrader.app.domain.usecase.sdk
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.LogicOp
+import com.foxtrader.app.domain.model.StrategyAction
 import com.foxtrader.app.domain.model.StrategyBlueprint
 import com.foxtrader.app.domain.model.StrategyCondition
 import com.foxtrader.app.domain.model.StrategyConditionKind
@@ -140,6 +141,18 @@ class ScriptEngineTest {
     }
 
     @Test
+    fun `indicator offsets cannot expose a future bar`() {
+        val candles = risingCandles(30)
+        val ctx = ScriptContext(candles, currentIndex = 20)
+
+        assertEquals(ctx.close, ctx.sma(period = 1, offset = -1), 1e-9)
+        assertEquals(ctx.close, ctx.ema(period = 1, offset = -1), 1e-9)
+        assertEquals(50.0, ctx.rsi(period = 14, offset = -1), 1e-9)
+        assertEquals(ctx.high, ctx.highest(period = 1, offset = -1), 1e-9)
+        assertEquals(ctx.low, ctx.lowest(period = 1, offset = -1), 1e-9)
+    }
+
+    @Test
     fun `ScriptContext crossOver detects fast crossing above slow`() {
         val ctx = ScriptContext(emptyList(), 0)
         assertTrue(ctx.crossOver(fast = 1.1, slow = 1.0, prevFast = 0.9, prevSlow = 1.0))
@@ -213,6 +226,15 @@ class ScriptEngineTest {
         assertEquals("No future bar should have been accessible", -1, maxIndexSeen)
     }
 
+    @Test
+    fun `throwing script fails closed`() {
+        val strategy = Strategy(id = "broken", name = "Broken", minBars = 0) {
+            error("bad user script")
+        }
+
+        assertNull(engine.evaluate(strategy, risingCandles(10), index = 5))
+    }
+
     // ────────────────────────────────────────────────────────────────────────
     // DSL & Blueprint Compilation Tests
     // ────────────────────────────────────────────────────────────────────────
@@ -242,10 +264,137 @@ class ScriptEngineTest {
         val signal = engine.evaluate(compiled, candles, 55)
     }
 
+    @Test
+    fun `blueprint emits bearish signal for bearish BOS instead of guessing buy`() {
+        val blueprint = StrategyBlueprint(
+            name = "Directional BOS",
+            conditions = listOf(
+                StrategyCondition(
+                    kind = StrategyConditionKind.MARKET_STRUCTURE,
+                    label = "BOS in trade direction",
+                ),
+            ),
+        )
+        val history = (0 until 50).map { i ->
+            candle(close = 100.0, high = 101.0, low = 99.0, ts = i * 60_000L)
+        }
+        val bearishBreak = candle(close = 96.0, high = 100.0, low = 95.0, ts = 50 * 60_000L)
+
+        val signal = engine.evaluate(engine.compileBlueprint(blueprint), history + bearishBreak, 50)
+
+        assertNotNull(signal)
+        assertEquals(Direction.BEARISH, signal?.direction)
+        assertTrue(signal!!.stopLoss > signal.entry)
+        assertTrue(signal.takeProfit < signal.entry)
+    }
+
+    @Test
+    fun `SMT-only blueprint fails closed without correlated peer data`() {
+        val blueprint = StrategyBlueprint(
+            name = "SMT required",
+            conditions = listOf(
+                StrategyCondition(
+                    kind = StrategyConditionKind.SMT,
+                    label = "SMT divergence vs correlated pair",
+                ),
+            ),
+        )
+
+        val signal = engine.evaluate(engine.compileBlueprint(blueprint), risingCandles(60), 59)
+
+        assertNull(signal)
+    }
+
+    @Test
+    fun `negating unsupported SMT does not turn missing data into a signal`() {
+        val blueprint = StrategyBlueprint(
+            name = "No SMT",
+            conditions = listOf(
+                StrategyCondition(
+                    kind = StrategyConditionKind.SMT,
+                    label = "SMT divergence vs correlated pair",
+                    negated = true,
+                ),
+            ),
+        )
+
+        val signal = engine.evaluate(engine.compileBlueprint(blueprint), risingCandles(60), 59)
+
+        assertNull(signal)
+    }
+
+    @Test
+    fun `ambiguous directional negation fails closed`() {
+        val blueprint = StrategyBlueprint(
+            name = "Negated directional rule",
+            conditions = listOf(
+                StrategyCondition(
+                    kind = StrategyConditionKind.INDICATOR,
+                    label = "EMA 20 above EMA 50",
+                    negated = true,
+                ),
+            ),
+        )
+
+        val signal = engine.evaluate(engine.compileBlueprint(blueprint), risingCandles(60), 59)
+
+        assertNull(signal)
+    }
+
+    @Test
+    fun `risk condition blocks blueprint above supported per-trade cap`() {
+        val blueprint = StrategyBlueprint(
+            name = "Unsafe risk",
+            combinator = LogicOp.AND,
+            conditions = listOf(
+                StrategyCondition(
+                    kind = StrategyConditionKind.MARKET_STRUCTURE,
+                    label = "BOS in trade direction",
+                ),
+                StrategyCondition(
+                    kind = StrategyConditionKind.RISK,
+                    label = "Risk ≤ configured per-trade cap",
+                ),
+            ),
+            action = StrategyAction(riskPercent = 8.0),
+        )
+        val history = (0 until 50).map { i ->
+            candle(close = 100.0, high = 101.0, low = 99.0, ts = i * 60_000L)
+        }
+        val bullishBreak = candle(close = 104.0, high = 105.0, low = 100.0, ts = 50 * 60_000L)
+
+        val signal = engine.evaluate(engine.compileBlueprint(blueprint), history + bullishBreak, 50)
+
+        assertNull(signal)
+    }
+
     // ────────────────────────────────────────────────────────────────────────
-    // Built-in strategy tests
+    // Additional blueprint safety
     // ────────────────────────────────────────────────────────────────────────
 
+    @Test
+    fun `unsafe blueprint risk fails closed even without a risk condition`() {
+        val blueprint = StrategyBlueprint(
+            name = "Unsafe risk without guard rule",
+            conditions = listOf(
+                StrategyCondition(
+                    kind = StrategyConditionKind.MARKET_STRUCTURE,
+                    label = "BOS in trade direction",
+                ),
+            ),
+            action = StrategyAction(riskPercent = 8.0),
+        )
+        val history = (0 until 50).map { i ->
+            candle(close = 100.0, high = 101.0, low = 99.0, ts = i * 60_000L)
+        }
+        val bullishBreak = candle(close = 104.0, high = 105.0, low = 100.0, ts = 50 * 60_000L)
+
+        val signal = engine.evaluate(engine.compileBlueprint(blueprint), history + bullishBreak, 50)
+
+        assertNull(signal)
+    }
+
+    // Built-in strategy smoke test.
     @Test
     fun `BuiltInStrategies evaluate without throwing`() {
         val candles = risingCandles(60)

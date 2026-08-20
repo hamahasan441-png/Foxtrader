@@ -5,13 +5,11 @@ import androidx.lifecycle.viewModelScope
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.StrategySignal
 import com.foxtrader.app.domain.model.Timeframe
-import com.foxtrader.app.domain.repository.JournalRepository
 import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.ai.MtfContextProvider
 import com.foxtrader.app.domain.usecase.backtest.AiScoredBacktestEngine
 import com.foxtrader.app.domain.usecase.backtest.StrategyFunction
 import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
-import com.foxtrader.app.domain.usecase.journal.BacktestJournalMapper
 import com.foxtrader.app.domain.usecase.scanner.ScannerUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.toPersistentList
@@ -35,7 +33,6 @@ class StrategiesViewModel @Inject constructor(
     private val scannerUseCase: ScannerUseCase,
     private val signalScanner: StrategySignalScanner,
     private val aiBacktestEngine: AiScoredBacktestEngine,
-    private val journalRepository: JournalRepository,
     private val mtfContextProvider: MtfContextProvider,
 ) : ViewModel() {
 
@@ -96,9 +93,7 @@ class StrategiesViewModel @Inject constructor(
             val candles = sourced.candles
             if (candles.size < 100) return
 
-            // Auto-journalling below writes into the user's real trade journal.
-            // Seeding it with trades derived from generated bars would corrupt
-            // every downstream performance statistic, so stop here instead.
+            // Generated bars must never be presented as trustworthy performance.
             if (!sourced.source.isTrustworthy) return
 
             val strategy: StrategyFunction = { c, i ->
@@ -136,12 +131,6 @@ class StrategiesViewModel @Inject constructor(
                 dataSource = sourced.source,
             )
 
-            // Auto-journal: persist backtest trades into the journal.
-            if (result.trades.isNotEmpty()) {
-                val journalEntries = BacktestJournalMapper.mapTrades(result.trades, symbol, Timeframe.H1)
-                journalRepository.upsertAll(journalEntries)
-            }
-
             _uiState.update { state ->
                 state.copy(
                     aiBacktestEnabled = true,
@@ -154,6 +143,8 @@ class StrategiesViewModel @Inject constructor(
                     aiApprovedTradeCount = result.aiFilteredMetrics?.totalTrades,
                 )
             }
+        } catch (cancel: CancellationException) {
+            throw cancel
         } catch (_: Exception) {
             // AI backtest is supplementary — don't crash the strategies screen.
         }

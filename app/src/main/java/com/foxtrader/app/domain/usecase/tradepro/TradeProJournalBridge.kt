@@ -77,7 +77,7 @@ class TradeProJournalBridge @Inject constructor(
 
     private fun buildTags(trade: ManagedTrade, confluences: List<String>): List<String> = buildList {
         add("TRADEPRO")
-        add("auto-journaled")
+        add("auto-recorded")
         trade.exitReason?.let { add(it.lowercase().replace(" ", "-")) }
         confluences.take(3).forEach { add(it) }
     }

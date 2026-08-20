@@ -69,7 +69,7 @@ fun SubscriptionScreen(
     val spacing = FoxTheme.spacing
     val features = listOf(
         PlanFeature("Chart, structure, drawings", true, true),
-        PlanFeature("Scanner, journal, alerts", true, true),
+        PlanFeature("Scanner and alerts", true, true),
         PlanFeature("Backtesting lab", true, true),
         PlanFeature("Cloud sync backup", false, true),
         PlanFeature("Strategy optimizer", false, true),
@@ -101,7 +101,7 @@ fun SubscriptionScreen(
                     Text(subscription.label(), style = FoxTheme.type.h1, color = colors.textPrimary)
                     Spacer(Modifier.height(spacing.sm))
                     Text(
-                        "Free already includes the professional chart, scanner, journal and lab. Pro marks research surfaces that are expensive to run at scale.",
+                        "Free already includes the professional chart, scanner, alerts and lab. Pro marks research surfaces that are expensive to run at scale.",
                         style = FoxTheme.type.body,
                         color = colors.textSecondary,
                     )

@@ -20,7 +20,7 @@ interface SpeechRecognitionLike {
 export type VoiceCommandType =
   | 'CHANGE_SYMBOL' | 'CHANGE_TIMEFRAME' | 'BUY' | 'SELL' | 'CLOSE_ALL'
   | 'CLOSE_POSITION' | 'SHOW_SCANNER' | 'RUN_ANALYSIS' | 'START_REPLAY'
-  | 'STOP_REPLAY' | 'ASK_MENTOR' | 'SHOW_JOURNAL' | 'READ_ALERTS'
+  | 'STOP_REPLAY' | 'ASK_MENTOR' | 'READ_ALERTS'
   | 'SET_ALERT' | 'UNKNOWN';
 
 export interface ParsedCommand {
@@ -205,7 +205,6 @@ export class VoiceAssistant {
       if (symbol) { params.symbol = symbol; return { type: 'CHANGE_SYMBOL', params, transcript, confidence }; }
       if (timeframe) { params.timeframe = timeframe; return { type: 'CHANGE_TIMEFRAME', params, transcript, confidence }; }
       if (/scanner/.test(lower)) return { type: 'SHOW_SCANNER', params, transcript, confidence };
-      if (/journal/.test(lower)) return { type: 'SHOW_JOURNAL', params, transcript, confidence };
     }
 
     // Timeframe standalone

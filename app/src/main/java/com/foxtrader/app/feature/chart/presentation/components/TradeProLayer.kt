@@ -36,6 +36,12 @@ fun DrawScope.drawTradeProOverlays(
 
     // 1) Buy/Sell-Hold zones — filled rectangles extended to the live (right) edge.
     for (zone in analysis.holdZones) {
+        if (
+            zone.startIndex < 0 ||
+            !zone.high.isDrawablePrice() ||
+            !zone.low.isDrawablePrice() ||
+            zone.high < zone.low
+        ) continue
         if (zone.endIndex < startIdx) continue
         val x1 = viewport.xForIndex(zone.startIndex.toFloat(), cw).coerceIn(0f, cw)
         val yHigh = viewport.yForPrice(zone.high, ch)
@@ -51,7 +57,7 @@ fun DrawScope.drawTradeProOverlays(
     }
 
     // 2) Flip Zone — the day's single bias line.
-    analysis.flipZone?.let { fz ->
+    analysis.flipZone?.takeIf { it.price.isDrawablePrice() }?.let { fz ->
         val y = viewport.yForPrice(fz.price, ch)
         drawLine(
             color = FoxAmber50.copy(alpha = 0.9f),
@@ -63,7 +69,7 @@ fun DrawScope.drawTradeProOverlays(
     }
 
     // 3) Active setup: entry / stop / T1 / T2 — only when confirmed (EXECUTE).
-    analysis.setup?.takeIf { it.stage == SetupStage.EXECUTE }?.let { s ->
+    analysis.setup?.takeIf { it.stage == SetupStage.EXECUTE && it.hasDrawableGeometry() }?.let { s ->
         val entryColor = if (s.direction == Direction.BULLISH) FoxBullish else FoxBearish
         drawPriceLine(viewport, cw, ch, s.entry, entryColor.copy(alpha = 0.95f), 2.5f)
         drawPriceLine(viewport, cw, ch, s.stopLoss, FoxBearish.copy(alpha = 0.85f), 1.5f, dashed = true)
@@ -73,6 +79,7 @@ fun DrawScope.drawTradeProOverlays(
 
     // 4) Absorption markers — dot coloured by the anticipated reversal direction.
     for (event in analysis.absorptions) {
+        if (event.index < 0 || !event.price.isDrawablePrice()) continue
         if (event.index < startIdx || event.index > endIdx) continue
         val x = viewport.xForIndex(event.index + 0.5f, cw)
         val y = viewport.yForPrice(event.price, ch)
@@ -90,6 +97,7 @@ private fun DrawScope.drawPriceLine(
     width: Float,
     dashed: Boolean = false,
 ) {
+    if (!price.isDrawablePrice()) return
     val y = viewport.yForPrice(price, ch)
     drawLine(
         color = color,
@@ -99,3 +107,18 @@ private fun DrawScope.drawPriceLine(
         pathEffect = if (dashed) PathEffect.dashPathEffect(floatArrayOf(10f, 8f), 0f) else null,
     )
 }
+
+private fun com.foxtrader.app.domain.model.tradepro.TradeProSetup.hasDrawableGeometry(): Boolean {
+    if (
+        !entry.isDrawablePrice() ||
+        !stopLoss.isDrawablePrice() ||
+        !target1.isDrawablePrice() ||
+        !target2.isDrawablePrice()
+    ) return false
+    return when (direction) {
+        Direction.BULLISH -> stopLoss < entry && target1 > entry && target2 > entry
+        Direction.BEARISH -> stopLoss > entry && target1 < entry && target2 < entry
+    }
+}
+
+private fun Double.isDrawablePrice(): Boolean = isFinite() && this > 0.0

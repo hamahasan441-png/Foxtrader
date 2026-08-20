@@ -7,8 +7,7 @@ import com.foxtrader.app.domain.usecase.calculator.RiskAwarePositionCalculator
  * Draft state for the position-size calculator.
  *
  * Prices are held as strings so fields can be edited freely (including
- * intermediate states like "1." or ""), and are parsed on calculate — the same
- * approach [com.foxtrader.app.feature.journal.presentation.LogTradeForm] uses.
+ * intermediate states like "1." or ""), and are parsed only when calculating.
  */
 data class CalculatorForm(
     val symbol: String = "",

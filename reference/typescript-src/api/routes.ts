@@ -51,13 +51,6 @@ export const API_ROUTES: RouteDefinition[] = [
   { method: 'GET', path: '/api/v1/trading/orders', handler: 'getOrders', auth: 'JWT', rateLimit: { requests: 60, windowSec: 60 }, description: 'Get working orders', tags: ['trading'] },
   { method: 'GET', path: '/api/v1/trading/account', handler: 'getAccount', auth: 'JWT', rateLimit: { requests: 30, windowSec: 60 }, description: 'Get account summary', tags: ['trading'] },
 
-  // --- Journal ---
-  { method: 'GET', path: '/api/v1/journal', handler: 'getJournal', auth: 'JWT', rateLimit: { requests: 30, windowSec: 60 }, description: 'Get journal entries', tags: ['journal'] },
-  { method: 'POST', path: '/api/v1/journal', handler: 'createJournalEntry', auth: 'JWT', rateLimit: { requests: 20, windowSec: 60 }, description: 'Create journal entry', tags: ['journal'] },
-  { method: 'PATCH', path: '/api/v1/journal/:id', handler: 'updateJournalEntry', auth: 'JWT', rateLimit: { requests: 20, windowSec: 60 }, description: 'Update journal entry', tags: ['journal'] },
-  { method: 'GET', path: '/api/v1/journal/stats', handler: 'getJournalStats', auth: 'JWT', rateLimit: { requests: 10, windowSec: 60 }, description: 'Get journal statistics', tags: ['journal'] },
-  { method: 'GET', path: '/api/v1/journal/insights', handler: 'getJournalInsights', auth: 'JWT', rateLimit: { requests: 5, windowSec: 60 }, description: 'Get AI improvement insights', tags: ['journal'] },
-
   // --- Backtesting ---
   { method: 'POST', path: '/api/v1/backtest/run', handler: 'runBacktest', auth: 'JWT', rateLimit: { requests: 3, windowSec: 60 }, description: 'Run a backtest', tags: ['backtest'] },
   { method: 'POST', path: '/api/v1/backtest/optimize', handler: 'runOptimization', auth: 'JWT', rateLimit: { requests: 1, windowSec: 120 }, description: 'Run AI optimization', tags: ['backtest'] },

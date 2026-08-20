@@ -185,7 +185,7 @@ class MarketRepositoryImpl @Inject constructor(
             } else {
                 throw error
             }
-        }
+        }.rethrowCancellation()
     }
 
     override suspend fun testProviderConnection(): Result<Int> = withContext(io) {
@@ -223,11 +223,12 @@ class MarketRepositoryImpl @Inject constructor(
                         .getOrElse { throw it }.size
                 else -> throw ProviderNotImplementedException(provider.displayName)
             }
-        }
+        }.rethrowCancellation()
     }
 
     override suspend fun testBackendConnection(): Result<Int> = withContext(io) {
         runCatching { api.getCandles(FX_TEST_SYMBOL, Timeframe.H1.label, 1).candles.size }
+            .rethrowCancellation()
     }
 
     private suspend fun fetchDefaultCandles(
@@ -343,7 +344,7 @@ class MarketRepositoryImpl @Inject constructor(
                     .sortedBy { it.timestamp },
                 source = source,
             )
-        }
+        }.rethrowCancellation()
     }
 
     private companion object {

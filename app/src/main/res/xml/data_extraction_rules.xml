@@ -4,8 +4,8 @@
     backup and device-to-device transfer.
 
     The Room database (foxtrader.db + its -wal / -shm side files) holds
-    user-authored journal entries, chart drawings, alerts and watchlists. It is
-    excluded so a user's private trading journal is never copied off-device in
+    user-authored trade records, chart drawings, alerts and watchlists. It is
+    excluded so private trading data is never copied off-device in
     plaintext, whether to cloud backup or to a transferred device.
 
     EncryptedSharedPreferences (already at-rest encrypted via Android Keystore)

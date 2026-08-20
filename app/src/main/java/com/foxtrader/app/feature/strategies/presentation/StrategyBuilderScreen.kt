@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -33,6 +34,7 @@ import com.foxtrader.app.domain.model.StrategyAction
 import com.foxtrader.app.domain.model.StrategyBlueprint
 import com.foxtrader.app.domain.model.StrategyCondition
 import com.foxtrader.app.domain.model.StrategyConditionCatalog
+import com.foxtrader.app.domain.model.StrategyConditionKind
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.ui.components.FoxBanner
 import com.foxtrader.app.ui.components.FoxBannerTone
@@ -65,6 +67,11 @@ class StrategyBuilderViewModel @Inject constructor(
 
     fun save(blueprint: StrategyBlueprint) = appPreferences.upsertStrategyBlueprint(blueprint)
 
+    fun saveForBacktest(blueprint: StrategyBlueprint) {
+        appPreferences.upsertStrategyBlueprint(blueprint)
+        appPreferences.requestBacktestForBlueprint(blueprint.id)
+    }
+
     fun delete(id: String) = appPreferences.deleteStrategyBlueprint(id)
 }
 
@@ -80,14 +87,18 @@ fun StrategyBuilderScreen(
     var combinator by remember { mutableStateOf(LogicOp.AND) }
     var conditions by remember { mutableStateOf(listOf<StrategyCondition>()) }
     var risk by remember { mutableStateOf(1.0) }
+    val draftId = rememberSaveable { java.util.UUID.randomUUID().toString() }
+    val draftCreatedAt = rememberSaveable { System.currentTimeMillis() }
     val colors = FoxTheme.colors
     val spacing = FoxTheme.spacing
 
     val draft = StrategyBlueprint(
+        id = draftId,
         name = name,
         combinator = combinator,
         conditions = conditions,
         action = StrategyAction(riskPercent = risk),
+        createdAt = draftCreatedAt,
     )
 
     Scaffold(
@@ -104,7 +115,9 @@ fun StrategyBuilderScreen(
             item {
                 FoxBanner(
                     title = "Research template",
-                    text = "This constructs logic you can test. It is not a live order and it does not promise an edge.",
+                    text = "Only rules supported by both the live chart and backtester are shown. " +
+                        "SMT stays available as a chart study until peer-aware backtests are supported. " +
+                        "No strategy promises an edge.",
                     tone = FoxBannerTone.Info,
                 )
             }
@@ -127,7 +140,9 @@ fun StrategyBuilderScreen(
                     horizontalArrangement = Arrangement.spacedBy(spacing.xs),
                     verticalArrangement = Arrangement.spacedBy(spacing.xs),
                 ) {
-                    StrategyConditionCatalog.defaults.forEach { candidate ->
+                    StrategyConditionCatalog.defaults
+                        .filterNot { it.kind == StrategyConditionKind.SMT }
+                        .forEach { candidate ->
                         val selected = conditions.any { it.label == candidate.label }
                         FoxChip(
                             label = candidate.label,
@@ -167,8 +182,17 @@ fun StrategyBuilderScreen(
             }
             item {
                 FoxButton(
-                    text = "Test in Backtesting Lab",
-                    onClick = onOpenLab,
+                    text = if (draft.isValid) {
+                        "Save & open Backtesting Lab"
+                    } else {
+                        "Add a condition to test"
+                    },
+                    onClick = {
+                        if (draft.isValid) {
+                            viewModel.saveForBacktest(draft)
+                            onOpenLab()
+                        }
+                    },
                     style = com.foxtrader.app.ui.components.FoxButtonStyle.Secondary,
                     modifier = Modifier.fillMaxWidth(),
                 )

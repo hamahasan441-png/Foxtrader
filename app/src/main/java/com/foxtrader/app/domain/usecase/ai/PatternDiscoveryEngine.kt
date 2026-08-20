@@ -402,7 +402,7 @@ class PatternDiscoveryEngine @Inject constructor() {
 
             for ((session, range) in sessions) {
                 if (hour in range) {
-                    val stats = statsMap[session]!!
+                    val stats = statsMap[session] ?: continue
                     stats.totalRange += candle.range
                     stats.totalVolume += candle.volume
                     stats.count++
@@ -413,7 +413,7 @@ class PatternDiscoveryEngine @Inject constructor() {
 
         // Build profiles and rank by average range descending
         val profiles = sessions.keys.mapNotNull { session ->
-            val stats = statsMap[session]!!
+            val stats = statsMap[session] ?: return@mapNotNull null
             if (stats.count == 0) return@mapNotNull null
             val avgRange = stats.totalRange / stats.count
             val avgVolume = stats.totalVolume / stats.count

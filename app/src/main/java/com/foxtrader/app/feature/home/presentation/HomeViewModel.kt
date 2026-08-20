@@ -10,7 +10,6 @@ import com.foxtrader.app.domain.repository.JournalRepository
 import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.repository.WatchlistRepository
 import com.foxtrader.app.domain.usecase.home.HomeInsightComposer
-import com.foxtrader.app.domain.usecase.journal.JournalEngine
 import com.foxtrader.app.domain.usecase.portfolio.JournalPositionMapper
 import com.foxtrader.app.domain.usecase.portfolio.PortfolioEngine
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
@@ -37,7 +36,6 @@ class HomeViewModel @Inject constructor(
     private val journalRepository: JournalRepository,
     private val alertRepository: AlertRepository,
     private val watchlistRepository: WatchlistRepository,
-    private val journalEngine: JournalEngine,
     private val portfolioEngine: PortfolioEngine,
     private val positionMapper: JournalPositionMapper,
     private val appPreferences: AppPreferences,
@@ -73,7 +71,6 @@ class HomeViewModel @Inject constructor(
                 subscription = subscription,
             )
         }.onEach { books ->
-            val stats = journalEngine.computeStats(books.entries)
             val open = books.entries.filter { it.isOpen }
             val livePrices = open.associate { it.symbol.uppercase() to (it.entryPrice) }
             val equity = appPreferences.riskConfig.value.accountBalance
@@ -91,9 +88,8 @@ class HomeViewModel @Inject constructor(
             _uiState.update { current ->
                 val insights = HomeInsightComposer.compose(
                     results = current.movers,
-                    stats = stats,
                     unreadAlerts = books.alerts.count { !it.acknowledged },
-                    openTrades = open.size,
+                    openPositions = open.size,
                     profile = books.profile,
                     synthetic = current.isSyntheticData,
                 )
@@ -103,9 +99,7 @@ class HomeViewModel @Inject constructor(
                     watchlist = books.watchlist,
                     recentAlerts = books.alerts.take(4).toPersistentList(),
                     unreadAlerts = books.alerts.count { !it.acknowledged },
-                    recentTrades = books.entries.take(4).toPersistentList(),
-                    journalStats = stats,
-                    openTrades = open.size,
+                    openPositions = open.size,
                     portfolio = snapshot,
                     accountEquity = equity,
                     insights = insights.toPersistentList(),
@@ -136,9 +130,8 @@ class HomeViewModel @Inject constructor(
             _uiState.update { current ->
                 val insights = HomeInsightComposer.compose(
                     results = output.results,
-                    stats = current.journalStats,
                     unreadAlerts = current.unreadAlerts,
-                    openTrades = current.openTrades,
+                    openPositions = current.openPositions,
                     profile = current.profile,
                     synthetic = worstSource == CandleSource.SYNTHETIC,
                 )

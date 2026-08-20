@@ -14,9 +14,9 @@ import javax.inject.Inject
  * Builds a unified [ChartSignal] list from the current analysis results
  * produced by LIT X, TradePro, and the SMT divergence detector.
  *
- * The most recent signal of each source is marked [ChartSignal.isLive] = true;
- * older entries are marked false so the chart layer can render them with
- * different opacities (live = 0.9, history = 0.3).
+ * A signal is live only when its setup/confirmation belongs to the current
+ * chart bar; historical entries stay historical even if they are the newest
+ * signal available from that source.
  *
  * This class is extracted from ChartViewModel for testability: it is a pure
  * function with no side-effects or framework dependencies.
@@ -62,7 +62,7 @@ class SignalComputer @Inject constructor() {
                     tp = signal.takeProfit1,
                     barIndex = candles.lastIndex,
                     timestamp = signal.timestamp,
-                    confidence = signal.confidence.score / 100.0,
+                    confidence = signal.confidence.score.toDouble(),
                     isLive = true,
                 )
             )
@@ -81,7 +81,7 @@ class SignalComputer @Inject constructor() {
                         tp = setup.target1,
                         barIndex = candles.lastIndex,
                         timestamp = currentTimeMillis,
-                        confidence = setup.confidence / 100.0,
+                        confidence = setup.confidence.toDouble(),
                         isLive = true,
                     )
                 )
@@ -89,25 +89,35 @@ class SignalComputer @Inject constructor() {
         }
 
         // SMT divergences
-        val lastSmtDiv = smtDivergences.lastOrNull()
         for (div in smtDivergences) {
+            val confirmationCandle = candles.getOrNull(div.confirmationIndex) ?: continue
+            if (div.primaryIndex !in candles.indices || div.confirmationIndex < div.primaryIndex) continue
             signals.add(
                 ChartSignal(
-                    id = "smt_${div.primarySymbol}_${div.primaryIndex}",
+                    id = "smt_${div.primarySymbol}_${div.peerSymbol}_${div.type.name}_" +
+                        "${div.primaryIndex}_${div.confirmationIndex}",
                     source = SignalSource.SMT,
                     direction = div.direction,
                     entry = div.primaryPrice,
                     sl = 0.0,
                     tp = 0.0,
                     barIndex = div.primaryIndex,
-                    timestamp = currentTimeMillis,
+                    // The divergence is plotted at the swing, but it only
+                    // becomes knowable after the right-hand confirmation bars.
+                    timestamp = confirmationCandle.timestamp,
                     confidence = div.confidence,
-                    isLive = div == lastSmtDiv,
+                    isLive = div.confirmationIndex == candles.lastIndex,
                 )
             )
         }
 
-        return applyConfluence(signals)
+        // Treat every upstream engine as untrusted at this boundary. A malformed
+        // NaN price, wrong-side stop, stale strategy index, or out-of-range SMT
+        // marker must never reach Canvas math or confidence confluence.
+        val renderable = signals
+            .filter { it.isRenderable(candles) }
+            .map { it.copy(confidence = normalizeConfidence(it.confidence)) }
+        return applyConfluence(renderable)
     }
 
     /**
@@ -145,6 +155,33 @@ class SignalComputer @Inject constructor() {
                     .coerceAtMost(CONFLUENCE_BOOST_MAX)
                 signal.copy(confidence = (signal.confidence + boost).coerceAtMost(1.0))
             }
+        }
+    }
+
+    /**
+     * Domain engines historically used both 0..1 and 0..100 confidence scales.
+     * Normalise at the chart boundary so no signal can render as 6,200% or
+     * bypass the confluence cap.
+     */
+    private fun normalizeConfidence(value: Double): Double = when {
+        !value.isFinite() -> 0.0
+        value > 1.0 -> value / 100.0
+        else -> value
+    }.coerceIn(0.0, 1.0)
+
+    private fun ChartSignal.isRenderable(candles: List<Candle>): Boolean {
+        if (barIndex !in candles.indices || !entry.isFinite() || entry <= 0.0) return false
+        if (!confidence.isFinite()) return false
+        if (source == SignalSource.STRATEGY && timestamp != candles[barIndex].timestamp) return false
+
+        if (source == SignalSource.SMT) {
+            return sl == 0.0 && tp == 0.0
+        }
+
+        if (!sl.isFinite() || !tp.isFinite() || sl <= 0.0 || tp <= 0.0) return false
+        return when (direction) {
+            Direction.BULLISH -> sl < entry && tp > entry
+            Direction.BEARISH -> sl > entry && tp < entry
         }
     }
 

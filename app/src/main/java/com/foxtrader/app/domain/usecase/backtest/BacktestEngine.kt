@@ -11,6 +11,7 @@ import com.foxtrader.app.domain.model.ExitReason
 import com.foxtrader.app.domain.model.StrategySignal
 import com.foxtrader.app.domain.model.Timeframe
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -83,16 +84,35 @@ class BacktestEngine @Inject constructor() {
             // Look for new entry (only if flat)
             if (openTrade == null) {
                 // CRITICAL: pass only candles up to and including i (no look-ahead)
-                val signal = strategy(candles.subList(0, i + 1), i)
-                if (signal != null) {
+                // A broken user strategy is isolated to this bar instead of
+                // aborting the complete research run.
+                val signal = try {
+                    strategy(candles.subList(0, i + 1), i)
+                } catch (cancel: CancellationException) {
+                    throw cancel
+                } catch (_: Exception) {
+                    null
+                }
+                // A setup on the final bar has no future market data in which
+                // it can execute or exit. Opening and immediately force-closing
+                // it at the same close fabricates a commission/slippage loss.
+                if (
+                    signal != null &&
+                    i < candles.lastIndex &&
+                    signal.isExecutable(expectedIndex = i, expectedTimestamp = candle.timestamp)
+                ) {
                     // Apply entry-side slippage: BUY fills above ask, SELL below bid.
                     val slippedSignal = if (signal.direction == Direction.BULLISH) {
                         signal.copy(entry = signal.entry + config.slippage)
                     } else {
                         signal.copy(entry = signal.entry - config.slippage)
                     }
-                    val volume = slippedSignal.volume ?: calculateVolume(balance, slippedSignal)
-                    openTrade = slippedSignal to volume
+                    if (slippedSignal.isExecutable(expectedIndex = i, expectedTimestamp = candle.timestamp)) {
+                        val volume = slippedSignal.volume ?: calculateVolume(balance, slippedSignal)
+                        if (volume.isFinite() && volume > 0.0) {
+                            openTrade = slippedSignal to volume
+                        }
+                    }
                 }
             }
 
@@ -123,6 +143,21 @@ class BacktestEngine @Inject constructor() {
             )
             balance += trade.netPnL
             trades += trade.copy(balanceAfter = balance)
+            peakBalance = max(peakBalance, balance)
+
+            // The point for the last bar was recorded before END liquidation.
+            // Replace it so the equity curve and max-drawdown metrics include
+            // the forced close instead of reporting a stale pre-exit balance.
+            if (equityCurve.isNotEmpty()) {
+                val drawdown = peakBalance - balance
+                equityCurve[equityCurve.lastIndex] = EquityPoint(
+                    index = candles.lastIndex,
+                    timestamp = lastCandle.timestamp,
+                    balance = balance,
+                    drawdown = drawdown,
+                    drawdownPercent = if (peakBalance > 0.0) (drawdown / peakBalance) * 100.0 else 0.0,
+                )
+            }
         }
 
         val metrics = calculateMetrics(trades, equityCurve)
@@ -215,11 +250,26 @@ class BacktestEngine @Inject constructor() {
     }
 
     private fun calculateVolume(balance: Double, signal: StrategySignal): Double {
+        if (!balance.isFinite() || balance <= 0.0 || config.contractSize <= 0) return 0.0
+        if (!config.riskPercent.isFinite() || config.riskPercent <= 0.0) return 0.0
         val riskAmount = balance * (config.riskPercent / 100.0)
         val stopDistance = abs(signal.entry - signal.stopLoss)
-        if (stopDistance == 0.0) return 0.01
+        if (!riskAmount.isFinite() || !stopDistance.isFinite() || stopDistance <= MIN_PRICE_DISTANCE) return 0.0
         val volume = riskAmount / (stopDistance * config.contractSize)
-        return max(0.01, (volume * 100).roundToInt() / 100.0)
+        if (!volume.isFinite() || volume <= 0.0) return 0.0
+        return max(MIN_VOLUME, (volume * 100).roundToInt() / 100.0)
+    }
+
+    /** Reject malformed, stale, or wrong-side strategy output before it reaches P&L math. */
+    private fun StrategySignal.isExecutable(expectedIndex: Int, expectedTimestamp: Long): Boolean {
+        if (index != expectedIndex || timestamp != expectedTimestamp) return false
+        if (!entry.isFinite() || !stopLoss.isFinite() || !takeProfit.isFinite()) return false
+        if (entry <= 0.0 || stopLoss <= 0.0 || takeProfit <= 0.0) return false
+        if (volume != null && (!volume.isFinite() || volume <= 0.0)) return false
+        return when (direction) {
+            Direction.BULLISH -> stopLoss < entry && takeProfit > entry
+            Direction.BEARISH -> stopLoss > entry && takeProfit < entry
+        }
     }
 
     private fun getSpread(candle: Candle): Double {
@@ -360,4 +410,9 @@ class BacktestEngine @Inject constructor() {
 
     fun updateConfig(newConfig: BacktestConfig) { config = newConfig }
     fun getConfig(): BacktestConfig = config
+
+    private companion object {
+        const val MIN_PRICE_DISTANCE = 1e-12
+        const val MIN_VOLUME = 0.01
+    }
 }

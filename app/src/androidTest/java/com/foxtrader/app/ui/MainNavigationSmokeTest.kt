@@ -5,7 +5,6 @@ import android.os.Build
 import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -41,13 +40,13 @@ class MainNavigationSmokeTest {
     }
 
     @Test
-    fun navigation_opensMarketsJournalAndSettingsScreens() {
+    fun navigation_opensMarketsPortfolioAndSettingsScreens() {
         composeRule.onNodeWithText("Markets").performClick()
         composeRule.onNodeWithText("Strategy").assertIsDisplayed()
 
         composeRule.onNodeWithText("More").performClick()
-        composeRule.onNodeWithText("Journal").performClick()
-        composeRule.onNodeWithContentDescription("Open portfolio exposure").assertExists()
+        composeRule.onNodeWithText("Portfolio").performClick()
+        composeRule.onNodeWithText("Portfolio").assertIsDisplayed()
 
         composeRule.onNodeWithText("More").performClick()
         composeRule.onNodeWithText("Settings").performClick()

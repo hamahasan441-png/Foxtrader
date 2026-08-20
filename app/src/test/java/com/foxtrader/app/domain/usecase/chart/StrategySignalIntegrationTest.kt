@@ -29,19 +29,28 @@ class StrategySignalIntegrationTest {
         direction: Direction,
         isLive: Boolean,
         confidence: Double = 0.6,
-    ) = ChartSignal(
-        id = "strategy_$barIndex",
-        source = SignalSource.STRATEGY,
-        direction = direction,
-        entry = 1.0800,
-        sl = 1.0780,
-        tp = 1.0860,
-        barIndex = barIndex,
-        timestamp = candles[barIndex].timestamp,
-        confidence = confidence,
-        isLive = isLive,
-        label = "SMC Order Block Retest",
-    )
+    ): ChartSignal {
+        // Match SignalComputer.isRenderable geometry: stops/targets must sit on
+        // the correct side of entry for the trade direction or the marker is dropped.
+        val entry = 1.0800
+        val (sl, tp) = when (direction) {
+            Direction.BULLISH -> 1.0780 to 1.0860
+            Direction.BEARISH -> 1.0820 to 1.0740
+        }
+        return ChartSignal(
+            id = "strategy_$barIndex",
+            source = SignalSource.STRATEGY,
+            direction = direction,
+            entry = entry,
+            sl = sl,
+            tp = tp,
+            barIndex = barIndex,
+            timestamp = candles[barIndex].timestamp,
+            confidence = confidence,
+            isLive = isLive,
+            label = "SMC Order Block Retest",
+        )
+    }
 
     @Test
     fun `strategy signals are passed through to the chart signal list`() {

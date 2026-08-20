@@ -41,7 +41,6 @@ import com.foxtrader.app.feature.backtest.presentation.BacktestLabScreen
 import com.foxtrader.app.feature.chart.presentation.ChartScreen
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.feature.home.presentation.HomeScreen
-import com.foxtrader.app.feature.journal.presentation.JournalScreen
 import com.foxtrader.app.feature.litx.presentation.LitXScreen
 import com.foxtrader.app.feature.more.presentation.MoreAction
 import com.foxtrader.app.feature.more.presentation.MoreScreen
@@ -77,7 +76,6 @@ object FoxRoutes {
     const val STRATEGIES = "strategies"
     const val STRATEGY_BUILDER = "strategy_builder"
     const val BACKTEST_LAB = "backtest_lab"
-    const val JOURNAL = "journal"
     const val PORTFOLIO = "portfolio"
     const val ALERTS = "alerts"
     const val SETTINGS = "settings"
@@ -148,7 +146,6 @@ fun FoxNavHost(
                     onOpenChart = { navController.navigate(FoxRoutes.CHART) },
                     onOpenMarkets = { navController.navigate(FoxRoutes.MARKETS) },
                     onOpenAlerts = { navController.navigate(FoxRoutes.ALERTS) },
-                    onOpenJournal = { navController.navigate(FoxRoutes.JOURNAL) },
                     onOpenPortfolio = { navController.navigate(FoxRoutes.PORTFOLIO) },
                     onOpenLab = { navController.navigate(FoxRoutes.BACKTEST_LAB) },
                     onOpenAi = { navController.navigate(FoxRoutes.AI) },
@@ -219,13 +216,6 @@ fun FoxNavHost(
             composable(FoxRoutes.RISK_SIMULATOR) {
                 RiskSimulatorScreen(onNavigateBack = { navController.popBackStack() })
             }
-            composable(FoxRoutes.JOURNAL) {
-                JournalScreen(
-                    onNavigateToPortfolio = { navController.navigate(FoxRoutes.PORTFOLIO) },
-                    onNavigateToProfile = { navController.navigate(FoxRoutes.TRADER_PROFILE) },
-                    onNavigateToDailyPlan = { navController.navigate(FoxRoutes.DAILY_PLAN) },
-                )
-            }
             composable(FoxRoutes.DAILY_PLAN) {
                 DailyPlanScreen(onNavigateBack = { navController.popBackStack() })
             }
@@ -248,7 +238,6 @@ fun FoxNavHost(
                 MoreScreen(
                     onOpen = { action ->
                         val route = when (action) {
-                            MoreAction.JOURNAL -> FoxRoutes.JOURNAL
                             MoreAction.PORTFOLIO -> FoxRoutes.PORTFOLIO
                             MoreAction.ALERTS -> FoxRoutes.ALERTS
                             MoreAction.STRATEGIES -> FoxRoutes.STRATEGIES

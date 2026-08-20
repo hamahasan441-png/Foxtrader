@@ -13,7 +13,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccountBalanceWallet
 import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.Calculate
 import androidx.compose.material.icons.outlined.Hub
 import androidx.compose.material.icons.outlined.Insights
@@ -59,7 +58,6 @@ data class MoreDestination(
 )
 
 enum class MoreAction {
-    JOURNAL,
     PORTFOLIO,
     ALERTS,
     STRATEGIES,
@@ -103,7 +101,6 @@ fun MoreScreen(
         MoreDestination("Watchlist", "Lists, symbols, order", Icons.Outlined.Star, MoreAction.WATCHLIST),
     )
     val desk = listOf(
-        MoreDestination("Journal", "Trades, R multiples, review", Icons.Outlined.Book, MoreAction.JOURNAL),
         MoreDestination("Portfolio", "Exposure, concentration, P&L", Icons.Outlined.AccountBalanceWallet, MoreAction.PORTFOLIO),
         MoreDestination("Alerts", "Inbox, priority, history", Icons.Outlined.Notifications, MoreAction.ALERTS),
         MoreDestination("Daily plan", "Pre-market briefing", Icons.Outlined.Insights, MoreAction.DAILY_PLAN),

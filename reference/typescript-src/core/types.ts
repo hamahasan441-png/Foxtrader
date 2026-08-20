@@ -517,7 +517,6 @@ export interface EventMap {
   ORDER_UPDATE: Record<string, unknown>;
   POSITION_UPDATE: Record<string, unknown>;
   RISK_HALT: { reason: string; timestamp: number };
-  JOURNAL_ENTRY: Record<string, unknown>;
   REPLAY_COMMENTARY: Record<string, unknown>;
   NEWS_RELEASE: Record<string, unknown>;
   VOICE_COMMAND: Record<string, unknown>;

@@ -2,7 +2,6 @@ package com.foxtrader.app.feature.chart.presentation
 
 import androidx.compose.runtime.Immutable
 import com.foxtrader.app.domain.model.Bias
-import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.SmcVisualMode
 import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.model.ChartBarMode
@@ -21,6 +20,7 @@ import com.foxtrader.app.domain.model.SessionRange
 import com.foxtrader.app.domain.model.tradepro.TradeProAnalysis
 import com.foxtrader.app.domain.usecase.ai.MarketExplanation
 import com.foxtrader.app.domain.model.StrategyType
+import com.foxtrader.app.domain.model.StrategyBlueprint
 import com.foxtrader.app.domain.model.StructureBreak
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.analysis.FibonacciEngine
@@ -84,11 +84,13 @@ data class IndicatorToggles(
     /**
      * The strategy currently plotted on the chart, or null for none.
      *
-     * [activeStrategy] and [allStrategies] are mutually exclusive: when
-     * [allStrategies] is true, every strategy is scanned (bounded to
-     * 180 bars / 12 signals each) and their markers are drawn together.
+     * [activeStrategy], [activeBlueprintId], and [allStrategies] are mutually
+     * exclusive. Built-in "all" scans remain bounded to 180 bars / 12 signals
+     * per strategy.
      */
     val activeStrategy: StrategyType? = null,
+    /** Saved visual-builder strategy plotted with the same engine as backtests. */
+    val activeBlueprintId: String? = null,
     /** When true, scan every strategy and render all their markers at once. */
     val allStrategies: Boolean = false,
 ) {
@@ -99,7 +101,7 @@ data class IndicatorToggles(
             supportResistance || fibonacci || confluence || orderBlocks || fairValueGaps ||
             liquidity || sessions || structure || litX || smt || tradePro ||
             rsi || macd || volume || stochastic || obv || moneyFlowIndex ||
-            activeStrategy != null || allStrategies
+            activeStrategy != null || activeBlueprintId != null || allStrategies
 }
 
 /**
@@ -179,6 +181,8 @@ data class ChartUiState(
     val showIndicatorPanel: Boolean = false,
     val showSymbolPicker: Boolean = false,
     val showCalculator: Boolean = false,
+    /** Saved visual-builder strategies available to the chart indicator panel. */
+    val strategyBlueprints: ImmutableList<StrategyBlueprint> = persistentListOf(),
     /**
      * Symbols from the user's active watchlist. Empty until the repository
      * emits. The seed list now lives in WatchlistRepositoryImpl and is a

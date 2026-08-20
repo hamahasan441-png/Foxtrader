@@ -48,7 +48,7 @@ A native Android trading-analysis app built with **Kotlin 2.0, Jetpack Compose, 
 ### Multi-Agent AI Decisioning
 - Deterministic 10-agent confluence analysis with Master Decision gating
 - Market Explanation Engine for symbol context, HTF/local alignment, value zone, liquidity, inefficiency, volatility, and mentor notes
-- Trade Explanation Engine for approved/rejected setup stories, invalidation, risk narrative, checklist, rich alert bodies, and auto-journaled backtest notes
+- Trade Explanation Engine for approved/rejected setup stories, invalidation, risk narrative, checklists, and rich alert bodies
 - Risk and psychology vetoes always override otherwise valid signals
 - LLM provider abstraction is narration-only; raw candles are never delegated to an LLM for trade authority
 
@@ -79,12 +79,6 @@ A native Android trading-analysis app built with **Kotlin 2.0, Jetpack Compose, 
 - Category badges: Best Buy, Best Sell, Best Swing, Best Scalp, Best Long-Term
 - Tag system: TRENDING, OVERBOUGHT, OVERSOLD, HIGH_VOL, MOVER
 
-### Trade Journal Intelligence
-- Manual and auto-journaled trades from backtests
-- Performance stats: win rate, expectancy, payoff ratio, profit factor, max drawdown, streaks
-- Setup and emotion breakdowns to identify behavioral leaks
-- Best setup and weakest emotional state insights
-
 ### Alert System
 - Priority-based filtering (LOW, MEDIUM, HIGH, CRITICAL)
 - Cooldown deduplication
@@ -93,8 +87,8 @@ A native Android trading-analysis app built with **Kotlin 2.0, Jetpack Compose, 
 
 ### Navigation & UX
 - Mobile-first desk: Home, Chart, Markets, Lab, More
-- Home snapshot: breadth, movers, signals, journal, alerts, classified AI notes
-- More hub: journal, portfolio, strategies, AI workspace, watchlist, settings, Pro
+- Home snapshot: breadth, movers, signals, portfolio exposure, alerts, classified AI notes
+- More hub: portfolio, strategies, AI workspace, watchlist, settings, Pro
 - Interactive timeframe selector with tappable chips
 - Persisted risk, alert, AI decision, provider, theme, workspace profile, and default-timeframe settings
 - Pull-to-refresh for live data reload
@@ -351,7 +345,6 @@ emulator URL is `http://10.0.2.2:8000/`.
 - [x] Bar-by-bar replay engine and backtesting engine
 - [x] Risk management engine (6 sizing methods)
 - [x] Multi-asset scanner with AI scoring
-- [x] Trade journal with statistics and behavioral intelligence
 - [x] Encrypted credential storage (Android Keystore)
 - [x] External AI provider abstraction (AiProviderClient)
 - [x] Push notification alerts

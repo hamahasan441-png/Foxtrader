@@ -2,6 +2,11 @@
 
 **The official, permanent engineering reference for the FoxTrader platform.**
 
+> **Current product note:** The Journal destination, manual-entry UI, journal AI,
+> and backtest auto-recording have been removed. Older sections that mention a
+> journal describe migration-compatible legacy trade records or historical work,
+> not a user-facing product surface.
+
 > **Version:** 2.0 (Engineering Bible)
 > **Applies to:** FoxTrader app `v0.1.0+` (`applicationId = com.foxtrader.app`)
 > **Audience:** Every current and future FoxTrader engineer, and every AI agent that reads, writes, or reviews FoxTrader code.
@@ -21,7 +26,7 @@
 | Multi-agent AI decisioning (11 agents + `MasterDecisionEngine` gating) | ✅ Wired | Deterministic rules; incl. `OrderFlowAgent` |
 | Risk engine (6 sizing + 4 stop methods, **asset-class-correct** contract sizes, pre-trade gates, auto-halt, Kelly) | ✅ Wired | `InstrumentTypeResolver` drives contract size |
 | Backtesting (bar-by-bar, no look-ahead; spread/commission/slippage; AI-gated) | ✅ Wired | `BacktestEngine` / `AiScoredBacktestEngine` |
-| Scanner · Journal · Portfolio · Alerts · Calculator | ✅ Wired | Real screens + tests |
+| Scanner · Portfolio · Alerts · Calculator | ✅ Wired | Real screens + tests |
 | Data layer: offline-first Room v7, provenance (`CandleSource`), non-destructive migrations, synthetic-data veto, cache pruning | ✅ Wired | Room is the SSOT |
 | Live market data | ⚠️ Partial | **Real:** Binance, Bybit (crypto), Alpha Vantage, Twelve Data, and Polygon.io historical aggregates + authenticated minute WebSocket. Polygon covers keyed stocks/forex/indices/crypto; unsupported providers still use clearly-labelled **synthetic fallback** |
 | TRADEPRO order-flow/auction framework — core (Flip Zone, Buy/Sell-Hold, imbalance, absorption, signal engine, risk guard, reversal/range bars, sanitizer) | ✅ Wired | On `main` via #47/#48/#49 |

@@ -31,7 +31,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.foxtrader.app.domain.model.FoxAlert
-import com.foxtrader.app.domain.model.JournalEntry
 import com.foxtrader.app.domain.model.ScreenerResult
 import com.foxtrader.app.domain.usecase.home.ClassifiedInsight
 import com.foxtrader.app.domain.usecase.home.InsightKind
@@ -57,7 +56,6 @@ fun HomeScreen(
     onOpenChart: () -> Unit = {},
     onOpenMarkets: () -> Unit = {},
     onOpenAlerts: () -> Unit = {},
-    onOpenJournal: () -> Unit = {},
     onOpenPortfolio: () -> Unit = {},
     onOpenLab: () -> Unit = {},
     onOpenAi: () -> Unit = {},
@@ -93,7 +91,7 @@ fun HomeScreen(
         },
     ) { padding ->
         when {
-            state.isLoading && state.movers.isEmpty() && state.recentTrades.isEmpty() -> {
+            state.isLoading && state.movers.isEmpty() -> {
                 FoxLoadingState(
                     modifier = Modifier.padding(padding),
                     label = "Building snapshot",
@@ -185,22 +183,6 @@ fun HomeScreen(
                         WatchlistStrip(state)
                     }
                     item {
-                        FoxSectionHeader("Recent trades", actionLabel = "Journal", onAction = onOpenJournal)
-                    }
-                    if (state.recentTrades.isEmpty()) {
-                        item {
-                            Text(
-                                "No journal entries yet. Log a trade or run a backtest.",
-                                style = FoxTheme.type.body,
-                                color = colors.textMuted,
-                            )
-                        }
-                    } else {
-                        items(state.recentTrades, key = { it.id }) { trade ->
-                            TradeRow(trade)
-                        }
-                    }
-                    item {
                         FoxSectionHeader("Alerts")
                     }
                     if (state.recentAlerts.isEmpty()) {
@@ -264,14 +246,14 @@ private fun SnapshotStrip(state: HomeUiState, onOpenPortfolio: () -> Unit) {
             label = "Open risk",
             value = if (exposure == null) "—" else "${"%.1f".format(exposure)}%",
             modifier = Modifier.weight(1f).semantics { contentDescription = "Open portfolio exposure" },
-            caption = if (state.openTrades == 0) "No open trades" else "${state.openTrades} open",
+            caption = if (state.openPositions == 0) "No open positions" else "${state.openPositions} open",
         )
         FoxMetricCard(
             label = "Unrealised",
             value = if (pnl == null) "—" else formatMoney(pnl),
             modifier = Modifier.weight(1f),
             valueColor = if (pnl == null) colors.textMuted else colors.pnl(pnl),
-            caption = "Journal marks",
+            caption = "Position marks",
         )
     }
     Text(
@@ -386,23 +368,6 @@ private fun WatchlistStrip(state: HomeUiState) {
     LazyRow(horizontalArrangement = Arrangement.spacedBy(FoxTheme.spacing.xs)) {
         items(symbols.take(12), key = { it }) { symbol ->
             FoxBadge(symbol, color = FoxTheme.colors.textSecondary)
-        }
-    }
-}
-
-@Composable
-private fun TradeRow(entry: JournalEntry) {
-    FoxPanel {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Column {
-                Text(entry.symbol, style = FoxTheme.type.h3, color = FoxTheme.colors.textPrimary)
-                Text(entry.setupType, style = FoxTheme.type.caption, color = FoxTheme.colors.textMuted)
-            }
-            if (entry.pnl != null) {
-                Text(formatMoney(entry.pnl), style = FoxTheme.type.price, color = FoxTheme.colors.pnl(entry.pnl))
-            } else {
-                FoxBadge("OPEN")
-            }
         }
     }
 }

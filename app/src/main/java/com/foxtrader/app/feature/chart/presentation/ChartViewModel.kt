@@ -41,6 +41,9 @@ import com.foxtrader.app.domain.usecase.litx.LitXEngine
 import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
 import com.foxtrader.app.domain.usecase.strategies.LiveStrategyEngine
 import com.foxtrader.app.domain.model.StrategyType
+import com.foxtrader.app.domain.model.StrategyBlueprint
+import com.foxtrader.app.domain.sdk.script.ScriptEngine
+import com.foxtrader.app.domain.sdk.script.Strategy
 import com.foxtrader.app.feature.chart.presentation.components.ChartPerformanceMonitor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.toPersistentList
@@ -91,6 +94,7 @@ class ChartViewModel @Inject constructor(
     private val candleRenkoBuilder: CandleRenkoBuilder,
     private val signalComputer: SignalComputer,
     private val liveStrategyEngine: LiveStrategyEngine,
+    private val scriptEngine: ScriptEngine,
     private val paperTradingSession: PaperTradingSession,
     profiler: PerformanceProfiler,
     qualityController: AdaptiveQualityController,
@@ -121,20 +125,23 @@ class ChartViewModel @Inject constructor(
     val primaryViewport: StateFlow<ChartViewportState?> = _primaryViewport.asStateFlow()
 
     /**
-     * Cached higher-timeframe candle context for the TRADEPRO MTF read
-     * (HTF defines bias, LTF provides entry). Keyed by "symbol|timeframe" and
-     * only refetched when that changes — HTF bias evolves slowly, so refetching
-     * on every live tick would be needless DB work.
+     * Cached higher-timeframe candle context for the TRADEPRO MTF read.
+     * Refreshed once per new primary bar while TradePro is enabled, never per
+     * tick, so a long-running chart cannot retain a stale HTF bias forever.
      */
     private var htfContextKey: String? = null
     private var htfContextCache: Map<Timeframe, List<Candle>> = emptyMap()
 
     /**
-     * Cached same-timeframe correlated-peer candles (e.g. GBPUSD/AUDUSD for a
-     * EURUSD chart) used by the SMT divergence detector. Refreshed together
-     * with [htfContextCache] under the same "symbol|timeframe" key.
+     * Same-timeframe peer cache used by the chart SMT layer. Peer history is
+     * refreshed once per primary bar (not once per tick) to keep live rendering
+     * responsive while still allowing a newly closed bar to confirm divergence.
      */
-    private var correlatedContextCache: Map<String, List<Candle>> = emptyMap()
+    private var smtContextKey: String? = null
+    private var smtContextCache: Map<String, List<Candle>> = emptyMap()
+
+    /** Last visual blueprint compiled for live-chart evaluation. */
+    private var compiledBlueprintCache: Pair<StrategyBlueprint, Strategy>? = null
 
     /**
      * Generation counter for the candle-computation pipeline. Rapid indicator
@@ -248,6 +255,39 @@ class ChartViewModel @Inject constructor(
                 }
             }
             .launchIn(viewModelScope)
+        appPreferences.strategyBlueprints
+            .onEach { blueprints ->
+                val previousState = _uiState.value
+                val activeId = previousState.indicators.activeBlueprintId
+                val previousActive = activeId?.let { id ->
+                    previousState.strategyBlueprints.firstOrNull { it.id == id }
+                }
+                val nextActive = activeId?.let { id -> blueprints.firstOrNull { it.id == id } }
+                val activeStillExists = activeId == null || blueprints.any { it.id == activeId }
+                val cachedBlueprint = compiledBlueprintCache?.first
+                if (cachedBlueprint != null && cachedBlueprint !in blueprints) compiledBlueprintCache = null
+                _uiState.value = previousState.copy(
+                    strategyBlueprints = blueprints.toPersistentList(),
+                    indicators = if (activeStillExists) {
+                        previousState.indicators
+                    } else {
+                        previousState.indicators.copy(activeBlueprintId = null)
+                    },
+                )
+                // Editing or deleting the blueprint currently drawn on a paused
+                // chart must update its markers immediately; waiting for the
+                // next market tick can leave stale signals on screen forever.
+                if (activeId != null && previousActive != nextActive) {
+                    try {
+                        dataController.processMergedCandles(preferIncremental = false)
+                    } catch (cancel: CancellationException) {
+                        throw cancel
+                    } catch (_: Exception) {
+                        // The next data refresh retries; never kill preference collection.
+                    }
+                }
+            }
+            .launchIn(viewModelScope)
         refresh()
     }
 
@@ -315,15 +355,14 @@ class ChartViewModel @Inject constructor(
             return
         }
 
-        // Refresh the HTF context only when the symbol/timeframe changes so the
-        // TRADEPRO read is validated against higher-timeframe bias without
-        // hitting the DB on every tick.
-        val htfKey = "$symbol|$timeframe"
-        if (htfKey != htfContextKey) {
+        // Refresh once per primary bar only while TRADEPRO needs HTF context.
+        // This avoids per-tick DB work without freezing bias for the whole app
+        // session after the first fetch.
+        val htfKey = "$symbol|$timeframe|${displayCandles.last().timestamp}"
+        if (ind.tradePro && htfKey != htfContextKey) {
             // MtfContextProvider already degrades to empty maps on repository
             // errors, so no extra containment is needed around these calls.
             htfContextCache = mtfContextProvider.getHtfContext(symbol, timeframe)
-            correlatedContextCache = mtfContextProvider.getCorrelatedContext(symbol, timeframe)
             htfContextKey = htfKey
         }
 
@@ -335,32 +374,28 @@ class ChartViewModel @Inject constructor(
         // the UI — the "touching indicators crashes/hangs the app" report.
         val tradeProAnalysis = if (ind.tradePro) {
             withContext(defaultDispatcher) {
-                runCatching {
+                containedOrNull {
                     tradeProEngine.analyze(
                         symbol, displayCandles, appPreferences.tradeProConfig.value, htfContextCache,
                     )
-                }.getOrNull()
+                }
             }
         } else null
 
         val litXAnalysis = if (ind.litX) {
             withContext(defaultDispatcher) {
-                runCatching {
+                containedOrNull {
                     litXEngine.analyze(symbol, timeframe, displayCandles, appPreferences.litXConfig.value)
-                }.getOrNull()
+                }
             }
         } else null
 
-        val smtDivergences = if (ind.smt) {
-            // Peer candles (e.g. GBPUSD/AUDUSD for a EURUSD chart) come from the
-            // same MtfContextProvider the AI pipeline uses, cached per
-            // symbol|timeframe alongside the HTF context. Without peers the
-            // detector early-returns an empty list — previously this was hard-
-            // coded to emptyMap(), which made the SMT toggle a permanent no-op.
+        val smtDivergences = if (ind.smt && barMode.preservesTimeAxis) {
+            val peerCandles = getSmtContext(symbol, timeframe, displayCandles.last().timestamp)
             withContext(defaultDispatcher) {
-                runCatching {
-                    smtDivergenceDetector.detect(symbol, displayCandles, correlatedContextCache)
-                }.getOrElse { emptyList() }
+                containedOrDefault(emptyList()) {
+                    smtDivergenceDetector.detect(symbol, displayCandles, peerCandles)
+                }
             }
         } else emptyList()
 
@@ -373,11 +408,32 @@ class ChartViewModel @Inject constructor(
         val activeStrategy = ind.activeStrategy
         val strategySignals = when {
             ind.allStrategies -> withContext(defaultDispatcher) {
-                runCatching { liveStrategyEngine.evaluateAll(displayCandles) }.getOrElse { emptyList() }
+                containedOrDefault(emptyList()) { liveStrategyEngine.evaluateAll(displayCandles) }
             }
             activeStrategy != null -> withContext(defaultDispatcher) {
-                runCatching { liveStrategyEngine.evaluate(activeStrategy, displayCandles) }
-                    .getOrElse { emptyList() }
+                containedOrDefault(emptyList()) {
+                    liveStrategyEngine.evaluate(activeStrategy, displayCandles)
+                }
+            }
+            ind.activeBlueprintId != null -> {
+                val blueprint = _uiState.value.strategyBlueprints
+                    .firstOrNull { it.id == ind.activeBlueprintId }
+                val compiled = blueprint?.let(::compileBlueprint)
+                if (compiled == null) {
+                    emptyList()
+                } else {
+                    withContext(defaultDispatcher) {
+                        containedOrDefault(emptyList()) {
+                            liveStrategyEngine.evaluateCustom(
+                                strategyId = compiled.id,
+                                strategyName = compiled.name,
+                                minimumBars = compiled.minBars,
+                                function = { series, index -> scriptEngine.evaluate(compiled, series, index) },
+                                candles = displayCandles,
+                            )
+                        }
+                    }
+                }
             }
             else -> emptyList()
         }
@@ -492,18 +548,30 @@ class ChartViewModel @Inject constructor(
         val next = if (type == current) null else type
         if (next == current && !_uiState.value.indicators.allStrategies) return
         // Selecting a specific strategy exits "all strategies" mode.
-        updateIndicators { it.copy(activeStrategy = next, allStrategies = false) }
+        updateIndicators {
+            it.copy(activeStrategy = next, activeBlueprintId = null, allStrategies = false)
+        }
     }
 
     /** Toggle "all strategies" mode; mutually exclusive with a single strategy. */
     fun toggleAllStrategies() {
-        updateIndicators { it.copy(allStrategies = !it.allStrategies, activeStrategy = null) }
+        updateIndicators {
+            it.copy(
+                allStrategies = !it.allStrategies,
+                activeStrategy = null,
+                activeBlueprintId = null,
+            )
+        }
     }
 
     fun updateIndicators(transform: (IndicatorToggles) -> IndicatorToggles) {
         val current = _uiState.value.indicators
         val updated = transform(current)
         if (current.confluence != updated.confluence) { aiCoordinator.lastAiCandlesHash = 0L }
+        if (current.smt != updated.smt) {
+            smtContextKey = null
+            smtContextCache = emptyMap()
+        }
         if (current.smcVisualMode != updated.smcVisualMode) {
             appPreferences.setSmcVisualMode(updated.smcVisualMode)
         }
@@ -518,6 +586,8 @@ class ChartViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 dataController.processMergedCandles(preferIncremental = false)
+            } catch (cancel: CancellationException) {
+                throw cancel
             } catch (_: Exception) {
                 // Swallow concurrent modification exceptions during indicator toggle.
                 // The next data emission will trigger a successful recompute.
@@ -557,6 +627,8 @@ class ChartViewModel @Inject constructor(
         clearSymbolPicker: Boolean = false,
     ) {
         aiCoordinator.lastAiCandlesHash = 0L
+        smtContextKey = null
+        smtContextCache = emptyMap()
         dataController.resetPrimaryChartContext()
         multiChartController.resetPrimaryViewportState()
         _primaryViewport.value = null
@@ -567,6 +639,47 @@ class ChartViewModel @Inject constructor(
             aiDecision = null, confluence = null,
             isLoading = true, isLoadingOlder = false, historyEndReached = false,
         )
+    }
+
+    private suspend fun getSmtContext(
+        symbol: String,
+        timeframe: Timeframe,
+        latestPrimaryTimestamp: Long,
+    ): Map<String, List<Candle>> {
+        val key = "$symbol|$timeframe|$latestPrimaryTimestamp"
+        if (smtContextKey != key) {
+            smtContextCache = mtfContextProvider.getCorrelatedContext(
+                symbol = symbol,
+                timeframe = timeframe,
+                refreshMissing = true,
+            )
+            smtContextKey = key
+        }
+        return smtContextCache
+    }
+
+    private fun compileBlueprint(blueprint: StrategyBlueprint): Strategy {
+        val cached = compiledBlueprintCache
+        if (cached?.first == blueprint) return cached.second
+        return scriptEngine.compileBlueprint(blueprint).also {
+            compiledBlueprintCache = blueprint to it
+        }
+    }
+
+    private inline fun <T> containedOrNull(block: () -> T): T? = try {
+        block()
+    } catch (cancel: CancellationException) {
+        throw cancel
+    } catch (_: Exception) {
+        null
+    }
+
+    private inline fun <T> containedOrDefault(defaultValue: T, block: () -> T): T = try {
+        block()
+    } catch (cancel: CancellationException) {
+        throw cancel
+    } catch (_: Exception) {
+        defaultValue
     }
 
     fun loadOlderHistory() {
@@ -592,6 +705,8 @@ class ChartViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 dataController.processMergedCandles(preferIncremental = false)
+            } catch (cancel: CancellationException) {
+                throw cancel
             } catch (_: Exception) {
                 // Swallow concurrent modification exceptions during bar-mode change.
                 // The next data emission will trigger a successful recompute.
@@ -605,6 +720,8 @@ class ChartViewModel @Inject constructor(
             viewModelScope.launch {
                 try {
                     dataController.processMergedCandles(preferIncremental = false)
+                } catch (cancel: CancellationException) {
+                    throw cancel
                 } catch (_: Exception) {
                     // Swallow concurrent modification exceptions during renko size change.
                 }

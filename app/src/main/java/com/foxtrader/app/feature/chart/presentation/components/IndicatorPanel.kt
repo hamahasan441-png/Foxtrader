@@ -18,6 +18,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Modifier
 import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.SmcVisualMode
+import com.foxtrader.app.domain.model.StrategyBlueprint
 import com.foxtrader.app.domain.model.StrategyType
 import com.foxtrader.app.feature.chart.presentation.IndicatorToggles
 import com.foxtrader.app.ui.components.FoxChip
@@ -31,6 +32,7 @@ import com.foxtrader.app.ui.theme.FoxTheme
 fun IndicatorPanel(
     visible: Boolean,
     toggles: IndicatorToggles,
+    strategyBlueprints: List<StrategyBlueprint> = emptyList(),
     onToggle: ((IndicatorToggles) -> IndicatorToggles) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -105,17 +107,44 @@ fun IndicatorPanel(
             // strategy (bounded to 180 bars / 12 signals each). Picking any one
             // strategy (or Off) exits "All" mode.
             Group("Strategy signals") {
-                Chip("Off", toggles.activeStrategy == null && !toggles.allStrategies) {
-                    onToggle { it.copy(activeStrategy = null, allStrategies = false) }
+                Chip(
+                    "Off",
+                    toggles.activeStrategy == null && toggles.activeBlueprintId == null && !toggles.allStrategies,
+                ) {
+                    onToggle {
+                        it.copy(activeStrategy = null, activeBlueprintId = null, allStrategies = false)
+                    }
                 }
-                Chip("All", toggles.allStrategies) {
-                    onToggle { it.copy(allStrategies = !it.allStrategies, activeStrategy = null) }
+                Chip("All built-in", toggles.allStrategies) {
+                    onToggle {
+                        it.copy(
+                            allStrategies = !it.allStrategies,
+                            activeStrategy = null,
+                            activeBlueprintId = null,
+                        )
+                    }
                 }
                 StrategyType.entries.forEach { type ->
                     Chip(type.label, toggles.activeStrategy == type) {
                         onToggle { current ->
                             current.copy(
                                 activeStrategy = if (current.activeStrategy == type) null else type,
+                                activeBlueprintId = null,
+                                allStrategies = false,
+                            )
+                        }
+                    }
+                }
+                strategyBlueprints.forEach { blueprint ->
+                    Chip("My: ${blueprint.name}", toggles.activeBlueprintId == blueprint.id) {
+                        onToggle { current ->
+                            current.copy(
+                                activeStrategy = null,
+                                activeBlueprintId = if (current.activeBlueprintId == blueprint.id) {
+                                    null
+                                } else {
+                                    blueprint.id
+                                },
                                 allStrategies = false,
                             )
                         }

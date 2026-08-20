@@ -23,6 +23,7 @@ import com.foxtrader.app.domain.usecase.execution.TradeIntent
 import com.foxtrader.app.domain.usecase.mt4.Mt4BrokerDirectory
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.domain.usecase.risk.InstrumentSpec
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -64,7 +65,7 @@ class Mt4RepositoryImpl @Inject constructor(
         val token = requireToken()
         check(accountId.isNotBlank()) { "Not connected. Call connect() first." }
         dataSource.getHistoricalCandles(token, accountId, symbol, timeframe, limit)
-    }
+    }.rethrowCancellation()
 
     override fun isConnected(): Boolean = accountId.isNotBlank()
 
@@ -101,7 +102,7 @@ class Mt4RepositoryImpl @Inject constructor(
             dataSource.getAccountInfo(token, deployedId).also { info ->
                 appPreferences.setMetaApiAccountName(info.name)
             }
-        }
+        }.rethrowCancellation()
 
     override suspend fun disconnect() {
         quoteStream.disconnect()
@@ -115,14 +116,14 @@ class Mt4RepositoryImpl @Inject constructor(
             val token = requireToken()
             check(accountId.isNotBlank()) { "Not connected. Call connect() first." }
             dataSource.getAccountInfo(token, accountId)
-        }
+        }.rethrowCancellation()
 
     override suspend fun getPositions(): Result<List<Mt4Position>> =
         runCatching {
             val token = requireToken()
             check(accountId.isNotBlank()) { "Not connected. Call connect() first." }
             dataSource.getPositions(token, accountId)
-        }
+        }.rethrowCancellation()
 
     override fun streamQuotes(symbols: List<String>): Flow<Mt4Quote> {
         symbols.forEach { quoteStream.subscribe(it) }
@@ -199,7 +200,7 @@ class Mt4RepositoryImpl @Inject constructor(
                             "Check your MT4 positions before trying again — it will NOT be retried automatically."
                     )
             }
-        }
+        }.rethrowCancellation()
     }
 
     override suspend fun closeTrade(
@@ -238,7 +239,7 @@ class Mt4RepositoryImpl @Inject constructor(
                     )
                 )
             }
-        }
+        }.rethrowCancellation()
     }
 
     override suspend fun reconcileUnknownOrders(): Int {
@@ -277,7 +278,7 @@ class Mt4RepositoryImpl @Inject constructor(
                 }
             }
             unresolved
-        }.getOrDefault(unknowns.size)
+        }.rethrowCancellation().getOrDefault(unknowns.size)
     }
 
     // ========================================================================
@@ -299,6 +300,8 @@ class Mt4RepositoryImpl @Inject constructor(
         val accountInfo = try {
             val token = requireToken()
             if (accountId.isNotBlank()) dataSource.getAccountInfo(token, accountId) else null
+        } catch (cancel: CancellationException) {
+            throw cancel
         } catch (_: Exception) {
             null
         }

@@ -34,6 +34,8 @@ class SmtDivergenceDetector @Inject constructor() {
         val correlation: Double,
         val confidence: Double,
         val detail: String,
+        /** Primary-series bar where both swings became confirmed/actionable. */
+        val confirmationIndex: Int = primaryIndex,
     )
 
     enum class SmtType {
@@ -49,7 +51,14 @@ class SmtDivergenceDetector @Inject constructor() {
         swingLookback: Int = DEFAULT_SWING_LOOKBACK,
         minCorrelation: Double = MIN_POSITIVE_CORRELATION,
     ): List<SmtDivergence> {
-        if (primaryCandles.size < MIN_BARS || correlatedCandles.isEmpty()) return emptyList()
+        if (
+            primaryCandles.size < MIN_BARS ||
+            correlatedCandles.isEmpty() ||
+            period < MIN_BARS ||
+            swingLookback < 1 ||
+            !minCorrelation.isFinite() ||
+            minCorrelation !in 0.0..1.0
+        ) return emptyList()
 
         return correlatedCandles.flatMap { (peerSymbol, peerCandles) ->
             detectPair(
@@ -121,11 +130,15 @@ class SmtDivergenceDetector @Inject constructor() {
 
             val originalPrimaryIdx = alignedPrimaryWithIdx[p1].first
             val originalPeerIdx = alignedPeerWithIdx[q1].first
+            val confirmationIndex = alignedPrimaryWithIdx[
+                (maxOf(p1, q1) + swingLookback).coerceAtMost(alignedPrimaryWithIdx.lastIndex)
+            ].first
 
             if (primarySweptLow && peerHeldLow) {
                 result += buildDivergence(
                     primarySymbol, peerSymbol, Direction.BULLISH,
                     SmtType.PRIMARY_SWEEP_PEER_FAIL, originalPrimaryIdx, originalPeerIdx,
+                    confirmationIndex,
                     alignedPrimaryCandles[p1].low, alignedPeerCandles[q1].low, correlation,
                     "$primarySymbol swept sell-side while $peerSymbol held its prior low",
                 )
@@ -134,6 +147,7 @@ class SmtDivergenceDetector @Inject constructor() {
                 result += buildDivergence(
                     primarySymbol, peerSymbol, Direction.BULLISH,
                     SmtType.PEER_SWEEP_PRIMARY_FAIL, originalPrimaryIdx, originalPeerIdx,
+                    confirmationIndex,
                     alignedPrimaryCandles[p1].low, alignedPeerCandles[q1].low, correlation,
                     "$peerSymbol swept sell-side while $primarySymbol held its prior low",
                 )
@@ -152,11 +166,15 @@ class SmtDivergenceDetector @Inject constructor() {
 
             val originalPrimaryIdx = alignedPrimaryWithIdx[p1].first
             val originalPeerIdx = alignedPeerWithIdx[q1].first
+            val confirmationIndex = alignedPrimaryWithIdx[
+                (maxOf(p1, q1) + swingLookback).coerceAtMost(alignedPrimaryWithIdx.lastIndex)
+            ].first
 
             if (primarySweptHigh && peerHeldHigh) {
                 result += buildDivergence(
                     primarySymbol, peerSymbol, Direction.BEARISH,
                     SmtType.PRIMARY_SWEEP_PEER_FAIL, originalPrimaryIdx, originalPeerIdx,
+                    confirmationIndex,
                     alignedPrimaryCandles[p1].high, alignedPeerCandles[q1].high, correlation,
                     "$primarySymbol swept buy-side while $peerSymbol failed to confirm the high",
                 )
@@ -165,6 +183,7 @@ class SmtDivergenceDetector @Inject constructor() {
                 result += buildDivergence(
                     primarySymbol, peerSymbol, Direction.BEARISH,
                     SmtType.PEER_SWEEP_PRIMARY_FAIL, originalPrimaryIdx, originalPeerIdx,
+                    confirmationIndex,
                     alignedPrimaryCandles[p1].high, alignedPeerCandles[q1].high, correlation,
                     "$peerSymbol swept buy-side while $primarySymbol failed to confirm the high",
                 )
@@ -181,6 +200,7 @@ class SmtDivergenceDetector @Inject constructor() {
         type: SmtType,
         primaryIndex: Int,
         peerIndex: Int,
+        confirmationIndex: Int,
         primaryPrice: Double,
         peerPrice: Double,
         correlation: Double,
@@ -194,6 +214,7 @@ class SmtDivergenceDetector @Inject constructor() {
             type = type,
             primaryIndex = primaryIndex,
             peerIndex = peerIndex,
+            confirmationIndex = confirmationIndex,
             primaryPrice = primaryPrice,
             peerPrice = peerPrice,
             correlation = correlation,

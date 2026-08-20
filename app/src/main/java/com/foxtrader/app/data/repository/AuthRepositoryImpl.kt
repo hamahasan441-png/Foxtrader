@@ -47,7 +47,8 @@ class AuthRepositoryImpl @Inject constructor(
             val response = syncApi.register(RegisterRequest(email, password, displayName))
             tokenManager.saveTokens(response.tokens)
             response.user
-        }.onFailure {
+        }.onFailure { error ->
+            if (error is kotlinx.coroutines.CancellationException) throw error
             tokenManager.setAuthState(AuthState.UNAUTHENTICATED)
         }
     }
@@ -59,7 +60,8 @@ class AuthRepositoryImpl @Inject constructor(
                 val response = syncApi.login(LoginRequest(email, password))
                 tokenManager.saveTokens(response.tokens)
                 response.user
-            }.onFailure {
+            }.onFailure { error ->
+                if (error is kotlinx.coroutines.CancellationException) throw error
                 tokenManager.setAuthState(AuthState.UNAUTHENTICATED)
             }
         }
@@ -68,7 +70,7 @@ class AuthRepositoryImpl @Inject constructor(
         val accessToken = tokenManager.getAccessToken()
         // Best-effort server-side invalidation; clear local tokens regardless.
         if (accessToken != null) {
-            runCatching { syncApi.logout("Bearer $accessToken") }
+            runCatching { syncApi.logout("Bearer $accessToken") }.rethrowCancellation()
         }
         tokenManager.clearTokens()
     }

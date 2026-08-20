@@ -9,6 +9,7 @@ import com.foxtrader.app.domain.model.SyncPushRequest
 import com.foxtrader.app.domain.model.SyncableType
 import com.foxtrader.app.domain.usecase.sync.CloudSyncEngine
 import com.foxtrader.app.domain.usecase.sync.SyncStatus
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -84,6 +85,8 @@ class CloudSyncRepositoryImpl @Inject constructor(
                 conflicts = 0, // Conflict count would come from domain merge logic
                 timestamp = pullResponse.serverTimestamp,
             )
+        } catch (cancel: CancellationException) {
+            throw cancel
         } catch (e: Exception) {
             syncEngine.setSyncStatus(SyncStatus.FAILED)
             CloudSyncEngine.SyncResult(
@@ -100,6 +103,8 @@ class CloudSyncRepositoryImpl @Inject constructor(
         if (!tokenManager.isLoggedIn()) return@withContext null
         try {
             syncApi.pullSync(since = 0L) // Pull everything from the beginning
+        } catch (cancel: CancellationException) {
+            throw cancel
         } catch (_: Exception) {
             null
         }

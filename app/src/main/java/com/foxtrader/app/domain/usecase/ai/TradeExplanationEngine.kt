@@ -123,7 +123,7 @@ class TradeExplanationEngine @Inject constructor() {
             "Confirm spread/slippage is acceptable.",
             "Run RiskEngine position sizing.",
             "Use bracket/OCO protection before execution.",
-            "Journal the setup and emotional state.",
+            "Record the setup and emotional state.",
         )
     }
 

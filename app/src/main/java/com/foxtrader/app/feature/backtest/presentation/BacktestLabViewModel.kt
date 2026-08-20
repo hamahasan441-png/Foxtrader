@@ -10,6 +10,7 @@ import com.foxtrader.app.domain.model.StrategySignal
 import com.foxtrader.app.domain.model.StrategyType
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.repository.MarketRepository
+import com.foxtrader.app.domain.sdk.script.ScriptEngine
 import com.foxtrader.app.domain.usecase.backtest.AiScoredBacktestEngine
 import com.foxtrader.app.domain.usecase.backtest.BacktestAnalyticsEngine
 import com.foxtrader.app.domain.usecase.backtest.BacktestEngine
@@ -25,9 +26,12 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.collections.immutable.toPersistentList
 import javax.inject.Inject
 
 /**
@@ -45,15 +49,42 @@ class BacktestLabViewModel @Inject constructor(
     private val instrumentTypeResolver: InstrumentTypeResolver,
     private val tradeProEngine: TradeProSignalEngine,
     private val strategyLibrary: StrategyLibrary,
+    private val scriptEngine: ScriptEngine,
     private val appPreferences: AppPreferences,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(BacktestLabUiState())
+    private val _uiState = MutableStateFlow(
+        BacktestLabUiState(
+            selectedBlueprintId = appPreferences.consumeRequestedBacktestBlueprintId(),
+        ),
+    )
     val uiState: StateFlow<BacktestLabUiState> = _uiState.asStateFlow()
+    private var initialBacktestStarted = false
 
     init {
-        runBacktest()
+        appPreferences.strategyBlueprints
+            .onEach { blueprints ->
+                _uiState.update { state ->
+                    val selectedId = state.selectedBlueprintId
+                        ?.takeIf { id -> blueprints.any { it.id == id } }
+                    val selectedBlueprint = selectedId?.let { id -> blueprints.first { it.id == id } }
+                    state.copy(
+                        strategyBlueprints = blueprints.toPersistentList(),
+                        selectedBlueprintId = selectedId,
+                        riskPercent = if (!initialBacktestStarted && selectedBlueprint != null) {
+                            selectedBlueprint.action.riskPercent.coerceIn(0.1, 5.0)
+                        } else {
+                            state.riskPercent
+                        },
+                    )
+                }
+                if (!initialBacktestStarted) {
+                    initialBacktestStarted = true
+                    runBacktest()
+                }
+            }
+            .launchIn(viewModelScope)
     }
 
     fun setSymbol(symbol: String) {
@@ -65,7 +96,28 @@ class BacktestLabViewModel @Inject constructor(
     }
 
     fun setStrategy(strategy: BacktestStrategyTemplate) {
-        _uiState.update { it.copy(strategy = strategy, result = null, analyticsReport = null, error = null) }
+        _uiState.update {
+            it.copy(
+                strategy = strategy,
+                selectedBlueprintId = null,
+                result = null,
+                analyticsReport = null,
+                error = null,
+            )
+        }
+    }
+
+    fun setBlueprint(id: String) {
+        val blueprint = _uiState.value.strategyBlueprints.firstOrNull { it.id == id } ?: return
+        _uiState.update {
+            it.copy(
+                selectedBlueprintId = id,
+                riskPercent = blueprint.action.riskPercent.coerceIn(0.1, 5.0),
+                result = null,
+                analyticsReport = null,
+                error = null,
+            )
+        }
     }
 
     fun setRiskPercent(value: Double) {
@@ -96,7 +148,7 @@ class BacktestLabViewModel @Inject constructor(
                     // crypto/gold/index P&L is not computed as a forex lot.
                     contractSize = instrumentTypeResolver.resolve(state.symbol).contractSize.toInt(),
                 )
-                val strategy = buildStrategy(state.strategy)
+                val strategy = buildStrategy(state)
 
                 val result = withContext(defaultDispatcher) {
                     if (state.aiScoringEnabled) {
@@ -147,12 +199,20 @@ class BacktestLabViewModel @Inject constructor(
         }
     }
 
-    private fun buildStrategy(template: BacktestStrategyTemplate): StrategyFunction = when (template) {
-        BacktestStrategyTemplate.RSI_MEAN_REVERSION -> ::rsiMeanReversion
-        BacktestStrategyTemplate.EMA_TREND_PULLBACK -> ::emaTrendPullback
-        BacktestStrategyTemplate.ATR_BREAKOUT -> ::atrBreakout
-        BacktestStrategyTemplate.TRADEPRO -> ::tradePro
-        BacktestStrategyTemplate.LITX -> strategyLibrary.get(StrategyType.LITX).function
+    private fun buildStrategy(state: BacktestLabUiState): StrategyFunction {
+        val blueprint = state.selectedBlueprint
+        if (blueprint != null) {
+            val compiled = scriptEngine.compileBlueprint(blueprint)
+            return { candles, index -> scriptEngine.evaluate(compiled, candles, index) }
+        }
+
+        return when (state.strategy) {
+            BacktestStrategyTemplate.RSI_MEAN_REVERSION -> ::rsiMeanReversion
+            BacktestStrategyTemplate.EMA_TREND_PULLBACK -> ::emaTrendPullback
+            BacktestStrategyTemplate.ATR_BREAKOUT -> ::atrBreakout
+            BacktestStrategyTemplate.TRADEPRO -> ::tradePro
+            BacktestStrategyTemplate.LITX -> strategyLibrary.get(StrategyType.LITX).function
+        }
     }
 
     /**

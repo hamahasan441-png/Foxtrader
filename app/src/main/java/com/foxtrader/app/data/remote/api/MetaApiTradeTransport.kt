@@ -4,6 +4,7 @@ import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.Mt4OrderType
 import com.foxtrader.app.domain.usecase.execution.ExecutionReceipt
 import com.foxtrader.app.domain.usecase.execution.TradeIntent
+import kotlinx.coroutines.CancellationException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -61,6 +62,8 @@ class MetaApiTradeTransport @Inject constructor(
                     reasons = listOf("MetaApi accepted the request but returned no order id"),
                 )
             }
+        } catch (cancel: CancellationException) {
+            throw cancel
         } catch (e: IllegalStateException) {
             // The data source throws IllegalStateException specifically when the
             // broker returned a definitive rejection (non-zero return code). This

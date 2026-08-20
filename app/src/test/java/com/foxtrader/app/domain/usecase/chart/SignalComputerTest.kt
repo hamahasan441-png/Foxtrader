@@ -60,6 +60,32 @@ class SignalComputerTest {
     }
 
     @Test
+    fun `rejects malformed strategy signals before chart rendering`() {
+        val malformed = com.foxtrader.app.domain.model.ChartSignal(
+            id = "bad",
+            source = SignalSource.STRATEGY,
+            direction = Direction.BULLISH,
+            entry = Double.NaN,
+            sl = 1.0,
+            tp = 2.0,
+            barIndex = sampleCandles.lastIndex,
+            timestamp = sampleCandles.last().timestamp,
+            confidence = 0.9,
+            isLive = true,
+        )
+
+        val result = computer.computeSignals(
+            litXAnalysis = null,
+            tradeProAnalysis = null,
+            smtDivergences = emptyList(),
+            candles = sampleCandles,
+            strategySignals = listOf(malformed),
+        )
+
+        assertTrue(result.isEmpty())
+    }
+
+    @Test
     fun `produces LitX signal when analysis has validated signal`() {
         val litXAnalysis = buildLitXAnalysis(
             direction = Direction.BULLISH,
@@ -183,19 +209,21 @@ class SignalComputerTest {
     }
 
     @Test
-    fun `produces SMT divergence signals with last one marked as live`() {
+    fun `normalizes SMT percentage confidence and marks only newly confirmed divergence live`() {
         val divergences = listOf(
             buildSmtDivergence(
                 primaryIndex = 3,
                 primaryPrice = 1.0800,
                 direction = Direction.BULLISH,
-                confidence = 0.72,
+                confidence = 72.0,
+                confirmationIndex = 6,
             ),
             buildSmtDivergence(
                 primaryIndex = 7,
                 primaryPrice = 1.0820,
                 direction = Direction.BULLISH,
-                confidence = 0.78,
+                confidence = 78.0,
+                confirmationIndex = sampleCandles.lastIndex,
             ),
         )
 
@@ -260,7 +288,8 @@ class SignalComputerTest {
                 primaryIndex = 5,
                 primaryPrice = 1.0790,
                 direction = Direction.BULLISH,
-                confidence = 0.65,
+                confidence = 65.0,
+                confirmationIndex = sampleCandles.lastIndex,
             ),
         )
 
@@ -285,7 +314,8 @@ class SignalComputerTest {
                 primaryIndex = 5,
                 primaryPrice = 1.0850,
                 direction = Direction.BEARISH,
-                confidence = 0.68,
+                confidence = 68.0,
+                confirmationIndex = sampleCandles.lastIndex,
             ),
         )
 
@@ -300,6 +330,29 @@ class SignalComputerTest {
         assertEquals(1, result.size)
         assertTrue(result[0].isLive)
         assertEquals(Direction.BEARISH, result[0].direction)
+    }
+
+    @Test
+    fun `newest SMT divergence stays historical after its confirmation bar`() {
+        val divergence = buildSmtDivergence(
+            primaryIndex = 4,
+            primaryPrice = 1.0840,
+            direction = Direction.BEARISH,
+            confidence = 74.0,
+            confirmationIndex = sampleCandles.lastIndex - 1,
+        )
+
+        val result = computer.computeSignals(
+            litXAnalysis = null,
+            tradeProAnalysis = null,
+            smtDivergences = listOf(divergence),
+            candles = sampleCandles,
+            currentTimeMillis = 1700009000000L,
+        )
+
+        assertEquals(1, result.size)
+        assertFalse(result.single().isLive)
+        assertEquals(sampleCandles[sampleCandles.lastIndex - 1].timestamp, result.single().timestamp)
     }
 
     // ========================================================================
@@ -347,7 +400,13 @@ class SignalComputerTest {
             stage = SetupStage.EXECUTE, narrative = "Buy setup confirmed",
         )
         val divergences = listOf(
-            buildSmtDivergence(primaryIndex = 5, primaryPrice = 1.0790, direction = Direction.BULLISH, confidence = 0.65),
+            buildSmtDivergence(
+                primaryIndex = 5,
+                primaryPrice = 1.0790,
+                direction = Direction.BULLISH,
+                confidence = 65.0,
+                confirmationIndex = sampleCandles.lastIndex,
+            ),
         )
 
         val result = computer.computeSignals(litX, analysis, divergences, sampleCandles, 1700009000000L)
@@ -384,8 +443,20 @@ class SignalComputerTest {
     @Test
     fun `multiple SMT divergences from the same source do not self-boost`() {
         val divergences = listOf(
-            buildSmtDivergence(primaryIndex = 3, primaryPrice = 1.0800, direction = Direction.BULLISH, confidence = 0.72),
-            buildSmtDivergence(primaryIndex = 7, primaryPrice = 1.0820, direction = Direction.BULLISH, confidence = 0.78),
+            buildSmtDivergence(
+                primaryIndex = 3,
+                primaryPrice = 1.0800,
+                direction = Direction.BULLISH,
+                confidence = 72.0,
+                confirmationIndex = 6,
+            ),
+            buildSmtDivergence(
+                primaryIndex = 7,
+                primaryPrice = 1.0820,
+                direction = Direction.BULLISH,
+                confidence = 78.0,
+                confirmationIndex = sampleCandles.lastIndex,
+            ),
         )
 
         val result = computer.computeSignals(null, null, divergences, sampleCandles, 1700009000000L)
@@ -412,7 +483,13 @@ class SignalComputerTest {
             stage = SetupStage.EXECUTE, narrative = "Buy setup confirmed",
         )
         val divergences = listOf(
-            buildSmtDivergence(primaryIndex = 5, primaryPrice = 1.0790, direction = Direction.BULLISH, confidence = 0.97),
+            buildSmtDivergence(
+                primaryIndex = 5,
+                primaryPrice = 1.0790,
+                direction = Direction.BULLISH,
+                confidence = 97.0,
+                confirmationIndex = sampleCandles.lastIndex,
+            ),
         )
 
         val result = computer.computeSignals(litX, analysis, divergences, sampleCandles, 1700009000000L)
@@ -509,6 +586,7 @@ class SignalComputerTest {
         primaryPrice: Double,
         direction: Direction,
         confidence: Double,
+        confirmationIndex: Int = primaryIndex,
     ): SmtDivergenceDetector.SmtDivergence = SmtDivergenceDetector.SmtDivergence(
         primarySymbol = "EURUSD",
         peerSymbol = "DXY",
@@ -516,6 +594,7 @@ class SignalComputerTest {
         type = SmtDivergenceDetector.SmtType.PRIMARY_SWEEP_PEER_FAIL,
         primaryIndex = primaryIndex,
         peerIndex = primaryIndex + 1,
+        confirmationIndex = confirmationIndex,
         primaryPrice = primaryPrice,
         peerPrice = primaryPrice + 0.002,
         correlation = 0.85,

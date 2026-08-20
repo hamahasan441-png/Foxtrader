@@ -3,8 +3,6 @@ package com.foxtrader.app.feature.home.presentation
 import androidx.compose.runtime.Immutable
 import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.model.FoxAlert
-import com.foxtrader.app.domain.model.JournalEntry
-import com.foxtrader.app.domain.model.JournalStats
 import com.foxtrader.app.domain.model.ScreenerResult
 import com.foxtrader.app.domain.model.SubscriptionState
 import com.foxtrader.app.domain.model.Watchlist
@@ -23,9 +21,7 @@ data class HomeUiState(
     val watchlist: Watchlist? = null,
     val recentAlerts: ImmutableList<FoxAlert> = persistentListOf(),
     val unreadAlerts: Int = 0,
-    val recentTrades: ImmutableList<JournalEntry> = persistentListOf(),
-    val journalStats: JournalStats = JournalStats(),
-    val openTrades: Int = 0,
+    val openPositions: Int = 0,
     val portfolio: PortfolioRiskSnapshot? = null,
     val accountEquity: Double = 0.0,
     val insights: ImmutableList<ClassifiedInsight> = persistentListOf(),

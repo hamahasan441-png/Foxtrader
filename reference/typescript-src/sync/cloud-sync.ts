@@ -1,13 +1,13 @@
 // ============================================================================
 // CLOUD SYNC
-// Syncs: Watchlists, Templates, Trades, Journal, Drawings, Settings, Alerts
+// Syncs: Watchlists, Templates, Trades, Drawings, Settings, Alerts
 // Cross-device synchronization with conflict resolution and offline queue.
 // ============================================================================
 
 import { TradingEventBus } from '../core/event-bus';
 
 export type SyncableType =
-  | 'WATCHLISTS' | 'TEMPLATES' | 'TRADES' | 'JOURNAL'
+  | 'WATCHLISTS' | 'TEMPLATES' | 'TRADES'
   | 'DRAWINGS' | 'SETTINGS' | 'ALERTS';
 
 export type SyncStatus = 'IDLE' | 'SYNCING' | 'SYNCED' | 'OFFLINE' | 'ERROR' | 'CONFLICT';

@@ -1,7 +1,7 @@
 // ============================================================================
 // INSTITUTIONAL AI TRADING PLATFORM - Top-level barrel export
 // Aggregates Part 1 (Smart Money analysis + chart engine + data) and
-// Part 2 (execution, risk, AI engines, backtest, journal, news, etc.)
+// Part 2 (execution, risk, AI engines, backtest, news, etc.)
 // ============================================================================
 
 // --- Core ---
@@ -27,8 +27,7 @@ export { MarketScanner } from './ai/market-scanner';
 export { TradePlanner } from './ai/trade-planner';
 export { MentorAssistant } from './ai/mentor-assistant';
 
-// --- Part 2: Journal, Replay, Backtest ---
-export { TradeJournal } from './journal/trade-journal';
+// --- Part 2: Replay, Backtest ---
 export { ReplayEngine, ReplayCommentator } from './replay/replay-engine';
 export { Backtester } from './backtest/backtester';
 export { MonteCarloSimulator, WalkForwardAnalyzer } from './backtest/monte-carlo';
