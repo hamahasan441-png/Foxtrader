@@ -107,6 +107,33 @@ class ExecutionSafetyLayerTest {
     }
 
     @Test
+    fun `max daily loss gate rejects when loss meets threshold exactly`() {
+        val policy = ExecutionPolicy(liveModeEnabled = true, maxDailyLossInAccountCurrency = 500.0)
+        val context = enabledContext.copy(dailyLossInAccountCurrency = 500.0)
+        val decision = layer.evaluate(intent(), policy, context, now)
+        assertRejected(decision)
+        // Reason should mention max daily loss
+        val reasons = (decision as ExecutionSafetyDecision.Rejected).reasons
+        assertTrue(reasons.any { it.contains("Max daily loss") })
+    }
+
+    @Test
+    fun `max daily loss gate allows when daily loss is below threshold`() {
+        val policy = ExecutionPolicy(liveModeEnabled = true, maxDailyLossInAccountCurrency = 500.0)
+        val context = enabledContext.copy(dailyLossInAccountCurrency = 499.9)
+        assertAllowed(layer.evaluate(intent(), policy, context, now))
+    }
+
+    @Test
+    fun `max daily loss gate is skipped when dailyLoss is null`() {
+        // Null means no P&L source — gate permissive (pre-fix behavior). After fix,
+        // buildExecutionContext wires a real source, so null means truly no loss today.
+        val policy = ExecutionPolicy(liveModeEnabled = true, maxDailyLossInAccountCurrency = 500.0)
+        val context = enabledContext.copy(dailyLossInAccountCurrency = null)
+        assertAllowed(layer.evaluate(intent(), policy, context, now))
+    }
+
+    @Test
     fun `free margin gate rejects when margin is insufficient`() {
         val policy = ExecutionPolicy(liveModeEnabled = true, minFreeMarginInAccountCurrency = 1000.0)
         val context = enabledContext.copy(freeMargin = 200.0)

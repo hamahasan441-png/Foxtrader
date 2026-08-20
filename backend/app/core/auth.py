@@ -201,6 +201,9 @@ class AuthService:
     def revoke_access(self, access_token: str) -> None:
         self._store.delete_access(access_token)
 
+    def revoke_refresh(self, refresh_token: str) -> None:
+        self._store.delete_refresh(refresh_token)
+
 
 def _now_ms() -> int:
     return int(time.time() * 1000)

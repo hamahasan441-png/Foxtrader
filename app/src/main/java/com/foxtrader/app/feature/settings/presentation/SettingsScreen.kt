@@ -362,7 +362,7 @@ fun SettingsScreen(
 
                 Spacer(Modifier.height(12.dp))
 
-                // Max daily loss
+                // Max daily loss — now enforced via local audit log (realized P&L of closes today).
                 Text("Max daily loss (account currency; 0 = off)", fontSize = 13.sp, color = FoxNeutral60)
                 Spacer(Modifier.height(4.dp))
                 DecimalAmountField(
@@ -372,7 +372,7 @@ fun SettingsScreen(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = "Note: the max-daily-loss gate needs an intraday realized-P&L source; it is currently advisory.",
+                    text = "Enforced: blocks new live orders when today's realized loss from trades closed via the app meets this threshold. Gross loss (sum of absolute losses today, UTC day). Winning trades don't offset the gate — it's fail-closed. For authoritative broker P&L, check your MT4 terminal.",
                     style = MaterialTheme.typography.bodySmall,
                     color = FoxNeutral60,
                 )

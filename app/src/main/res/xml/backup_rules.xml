@@ -5,14 +5,19 @@
     The Room database (foxtrader.db + its -wal / -shm side files) holds
     user-authored trade records, chart drawings, alerts and watchlists. It is
     deliberately excluded from cloud auto-backup so a user's private trading
-    trading data is never copied off-device in plaintext via the normal backup path.
+    data is never copied off-device in plaintext via the normal backup path.
 
-    EncryptedSharedPreferences (which is already at-rest encrypted via Android
-    Keystore) is intentionally NOT excluded, so a user who wants their
-    preferences/backed-up tokens restored across devices still can.
+    EncryptedSharedPreferences files (fox_auth_tokens.xml, fox_provider_keys.xml)
+    are also excluded: their underlying Keystore master key never travels with a
+    backup, so a restore would hand the app undecryptable ciphertext and crash
+    on prefs init. The app now defensively recovers by wiping a corrupt file,
+    but excluding it from backup prevents that path entirely and forces a clean
+    re-login after restore, which is the safer default.
 -->
 <full-backup-content>
     <exclude domain="database" path="foxtrader.db" />
     <exclude domain="database" path="foxtrader.db-wal" />
     <exclude domain="database" path="foxtrader.db-shm" />
+    <exclude domain="sharedpref" path="fox_auth_tokens.xml" />
+    <exclude domain="sharedpref" path="fox_provider_keys.xml" />
 </full-backup-content>

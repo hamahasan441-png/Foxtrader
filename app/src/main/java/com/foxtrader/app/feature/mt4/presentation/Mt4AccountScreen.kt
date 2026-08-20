@@ -307,6 +307,21 @@ private fun ConnectedContent(
                     DetailRow("Entry", order.entryPrice.toString())
                     DetailRow("Stop loss", order.stopLoss?.toString() ?: "None")
                     DetailRow("Take profit", order.takeProfit?.toString() ?: "None")
+                    order.volumeBoundsNote?.let { note ->
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+                        Text(
+                            text = note,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (order.isVolumeEstimated) MaterialTheme.colorScheme.error else FoxNeutral60,
+                        )
+                        if (order.isVolumeEstimated) {
+                            Text(
+                                text = "⚠ Using estimated limits — broker validation isn't authoritative for this order.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
                     HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
                     Text(
                         "Live orders place money at risk. Confirm to send this order to your MT4 broker.",

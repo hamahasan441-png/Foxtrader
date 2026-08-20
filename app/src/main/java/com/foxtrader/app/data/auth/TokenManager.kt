@@ -94,20 +94,45 @@ class TokenManager @Inject constructor(
         if (isLoggedIn()) AuthState.AUTHENTICATED else AuthState.UNAUTHENTICATED
 
     private fun createEncryptedPrefs(): SharedPreferences {
-        val masterKey = MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
+        return try {
+            val masterKey = MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
 
-        return EncryptedSharedPreferences.create(
-            context,
-            PREFS_FILE_NAME,
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-        )
+            EncryptedSharedPreferences.create(
+                context,
+                PREFS_FILE_NAME,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+            )
+        } catch (e: Exception) {
+            android.util.Log.w(
+                TAG,
+                "EncryptedSharedPreferences $PREFS_FILE_NAME corrupted or unreadable after restore — wiping and recreating empty store",
+                e,
+            )
+            try {
+                context.deleteSharedPreferences(PREFS_FILE_NAME)
+            } catch (_: Exception) {
+                // Best-effort delete; recreate anyway.
+            }
+            // Recreate fresh (empty) store — MasterKey may need recreation after wipe.
+            val masterKey = MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+            EncryptedSharedPreferences.create(
+                context,
+                PREFS_FILE_NAME,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+            )
+        }
     }
 
     private companion object {
+        const val TAG = "TokenManager"
         const val PREFS_FILE_NAME = "fox_auth_tokens"
         const val KEY_ACCESS_TOKEN = "access_token"
         const val KEY_REFRESH_TOKEN = "refresh_token"

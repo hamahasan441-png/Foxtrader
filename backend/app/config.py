@@ -58,8 +58,16 @@ class Settings:
     rate_limit_enabled: bool = True
     #: Max auth requests per client IP per window.
     rate_limit_auth_per_window: int = 20
-    #: Rate-limit window in seconds.
+    #: Rate-limit window in seconds (auth).
     rate_limit_window_seconds: int = 60
+    #: Max market-data requests per client IP per window (higher throughput than auth).
+    rate_limit_market_per_window: int = 120
+    #: Rate-limit window in seconds (market).
+    rate_limit_market_window_seconds: int = 60
+    #: List of IPs/subnets that are trusted to set X-Forwarded-For.
+    #: When empty (default) no XFF is ever trusted, so `client_ip()` always
+    #: returns the immediate TCP peer and cannot be spoofed.
+    trusted_proxies: list[str] = field(default_factory=list)
     app_name: str = "FoxTrader Market Data API"
     version: str = "0.1.0"
 
@@ -75,6 +83,9 @@ class Settings:
             rate_limit_enabled=_env_bool("FOX_RATE_LIMIT_ENABLED", True),
             rate_limit_auth_per_window=_env_int("FOX_RATE_LIMIT_AUTH_PER_WINDOW", 20),
             rate_limit_window_seconds=_env_int("FOX_RATE_LIMIT_WINDOW_SECONDS", 60),
+            rate_limit_market_per_window=_env_int("FOX_RATE_LIMIT_MARKET_PER_WINDOW", 120),
+            rate_limit_market_window_seconds=_env_int("FOX_RATE_LIMIT_MARKET_WINDOW_SECONDS", 60),
+            trusted_proxies=_split_csv(os.environ.get("FOX_TRUSTED_PROXIES", "")),
             app_name=os.environ.get("FOX_APP_NAME", "FoxTrader Market Data API"),
             version=os.environ.get("FOX_VERSION", "0.1.0"),
         )

@@ -147,6 +147,39 @@ class MetaApiDataSource @Inject constructor(
         }
     }
 
+    /**
+     * Fetch broker-authoritative symbol specification (min/max/step volume,
+     * contract size, tick size). Returns null when the response is invalid
+     * (non-finite, non-positive, or missing required fields) — same defensive
+     * filtering pattern as [getHistoricalCandles].
+     *
+     * This is the source for live-order volume bounds, replacing hardcoded
+     * defaults. Callers should cache per symbol short TTL and fall back to
+     * estimated defaults only on failure.
+     */
+    suspend fun getSymbolSpecification(
+        token: String,
+        accountId: String,
+        symbol: String,
+    ): MetaApiSymbolSpecResponse? {
+        val response = api.getSymbolSpecification(
+            authToken = token,
+            accountId = accountId,
+            symbol = symbol,
+        )
+        // Defensive filtering: drop non-finite or nonsensical rows so a bad
+        // broker row can never poison the order validation.
+        if (!response.minVolume.isFinite() || !response.maxVolume.isFinite() || !response.volumeStep.isFinite()) return null
+        if (response.minVolume <= 0.0) return null
+        if (response.maxVolume < response.minVolume) return null
+        if (response.volumeStep <= 0.0) return null
+        // contractSize may be 0 in some broker responses — allow 0 but require finite & >=0
+        if (!response.contractSize.isFinite() || response.contractSize < 0.0) return null
+        if (!response.tickSize.isFinite() || response.tickSize < 0.0) return null
+        if (response.symbol.isBlank()) return null
+        return response
+    }
+
     // ========================================================================
     // MAPPING
     // ========================================================================

@@ -74,6 +74,20 @@ interface MetaApiService {
         @Query("startTime") startTime: Long? = null,
         @Query("limit") limit: Int? = null,
     ): MetaApiCandlesResponse
+
+    /**
+     * Fetch broker-authoritative symbol specification (min/max/step volume,
+     * contract size, tick size, etc.) from the connected MT4 account.
+     *
+     * Endpoint: GET /users/current/accounts/{accountId}/symbols/{symbol}/specification
+     * Response shape matches [MetaApiSymbolSpecResponse].
+     */
+    @GET("/users/current/accounts/{accountId}/symbols/{symbol}/specification")
+    suspend fun getSymbolSpecification(
+        @Header("auth-token") authToken: String,
+        @Path("accountId") accountId: String,
+        @Path("symbol") symbol: String,
+    ): MetaApiSymbolSpecResponse
 }
 
 // ============================================================================
@@ -166,4 +180,16 @@ data class MetaApiCandleResponse(
     val close: Double = 0.0,
     @SerialName("tickVolume") val tickVolume: Double = 0.0,
     val volume: Double = 0.0,
+)
+
+@Serializable
+data class MetaApiSymbolSpecResponse(
+    val symbol: String = "",
+    @SerialName("tickSize") val tickSize: Double = 0.0,
+    @SerialName("minVolume") val minVolume: Double = 0.0,
+    @SerialName("maxVolume") val maxVolume: Double = 0.0,
+    @SerialName("volumeStep") val volumeStep: Double = 0.0,
+    @SerialName("contractSize") val contractSize: Double = 0.0,
+    val digits: Int = 5,
+    val description: String = "",
 )

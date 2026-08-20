@@ -28,6 +28,8 @@ data class InstrumentSpec(
     val quoteCurrency: String,
     /** Base currency of the pair (e.g. EUR for EURUSD), null for non-FX. */
     val baseCurrency: String? = null,
+    /** True when this spec fell back to estimated defaults because broker fetch failed. */
+    val isEstimated: Boolean = false,
 ) {
     init {
         require(contractSize > 0.0) { "Contract size must be positive" }

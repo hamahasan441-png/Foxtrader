@@ -34,11 +34,33 @@ def test_auth_endpoint_returns_429_after_budget_exhausted(client: TestClient):
     assert r3.headers.get("Retry-After") is not None
 
 
-def test_market_endpoint_is_not_rate_limited(client: TestClient):
-    # Market-data routes are outside the auth/sync rate-limit scope.
+def test_market_endpoint_is_rate_limited_with_higher_budget(client: TestClient):
+    # Market-data routes are now rate-limited (Task 5) but with a higher-throughput bucket
+    # than auth. With auth budget=2, market should still allow 5 requests.
     for _ in range(5):
         r = client.get("/api/v1/market/candles/EURUSD/1H", params={"limit": 10})
         assert r.status_code == 200
+
+    # And it should 429 once its own budget is exhausted
+    # Use a client with small market budget to prove limiting works
+    from app.config import Settings
+    from app.api import create_app
+
+    small_market_settings = Settings(
+        provider="sample",
+        store_backend="memory",
+        rate_limit_enabled=True,
+        rate_limit_auth_per_window=2,
+        rate_limit_window_seconds=60,
+        rate_limit_market_per_window=2,
+        rate_limit_market_window_seconds=60,
+    )
+    small_client = TestClient(create_app(small_market_settings))
+    small_client.get("/api/v1/market/candles/EURUSD/1H", params={"limit": 10})
+    small_client.get("/api/v1/market/candles/EURUSD/1H", params={"limit": 11})
+    r_over = small_client.get("/api/v1/market/candles/EURUSD/1H", params={"limit": 12})
+    assert r_over.status_code == 429
+    assert r_over.headers.get("Retry-After") is not None
 
 
 def test_weak_password_is_rejected_with_422():
