@@ -7,8 +7,8 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.nativeCanvas
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Timeframe
-import com.foxtrader.app.feature.chart.presentation.priceTagGeometry
 import com.foxtrader.app.feature.chart.presentation.components.ChartViewport
+import com.foxtrader.app.feature.chart.presentation.priceTagGeometry
 import com.foxtrader.app.ui.theme.FoxBearish
 import com.foxtrader.app.ui.theme.FoxBullish
 import com.foxtrader.app.ui.theme.FoxNeutral20
