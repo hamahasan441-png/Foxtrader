@@ -295,6 +295,27 @@ class ChartViewModel @Inject constructor(
     // INTERNAL PIPELINE WIRING
     // ========================================================================
     private suspend fun processCandles(source: CandleSource, preferIncremental: Boolean) {
+        // `CRASH-SAFETY` Outer containment for the whole pipeline. Every
+        // per-engine guard below protects against a known failure mode, but the
+        // user report that triggered this class of work — "touch an indicator
+        // and the app crashes" — was caused by exceptions escaping the
+        // toggle-driven recompute into an unhandled coroutine failure. The
+        // belt-and-braces rule: NO exception (from any present or future
+        // engine, including the parts between the inner guards) may ever escape
+        // this pipeline. CancellationException always rethrows so structured
+        // concurrency stays intact; everything else keeps the last good frame
+        // and the next data emission or toggle retries cleanly.
+        try {
+            processCandlesInner(source, preferIncremental)
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (_: Exception) {
+            // Keep the last good frame on screen; the next data emission (or the
+            // next toggle, which forces a full recompute) retries cleanly.
+        }
+    }
+
+    private suspend fun processCandlesInner(source: CandleSource, preferIncremental: Boolean) {
         // Capture this computation's generation. Only the newest generation may
         // publish its frame below (see [computationGeneration]).
         val gen = computationGeneration.incrementAndGet()
@@ -418,12 +439,17 @@ class ChartViewModel @Inject constructor(
             ind.activeBlueprintId != null -> {
                 val blueprint = _uiState.value.strategyBlueprints
                     .firstOrNull { it.id == ind.activeBlueprintId }
-                val compiled = blueprint?.let(::compileBlueprint)
-                if (compiled == null) {
+                if (blueprint == null) {
                     emptyList()
                 } else {
                     withContext(defaultDispatcher) {
                         containedOrDefault(emptyList()) {
+                            // Compiling a visual blueprint builds its Strategy
+                            // lambda; run it off the caller's (main) thread and
+                            // inside the containment so a malformed blueprint
+                            // degrades to "no markers" instead of throwing out
+                            // of the indicator-toggle recompute.
+                            val compiled = compileBlueprint(blueprint)
                             liveStrategyEngine.evaluateCustom(
                                 strategyId = compiled.id,
                                 strategyName = compiled.name,
@@ -514,7 +540,17 @@ class ChartViewModel @Inject constructor(
                 // Keep the in-memory engine in sync with the persisted set so a
                 // subsequent placement (or hit-test) sees the restored drawings
                 // instead of an empty engine after restart / symbol switch.
-                drawingEngine.restore(drawings)
+                // `CRASH-SAFETY` This collector has no awaiting caller: a
+                // throwing restore would be an unhandled flow failure that
+                // kills the app. Degrade to skipping the restore; the next
+                // emission retries.
+                try {
+                    drawingEngine.restore(drawings)
+                } catch (cancel: CancellationException) {
+                    throw cancel
+                } catch (_: Exception) {
+                    // Skip this emission; a later one restores the drawings.
+                }
                 _uiState.value = _uiState.value.copy(drawings = drawings.toPersistentList())
             }
             .launchIn(viewModelScope)

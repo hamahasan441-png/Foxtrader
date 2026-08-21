@@ -166,7 +166,7 @@ fun MultiChartSection(
     }
     val finishDrag: (String) -> Unit = { id ->
         val fromIndex = state.panels.indexOfFirst { it.id == id }
-        if (fromIndex >= 0) {
+        if (fromIndex >= 0 && state.panels.isNotEmpty()) {
             val horizontal = kotlin.math.abs(dragOffset.x) >= kotlin.math.abs(dragOffset.y)
             val delta = when {
                 horizontal && dragOffset.x > DRAG_THRESHOLD_PX -> 1
@@ -175,6 +175,8 @@ fun MultiChartSection(
                 !horizontal && dragOffset.y < -DRAG_THRESHOLD_PX -> -2
                 else -> 0
             }
+            // `CRASH-SAFETY` coerceIn(0, lastIndex) throws on an empty range;
+            // guard the empty-panel state so a drag end can never crash.
             val targetIndex = (fromIndex + delta).coerceIn(0, state.panels.lastIndex)
             if (targetIndex != fromIndex) onMovePanel(id, targetIndex)
         }

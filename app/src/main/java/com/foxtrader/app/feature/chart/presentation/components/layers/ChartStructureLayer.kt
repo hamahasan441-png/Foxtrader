@@ -104,7 +104,12 @@ internal fun DrawScope.drawLivePriceLine(
     cw: Float,
     ch: Float,
 ) {
-    val last = candles.last()
+    // `CRASH-SAFETY` `candles.last()` threw NoSuchElementException when the
+    // series was empty. The main chart's draw pass guards on emptiness, but a
+    // cleared series can still race a queued draw (data cleared mid-frame
+    // while an indicator toggle recompute is in flight). Mirror the
+    // lastOrNull guard already used by drawPriceScale.
+    val last = candles.lastOrNull() ?: return
     val lastY = viewport.yForPrice(last.close, ch)
     if (lastY in 0f..ch) {
         val color = if (last.isBullish) FoxBullish else FoxBearish
