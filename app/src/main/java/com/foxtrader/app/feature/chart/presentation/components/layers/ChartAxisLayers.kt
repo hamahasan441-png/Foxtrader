@@ -8,6 +8,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.feature.chart.presentation.components.ChartViewport
+import com.foxtrader.app.feature.chart.presentation.priceTagGeometry
 import com.foxtrader.app.ui.theme.FoxBearish
 import com.foxtrader.app.ui.theme.FoxBullish
 import com.foxtrader.app.ui.theme.FoxNeutral20
@@ -75,18 +76,27 @@ internal fun DrawScope.drawPriceScale(
     val lastY = viewport.yForPrice(last.close, ch)
     if (lastY !in 0f..ch) return
 
+    // `CRASH-SAFETY` The tag height was subtracted from the chart height to
+    // build a coerceIn range. Stacking indicator panes (RSI + MACD + volume)
+    // or opening the indicator panel shrinks the chart area until `ch` can be
+    // smaller than the tag — at which point `ch - tagH` is negative and
+    // `coerceIn(0f, negative)` throws IllegalArgumentException on the render
+    // thread and kills the app. This was the "touching indicators crashes the
+    // app" failure. The pure geometry helper clamps the tag to the available
+    // height first, so the range `[0, ch - tagH]` is always non-empty and the
+    // tag degrades to fit. See ChartPriceTagGeometryTest.
     val tagColor = if (last.isBullish) FoxBullish else FoxBearish
-    val tagH = tagPaint.textSize + 7f
+    val tag = priceTagGeometry(chartHeight = ch, textSize = tagPaint.textSize, lastY = lastY)
     drawRect(
         color = tagColor,
-        topLeft = Offset(cw + 1f, (lastY - tagH / 2f).coerceIn(0f, ch - tagH)),
-        size = Size(viewport.priceScaleWidth - 2f, tagH),
+        topLeft = Offset(cw + 1f, tag.top),
+        size = Size(viewport.priceScaleWidth - 2f, tag.height),
     )
     tagPaint.textAlign = Paint.Align.CENTER
     drawContext.canvas.nativeCanvas.drawText(
         viewport.formatPriceMemo(last.close),
         cw + viewport.priceScaleWidth / 2f,
-        (lastY - tagH / 2f).coerceIn(0f, ch - tagH) + tagH * 0.72f,
+        tag.top + tag.height * 0.72f,
         tagPaint,
     )
 }

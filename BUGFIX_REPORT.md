@@ -594,3 +594,74 @@ risk geometry, once per break).
   (signals recomputed each frame); one live marker max per source.
 - **Scanner/backtest parity**: same `StrategyLibrary` instance backs the chart,
   scanner, and Backtest Lab, so the Breakout fix lands in all three.
+
+---
+
+# Indicator-touch crash pass (2026-08-21)
+
+User-reported symptom: **touching indicators crashes the whole app** (repeated
+report — "app will crash when i touch indicators"). Scope: every code path a
+chip tap on the chart indicator panel can reach.
+
+## Verification method
+
+The pure domain layer and the full chart draw layer were compiled with a real
+Kotlin compiler (JVM) and **executed**:
+
+- **Compute fuzz**: 137k checks — every indicator/SMC/session/structure engine
+  across degenerate inputs (empty/1-2 bar series, flat prices, zero/negative
+  periods, NaN/huge prices, zero volume) plus incremental-vs-full parity for
+  every resume point, all toggles.
+- **Unit tests**: 201 passed (195 existing + 6 new regression tests).
+- **Draw-layer fuzz**: 14,700 calls into the real layer functions through a
+  recording DrawScope stub (bounds-checked native Canvas): random series,
+  random viewports, NaN series, length-mismatched overlays (live-tick/replay
+  states), empty candles. Two real crashes reproduced and fixed (below).
+- **Per-toggle engine fuzz**: 4,650 calls — LitXEngine, TradeProSignalEngine,
+  SmtDivergenceDetector, LiveStrategyEngine (every strategy + "all" mode),
+  ScriptEngine blueprint compile/evaluate, MarketExplanationEngine,
+  ConfluenceEngine, and full ChartIndicatorCoordinator sequences replaying
+  rapid toggles interleaved with live appends/intra-bar ticks/timeframe
+  switches. Zero failures after fixes.
+
+## 1. Crash root cause — price tag `coerceIn` empty range
+
+`drawPriceScale` positioned the live last-price tag with
+`(lastY - tagH / 2f).coerceIn(0f, ch - tagH)`. Stacking indicator panes
+(RSI + MACD + volume + …) — or opening the indicator panel itself — shrinks
+the main chart area. Once the chart is shorter than the tag
+(`ch < tagH ≈ textSize + 7px`), `ch - tagH` is negative and `coerceIn` throws
+`IllegalArgumentException: Cannot coerce value to an empty range` on the
+render thread. The chart redraws on every frame while the price scale is
+visible, so the app dies the moment the user stacks enough indicators.
+This matches the user report exactly: adding indicators → crash.
+
+Fix: extracted the tag geometry into a pure, JVM-testable helper
+(`ChartPriceTagGeometry.priceTagGeometry`) that clamps the tag to the available
+chart height and sanitises non-finite inputs. Pinned by
+`ChartPriceTagGeometryTest` (tiny/zero/negative/NaN chart areas).
+
+## 2. Crash — `drawLivePriceLine` on an empty series
+
+`candles.last()` threw `NoSuchElementException` whenever the live-price layer
+drew with a cleared series (data cleared mid-frame while a toggle recompute is
+in flight). Mirrored the `lastOrNull` guard already used by `drawPriceScale`.
+
+## 3. Belt-and-braces containment of the whole toggle pipeline
+
+`ChartViewModel.processCandles` already contained each engine individually,
+but exceptions thrown *between* the guards (paper-trading mark, MTF context
+fetch, blueprint compile, signal mapping) could still escape into an
+unhandled coroutine failure — the historical "touch an indicator and it
+crashes" class. The pipeline now has one outer containment that rethrows
+`CancellationException` and degrades everything else to "keep the last good
+frame; the next emission/toggle retries".
+
+Also hardened while in the area:
+
+- Blueprint compilation (visual-builder strategy chip) now runs off the
+  caller's (main) thread and inside per-blueprint containment.
+- `observeDrawings` collector contained: a throwing `drawingEngine.restore`
+  can no longer take down the app as an unhandled flow failure.
+- `MultiChartSection` drag-end guarded against the empty-panels state where
+  `coerceIn(0, lastIndex)` is an empty range.
