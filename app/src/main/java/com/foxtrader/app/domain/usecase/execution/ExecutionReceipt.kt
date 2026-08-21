@@ -20,6 +20,8 @@ sealed class ExecutionReceipt {
         override val intent: TradeIntent,
         val orderId: String,
         val fillPrice: Double? = null,
+        /** Realized profit for this receipt when it represents a close (null for opens). */
+        val realizedProfit: Double? = null,
         override val timestamp: Long = System.currentTimeMillis(),
     ) : ExecutionReceipt()
 

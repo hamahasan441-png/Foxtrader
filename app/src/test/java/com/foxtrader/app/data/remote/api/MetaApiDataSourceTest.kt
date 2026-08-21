@@ -203,6 +203,50 @@ class MetaApiDataSourceTest {
         assertTrue(error?.message?.contains("empty ID") == true)
     }
 
+    @Test
+    fun `getSymbolSpecification returns valid spec and filters invalid`() = runBlocking {
+        val validSpec = MetaApiSymbolSpecResponse(
+            symbol = "EURUSD",
+            tickSize = 0.00001,
+            minVolume = 0.01,
+            maxVolume = 100.0,
+            volumeStep = 0.01,
+            contractSize = 100000.0,
+            digits = 5,
+        )
+        val api = FakeMetaApiService(symbolSpecResponse = validSpec)
+        val dataSource = MetaApiDataSource(api)
+
+        val result = dataSource.getSymbolSpecification("tok", "acc", "EURUSD")
+        assertTrue(result != null)
+        assertEquals(0.01, result!!.minVolume, 1e-9)
+        assertEquals(100.0, result.maxVolume, 1e-9)
+        assertEquals(0.01, result.volumeStep, 1e-9)
+
+        // Non-finite should be filtered to null
+        val badSpec = validSpec.copy(minVolume = Double.NaN)
+        val apiBad = FakeMetaApiService(symbolSpecResponse = badSpec)
+        val dsBad = MetaApiDataSource(apiBad)
+        val badResult = dsBad.getSymbolSpecification("tok", "acc", "EURUSD")
+        assertTrue(badResult == null)
+    }
+
+    @Test
+    fun `getSymbolSpecification filters invalid volume relationships`() = runBlocking {
+        // max < min should be invalid
+        val invalid = MetaApiSymbolSpecResponse(
+            symbol = "EURUSD",
+            tickSize = 0.00001,
+            minVolume = 1.0,
+            maxVolume = 0.5,
+            volumeStep = 0.01,
+            contractSize = 100000.0,
+        )
+        val api = FakeMetaApiService(symbolSpecResponse = invalid)
+        val ds = MetaApiDataSource(api)
+        assertTrue(ds.getSymbolSpecification("tok", "acc", "EURUSD") == null)
+    }
+
     // ========================================================================
     // FAKE IMPLEMENTATION
     // ========================================================================
@@ -213,12 +257,21 @@ class MetaApiDataSourceTest {
         private val positionsResponse: List<MetaApiPositionResponse> = emptyList(),
         private val tradeResponse: MetaApiTradeResponse = MetaApiTradeResponse(orderId = 1),
         private val candlesResponse: MetaApiCandlesResponse = MetaApiCandlesResponse(),
+        private val symbolSpecResponse: MetaApiSymbolSpecResponse = MetaApiSymbolSpecResponse(
+            symbol = "EURUSD",
+            tickSize = 0.00001,
+            minVolume = 0.01,
+            maxVolume = 100.0,
+            volumeStep = 0.01,
+            contractSize = 100000.0,
+        ),
     ) : MetaApiService {
 
         var lastAuthToken: String? = null
         var lastAccountId: String? = null
         var lastDeployRequest: MetaApiDeployRequest? = null
         var lastTradeRequest: MetaApiTradeRequest? = null
+        var lastSpecSymbol: String? = null
 
         override suspend fun deployAccount(
             authToken: String,
@@ -269,6 +322,17 @@ class MetaApiDataSourceTest {
             lastAuthToken = authToken
             lastAccountId = accountId
             return candlesResponse
+        }
+
+        override suspend fun getSymbolSpecification(
+            authToken: String,
+            accountId: String,
+            symbol: String,
+        ): MetaApiSymbolSpecResponse {
+            lastAuthToken = authToken
+            lastAccountId = accountId
+            lastSpecSymbol = symbol
+            return symbolSpecResponse
         }
     }
 }

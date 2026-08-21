@@ -5,6 +5,7 @@ import com.foxtrader.app.data.remote.api.SyncApi
 import com.foxtrader.app.di.IoDispatcher
 import com.foxtrader.app.domain.model.AuthState
 import com.foxtrader.app.domain.model.LoginRequest
+import com.foxtrader.app.domain.model.LogoutRequest
 import com.foxtrader.app.domain.model.RegisterRequest
 import com.foxtrader.app.domain.model.UserProfile
 import com.foxtrader.app.domain.repository.AuthRepository
@@ -68,9 +69,27 @@ class AuthRepositoryImpl @Inject constructor(
 
     override suspend fun logout() = withContext(io) {
         val accessToken = tokenManager.getAccessToken()
-        // Best-effort server-side invalidation; clear local tokens regardless.
+        val refreshToken = tokenManager.getRefreshToken()
+        // Best-effort server-side invalidation of both tokens; clear local
+        // tokens regardless so local logout always succeeds (fail-closed for
+        // local state, best-effort for remote).
         if (accessToken != null) {
-            runCatching { syncApi.logout("Bearer $accessToken") }.rethrowCancellation()
+            runCatching {
+                syncApi.logout(
+                    bearer = "Bearer $accessToken",
+                    request = LogoutRequest(refreshToken = refreshToken),
+                )
+            }.rethrowCancellation()
+        } else if (refreshToken != null) {
+            // No access token but we have a refresh token — still try to revoke it.
+            // Use empty bearer to satisfy Retrofit signature; backend will still
+            // revoke refresh if present.
+            runCatching {
+                syncApi.logout(
+                    bearer = "",
+                    request = LogoutRequest(refreshToken = refreshToken),
+                )
+            }.rethrowCancellation()
         }
         tokenManager.clearTokens()
     }

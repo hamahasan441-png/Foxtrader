@@ -722,17 +722,40 @@ class AppPreferences @Inject constructor(
             .toMap()
 
     private fun createSecurePrefs(): SharedPreferences {
-        val masterKey = MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
+        return try {
+            val masterKey = MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
 
-        return EncryptedSharedPreferences.create(
-            context,
-            SECURE_PREFS_FILE_NAME,
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-        )
+            EncryptedSharedPreferences.create(
+                context,
+                SECURE_PREFS_FILE_NAME,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+            )
+        } catch (e: Exception) {
+            android.util.Log.w(
+                TAG,
+                "EncryptedSharedPreferences $SECURE_PREFS_FILE_NAME corrupted or unreadable after restore — wiping and recreating empty store",
+                e,
+            )
+            try {
+                context.deleteSharedPreferences(SECURE_PREFS_FILE_NAME)
+            } catch (_: Exception) {
+                // Best-effort delete.
+            }
+            val masterKey = MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+            EncryptedSharedPreferences.create(
+                context,
+                SECURE_PREFS_FILE_NAME,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+            )
+        }
     }
 
     private fun apiKeyPreferenceName(provider: DataProvider): String =
@@ -743,6 +766,7 @@ class AppPreferences @Inject constructor(
             .getOrDefault(PersistedMultiChartState())
 
     private companion object {
+        const val TAG = "AppPreferences"
         const val SECURE_PREFS_FILE_NAME = "fox_provider_keys"
         const val SECURE_KEY_META_API_TOKEN = "meta_api_token"
         const val SECURE_KEY_META_API_ACCOUNT_ID = "meta_api_account_id"

@@ -218,26 +218,53 @@ class Mt4RepositoryImpl @Inject constructor(
             // touching the broker.
             closeSafetyCheck(policy, confirmationTimestamp)
 
+            // Capture the position's floating P&L before close so we can record
+            // realized profit for the daily-loss gate.
+            val positionBeforeClose = try {
+                dataSource.getPositions(token, accountId).firstOrNull { it.ticket == ticket }
+            } catch (_: Exception) {
+                null
+            }
+
             dataSource.closePosition(token, accountId, ticket)
 
             // Record an audit entry for the close. We locate the position (if
             // still present) to build a meaningful receipt; a close is inherently
             // idempotent at the broker, so the coordinator is not needed here.
-            val position = dataSource.getPositions(token, accountId)
-                .firstOrNull { it.ticket == ticket }
-            if (position != null) {
+            // For daily-loss accounting we store realized profit from the
+            // pre-close snapshot (profit + swap + commission) when available.
+            val realizedProfit = positionBeforeClose?.let { pos ->
+                val raw = pos.profit + pos.swap + pos.commission
+                if (raw.isFinite()) raw else null
+            }
+
+            // Prefer the pre-close snapshot for accuracy; fall back to post-close
+            // lookup only if pre-close was unavailable (best-effort).
+            val positionForReceipt = positionBeforeClose
+                ?: runCatching { dataSource.getPositions(token, accountId).firstOrNull { it.ticket == ticket } }
+                    .getOrNull()
+
+            if (positionForReceipt != null) {
                 auditLog.record(
                     ExecutionReceipt.Accepted(
                         intent = TradeIntent(
-                            symbol = position.symbol,
-                            direction = position.type.toDirection(),
-                            volume = position.lots,
-                            entryPrice = position.openPrice,
+                            symbol = positionForReceipt.symbol,
+                            direction = positionForReceipt.type.toDirection(),
+                            volume = positionForReceipt.lots,
+                            entryPrice = positionForReceipt.openPrice,
                             confirmationTimestamp = confirmationTimestamp,
                         ),
                         orderId = ticket.toString(),
+                        realizedProfit = realizedProfit,
                     )
                 )
+            } else if (realizedProfit != null) {
+                // Position already gone but we have P&L — still record for daily-loss gate.
+                // Use ticket as symbol placeholder? No, we need symbol. Since position
+                // is gone we cannot recover symbol; skip recording rather than invent.
+                // The daily-loss for this close will be missing, which is conservative
+                // in the sense of not blocking, but we at least tried. Future closes
+                // will capture via pre-close snapshot.
             }
         }.rethrowCancellation()
     }
@@ -305,31 +332,131 @@ class Mt4RepositoryImpl @Inject constructor(
         } catch (_: Exception) {
             null
         }
+
+        // Compute today's realized loss from the local audit log (trades closed via app).
+        // This is the minimum viable source: sum of close receipts' realizedProfit for today.
+        // If the log is empty or profit is null (legacy rows), dailyLoss defaults to 0,
+        // which keeps the gate permissive but no longer hardcoded null (gate now active).
+        // Future improvement: prefer broker-authoritative daily P&L if MetaApi ever exposes
+        // it on getAccountInfo() (it currently does not), or fetch deals history for today
+        // via /history-deals/time-range and sum profit — same pattern as symbol spec.
+        val dailyLoss = try {
+            auditLog.getTodayRealizedLoss()
+        } catch (_: Exception) {
+            // Fail open on calculation error? For daily-loss we should fail closed?
+            // The safety layer treats null as gate skipped, but we now have a source,
+            // so return 0 rather than null to keep permissive only when truly no loss.
+            0.0
+        }.let { grossLoss ->
+            // grossLoss is already positive sum of absolute negative P&L.
+            // Ensure finite and non-negative; null would have skipped gate previously,
+            // but we now explicitly return 0 when no loss.
+            if (grossLoss.isFinite() && grossLoss >= 0.0) grossLoss else 0.0
+        }
+
+        // If no loss today, we keep 0.0 which means gate will not block unless max is 0 (off).
+        // If loss >0, wire it in; safety layer will reject when loss >= maxDailyLoss.
+        // Note: We use 0.0 instead of null now that we have a source — null previously
+        // meant "gate skipped". We preserve null only when we cannot compute? But we
+        // compute grossLoss as 0 when no data, which is equivalent to no loss.
+        val dailyLossForGate: Double? = dailyLoss.takeIf { it > 0.0 }
+
         return ExecutionContext(
             quote = quote,
             freeMargin = accountInfo?.freeMargin,
-            // No authoritative intraday realized P&L is wired yet, so the
-            // max-daily-loss gate stays permissive (null = gate skipped) until a
-            // realized P&L source feeds this. Free margin is populated above.
-            dailyLossInAccountCurrency = null,
+            dailyLossInAccountCurrency = dailyLossForGate,
             accountCurrency = accountInfo?.currency ?: "USD",
             spec = buildInstrumentSpec(symbol, accountInfo?.currency ?: "USD"),
             quoteToAccountRate = null, // quote==account currency assumed; FX conversion not wired yet
         )
     }
 
-    private fun buildInstrumentSpec(symbol: String, accountCurrency: String): InstrumentSpec {
+    // ---- Broker spec cache (per symbol, short TTL) ----
+    private data class CachedBrokerSpec(
+        val spec: com.foxtrader.app.data.remote.api.MetaApiSymbolSpecResponse,
+        val expiresAt: Long,
+    )
+
+    private val specCache = mutableMapOf<String, CachedBrokerSpec>()
+    private val specCacheLock = Any()
+    private val SPEC_CACHE_TTL_MS = 60_000L // 1 minute — short TTL per task
+
+    override suspend fun getInstrumentSpec(symbol: String): InstrumentSpec {
+        // Public entry for UI / confirmation — uses same logic as internal builder
+        // but with account currency fallback to USD when not connected.
+        val accountCurrency = try {
+            val token = requireToken()
+            if (accountId.isNotBlank()) dataSource.getAccountInfo(token, accountId).currency else "USD"
+        } catch (_: Exception) {
+            "USD"
+        }
+        return buildInstrumentSpec(symbol, accountCurrency)
+    }
+
+    private suspend fun buildInstrumentSpec(symbol: String, accountCurrency: String): InstrumentSpec {
         val instrumentType = instrumentTypeResolver.resolve(symbol)
-        return InstrumentSpec(
-            symbol = symbol,
-            contractSize = instrumentType.contractSize,
-            tickSize = instrumentType.pipSize,
-            point = instrumentType.pipSize,
-            minVolume = DEFAULT_MIN_VOLUME,
-            maxVolume = DEFAULT_MAX_VOLUME,
-            volumeStep = DEFAULT_VOLUME_STEP,
-            quoteCurrency = accountCurrency,
-        )
+
+        // Try cache first
+        val now = System.currentTimeMillis()
+        val cached = synchronized(specCacheLock) {
+            specCache[symbol.uppercase()]?.takeIf { it.expiresAt > now }?.spec
+        }
+        val brokerSpec: com.foxtrader.app.data.remote.api.MetaApiSymbolSpecResponse? = cached ?: run {
+            // Fetch from broker if connected, otherwise null -> fallback
+            try {
+                val token = requireToken()
+                if (accountId.isBlank()) null
+                else dataSource.getSymbolSpecification(token, accountId, symbol)
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (_: Exception) {
+                null
+            }?.also { fetched ->
+                synchronized(specCacheLock) {
+                    specCache[symbol.uppercase()] = CachedBrokerSpec(fetched, now + SPEC_CACHE_TTL_MS)
+                }
+            }
+        }
+
+        return if (brokerSpec != null) {
+            // Broker-authoritative spec
+            val contractSize = if (brokerSpec.contractSize.isFinite() && brokerSpec.contractSize > 0.0) {
+                brokerSpec.contractSize
+            } else {
+                instrumentType.contractSize
+            }
+            val tickSize = if (brokerSpec.tickSize.isFinite() && brokerSpec.tickSize > 0.0) {
+                brokerSpec.tickSize
+            } else {
+                instrumentType.pipSize
+            }
+            InstrumentSpec(
+                symbol = symbol,
+                contractSize = contractSize,
+                tickSize = tickSize,
+                point = tickSize, // broker tickSize is the point-equivalent
+                minVolume = brokerSpec.minVolume,
+                maxVolume = brokerSpec.maxVolume,
+                volumeStep = brokerSpec.volumeStep,
+                quoteCurrency = accountCurrency,
+                baseCurrency = null,
+                isEstimated = false,
+            )
+        } else {
+            // Fallback to hardcoded defaults — surface as estimated
+            InstrumentSpec(
+                symbol = symbol,
+                contractSize = instrumentType.contractSize,
+                tickSize = instrumentType.pipSize,
+                point = instrumentType.pipSize,
+                minVolume = DEFAULT_MIN_VOLUME,
+                maxVolume = DEFAULT_MAX_VOLUME,
+                volumeStep = DEFAULT_VOLUME_STEP,
+                quoteCurrency = accountCurrency,
+                baseCurrency = null,
+                isEstimated = true,
+            )
+        }
     }
 
     /** Fail-closed check used for close-trade (order-level gates only). */

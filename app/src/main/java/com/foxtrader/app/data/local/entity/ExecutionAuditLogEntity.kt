@@ -37,6 +37,8 @@ data class ExecutionAuditLogEntity(
     /** Semicolon-joined rejection reasons, empty for accepted/unknown. */
     val reasons: String,
     val timestamp: Long,
+    /** Realized profit for close receipts (null for opens or legacy rows). */
+    val realizedProfit: Double? = null,
 ) {
     companion object {
         const val STATUS_ACCEPTED = "ACCEPTED"

@@ -34,6 +34,7 @@ import com.foxtrader.app.data.local.entity.WatchlistSymbolEntity
  * - v6: adds watchlists + watchlist_symbols (user-authored, must persist).
  * - v7: adds litx_signals (validated LIT X institutional signal history).
  * - v8: adds execution_audit_log (append-only record of live MT4 order attempts).
+ * - v9: adds execution_audit_log.realizedProfit (daily loss gate needs close P&L).
  *
  * `exportSchema = true` writes the schema JSON to app/schemas/, which is what
  * makes MigrationTestHelper possible. Destructive fallback is deliberately NOT
@@ -52,7 +53,7 @@ import com.foxtrader.app.data.local.entity.WatchlistSymbolEntity
         LitXSignalEntity::class,
         ExecutionAuditLogEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class FoxDatabase : RoomDatabase() {
@@ -302,6 +303,21 @@ abstract class FoxDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v8 -> v9: add realizedProfit to execution_audit_log.
+         *
+         * The daily-loss safety gate needs to know the P&L of trades closed via
+         * the app today. Legacy rows (pre-v9) will have NULL here, which the
+         * daily-loss calculator treats as 0 (no contribution).
+         */
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE execution_audit_log ADD COLUMN realizedProfit REAL"
+                )
+            }
+        }
+
         val MIGRATIONS = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -310,6 +326,7 @@ abstract class FoxDatabase : RoomDatabase() {
             MIGRATION_5_6,
             MIGRATION_6_7,
             MIGRATION_7_8,
+            MIGRATION_8_9,
         )
     }
 }

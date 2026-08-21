@@ -4,6 +4,7 @@ import com.foxtrader.app.data.remote.api.SyncApi
 import com.foxtrader.app.domain.model.AuthResponse
 import com.foxtrader.app.domain.model.AuthTokens
 import com.foxtrader.app.domain.model.LoginRequest
+import com.foxtrader.app.domain.model.LogoutRequest
 import com.foxtrader.app.domain.model.RefreshRequest
 import com.foxtrader.app.domain.model.RegisterRequest
 import com.foxtrader.app.domain.model.SyncPullResponse
@@ -43,7 +44,7 @@ class AuthInterceptorTest {
         override suspend fun register(request: RegisterRequest): AuthResponse = fail()
         override suspend fun login(request: LoginRequest): AuthResponse = fail()
         override suspend fun refresh(request: RefreshRequest): AuthResponse = onRefresh(request)
-        override suspend fun logout(bearer: String) {}
+        override suspend fun logout(bearer: String, request: LogoutRequest) {}
         override suspend fun pushSync(request: SyncPushRequest) {}
         override suspend fun pullSync(since: Long, types: String?): SyncPullResponse =
             SyncPullResponse(items = emptyList(), serverTimestamp = since, hasMore = false)

@@ -73,6 +73,11 @@ sealed interface Mt4UiState {
      * A trade awaiting final confirmation (the two-step flow). The second step
      * carries [confirmationTimestamp] captured at the moment the user confirms,
      * which the safety layer checks for freshness.
+     *
+     * [isVolumeEstimated] is true when the volume bounds used for validation
+     * fell back to hardcoded defaults because the broker spec fetch failed.
+     * The UI should surface this so the user knows validation isn't broker-
+     * authoritative.
      */
     data class PendingTrade(
         val symbol: String,
@@ -82,6 +87,8 @@ sealed interface Mt4UiState {
         val stopLoss: Double?,
         val takeProfit: Double?,
         val confirmationTimestamp: Long = System.currentTimeMillis(),
+        val isVolumeEstimated: Boolean = false,
+        val volumeBoundsNote: String? = null,
     )
 
     /**

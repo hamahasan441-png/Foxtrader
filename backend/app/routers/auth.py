@@ -70,6 +70,11 @@ class RefreshIn(BaseModel):
     refresh_token: str = Field(..., alias="refreshToken")
 
 
+class LogoutIn(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    refresh_token: str | None = Field(default=None, alias="refreshToken")
+
+
 class TokenOut(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     access_token: str = Field(alias="accessToken")
@@ -127,10 +132,16 @@ def refresh(request: Request, body: RefreshIn) -> AuthResponseOut:
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout(request: Request, authorization: str | None = Header(default=None)) -> None:
+def logout(
+    request: Request,
+    body: LogoutIn | None = None,
+    authorization: str | None = Header(default=None),
+) -> None:
+    service: AuthService = request.app.state.auth
     if authorization and authorization.lower().startswith("bearer "):
-        service: AuthService = request.app.state.auth
         service.revoke_access(authorization.split(" ", 1)[1].strip())
+    if body and body.refresh_token:
+        service.revoke_refresh(body.refresh_token.strip())
     return None
 
 

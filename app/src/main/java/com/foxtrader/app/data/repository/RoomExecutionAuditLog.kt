@@ -39,6 +39,51 @@ class RoomExecutionAuditLog @Inject constructor(
     // MAPPING
     // ========================================================================
 
+    /** Returns today's realized gross loss (sum of absolute negative P&L for today). */
+    suspend fun getTodayRealizedLoss(): Double {
+        val dayStart = (System.currentTimeMillis() / 86_400_000L) * 86_400_000L
+        val entities = dao.all()
+        var grossLoss = 0.0
+        var netProfit = 0.0
+        for (e in entities) {
+            if (e.status != ExecutionAuditLogEntity.STATUS_ACCEPTED) continue
+            if (e.timestamp < dayStart) continue
+            val p = e.realizedProfit ?: continue
+            if (!p.isFinite()) continue
+            netProfit += p
+            if (p < 0.0) grossLoss += -p
+        }
+        // Prefer net loss when we have mixed data? For safety we expose gross,
+        // but also consider net: if net is negative, its abs is at least part of
+        // gross, but gross is stricter. Use gross for fail-closed behavior.
+        // Documented in buildExecutionContext: gross loss of trades closed via app today.
+        return grossLoss
+    }
+
+    /**
+     * Variant that returns net loss (positive when net P&L today is negative),
+     * keeping 0 when net is positive. Useful for less strict gating if product
+     * later wants net instead of gross. Currently not used by default.
+     */
+    @Suppress("unused")
+    suspend fun getTodayNetLoss(): Double {
+        val dayStart = (System.currentTimeMillis() / 86_400_000L) * 86_400_000L
+        val entities = dao.all()
+        var net = 0.0
+        for (e in entities) {
+            if (e.status != ExecutionAuditLogEntity.STATUS_ACCEPTED) continue
+            if (e.timestamp < dayStart) continue
+            val p = e.realizedProfit ?: continue
+            if (!p.isFinite()) continue
+            net += p
+        }
+        return if (net < 0) -net else 0.0
+    }
+
+    // ========================================================================
+    // MAPPING
+    // ========================================================================
+
     private fun ExecutionReceipt.toEntity(): ExecutionAuditLogEntity {
         val intent = intent
         return ExecutionAuditLogEntity(
@@ -57,6 +102,7 @@ class RoomExecutionAuditLog @Inject constructor(
             orderId = (this as? ExecutionReceipt.Accepted)?.orderId,
             reasons = (this as? ExecutionReceipt.Rejected)?.reasons?.joinToString("; ").orEmpty(),
             timestamp = timestamp,
+            realizedProfit = (this as? ExecutionReceipt.Accepted)?.realizedProfit,
         )
     }
 
@@ -76,6 +122,7 @@ class RoomExecutionAuditLog @Inject constructor(
                 intent = intent,
                 orderId = orderId.orEmpty(),
                 fillPrice = null,
+                realizedProfit = realizedProfit,
                 timestamp = timestamp,
             )
             ExecutionAuditLogEntity.STATUS_UNKNOWN -> ExecutionReceipt.Unknown(

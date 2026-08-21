@@ -254,18 +254,42 @@ class Mt4ViewModel @Inject constructor(
         }
         val sl = current.slInput.toDoubleOrNull()?.takeIf { it > 0.0 }
         val tp = current.tpInput.toDoubleOrNull()?.takeIf { it > 0.0 }
-        _uiState.update { state ->
-            (state as? Mt4UiState.Connected)?.copy(
-                pendingOrder = Mt4UiState.PendingTrade(
-                    symbol = current.tradeSymbol,
-                    direction = current.tradeDirection,
-                    lots = lots,
-                    entryPrice = entry,
-                    stopLoss = sl,
-                    takeProfit = tp,
-                ),
-                notice = null,
-            ) ?: state
+
+        // Fetch broker-authoritative volume spec for the confirmation UI.
+        // This is best-effort: if it fails we fall back to estimated defaults
+        // and flag it in the confirmation dialog.
+        viewModelScope.launch {
+            val spec = try {
+                mt4Repository.getInstrumentSpec(current.tradeSymbol)
+            } catch (_: Exception) {
+                null
+            }
+            val isEstimated = spec?.isEstimated ?: true
+            val note = if (spec != null) {
+                if (isEstimated) {
+                    "Using estimated limits [min=${spec.minVolume}, max=${spec.maxVolume}, step=${spec.volumeStep}] — broker spec unavailable."
+                } else {
+                    "Broker limits: min=${spec.minVolume}, max=${spec.maxVolume}, step=${spec.volumeStep}"
+                }
+            } else {
+                "Using estimated limits — broker spec unavailable."
+            }
+
+            _uiState.update { state ->
+                (state as? Mt4UiState.Connected)?.copy(
+                    pendingOrder = Mt4UiState.PendingTrade(
+                        symbol = current.tradeSymbol,
+                        direction = current.tradeDirection,
+                        lots = lots,
+                        entryPrice = entry,
+                        stopLoss = sl,
+                        takeProfit = tp,
+                        isVolumeEstimated = isEstimated,
+                        volumeBoundsNote = note,
+                    ),
+                    notice = null,
+                ) ?: state
+            }
         }
     }
 

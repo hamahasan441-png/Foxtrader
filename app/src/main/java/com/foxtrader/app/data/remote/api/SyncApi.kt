@@ -2,6 +2,7 @@ package com.foxtrader.app.data.remote.api
 
 import com.foxtrader.app.domain.model.AuthResponse
 import com.foxtrader.app.domain.model.LoginRequest
+import com.foxtrader.app.domain.model.LogoutRequest
 import com.foxtrader.app.domain.model.RefreshRequest
 import com.foxtrader.app.domain.model.RegisterRequest
 import com.foxtrader.app.domain.model.SyncPullResponse
@@ -39,9 +40,12 @@ interface SyncApi {
     @POST("/api/v1/auth/refresh")
     suspend fun refresh(@Body request: RefreshRequest): AuthResponse
 
-    /** Logout — invalidates refresh token server-side. */
+    /** Logout — invalidates access token via header and refresh token via body. */
     @POST("/api/v1/auth/logout")
-    suspend fun logout(@Header("Authorization") bearer: String)
+    suspend fun logout(
+        @Header("Authorization") bearer: String,
+        @Body request: LogoutRequest = LogoutRequest(),
+    )
 
     // ========================================================================
     // CLOUD SYNC

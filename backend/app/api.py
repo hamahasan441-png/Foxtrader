@@ -67,14 +67,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Structured request logging + auth/sync rate limiting. Rate limiting is
-    # opt-out via settings (FOX_RATE_LIMIT_ENABLED=false).
+    # Structured request logging + auth/sync + market rate limiting. Rate limiting
+    # is opt-out via settings (FOX_RATE_LIMIT_ENABLED=false). Market data gets a
+    # higher-throughput bucket because legitimate clients poll it frequently.
     if settings.rate_limit_enabled:
-        limiter = RateLimiter(
+        auth_limiter = RateLimiter(
             settings.rate_limit_auth_per_window,
             settings.rate_limit_window_seconds,
         )
-        app.add_middleware(RateLimitMiddleware, limiter=limiter)
+        market_limiter = RateLimiter(
+            settings.rate_limit_market_per_window,
+            settings.rate_limit_market_window_seconds,
+        )
+        app.add_middleware(
+            RateLimitMiddleware, limiter=auth_limiter, market_limiter=market_limiter
+        )
     app.add_middleware(LoggingMiddleware)
 
     @app.get("/health", tags=["health"])

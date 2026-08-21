@@ -123,4 +123,12 @@ interface Mt4Repository {
      * an operator. Returns the number of receipts still unresolved.
      */
     suspend fun reconcileUnknownOrders(): Int
+
+    /**
+     * Fetch broker-authoritative instrument spec for [symbol], cached per symbol
+     * short TTL. Falls back to estimated defaults when broker fetch fails.
+     * The returned [com.foxtrader.app.domain.usecase.risk.InstrumentSpec.isEstimated]
+     * flag indicates fallback.
+     */
+    suspend fun getInstrumentSpec(symbol: String): com.foxtrader.app.domain.usecase.risk.InstrumentSpec
 }
