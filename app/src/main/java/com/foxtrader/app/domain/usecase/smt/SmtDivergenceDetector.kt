@@ -6,20 +6,20 @@ import com.foxtrader.app.domain.model.SmtConfig
 import com.foxtrader.app.domain.usecase.signalintel.SignalSeriesIntegrity
 import javax.inject.Inject
 import kotlin.math.abs
-import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 /**
  * SMT (Smart Money Technique) divergence detector.
  *
- * Phase 13 hardening:
+ * Non-repaint contract:
  * - validates OHLC/timestamp integrity and rejects stale/short peers;
- * - aligns feeds by exact timestamp first and by tightly-bounded nearest bar when
- *   providers differ slightly in open timestamps;
- * - compares synchronized swing sequences rather than unrelated latest swings;
- * - uses only confirmed swings (right-side bars already exist);
- * - rejects stale divergences and weak price separation;
- * - confidence combines correlation, divergence magnitude and synchronization.
+ * - aligns feeds by timestamp with a bounded skew;
+ * - compares synchronized, confirmed swing sequences;
+ * - freezes correlation and confidence at the first bar where both swings are
+ *   confirmed, so later candles cannot retroactively re-score an old event;
+ * - retains every recent confirmed divergence instead of replacing an older
+ *   event simply because a newer swing appeared;
+ * - rejects stale divergences and weak normalized separation.
  */
 class SmtDivergenceDetector @Inject constructor() {
 
@@ -55,6 +55,13 @@ class SmtDivergenceDetector @Inject constructor() {
         val peer: Candle,
     )
 
+    private data class SwingPair(
+        val p0: Int,
+        val p1: Int,
+        val q0: Int,
+        val q1: Int,
+    )
+
     fun detect(
         primarySymbol: String,
         primaryCandles: List<Candle>,
@@ -70,9 +77,6 @@ class SmtDivergenceDetector @Inject constructor() {
             swingLookback = swingLookback,
             minCorrelation = minCorrelation,
         )).sanitized()
-        val effectivePeriod = cfg.period
-        val effectiveSwingLookback = cfg.swingLookback
-        val effectiveMinCorrelation = cfg.minCorrelation
         if (correlatedCandles.isEmpty()) return emptyList()
         if (!SignalSeriesIntegrity.validate(primaryCandles, MIN_BARS).valid) return emptyList()
 
@@ -87,16 +91,25 @@ class SmtDivergenceDetector @Inject constructor() {
                 primaryCandles = primaryCandles,
                 peerSymbol = peerSymbol,
                 peerCandles = peerCandles,
-                period = effectivePeriod,
-                swingLookback = effectiveSwingLookback,
-                minCorrelation = effectiveMinCorrelation,
+                period = cfg.period,
+                swingLookback = cfg.swingLookback,
+                minCorrelation = cfg.minCorrelation,
                 config = cfg,
                 maxTimestampSkewMillis = skewLimit,
             )
         }
             .filter { primaryCandles.lastIndex - it.confirmationIndex <= cfg.maxSignalAgeBars }
             .filter { it.confidence >= cfg.minConfidence }
-            .distinctBy { listOf(it.primarySymbol, it.peerSymbol, it.direction.name, it.type.name, it.primaryIndex, it.confirmationIndex) }
+            .distinctBy {
+                listOf(
+                    it.primarySymbol,
+                    it.peerSymbol,
+                    it.direction.name,
+                    it.type.name,
+                    it.primaryIndex,
+                    it.confirmationIndex,
+                )
+            }
             .sortedWith(compareBy<SmtDivergence> { it.confirmationIndex }.thenBy { it.primaryIndex })
     }
 
@@ -111,72 +124,189 @@ class SmtDivergenceDetector @Inject constructor() {
         maxTimestampSkewMillis: Long,
         config: SmtConfig,
     ): List<SmtDivergence> {
-        val aligned = align(primaryCandles, peerCandles, maxTimestampSkewMillis).takeLast(period)
+        // Keep enough history to preserve all events that are still eligible for
+        // the public maxSignalAgeBars window. Using only the latest two swings
+        // would make a still-valid historical marker disappear when a new pivot
+        // confirms, which is a visual/forensic form of repainting.
+        val historyBars = period + config.maxSignalAgeBars + swingLookback * 2 + 4
+        val aligned = align(primaryCandles, peerCandles, maxTimestampSkewMillis).takeLast(historyBars)
         if (aligned.size < MIN_BARS) return emptyList()
 
         val ap = aligned.map { it.primary }
         val aq = aligned.map { it.peer }
-        val correlation = correlation(ap, aq)
-        if (correlation < minCorrelation) return emptyList()
-
-        val primaryHighs = findSwings(ap, swingLookback, true).takeLast(2)
-        val primaryLows = findSwings(ap, swingLookback, false).takeLast(2)
-        val peerHighs = findSwings(aq, swingLookback, true).takeLast(2)
-        val peerLows = findSwings(aq, swingLookback, false).takeLast(2)
+        val primaryHighs = findSwings(ap, swingLookback, true)
+        val primaryLows = findSwings(ap, swingLookback, false)
+        val peerHighs = findSwings(aq, swingLookback, true)
+        val peerLows = findSwings(aq, swingLookback, false)
         val result = mutableListOf<SmtDivergence>()
 
-        if (synchronized(primaryLows, peerLows, config.maxSwingSyncBars)) {
-            val p0 = primaryLows[0]; val p1 = primaryLows[1]
-            val q0 = peerLows[0]; val q1 = peerLows[1]
+        for (pair in synchronizedPairs(primaryLows, peerLows, config.maxSwingSyncBars)) {
+            val p0 = pair.p0
+            val p1 = pair.p1
+            val q0 = pair.q0
+            val q1 = pair.q1
+            val confirmationAligned = maxOf(p1, q1) + swingLookback
+            if (confirmationAligned > aligned.lastIndex) continue
+            val eventCorrelation = eventCorrelation(ap, aq, confirmationAligned, period, minCorrelation) ?: continue
+
             val primarySwept = ap[p1].low < ap[p0].low
             val peerHeld = aq[q1].low >= aq[q0].low
             val peerSwept = aq[q1].low < aq[q0].low
             val primaryHeld = ap[p1].low >= ap[p0].low
-            val confirmationAligned = maxOf(p1, q1) + swingLookback
-            if (confirmationAligned <= aligned.lastIndex) {
-                if (primarySwept && peerHeld) {
-                    build(
-                        primarySymbol, peerSymbol, Direction.BULLISH, SmtType.PRIMARY_SWEEP_PEER_FAIL,
-                        aligned, p0, p1, q0, q1, confirmationAligned, correlation, lowSide = true, config = config,
-                        detail = "$primarySymbol swept sell-side while $peerSymbol held its prior low",
-                    )?.let(result::add)
-                }
-                if (peerSwept && primaryHeld) {
-                    build(
-                        primarySymbol, peerSymbol, Direction.BULLISH, SmtType.PEER_SWEEP_PRIMARY_FAIL,
-                        aligned, p0, p1, q0, q1, confirmationAligned, correlation, lowSide = true, config = config,
-                        detail = "$peerSymbol swept sell-side while $primarySymbol held its prior low",
-                    )?.let(result::add)
-                }
+
+            if (primarySwept && peerHeld) {
+                build(
+                    primarySymbol,
+                    peerSymbol,
+                    Direction.BULLISH,
+                    SmtType.PRIMARY_SWEEP_PEER_FAIL,
+                    aligned,
+                    p0,
+                    p1,
+                    q0,
+                    q1,
+                    confirmationAligned,
+                    eventCorrelation,
+                    lowSide = true,
+                    config = config,
+                    detail = "$primarySymbol swept sell-side while $peerSymbol held its prior low",
+                )?.let(result::add)
+            }
+            if (peerSwept && primaryHeld) {
+                build(
+                    primarySymbol,
+                    peerSymbol,
+                    Direction.BULLISH,
+                    SmtType.PEER_SWEEP_PRIMARY_FAIL,
+                    aligned,
+                    p0,
+                    p1,
+                    q0,
+                    q1,
+                    confirmationAligned,
+                    eventCorrelation,
+                    lowSide = true,
+                    config = config,
+                    detail = "$peerSymbol swept sell-side while $primarySymbol held its prior low",
+                )?.let(result::add)
             }
         }
 
-        if (synchronized(primaryHighs, peerHighs, config.maxSwingSyncBars)) {
-            val p0 = primaryHighs[0]; val p1 = primaryHighs[1]
-            val q0 = peerHighs[0]; val q1 = peerHighs[1]
+        for (pair in synchronizedPairs(primaryHighs, peerHighs, config.maxSwingSyncBars)) {
+            val p0 = pair.p0
+            val p1 = pair.p1
+            val q0 = pair.q0
+            val q1 = pair.q1
+            val confirmationAligned = maxOf(p1, q1) + swingLookback
+            if (confirmationAligned > aligned.lastIndex) continue
+            val eventCorrelation = eventCorrelation(ap, aq, confirmationAligned, period, minCorrelation) ?: continue
+
             val primarySwept = ap[p1].high > ap[p0].high
             val peerHeld = aq[q1].high <= aq[q0].high
             val peerSwept = aq[q1].high > aq[q0].high
             val primaryHeld = ap[p1].high <= ap[p0].high
-            val confirmationAligned = maxOf(p1, q1) + swingLookback
-            if (confirmationAligned <= aligned.lastIndex) {
-                if (primarySwept && peerHeld) {
-                    build(
-                        primarySymbol, peerSymbol, Direction.BEARISH, SmtType.PRIMARY_SWEEP_PEER_FAIL,
-                        aligned, p0, p1, q0, q1, confirmationAligned, correlation, lowSide = false, config = config,
-                        detail = "$primarySymbol swept buy-side while $peerSymbol failed to confirm the high",
-                    )?.let(result::add)
-                }
-                if (peerSwept && primaryHeld) {
-                    build(
-                        primarySymbol, peerSymbol, Direction.BEARISH, SmtType.PEER_SWEEP_PRIMARY_FAIL,
-                        aligned, p0, p1, q0, q1, confirmationAligned, correlation, lowSide = false, config = config,
-                        detail = "$peerSymbol swept buy-side while $primarySymbol failed to confirm the high",
-                    )?.let(result::add)
-                }
+
+            if (primarySwept && peerHeld) {
+                build(
+                    primarySymbol,
+                    peerSymbol,
+                    Direction.BEARISH,
+                    SmtType.PRIMARY_SWEEP_PEER_FAIL,
+                    aligned,
+                    p0,
+                    p1,
+                    q0,
+                    q1,
+                    confirmationAligned,
+                    eventCorrelation,
+                    lowSide = false,
+                    config = config,
+                    detail = "$primarySymbol swept buy-side while $peerSymbol failed to confirm the high",
+                )?.let(result::add)
+            }
+            if (peerSwept && primaryHeld) {
+                build(
+                    primarySymbol,
+                    peerSymbol,
+                    Direction.BEARISH,
+                    SmtType.PEER_SWEEP_PRIMARY_FAIL,
+                    aligned,
+                    p0,
+                    p1,
+                    q0,
+                    q1,
+                    confirmationAligned,
+                    eventCorrelation,
+                    lowSide = false,
+                    config = config,
+                    detail = "$peerSymbol swept buy-side while $primarySymbol failed to confirm the high",
+                )?.let(result::add)
             }
         }
+
         return result
+    }
+
+    /**
+     * Freeze correlation at the event confirmation boundary. The exact same
+     * historical divergence therefore receives the exact same correlation and
+     * confidence after arbitrary future candles are appended.
+     */
+    private fun eventCorrelation(
+        primary: List<Candle>,
+        peer: List<Candle>,
+        confirmationIndex: Int,
+        period: Int,
+        minCorrelation: Double,
+    ): Double? {
+        if (confirmationIndex !in primary.indices || confirmationIndex !in peer.indices) return null
+        val start = (confirmationIndex - period + 1).coerceAtLeast(0)
+        val endExclusive = confirmationIndex + 1
+        val corr = correlation(
+            primary.subList(start, endExclusive),
+            peer.subList(start, endExclusive),
+        )
+        return corr.takeIf { it.isFinite() && it >= minCorrelation }
+    }
+
+    /**
+     * Match adjacent primary swing pairs with the nearest adjacent peer pair.
+     * We preserve all confirmed pairs in the retained history rather than only
+     * `takeLast(2)`, so a later pivot cannot erase a still-recent divergence.
+     */
+    private fun synchronizedPairs(
+        primarySwings: List<Int>,
+        peerSwings: List<Int>,
+        maxSyncBars: Int,
+    ): List<SwingPair> {
+        if (primarySwings.size < 2 || peerSwings.size < 2) return emptyList()
+        val result = mutableListOf<SwingPair>()
+
+        for (pi in 1 until primarySwings.size) {
+            val p0 = primarySwings[pi - 1]
+            val p1 = primarySwings[pi]
+            var best: SwingPair? = null
+            var bestDistance = Int.MAX_VALUE
+
+            for (qi in 1 until peerSwings.size) {
+                val q0 = peerSwings[qi - 1]
+                val q1 = peerSwings[qi]
+                val firstDistance = abs(p0 - q0)
+                val secondDistance = abs(p1 - q1)
+                if (firstDistance > maxSyncBars || secondDistance > maxSyncBars) continue
+                val totalDistance = firstDistance + secondDistance
+                if (totalDistance < bestDistance ||
+                    (totalDistance == bestDistance && (best == null || q1 < best.q1))
+                ) {
+                    best = SwingPair(p0, p1, q0, q1)
+                    bestDistance = totalDistance
+                }
+            }
+
+            if (best != null) result += best
+        }
+
+        return result.distinctBy { listOf(it.p0, it.p1, it.q0, it.q1) }
     }
 
     private fun build(
@@ -210,11 +340,12 @@ class SmtDivergenceDetector @Inject constructor() {
         val qBar = aligned[q1]
         val skew = abs(pBar.primary.timestamp - qBar.peer.timestamp)
         val syncScore = (100.0 - (abs(p1 - q1) * 10.0)).coerceIn(60.0, 100.0)
-        val corrScore = ((correlation - config.minCorrelation) / (1.0 - config.minCorrelation).coerceAtLeast(1e-6) * 100.0)
+        val corrScore = ((correlation - config.minCorrelation) /
+            (1.0 - config.minCorrelation).coerceAtLeast(1e-6) * 100.0)
             .coerceIn(0.0, 100.0)
         val divergenceScore = (separation / DIVERGENCE_FULL_STRENGTH * 100.0).coerceIn(0.0, 100.0)
         val confidence = (62.0 + corrScore * 0.11 + divergenceScore * 0.08 + syncScore * 0.05)
-            .coerceIn(MIN_CONFIDENCE, 98.0)
+            .coerceIn(MIN_CONFIDENCE, MAX_CONFIDENCE)
         val confirmationIndex = aligned[confirmationAligned].primaryIndex
         return SmtDivergence(
             primarySymbol = primarySymbol,
@@ -253,20 +384,12 @@ class SmtDivergenceDetector @Inject constructor() {
         return result
     }
 
-    private fun synchronized(primarySwings: List<Int>, peerSwings: List<Int>, maxSyncBars: Int): Boolean {
-        if (primarySwings.size != 2 || peerSwings.size != 2) return false
-        return abs(primarySwings[0] - peerSwings[0]) <= maxSyncBars &&
-            abs(primarySwings[1] - peerSwings[1]) <= maxSyncBars &&
-            primarySwings[0] < primarySwings[1] && peerSwings[0] < peerSwings[1]
-    }
-
     private fun findSwings(candles: List<Candle>, lookback: Int, isHigh: Boolean): List<Int> {
         val swings = mutableListOf<Int>()
         for (i in lookback until candles.size - lookback) {
             val confirmed = if (isHigh) {
                 // Strict on the left, tolerant on the right: an equal-high
-                // plateau is represented exactly once (its first peak), rather
-                // than manufacturing several adjacent SMT swing points.
+                // plateau is represented exactly once (its first peak).
                 (i - lookback until i).all { candles[it].high < candles[i].high } &&
                     (i + 1..i + lookback).all { candles[it].high <= candles[i].high }
             } else {
@@ -280,13 +403,18 @@ class SmtDivergenceDetector @Inject constructor() {
 
     private fun localRange(candles: List<Candle>, index: Int): Double {
         val start = (index - RANGE_WINDOW + 1).coerceAtLeast(0)
-        return candles.subList(start, index + 1).map { it.range }.filter { it > 0.0 }.average()
+        return candles.subList(start, index + 1)
+            .map { it.range }
+            .filter { it > 0.0 }
+            .average()
             .takeIf { it.isFinite() && it > 0.0 } ?: 1e-9
     }
 
     private fun medianInterval(candles: List<Candle>): Long? {
         if (candles.size < 2) return null
-        val diffs = candles.zipWithNext { a, b -> b.timestamp - a.timestamp }.filter { it > 0L }.sorted()
+        val diffs = candles.zipWithNext { a, b -> b.timestamp - a.timestamp }
+            .filter { it > 0L }
+            .sorted()
         if (diffs.isEmpty()) return null
         return diffs[diffs.size / 2]
     }
@@ -304,9 +432,17 @@ class SmtDivergenceDetector @Inject constructor() {
 
     private fun pearson(x: DoubleArray, y: DoubleArray): Double {
         val n = minOf(x.size, y.size)
-        var sumX = 0.0; var sumY = 0.0; var sumXY = 0.0; var sumX2 = 0.0; var sumY2 = 0.0
+        var sumX = 0.0
+        var sumY = 0.0
+        var sumXY = 0.0
+        var sumX2 = 0.0
+        var sumY2 = 0.0
         for (i in 0 until n) {
-            sumX += x[i]; sumY += y[i]; sumXY += x[i] * y[i]; sumX2 += x[i] * x[i]; sumY2 += y[i] * y[i]
+            sumX += x[i]
+            sumY += y[i]
+            sumXY += x[i] * y[i]
+            sumX2 += x[i] * x[i]
+            sumY2 += y[i] * y[i]
         }
         val numerator = n * sumXY - sumX * sumY
         val denominator = sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY))
@@ -318,11 +454,7 @@ class SmtDivergenceDetector @Inject constructor() {
         const val DEFAULT_PERIOD = 160
         const val DEFAULT_SWING_LOOKBACK = 3
         const val MIN_POSITIVE_CORRELATION = 0.45
-        const val DEFAULT_SKEW_DIVISOR = 4L
-        const val MAX_SWING_SYNC_BARS = 4
-        const val MAX_SIGNAL_AGE_BARS = 24
         const val RANGE_WINDOW = 20
-        const val MIN_DIVERGENCE_STRENGTH = 0.05
         const val DIVERGENCE_FULL_STRENGTH = 1.0
         const val MIN_CONFIDENCE = 62.0
         const val MAX_CONFIDENCE = 86.0
