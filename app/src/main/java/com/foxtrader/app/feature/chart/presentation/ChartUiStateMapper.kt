@@ -35,16 +35,41 @@ internal fun ChartUiState.withComputation(
     // When the bar mode does not preserve the time axis (e.g. Renko), SMC
     // overlays that rely on accurate bar-index-to-time mapping are invalid.
     val gateSmcOverlays = !barMode.preservesTimeAxis
+    val litProjection = if (!gateSmcOverlays && toggles.lit) {
+        litAnalysis.toLitProChartProjection(candles)
+    } else {
+        LitProChartProjection()
+    }
+
+    val visibleStructureBreaks = when {
+        gateSmcOverlays -> emptyList()
+        toggles.structure -> (computation.structureBreaks + litProjection.structureBreaks)
+            .distinctBy { breakEvent ->
+                listOf(
+                    breakEvent.type,
+                    breakEvent.breakIndex,
+                    breakEvent.breakPrice,
+                    breakEvent.labelOverride,
+                )
+            }
+            .sortedBy { it.breakIndex }
+        else -> emptyList()
+    }
+
+    val visibleOrderBlocks = if (gateSmcOverlays) {
+        emptyList()
+    } else {
+        (computation.overlays.orderBlocks + litProjection.zones)
+            .distinctBy { zone ->
+                listOf(zone.type, zone.startIndex, zone.highPrice, zone.lowPrice)
+            }
+    }
 
     return copy(
         candles = candles.asCandleSeries(),
         dataSource = source,
         bias = computation.bias,
-        structureBreaks = when {
-            gateSmcOverlays -> persistentListOf()
-            toggles.structure -> computation.structureBreaks.toPersistentList()
-            else -> persistentListOf()
-        },
+        structureBreaks = visibleStructureBreaks.toPersistentList(),
         emaShort = computation.overlays.emaShort.asImmutableDoubleSeries(),
         emaLong = computation.overlays.emaLong.asImmutableDoubleSeries(),
         bollingerUpper = computation.overlays.bollingerUpper.asImmutableDoubleSeries(),
@@ -77,7 +102,7 @@ internal fun ChartUiState.withComputation(
         donchianMiddle = computation.overlays.donchianMiddle.asImmutableDoubleSeries(),
         donchianLower = computation.overlays.donchianLower.asImmutableDoubleSeries(),
         pivotLevels = if (gateSmcOverlays) null else computation.overlays.pivotLevels,
-        orderBlocks = if (gateSmcOverlays) persistentListOf() else computation.overlays.orderBlocks.toPersistentList(),
+        orderBlocks = visibleOrderBlocks.toPersistentList(),
         fairValueGaps = if (gateSmcOverlays) persistentListOf() else computation.overlays.fairValueGaps.toPersistentList(),
         liquidityPools = if (gateSmcOverlays) persistentListOf() else computation.overlays.liquidityPools.toPersistentList(),
         tradeProAnalysis = tradeProAnalysis,
