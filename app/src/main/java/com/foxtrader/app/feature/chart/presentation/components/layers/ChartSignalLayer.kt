@@ -3,18 +3,20 @@ package com.foxtrader.app.feature.chart.presentation.components.layers
 import android.graphics.Paint
 import android.graphics.Typeface
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
-import com.foxtrader.app.domain.model.ChartSignal
-import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.BacktestChartMarker
 import com.foxtrader.app.domain.model.BacktestOutcome
+import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.ChartSignal
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.LitXAnalysis
+import com.foxtrader.app.domain.model.PriceZoneKind
 import com.foxtrader.app.domain.model.SignalSource
 import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
 import com.foxtrader.app.feature.chart.presentation.components.ChartViewport
@@ -23,24 +25,42 @@ import com.foxtrader.app.ui.theme.FoxBearish
 import com.foxtrader.app.ui.theme.FoxBullish
 
 private val SignalDash = PathEffect.dashPathEffect(floatArrayOf(10f, 8f), 0f)
+private val ContextDash = PathEffect.dashPathEffect(floatArrayOf(5f, 7f), 0f)
 
-// Reusable native Paint instances for zero-allocation rendering in draw loop
 private val LiveSignalLabelPaint = Paint().apply {
     color = android.graphics.Color.WHITE
     textSize = 18f
     typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     isAntiAlias = true
     textAlign = Paint.Align.CENTER
-    alpha = (0.9f * 255).toInt()
+    alpha = (0.92f * 255).toInt()
 }
 
 private val HistorySignalLabelPaint = Paint().apply {
     color = android.graphics.Color.WHITE
-    textSize = 18f
+    textSize = 17f
     typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     isAntiAlias = true
     textAlign = Paint.Align.CENTER
-    alpha = (0.3f * 255).toInt()
+    alpha = (0.62f * 255).toInt()
+}
+
+private val InstitutionalContextPaint = Paint().apply {
+    color = android.graphics.Color.WHITE
+    textSize = 15f
+    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+    isAntiAlias = true
+    textAlign = Paint.Align.LEFT
+    alpha = (0.72f * 255).toInt()
+}
+
+private val SmtLabelPaint = Paint().apply {
+    color = android.graphics.Color.WHITE
+    textSize = 14f
+    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+    isAntiAlias = true
+    textAlign = Paint.Align.CENTER
+    alpha = (0.80f * 255).toInt()
 }
 
 private val BacktestOutcomeLabelPaint = Paint().apply {
@@ -52,13 +72,13 @@ private val BacktestOutcomeLabelPaint = Paint().apply {
 }
 
 /**
- * Draws LIT X signal overlays on the chart when a validated signal exists.
+ * Premium LIT X projection.
  *
- * Renders:
- * - Entry line (horizontal, full width) in directional color
- * - Stop-loss line (dashed, bearish color)
- * - Take-profit lines (dashed, bullish color)
- * - Direction arrow (triangle) at the right edge near entry price
+ * The previous renderer returned immediately when no final signal existed. That
+ * made a healthy LIT X pipeline look broken during SCANNING/SHIFT/POI stages.
+ * We now render the institutional context first (dealing range, equilibrium,
+ * mitigation blocks and displacement), then add entry/risk geometry only when a
+ * fully validated non-repainting signal exists.
  */
 internal fun DrawScope.drawLitXSignals(
     analysis: LitXAnalysis,
@@ -66,6 +86,8 @@ internal fun DrawScope.drawLitXSignals(
     cw: Float,
     ch: Float,
 ) {
+    drawLitXContext(analysis, viewport, cw, ch)
+
     val signal = analysis.signal ?: return
     val validPrices = signal.entry.isDrawablePrice() &&
         signal.stopLoss.isDrawablePrice() &&
@@ -83,47 +105,38 @@ internal fun DrawScope.drawLitXSignals(
     val stopY = viewport.yForPrice(signal.stopLoss, ch)
     val tp1Y = viewport.yForPrice(signal.takeProfit1, ch)
     val tp2Y = viewport.yForPrice(signal.takeProfit2, ch)
-
     val dirColor = if (signal.direction == Direction.BULLISH) FoxBullish else FoxBearish
 
-    // Entry line (solid, full width)
     drawLine(
-        color = dirColor.copy(alpha = 0.9f),
+        color = dirColor.copy(alpha = 0.95f),
         start = Offset(0f, entryY),
         end = Offset(cw, entryY),
-        strokeWidth = 2.5f,
+        strokeWidth = 2.8f,
     )
-
-    // Stop-loss line (dashed, bearish)
     drawLine(
-        color = FoxBearish.copy(alpha = 0.8f),
+        color = FoxBearish.copy(alpha = 0.82f),
         start = Offset(0f, stopY),
         end = Offset(cw, stopY),
-        strokeWidth = 1.5f,
+        strokeWidth = 1.6f,
         pathEffect = SignalDash,
     )
-
-    // Take-profit 1 (dashed, bullish)
     drawLine(
-        color = FoxBullish.copy(alpha = 0.7f),
+        color = FoxBullish.copy(alpha = 0.75f),
         start = Offset(0f, tp1Y),
         end = Offset(cw, tp1Y),
-        strokeWidth = 1.5f,
+        strokeWidth = 1.6f,
         pathEffect = SignalDash,
     )
-
-    // Take-profit 2 (dashed, bullish)
     drawLine(
-        color = FoxBullish.copy(alpha = 0.7f),
+        color = FoxBullish.copy(alpha = 0.65f),
         start = Offset(0f, tp2Y),
         end = Offset(cw, tp2Y),
-        strokeWidth = 1.5f,
+        strokeWidth = 1.4f,
         pathEffect = SignalDash,
     )
 
-    // Direction arrow (triangle) at the right edge near entry price
-    val arrowSize = 10f
-    val arrowX = cw - 16f
+    val arrowSize = 11f
+    val arrowX = cw - 18f
     val arrowPath = Path()
     if (signal.direction == Direction.BULLISH) {
         arrowPath.moveTo(arrowX, entryY - arrowSize)
@@ -135,21 +148,111 @@ internal fun DrawScope.drawLitXSignals(
         arrowPath.lineTo(arrowX + arrowSize / 2f, entryY - arrowSize / 2f)
     }
     arrowPath.close()
-    drawPath(arrowPath, color = dirColor.copy(alpha = 0.95f), style = Fill)
+    drawPath(arrowPath, color = dirColor.copy(alpha = 0.98f), style = Fill)
+
+    val signalLabel = "LiTX ${signal.confidence.grade.name.replace('_', '+')} · ${signal.confidence.score}%"
+    val signalLabelY = if (signal.direction == Direction.BULLISH) entryY - 9f else entryY + 19f
+    drawContext.canvas.nativeCanvas.drawText(signalLabel, 10f, signalLabelY, InstitutionalContextPaint)
+}
+
+private fun DrawScope.drawLitXContext(
+    analysis: LitXAnalysis,
+    viewport: ChartViewport,
+    cw: Float,
+    ch: Float,
+) {
+    analysis.premiumDiscount?.let { zone ->
+        if (
+            zone.rangeHigh.isDrawablePrice() &&
+            zone.rangeLow.isDrawablePrice() &&
+            zone.equilibrium.isDrawablePrice() &&
+            zone.rangeHigh > zone.equilibrium &&
+            zone.equilibrium > zone.rangeLow
+        ) {
+            val highY = viewport.yForPrice(zone.rangeHigh, ch)
+            val eqY = viewport.yForPrice(zone.equilibrium, ch)
+            val lowY = viewport.yForPrice(zone.rangeLow, ch)
+            val premiumTop = minOf(highY, eqY).coerceIn(0f, ch)
+            val premiumBottom = maxOf(highY, eqY).coerceIn(0f, ch)
+            val discountTop = minOf(eqY, lowY).coerceIn(0f, ch)
+            val discountBottom = maxOf(eqY, lowY).coerceIn(0f, ch)
+            val premiumAlpha = if (zone.currentZone == PriceZoneKind.PREMIUM) 0.10f else 0.045f
+            val discountAlpha = if (zone.currentZone == PriceZoneKind.DISCOUNT) 0.10f else 0.045f
+
+            if (premiumBottom > premiumTop) {
+                drawRect(
+                    color = FoxBearish.copy(alpha = premiumAlpha),
+                    topLeft = Offset(0f, premiumTop),
+                    size = Size(cw, premiumBottom - premiumTop),
+                )
+            }
+            if (discountBottom > discountTop) {
+                drawRect(
+                    color = FoxBullish.copy(alpha = discountAlpha),
+                    topLeft = Offset(0f, discountTop),
+                    size = Size(cw, discountBottom - discountTop),
+                )
+            }
+            drawLine(
+                color = FoxAmber50.copy(alpha = 0.55f),
+                start = Offset(0f, eqY),
+                end = Offset(cw, eqY),
+                strokeWidth = 1.3f,
+                pathEffect = ContextDash,
+            )
+            drawContext.canvas.nativeCanvas.drawText("PREMIUM", 10f, (premiumTop + 17f).coerceAtMost(ch), InstitutionalContextPaint)
+            drawContext.canvas.nativeCanvas.drawText("EQ", 10f, (eqY - 5f).coerceIn(14f, ch), InstitutionalContextPaint)
+            drawContext.canvas.nativeCanvas.drawText("DISCOUNT", 10f, (discountTop + 17f).coerceAtMost(ch), InstitutionalContextPaint)
+        }
+    }
+
+    analysis.mitigationBlocks.takeLast(MAX_CONTEXT_BLOCKS).forEach { block ->
+        if (!block.highPrice.isDrawablePrice() || !block.lowPrice.isDrawablePrice() || block.highPrice <= block.lowPrice) {
+            return@forEach
+        }
+        val topY = viewport.yForPrice(block.highPrice, ch).coerceIn(0f, ch)
+        val bottomY = viewport.yForPrice(block.lowPrice, ch).coerceIn(0f, ch)
+        val y = minOf(topY, bottomY)
+        val height = kotlin.math.abs(bottomY - topY)
+        if (height <= 0f) return@forEach
+        val x = viewport.xForIndex(block.originIndex.toFloat(), cw).coerceIn(0f, cw)
+        val color = if (block.direction == Direction.BULLISH) FoxBullish else FoxBearish
+        drawRect(
+            color = color.copy(alpha = 0.10f),
+            topLeft = Offset(x, y),
+            size = Size((cw - x).coerceAtLeast(0f), height),
+        )
+        drawLine(
+            color = color.copy(alpha = 0.46f),
+            start = Offset(x, y),
+            end = Offset(cw, y),
+            strokeWidth = 1.1f,
+        )
+    }
+
+    analysis.displacement?.let { displacement ->
+        if (displacement.startPrice.isDrawablePrice() && displacement.endPrice.isDrawablePrice()) {
+            val startX = viewport.xForIndex(displacement.startIndex + 0.5f, cw)
+            val endX = viewport.xForIndex(displacement.endIndex + 0.5f, cw)
+            val startY = viewport.yForPrice(displacement.startPrice, ch)
+            val endY = viewport.yForPrice(displacement.endPrice, ch)
+            val color = if (displacement.direction == Direction.BULLISH) FoxBullish else FoxBearish
+            drawLine(
+                color = color.copy(alpha = 0.72f),
+                start = Offset(startX, startY),
+                end = Offset(endX, endY),
+                strokeWidth = 2.2f,
+            )
+        }
+    }
+
+    val stageText = "LiTX · ${analysis.stage.name.replace('_', ' ')}"
+    drawContext.canvas.nativeCanvas.drawText(stageText, 10f, 18f, InstitutionalContextPaint)
 }
 
 /**
- * Draws SMT (Smart Money Technique) divergence markers on the chart.
- *
- * For each divergence in the visible range:
- * - Circle marker at the primary swing index at primaryPrice
- * - Dashed confirmation ray from the swing to the bar where it became knowable
- * - Colored based on direction (bullish = FoxBullish, bearish = FoxBearish)
- *
- * Peer prices are intentionally not projected onto the primary chart's Y axis:
- * EURUSD, DXY, BTC, and an index can have completely different price scales.
- * Plotting [SmtDivergenceDetector.SmtDivergence.peerPrice] here produced an
- * invalid line (and frequently sent the endpoint off-screen).
+ * Draws SMT divergence markers without projecting the peer instrument onto the
+ * primary chart's incompatible price scale.
  */
 internal fun DrawScope.drawSmtDivergences(
     divergences: List<SmtDivergenceDetector.SmtDivergence>,
@@ -168,53 +271,53 @@ internal fun DrawScope.drawSmtDivergences(
             div.confirmationIndex < div.primaryIndex ||
             !div.primaryPrice.isDrawablePrice()
         ) continue
-        // The primary swing and its confirmation span are the only coordinates
-        // that belong to this chart's time/price axes.
         if (div.primaryIndex > endIdx && div.confirmationIndex > endIdx) continue
         if (div.primaryIndex < startIdx && div.confirmationIndex < startIdx) continue
 
         val color = if (div.direction == Direction.BULLISH) FoxBullish else FoxBearish
-
         val primaryX = viewport.xForIndex(div.primaryIndex + 0.5f, cw)
         val primaryY = viewport.yForPrice(div.primaryPrice, ch)
         val confirmationX = viewport.xForIndex(div.confirmationIndex + 0.5f, cw)
 
-        // Circle marker at primary swing point
         drawCircle(
-            color = color.copy(alpha = 0.9f),
-            radius = 6f,
+            color = color.copy(alpha = 0.94f),
+            radius = 7f,
             center = Offset(primaryX, primaryY),
         )
-
-        // Horizontal ray shows the non-repainting confirmation delay without
-        // mixing a correlated asset's incompatible price scale into this chart.
+        drawCircle(
+            color = color.copy(alpha = 0.30f),
+            radius = 11f,
+            center = Offset(primaryX, primaryY),
+            style = Stroke(width = 1.5f),
+        )
         drawLine(
-            color = color.copy(alpha = 0.6f),
+            color = color.copy(alpha = 0.68f),
             start = Offset(primaryX, primaryY),
             end = Offset(confirmationX, primaryY),
-            strokeWidth = 1.5f,
+            strokeWidth = 1.8f,
             pathEffect = SignalDash,
         )
-
-        // Small ring at the confirmation bar.
         drawCircle(
-            color = color.copy(alpha = 0.6f),
-            radius = 4f,
+            color = color.copy(alpha = 0.78f),
+            radius = 5f,
             center = Offset(confirmationX, primaryY),
-            style = Stroke(width = 1.5f),
+            style = Stroke(width = 1.8f),
+        )
+
+        val labelY = if (div.direction == Direction.BULLISH) primaryY + 22f else primaryY - 13f
+        drawContext.canvas.nativeCanvas.drawText(
+            "SMT ${div.peerSymbol} ${div.confidence.toInt()}%",
+            confirmationX,
+            labelY.coerceIn(14f, ch - 2f),
+            SmtLabelPaint,
         )
     }
 }
 
 /**
  * Draws unified strategy/engine signals as directional arrows.
- *
- * - Bullish = green up-arrow below the entry.
- * - Bearish = amber/yellow down-arrow above the entry.
- * - Live/confirmed-now signals are filled and carry a confirmation dot.
- * - Historical signals are outlined/faded so they cannot be mistaken for a
- *   current actionable setup.
- * - The source letter stays visible beside the arrow (L/T/S/X).
+ * Live markers remain visually dominant; historical/template projections stay
+ * clearly distinct while being readable enough to audit without a second view.
  */
 internal fun DrawScope.drawSignalMarkers(
     signals: List<ChartSignal>,
@@ -232,7 +335,7 @@ internal fun DrawScope.drawSignalMarkers(
         if (signal.barIndex < startIdx || signal.barIndex > endIdx) continue
 
         val color = if (signal.direction == Direction.BULLISH) FoxBullish else FoxAmber50
-        val alpha = if (signal.isLive) 0.95f else 0.34f
+        val alpha = if (signal.isLive) 0.98f else 0.58f
         val x = viewport.xForIndex(signal.barIndex + 0.5f, cw)
         val entryY = viewport.yForPrice(signal.entry, ch)
         val arrow = signalArrowPath(x, entryY, signal.direction)
@@ -240,40 +343,32 @@ internal fun DrawScope.drawSignalMarkers(
         drawPath(
             path = arrow,
             color = color.copy(alpha = alpha),
-            style = if (signal.isLive) Fill else Stroke(width = 2f),
+            style = if (signal.isLive) Fill else Stroke(width = 2.2f),
         )
 
-        // Confirmation dot anchors the signal to its actual entry price. It is
-        // intentionally tiny so multiple strategies on one bar remain legible.
         if (signal.isLive) {
             drawCircle(
-                color = color.copy(alpha = 0.95f),
-                radius = 3.5f,
+                color = color.copy(alpha = 0.98f),
+                radius = 3.8f,
                 center = Offset(x, entryY),
             )
         }
 
         val letter = when (signal.source) {
             SignalSource.LITX -> "LX"
-            SignalSource.LIT -> "L"
-            SignalSource.SMS -> "M"
-            SignalSource.TRADEPRO -> "T"
-            SignalSource.SMT -> "S"
+            SignalSource.LIT -> "LIT"
+            SignalSource.SMS -> "SMS"
+            SignalSource.TRADEPRO -> "TP"
+            SignalSource.SMT -> "SMT"
             SignalSource.BINARY3M -> "B3"
-            SignalSource.STRATEGY -> "X"
+            SignalSource.STRATEGY -> "ST"
         }
         val labelPaint = if (signal.isLive) LiveSignalLabelPaint else HistorySignalLabelPaint
-        val labelY = if (signal.direction == Direction.BULLISH) entryY + 30f else entryY - 22f
-        drawContext.canvas.nativeCanvas.drawText(letter, x, labelY, labelPaint)
+        val labelY = if (signal.direction == Direction.BULLISH) entryY + 31f else entryY - 22f
+        drawContext.canvas.nativeCanvas.drawText(letter, x, labelY.coerceIn(14f, ch - 2f), labelPaint)
     }
 }
 
-/**
- * Draws completed backtest trades directly on the price chart. Entry arrows use
- * the same green/amber directional language as live signals; exits receive a
- * compact W/L/B badge so a trader can visually audit which historical signals
- * won, lost, or broke even without leaving the chart.
- */
 internal fun DrawScope.drawBacktestMarkers(
     markers: List<BacktestChartMarker>,
     candles: List<Candle>,
@@ -304,8 +399,6 @@ internal fun DrawScope.drawBacktestMarkers(
             BacktestOutcome.BREAKEVEN -> FoxAmber50
         }
 
-        // Thin dashed connector makes holding duration and exit location obvious
-        // while staying subordinate to price action.
         drawLine(
             color = outcomeColor.copy(alpha = 0.30f),
             start = Offset(entryX, entryY),
@@ -313,13 +406,11 @@ internal fun DrawScope.drawBacktestMarkers(
             strokeWidth = 1.25f,
             pathEffect = SignalDash,
         )
-
         drawPath(
             path = signalArrowPath(entryX, entryY, marker.direction),
             color = entryColor.copy(alpha = 0.85f),
             style = Fill,
         )
-
         drawCircle(
             color = outcomeColor.copy(alpha = 0.92f),
             radius = 8f,
@@ -330,12 +421,7 @@ internal fun DrawScope.drawBacktestMarkers(
             BacktestOutcome.LOSS -> "L"
             BacktestOutcome.BREAKEVEN -> "B"
         }
-        drawContext.canvas.nativeCanvas.drawText(
-            label,
-            exitX,
-            exitY + 5f,
-            BacktestOutcomeLabelPaint,
-        )
+        drawContext.canvas.nativeCanvas.drawText(label, exitX, exitY + 5f, BacktestOutcomeLabelPaint)
     }
 }
 
@@ -393,3 +479,5 @@ private fun BacktestChartMarker.resolveIndex(candles: List<Candle>, isEntry: Boo
 }
 
 private fun Double.isDrawablePrice(): Boolean = isFinite() && this > 0.0
+
+private const val MAX_CONTEXT_BLOCKS = 4
