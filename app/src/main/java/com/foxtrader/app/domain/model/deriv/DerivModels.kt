@@ -14,8 +14,8 @@ data class DerivAccount(
     val accountType: DerivAccountType,
     val currency: String,
     val balance: Double?,
-    val group: String?,
-    val status: String?,
+    val group: String? = null,
+    val status: String? = null,
 )
 
 data class DerivOtpSession(
@@ -253,4 +253,3 @@ data class DerivWalletTransactionsPage(
     val nextPageUrl: String?,
     val previousPageUrl: String?,
 )
-
