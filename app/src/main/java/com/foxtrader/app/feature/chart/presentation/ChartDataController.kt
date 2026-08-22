@@ -10,20 +10,28 @@ import com.foxtrader.app.domain.repository.MarketRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
- * Manages market data loading, symbol/timeframe switching, candle merging, and
- * the prepended older-history buffer.
+ * Manages primary-chart data and enforces a single chart-computation lane.
  *
- * This is a plain class instantiated by [ChartViewModel]. It does not participate
- * in Hilt dependency injection directly.
+ * Room can emit on every live candle update and indicator toggles can request a
+ * full recompute at the same time. Previously every emission launched another
+ * independent CPU-heavy chart job, so a fast feed could build several LiTX/SMC/
+ * strategy computations concurrently. Stale-frame guards stopped bad results
+ * publishing but did not stop the CPU/GC storm. This controller now coalesces
+ * market emissions (latest wins) and serializes all chart computation through a
+ * mutex. The semantic result is unchanged; the app simply never computes two
+ * primary chart frames concurrently.
  */
 internal class ChartDataController(
     private val repository: MarketRepository,
@@ -36,11 +44,9 @@ internal class ChartDataController(
     val symbolFlow = MutableStateFlow("EURUSD")
     val timeframeFlow = MutableStateFlow(Timeframe.M15)
 
-    /** Latest hot-cache series observed from Room for the active chart. */
     var currentObservedCandles: SourcedCandles = SourcedCandles.EMPTY
         private set
 
-    /** Older pages kept only in-memory so the Room hot cache can stay bounded. */
     private val prependedHistory = mutableListOf<Candle>()
     private var prependedHistorySnapshot: List<Candle> = emptyList()
     private var prependedHistorySource: CandleSource = CandleSource.CACHED
@@ -53,18 +59,18 @@ internal class ChartDataController(
         private set
     var loadError: String? = null
         private set
-    /** Invalidates in-flight history pages when symbol/timeframe/provider context resets. */
     private var historyContextGeneration: Long = 0L
 
-    /**
-     * Cheap value-type change key for Room emissions.
-     *
-     * `PERF` Replaces the previous string-concatenation fingerprint, which
-     * built (and immediately discarded) an interpolated String on every DB
-     * emission — including the no-change emissions Room fires on unrelated
-     * table writes. A data class compares field-by-field with zero transient
-     * allocations beyond the small key object itself.
-     */
+    /** Exactly one primary-chart computation may run at a time. */
+    private val computationMutex = Mutex()
+
+    /** Latest flow-driven recompute. A newer Room emission cancels the waiter. */
+    private var marketProcessingJob: Job? = null
+
+    /** Coalesces explicit recomputes such as rapid indicator-chip changes. */
+    private val explicitGenerationLock = Any()
+    private var explicitProcessingGeneration: Long = 0L
+
     private data class EmissionKey(
         val source: CandleSource,
         val size: Int,
@@ -96,20 +102,7 @@ internal class ChartDataController(
             .onEach { sourced ->
                 currentObservedCandles = sourced
                 rebuildMergedVisibleCandles()
-                scope.launch {
-                    // `CRASH-SAFETY` This launch has no caller to propagate into:
-                    // an escaped exception here is an unhandled coroutine failure
-                    // that takes down the whole app (the historical "chart crashes
-                    // while I touch things mid-refresh" bug). Contain everything
-                    // except cancellation; the next emission retries cleanly.
-                    try {
-                        onMergedCandlesChanged(sourced.source, true)
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (_: Exception) {
-                        // Keep the last good frame; a later emission recomputes.
-                    }
-                }
+                scheduleMarketProcessing(sourced.source, preferIncremental = true)
             }
             .launchIn(scope)
     }
@@ -119,14 +112,12 @@ internal class ChartDataController(
             .onEach { tick ->
                 if (tick.symbol == symbolFlow.value && tick.timeframe == timeframeFlow.value) {
                     scope.launch {
-                        // Same containment rationale as observeMarket: a transient
-                        // DB write failure on one tick must not crash the app.
                         try {
                             onUpsertTick(tick.symbol, tick.timeframe, tick.candle, tick.provider)
                         } catch (e: CancellationException) {
                             throw e
                         } catch (_: Exception) {
-                            // Drop the tick; the next one supersedes it anyway.
+                            // A later tick supersedes a transient write failure.
                         }
                     }
                 }
@@ -134,16 +125,59 @@ internal class ChartDataController(
             .launchIn(scope)
     }
 
+    /**
+     * Explicit user/config recompute. Multiple callers that pile up while one
+     * heavy frame is running are coalesced: only the newest request proceeds
+     * after the mutex is available.
+     */
     suspend fun processMergedCandles(preferIncremental: Boolean = false) {
-        val sourceHint = currentObservedCandles.source
-        val mergedSource = CandleSource.worstOf(
-            buildList {
-                add(sourceHint)
-                if (prependedHistorySnapshot.isNotEmpty()) add(prependedHistorySource)
+        val generation = synchronized(explicitGenerationLock) {
+            explicitProcessingGeneration += 1L
+            explicitProcessingGeneration
+        }
+        // Prefer an explicit user configuration change over a stale live-frame
+        // waiter. If a market compute is already in CPU code, the mutex lets it
+        // finish safely before the latest explicit frame runs.
+        marketProcessingJob?.cancel()
+        val source = currentMergedSource()
+        computationMutex.withLock {
+            val stillLatest = synchronized(explicitGenerationLock) {
+                generation == explicitProcessingGeneration
             }
-        )
-        onMergedCandlesChanged(mergedSource, preferIncremental)
+            if (!stillLatest) return
+            onMergedCandlesChanged(source, preferIncremental)
+        }
     }
+
+    private fun scheduleMarketProcessing(source: CandleSource, preferIncremental: Boolean) {
+        marketProcessingJob?.cancel()
+        marketProcessingJob = scope.launch {
+            try {
+                computationMutex.withLock {
+                    onMergedCandlesChanged(source, preferIncremental)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Keep the last valid frame. The next market emission retries.
+            }
+        }
+    }
+
+    /** History loads run through the same single-computation lane. */
+    private suspend fun processHistoryMutation(preferIncremental: Boolean = false) {
+        marketProcessingJob?.cancel()
+        computationMutex.withLock {
+            onMergedCandlesChanged(currentMergedSource(), preferIncremental)
+        }
+    }
+
+    private fun currentMergedSource(): CandleSource = CandleSource.worstOf(
+        buildList {
+            add(currentObservedCandles.source)
+            if (prependedHistorySnapshot.isNotEmpty()) add(prependedHistorySource)
+        }
+    )
 
     fun rebuildMergedVisibleCandles() {
         val observed = currentObservedCandles.candles
@@ -166,10 +200,6 @@ internal class ChartDataController(
     }
 
     fun loadOlderHistory(onStateChanged: (Boolean, Boolean, String?) -> Unit) {
-        // Synthetic pages are independently generated random walks. Prepending
-        // another page can introduce a discontinuous second-looking price track
-        // when the chart is zoomed out. Synthetic mode is a UI fallback only, so
-        // keep it to one bounded page and never fabricate deeper history.
         if (currentObservedCandles.source == CandleSource.SYNTHETIC) {
             historyEndReached = true
             onStateChanged(false, true, null)
@@ -216,15 +246,7 @@ internal class ChartDataController(
                     isLoadingOlder = false
                     historyEndReached = false
                     onStateChanged(false, false, null)
-                    onMergedCandlesChanged(
-                        CandleSource.worstOf(
-                            buildList {
-                                add(currentObservedCandles.source)
-                                if (prependedHistorySnapshot.isNotEmpty()) add(prependedHistorySource)
-                            }
-                        ),
-                        false,
-                    )
+                    processHistoryMutation(preferIncremental = false)
                 }
             }.onFailure { error ->
                 if (!historyContextMatches(requestSymbol, requestTimeframe, requestGeneration)) return@onFailure
@@ -235,15 +257,6 @@ internal class ChartDataController(
         }
     }
 
-    /**
-     * Prefetches older *real* history into the chart's in-memory prepend buffer
-     * until [targetStartTimestamp] is reached or [maxTotalBars] is hit.
-     *
-     * This is used by the on-chart backtester so the candles that are measured
-     * are the same candles the user can pan back to and visually audit. Pages
-     * are never persisted into the bounded Room hot cache and synthetic pages
-     * are rejected rather than mixed into a research run.
-     */
     suspend fun preloadHistoryBackTo(
         targetStartTimestamp: Long,
         maxTotalBars: Int = MAX_BACKTEST_VISIBLE_BARS,
@@ -289,8 +302,6 @@ internal class ChartDataController(
                     beforeTimestamp = oldestTimestamp,
                     limit = pageLimit,
                 ).getOrThrow()
-                // The user can switch symbol/timeframe while a provider request is
-                // in flight. Never merge that completed page into the new chart.
                 ensureHistoryContext(requestSymbol, requestTimeframe, requestGeneration)
 
                 if (page.source == CandleSource.SYNTHETIC) {
@@ -323,15 +334,7 @@ internal class ChartDataController(
             onStateChanged(false, historyEndReached, null)
 
             if (mergedVisibleCandles.isNotEmpty()) {
-                onMergedCandlesChanged(
-                    CandleSource.worstOf(
-                        buildList {
-                            add(currentObservedCandles.source)
-                            if (prependedHistorySnapshot.isNotEmpty()) add(prependedHistorySource)
-                        }
-                    ),
-                    false,
-                )
+                processHistoryMutation(preferIncremental = false)
             }
 
             Result.success(
@@ -370,9 +373,7 @@ internal class ChartDataController(
     fun refresh(onError: (String) -> Unit) {
         scope.launch {
             repository.refreshCandles(symbolFlow.value, timeframeFlow.value)
-                .onFailure { e ->
-                    onError(e.message ?: "Failed to load market data")
-                }
+                .onFailure { e -> onError(e.message ?: "Failed to load market data") }
         }
     }
 
@@ -385,20 +386,18 @@ internal class ChartDataController(
     }
 
     fun resetPrimaryChartContext() {
+        marketProcessingJob?.cancel()
+        synchronized(explicitGenerationLock) { explicitProcessingGeneration += 1L }
         currentObservedCandles = SourcedCandles.EMPTY
         clearPrependedHistory()
     }
 
     fun connectLive() {
-        scope.launch {
-            webSocket.subscribe(symbolFlow.value, timeframeFlow.value)
-        }
+        scope.launch { webSocket.subscribe(symbolFlow.value, timeframeFlow.value) }
     }
 
     fun disconnectLive() {
-        scope.launch {
-            webSocket.disconnectAll()
-        }
+        scope.launch { webSocket.disconnectAll() }
     }
 
     fun toggleLive(currentlyEnabled: Boolean) {
@@ -425,9 +424,6 @@ internal class ChartDataController(
     }
 }
 
-/**
- * Zero-copy concatenation of the prepended history and the Room-observed candles.
- */
 internal class ConcatenatedCandleList(
     private val older: List<Candle>,
     private val newer: List<Candle>,
