@@ -1,5 +1,9 @@
 package com.foxtrader.app.feature.chart.presentation
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.foxtrader.app.domain.model.ChartBarMode
 
 /**
@@ -58,6 +62,26 @@ data class IndicatorReadiness(
     val label: String,
     val missingBars: Int = 0,
 )
+
+/**
+ * Primary-chart runtime snapshot consumed by the indicator command center.
+ *
+ * This lives in presentation scope (not domain) and is published only after a
+ * completed chart computation is mapped to UI state. Compose state means an
+ * open indicator panel updates immediately when history loads or the user
+ * switches between Time/Heikin/Renko without coupling the panel to a ViewModel.
+ */
+object ChartIndicatorRuntime {
+    var candleCount: Int by mutableIntStateOf(0)
+        private set
+    var barMode: ChartBarMode by mutableStateOf(ChartBarMode.TIME)
+        private set
+
+    fun publish(candleCount: Int, barMode: ChartBarMode) {
+        this.candleCount = candleCount.coerceAtLeast(0)
+        this.barMode = barMode
+    }
+}
 
 object IndicatorReadinessCatalog {
     fun status(
