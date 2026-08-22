@@ -45,9 +45,6 @@ import kotlinx.collections.immutable.persistentListOf
  */
 @Immutable
 data class IndicatorToggles(
-    // All overlays are OFF by default so the chart opens clean — no EMA, SMC
-    // zones, structure labels, TradePro overlay, or oscillator panes. The user
-    // opts into studies via the indicator panel.
     val ema: Boolean = false,
     val bollinger: Boolean = false,
     val superTrend: Boolean = false,
@@ -55,11 +52,8 @@ data class IndicatorToggles(
     val vwap: Boolean = false,
     val anchoredVwap: Boolean = false,
     val ichimoku: Boolean = false,
-    /** Keltner Channels (EMA ± ATR×mult) — volatility envelope overlay. */
     val keltner: Boolean = false,
-    /** Donchian Channels (highest high / lowest low) — breakout envelope overlay. */
     val donchian: Boolean = false,
-    /** Daily floor-trader pivot levels (P / R1-R3 / S1-S3) — overlay. */
     val pivotPoints: Boolean = false,
     val volumeProfile: Boolean = false,
     val marketProfile: Boolean = false,
@@ -71,41 +65,23 @@ data class IndicatorToggles(
     val liquidity: Boolean = false,
     val sessions: Boolean = false,
     val structure: Boolean = false,
-    // --- Strategy-as-Indicator overlays (gated independently of their engines) ---
     val litX: Boolean = false,
     val lit: Boolean = false,
     val sms: Boolean = false,
     val smt: Boolean = false,
     val tradePro: Boolean = false,
-    /** Closed-bar Deriv M1 setup for 3-minute CALL/PUT contracts. */
     val binary3m: Boolean = false,
-    // --- Separate-pane ("study") indicators, rendered in the resizable pane
-    // stack below the price chart rather than as overlays (R3). ---
     val rsi: Boolean = false,
     val macd: Boolean = false,
     val volume: Boolean = false,
-    /** Stochastic oscillator (%K/%D) pane. */
     val stochastic: Boolean = false,
-    /** On-Balance Volume pane — cumulative volume pressure. */
     val obv: Boolean = false,
-    /** Money Flow Index pane — volume-weighted RSI. */
     val moneyFlowIndex: Boolean = false,
     val smcVisualMode: SmcVisualMode = SmcVisualMode.PROFESSIONAL,
-
-    /**
-     * The strategy currently plotted on the chart, or null for none.
-     *
-     * [activeStrategy], [activeBlueprintId], and [allStrategies] are mutually
-     * exclusive. Built-in "all" scans remain bounded to 180 bars / 12 signals
-     * per strategy.
-     */
     val activeStrategy: StrategyType? = null,
-    /** Saved visual-builder strategy plotted with the same engine as backtests. */
     val activeBlueprintId: String? = null,
-    /** When true, scan every strategy and render all their markers at once. */
     val allStrategies: Boolean = false,
 ) {
-    /** True when any study/overlay/strategy is enabled (drives "Clear all"). */
     val anyActive: Boolean
         get() = ema || bollinger || superTrend || parabolicSar || vwap || anchoredVwap ||
             ichimoku || keltner || donchian || pivotPoints || volumeProfile || marketProfile ||
@@ -113,6 +89,78 @@ data class IndicatorToggles(
             liquidity || sessions || structure || litX || lit || sms || smt || tradePro || binary3m ||
             rsi || macd || volume || stochastic || obv || moneyFlowIndex ||
             activeStrategy != null || activeBlueprintId != null || allStrategies
+
+    val smcSuiteActive: Boolean
+        get() = structure && orderBlocks && fairValueGaps && liquidity && sessions
+
+    fun withSmcSuite(enabled: Boolean): IndicatorToggles = copy(
+        structure = enabled,
+        orderBlocks = enabled,
+        fairValueGaps = enabled,
+        liquidity = enabled,
+        sessions = enabled,
+    )
+
+    fun withLitXSuite(enabled: Boolean): IndicatorToggles = if (enabled) {
+        copy(litX = true, structure = true, orderBlocks = true, fairValueGaps = true, liquidity = true, sessions = true)
+    } else copy(litX = false)
+
+    fun withLitSuite(enabled: Boolean): IndicatorToggles = if (enabled) {
+        copy(lit = true, structure = true, orderBlocks = true, fairValueGaps = true, liquidity = true, sessions = true)
+    } else copy(lit = false)
+
+    fun withSmsSuite(enabled: Boolean): IndicatorToggles = if (enabled) {
+        copy(sms = true, structure = true, liquidity = true)
+    } else copy(sms = false)
+
+    fun withSmtSuite(enabled: Boolean): IndicatorToggles = if (enabled) {
+        copy(smt = true, structure = true, liquidity = true)
+    } else copy(smt = false)
+
+    fun withTradeProSuite(enabled: Boolean): IndicatorToggles = if (enabled) {
+        copy(
+            tradePro = true,
+            structure = true,
+            orderBlocks = true,
+            fairValueGaps = true,
+            liquidity = true,
+            sessions = true,
+            confluence = true,
+        )
+    } else copy(tradePro = false)
+
+    val institutionalSuiteActive: Boolean
+        get() = smcSuiteActive && litX && lit && sms && smt && tradePro
+
+    fun withInstitutionalSuite(enabled: Boolean): IndicatorToggles = if (enabled) {
+        copy(
+            structure = true,
+            orderBlocks = true,
+            fairValueGaps = true,
+            liquidity = true,
+            sessions = true,
+            confluence = true,
+            litX = true,
+            lit = true,
+            sms = true,
+            smt = true,
+            tradePro = true,
+        )
+    } else {
+        copy(
+            structure = false,
+            orderBlocks = false,
+            fairValueGaps = false,
+            liquidity = false,
+            sessions = false,
+            confluence = false,
+            litX = false,
+            lit = false,
+            sms = false,
+            smt = false,
+            tradePro = false,
+        )
+    }
 }
 
 enum class ChartBacktestRange(val label: String, val days: Int?) {
@@ -157,31 +205,19 @@ data class ChartBacktestState(
     val hasResult: Boolean get() = strategyName != null && !isRunning && error == null
 }
 
-/**
- * Immutable UI state for the Chart screen (MVVM).
- * The View is a pure function of this state.
- */
 @Immutable
 data class ChartUiState(
-    // --- Core market data ---
     val symbol: String = "EURUSD",
-    /** Market-data source selected for this chart. */
     val dataProvider: DataProvider = DataProvider.DUKASCOPY,
     val timeframe: Timeframe = Timeframe.M15,
     val barMode: ChartBarMode = ChartBarMode.TIME,
     val renkoSize: Double = 10.0,
     val candles: CandleSeries = CandleSeries.EMPTY,
-    /**
-     * Provenance of [candles]. Drives the SIMULATED DATA banner and the
-     * decision engine's data-integrity veto.
-     */
     val dataSource: CandleSource = CandleSource.CACHED,
     val bias: Bias = Bias.NEUTRAL,
-
-    // --- Technical analysis ---
     val structureBreaks: ImmutableList<StructureBreak> = persistentListOf(),
-    val emaShort: ImmutableDoubleSeries? = null,  // EMA(20)
-    val emaLong: ImmutableDoubleSeries? = null,   // EMA(50)
+    val emaShort: ImmutableDoubleSeries? = null,
+    val emaLong: ImmutableDoubleSeries? = null,
     val bollingerUpper: ImmutableDoubleSeries? = null,
     val bollingerMiddle: ImmutableDoubleSeries? = null,
     val bollingerLower: ImmutableDoubleSeries? = null,
@@ -204,8 +240,6 @@ data class ChartUiState(
     val donchianMiddle: ImmutableDoubleSeries? = null,
     val donchianLower: ImmutableDoubleSeries? = null,
     val pivotLevels: PivotPoints.PivotLevels? = null,
-
-    // --- Smart Money Concepts ---
     val orderBlocks: ImmutableList<OrderBlock> = persistentListOf(),
     val fairValueGaps: ImmutableList<FairValueGap> = persistentListOf(),
     val liquidityPools: ImmutableList<LiquidityPool> = persistentListOf(),
@@ -216,7 +250,7 @@ data class ChartUiState(
     val signalFusion: SignalFusionResult? = null,
     val smtDivergences: List<SmtDivergenceDetector.SmtDivergence> = emptyList(),
     val signals: List<ChartSignal> = emptyList(),
-    val showSignalHistory: Boolean = false,
+    val showSignalHistory: Boolean = true,
     val volumeProfile: com.foxtrader.app.domain.model.VolumeProfile? = null,
     val marketProfile: MarketProfile.ProfileResult? = null,
     val supportResistanceZones: ImmutableList<SupportResistanceDetector.SRZone> = persistentListOf(),
@@ -224,55 +258,32 @@ data class ChartUiState(
     val autoFibDirection: Direction? = null,
     val autoFibSwingHigh: Double? = null,
     val autoFibSwingLow: Double? = null,
-
-    // --- Trading sessions ---
     val sessions: ImmutableList<SessionRange> = persistentListOf(),
-
-    // --- Drawing tools ---
     val drawings: ImmutableList<ChartDrawing> = persistentListOf(),
     val drawingMode: DrawingMode = DrawingMode.NONE,
     val activeTool: DrawingToolType? = null,
     val showDrawingToolbar: Boolean = false,
-
-    // --- Indicator / symbol / connection UI ---
     val indicators: IndicatorToggles = IndicatorToggles(),
     val showIndicatorPanel: Boolean = false,
     val showSymbolPicker: Boolean = false,
     val showCalculator: Boolean = false,
-    /** On-chart, non-repainting backtest result and marker state. */
     val chartBacktest: ChartBacktestState = ChartBacktestState(),
-    /** Saved visual-builder strategies available to the chart indicator panel. */
     val strategyBlueprints: ImmutableList<StrategyBlueprint> = persistentListOf(),
-    /**
-     * Symbols from the user's active watchlist. Empty until the repository
-     * emits. The seed list now lives in WatchlistRepositoryImpl and is a
-     * starting point the user can edit, not a compiled-in list.
-     */
     val availableSymbols: ImmutableList<String> = persistentListOf(),
-    /** Active (default) watchlist id, or null before the first emission. */
     val activeWatchlistId: String? = null,
     val connectionState: ConnectionState = ConnectionState.DISCONNECTED,
-    /** Freshness is separate from provenance: real cached bars are not automatically LIVE. */
     val dataFreshness: MarketDataFreshness = MarketDataFreshness.CACHED,
-    /** Age of the newest bar open time, used for diagnostics/status surfaces. */
     val dataAgeMs: Long? = null,
-    /** True only when a compatible live route exists for the active symbol. */
     val liveAvailable: Boolean = false,
     val liveEnabled: Boolean = false,
-
-    // --- Loading / error ---
     val isLoading: Boolean = true,
     val isLoadingOlder: Boolean = false,
     val historyEndReached: Boolean = false,
     val error: String? = null,
-
-    // --- AI / Market Context ---
     val aiDecision: DecisionResult? = null,
     val marketExplanation: MarketExplanation? = null,
     val confluence: ConfluenceEngine.ConfluenceResult? = null,
     val syncedCrosshairTimestamp: Long? = null,
-
-    // --- Oscillator sub-panels ---
     val rsiValues: ImmutableDoubleSeries? = null,
     val macdLine: ImmutableDoubleSeries? = null,
     val macdSignal: ImmutableDoubleSeries? = null,
@@ -284,11 +295,7 @@ data class ChartUiState(
 ) {
     val lastPrice: Double? get() = candles.lastOrNull()?.close
     val hasData: Boolean get() = candles.isNotEmpty()
-
-    /** True when the chart is rendering generated bars rather than real prices. */
     val isSyntheticData: Boolean get() = hasData && dataSource == CandleSource.SYNTHETIC
-
     val hasSmcData: Boolean
         get() = orderBlocks.isNotEmpty() || fairValueGaps.isNotEmpty() || liquidityPools.isNotEmpty()
-
 }

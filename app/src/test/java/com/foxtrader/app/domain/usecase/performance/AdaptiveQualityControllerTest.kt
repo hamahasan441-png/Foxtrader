@@ -34,14 +34,10 @@ class AdaptiveQualityControllerTest {
         }
     }
 
-    private val excellentMs = 4f    // ~24% of budget
-    private val goodMs = 10f        // ~60%
-    private val degradedMs = 20f    // ~120%
-    private val criticalMs = 40f    // ~240%
-
-    // ========================================================================
-    // DEFAULTS
-    // ========================================================================
+    private val excellentMs = 4f
+    private val goodMs = 10f
+    private val degradedMs = 20f
+    private val criticalMs = 40f
 
     @Test
     fun `starts at full quality`() {
@@ -49,21 +45,15 @@ class AdaptiveQualityControllerTest {
         assertTrue(controller.getSettings(QualityLevel.ULTRA).volumeProfile)
     }
 
-    // ========================================================================
-    // DOWNGRADE PATH
-    // ========================================================================
-
     @Test
     fun `a single critical frame downgrades immediately`() {
         runFrames(criticalMs, times = 1)
-
         assertEquals(QualityLevel.HIGH, controller.getCurrentLevel())
     }
 
     @Test
     fun `sustained critical frames walk all the way down to minimal`() {
         runFrames(criticalMs, times = 10)
-
         assertEquals(QualityLevel.MINIMAL, controller.getCurrentLevel())
     }
 
@@ -79,7 +69,7 @@ class AdaptiveQualityControllerTest {
     @Test
     fun `a recovered frame resets the degraded streak`() {
         runFrames(degradedMs, times = AdaptiveQualityController.DOWNGRADE_THRESHOLD - 1)
-        runFrames(goodMs, times = 1) // one healthy frame breaks the streak
+        runFrames(goodMs, times = 1)
         runFrames(degradedMs, times = AdaptiveQualityController.DOWNGRADE_THRESHOLD - 1)
 
         assertEquals(
@@ -92,15 +82,9 @@ class AdaptiveQualityControllerTest {
     @Test
     fun `minimal is the floor`() {
         controller.forceLevel(QualityLevel.MINIMAL)
-
         runFrames(criticalMs, times = 20)
-
         assertEquals(QualityLevel.MINIMAL, controller.getCurrentLevel())
     }
-
-    // ========================================================================
-    // UPGRADE PATH
-    // ========================================================================
 
     @Test
     fun `upgrade requires sustained excellent performance`() {
@@ -138,19 +122,12 @@ class AdaptiveQualityControllerTest {
     @Test
     fun `ultra is the ceiling`() {
         runFrames(excellentMs, times = AdaptiveQualityController.UPGRADE_THRESHOLD * 3)
-
         assertEquals(QualityLevel.ULTRA, controller.getCurrentLevel())
     }
-
-    // ========================================================================
-    // HYSTERESIS / STABILITY
-    // ========================================================================
 
     @Test
     fun `merely acceptable performance holds the current level`() {
         controller.forceLevel(QualityLevel.MEDIUM)
-
-        // ~90% of budget: inside the frame budget but with no headroom.
         runFrames(15f, times = 200)
 
         assertEquals(
@@ -174,30 +151,24 @@ class AdaptiveQualityControllerTest {
         )
     }
 
-    // ========================================================================
-    // SETTINGS LADDER
-    // ========================================================================
-
     @Test
-    fun `each level drops progressively more work`() {
+    fun `each level drops progressively more work without hiding selected indicators`() {
         val ultra = controller.getSettings(QualityLevel.ULTRA)
         val medium = controller.getSettings(QualityLevel.MEDIUM)
         val low = controller.getSettings(QualityLevel.LOW)
         val minimal = controller.getSettings(QualityLevel.MINIMAL)
 
-        // MEDIUM drops the volume profile (the most expensive overlay).
         assertTrue(ultra.volumeProfile)
         assertFalse(medium.volumeProfile)
-
-        // LOW additionally drops sessions and structure annotations.
         assertTrue(medium.sessions)
         assertFalse(low.sessions)
         assertFalse(low.structureAnnotations)
 
-        // MINIMAL is candles only.
+        // Emergency mode strips decoration but keeps a small indicator budget so
+        // a user-selected EMA/RSI/etc never disappears and looks broken.
         assertFalse(minimal.gridLines)
-        assertFalse(minimal.indicators)
-        assertEquals(0, minimal.maxVisibleIndicatorPoints)
+        assertTrue(minimal.indicators)
+        assertEquals(AdaptiveQualityController.MINIMAL_INDICATOR_POINT_BUDGET, minimal.maxVisibleIndicatorPoints)
     }
 
     @Test
@@ -215,18 +186,14 @@ class AdaptiveQualityControllerTest {
     @Test
     fun `evaluate returns the settings for the active level`() {
         controller.forceLevel(QualityLevel.LOW)
-
         val settings = runFramesReturning(goodMs)
-
         assertEquals(controller.getSettings(QualityLevel.LOW), settings)
     }
 
     @Test
     fun `reset restores full quality`() {
         controller.forceLevel(QualityLevel.MINIMAL)
-
         controller.reset()
-
         assertEquals(QualityLevel.ULTRA, controller.getCurrentLevel())
     }
 
@@ -235,25 +202,17 @@ class AdaptiveQualityControllerTest {
         assertEquals(controller.getSettings(QualityLevel.ULTRA), QualitySettings.FULL)
     }
 
-    // ========================================================================
-    // PERFORMANCE MODE / QUALITY CEILING
-    // ========================================================================
-
     @Test
     fun `setting a ceiling clamps the current level up to it`() {
         assertEquals(QualityLevel.ULTRA, controller.getCurrentLevel())
-
         controller.setQualityCeiling(QualityLevel.HIGH)
-
         assertEquals(QualityLevel.HIGH, controller.getCurrentLevel())
     }
 
     @Test
     fun `forceLevel cannot exceed the ceiling`() {
         controller.setQualityCeiling(QualityLevel.MEDIUM)
-
         controller.forceLevel(QualityLevel.ULTRA)
-
         assertEquals(QualityLevel.MEDIUM, controller.getCurrentLevel())
     }
 
@@ -261,7 +220,6 @@ class AdaptiveQualityControllerTest {
     fun `auto-restore stops at the ceiling`() {
         controller.setQualityCeiling(QualityLevel.HIGH)
         controller.forceLevel(QualityLevel.MINIMAL)
-
         runFrames(excellentMs, times = AdaptiveQualityController.UPGRADE_THRESHOLD * 6)
 
         assertEquals(
@@ -274,7 +232,6 @@ class AdaptiveQualityControllerTest {
     @Test
     fun `degradation below the ceiling is still allowed under load`() {
         controller.setQualityCeiling(QualityLevel.HIGH)
-
         runFrames(criticalMs, times = 10)
 
         assertEquals(
@@ -288,7 +245,6 @@ class AdaptiveQualityControllerTest {
     fun `default ceiling imposes no cap`() {
         controller.forceLevel(QualityLevel.MINIMAL)
         runFrames(excellentMs, times = AdaptiveQualityController.UPGRADE_THRESHOLD * 6)
-
         assertEquals(QualityLevel.ULTRA, controller.getCurrentLevel())
     }
 
