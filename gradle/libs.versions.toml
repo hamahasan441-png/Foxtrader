@@ -46,7 +46,8 @@ immutableCollections = "0.3.8"
 datastore = "1.1.1"
 
 # WorkManager (background tasks)
-work = "2.9.1"
+# 2.10.x includes Android 15/16 scheduling and service-lifecycle hardening.
+work = "2.10.1"
 hiltWork = "1.2.0"
 
 # Security (encrypted storage)
@@ -146,7 +147,7 @@ kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 androidx-benchmark-macro-junit4 = { group = "androidx.benchmark", name = "benchmark-macro-junit4", version.ref = "benchmarkMacro" }
-androidx-test-uiautomator = { group = "androidx.test.uiautomator", name = "uiautomator", version.ref = "uiautomator" }
+androidx-test-uiautomator = { group = "androidx.test", name = "uiautomator", version.ref = "uiautomator" }
 androidx-profileinstaller = { group = "androidx.profileinstaller", name = "profileinstaller", version.ref = "profileInstaller" }
 leakcanary-android = { group = "com.squareup.leakcanary", name = "leakcanary-android", version.ref = "leakcanary" }
 
