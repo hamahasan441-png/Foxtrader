@@ -16,6 +16,11 @@ enum class StructureBreakType { BOS, CHOCH, MSS, IDM }
 /**
  * A break of market structure — BOS (continuation), CHOCH (reversal),
  * MSS (strong shift), or IDM (inducement).
+ *
+ * [labelOverride] is presentation metadata for confirmed domain-derived events
+ * that reuse the structure renderer (for example LiT Pro Pullback / POI / SCOB).
+ * It defaults to null so the core market-structure engine and serialized/replay
+ * semantics remain unchanged.
  */
 data class StructureBreak(
     val type: StructureBreakType,
@@ -24,6 +29,7 @@ data class StructureBreak(
     val breakTimestamp: Long,
     val breakIndex: Int,
     val confirmed: Boolean,
+    val labelOverride: String? = null,
 )
 
 /** Aggregate market-structure state for a series of candles. */

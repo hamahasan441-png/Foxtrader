@@ -59,12 +59,17 @@ internal fun DrawScope.drawStructureLayer(
         drawLine(color, Offset(x, y + DiamondHalfHeight), Offset(x - DiamondHalfWidth, y), strokeWidth = 1.5f)
         drawLine(color, Offset(x - DiamondHalfWidth, y), Offset(x, y - DiamondHalfHeight), strokeWidth = 1.5f)
 
-        val label = when (brk.type) {
+        val defaultLabel = when (brk.type) {
             StructureBreakType.BOS -> "BOS"
             StructureBreakType.CHOCH -> "CHoCH"
             StructureBreakType.MSS -> "MSS"
             StructureBreakType.IDM -> "IDM"
         }
+        val label = brk.labelOverride
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?.take(MAX_LABEL_LENGTH)
+            ?: defaultLabel
         labelPaint.color = when (brk.direction) {
             Direction.BULLISH -> StructureBullishLabelArgb
             Direction.BEARISH -> StructureBearishLabelArgb
@@ -98,3 +103,5 @@ internal fun DrawScope.drawLivePriceLine(
         )
     }
 }
+
+private const val MAX_LABEL_LENGTH = 18
