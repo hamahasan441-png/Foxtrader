@@ -23,6 +23,51 @@ class MarketProviderRouter @Inject constructor(
     fun classify(symbol: String): MarketAssetClass = MarketSymbolClassifier.classify(symbol)
 
     /**
+     * True when [provider] is a legitimate venue for [symbol]'s asset class.
+     *
+     * This is intentionally public so Markets/Scanner and symbol pickers can
+     * filter their rows before trying a network request. It prevents a global
+     * mixed-asset watchlist from asking Binance for EURUSD or Dukascopy for a
+     * USDT spot pair and then presenting the resulting synthetic fallback as if
+     * it were a provider problem.
+     */
+    fun supportsSymbol(provider: DataProvider, symbol: String): Boolean {
+        if (symbol.isBlank() || !provider.implemented) return false
+        return providerSupportsAsset(provider, classify(symbol))
+    }
+
+    /**
+     * Safe starter symbols for each implemented provider.
+     *
+     * These are not claimed to be an exhaustive instrument directory. They are
+     * provider-native examples used to recover from an incompatible symbol when
+     * a user switches venues, and to seed provider-aware UI surfaces. Broker
+     * account symbol discovery (notably MT4 suffixes) remains authoritative.
+     */
+    fun defaultSymbolsFor(provider: DataProvider): List<String> = when (provider) {
+        DataProvider.SAMPLE -> listOf("EURUSD", "BTCUSDT", "AAPL")
+        DataProvider.BINANCE,
+        DataProvider.BYBIT,
+        DataProvider.OKX,
+        DataProvider.KUCOIN -> listOf("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT")
+        DataProvider.DUKASCOPY -> listOf(
+            "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "XAUUSD", "XAGUSD", "US30", "NAS100",
+        )
+        DataProvider.DERIV -> listOf(
+            "R_100", "R_75", "R_50", "R_25", "R_10", "frxEURUSD", "frxGBPUSD", "frxUSDJPY",
+        )
+        DataProvider.ALPHA_VANTAGE -> listOf("EURUSD", "AAPL", "MSFT", "NVDA")
+        DataProvider.POLYGON -> listOf("AAPL", "MSFT", "NVDA", "TSLA")
+        DataProvider.TWELVE_DATA -> listOf("EURUSD", "AAPL", "MSFT", "BTCUSD")
+        DataProvider.MT4 -> listOf("EURUSD", "GBPUSD", "USDJPY", "XAUUSD")
+        DataProvider.OANDA,
+        DataProvider.ALPACA,
+        DataProvider.INTERACTIVE_BROKERS -> emptyList()
+    }
+
+    fun defaultSymbolFor(provider: DataProvider): String? = defaultSymbolsFor(provider).firstOrNull()
+
+    /**
      * Resolve the historical provider selected by the user.
      *
      * Provider identity is strict: FoxTrader must never fetch history from one
@@ -60,7 +105,6 @@ class MarketProviderRouter @Inject constructor(
         preferred: DataProvider = appPreferences.dataProvider.value,
     ): Boolean = liveProviderFor(symbol, preferred) != null
 
-
     private fun providerSupportsAsset(provider: DataProvider, asset: MarketAssetClass): Boolean = when (provider) {
         DataProvider.SAMPLE -> true
         DataProvider.BINANCE,
@@ -89,5 +133,4 @@ class MarketProviderRouter @Inject constructor(
             !appPreferences.getMetaApiAccountId().isNullOrBlank()
         else -> !provider.requiresApiKey || !appPreferences.getApiKey(provider).isNullOrBlank()
     }
-
 }

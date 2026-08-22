@@ -76,7 +76,13 @@ class DukascopyDataSource @Inject constructor(
         var currentHourEpochMs = floorToHour(beforeTimestamp)
 
         val hoursNeededEstimate = max(2, calculateHoursNeeded(timeframe, safeLimit))
-        val maxHourWalk = hoursNeededEstimate * 3 // generous allowance for weekends/holidays
+        // A tiny request (including Settings -> Test connection) used to search
+        // only 6-12 hours backwards. On Saturday/Sunday that never reached the
+        // last Friday session, so a healthy Dukascopy connection was reported as
+        // "connected but returned no candle data". Keep a four-day minimum
+        // search horizon for small requests while retaining the existing scaled
+        // horizon for large history loads.
+        val maxHourWalk = max(hoursNeededEstimate * 3, MIN_MARKET_GAP_LOOKBACK_HOURS)
 
         var hoursWalked = 0
         var emptyConsecutiveHours = 0
@@ -243,6 +249,7 @@ class DukascopyDataSource @Inject constructor(
         private const val FETCH_BATCH_HOURS = 8
         private const val LIVE_POLL_BATCH_HOURS = 2
         private const val LIVE_POLL_LIMIT_THRESHOLD = 5
-        private const val MAX_EMPTY_HOURS = 72
+        private const val MIN_MARKET_GAP_LOOKBACK_HOURS = 96
+        private const val MAX_EMPTY_HOURS = MIN_MARKET_GAP_LOOKBACK_HOURS
     }
 }
