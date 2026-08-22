@@ -14,10 +14,16 @@ import kotlin.math.roundToInt
 
 /**
  * Phase 13 fusion layer. It does not invent a trade by voting: TradePro may only
- * remain executable if its own setup was already EXECUTE. Independent LiTX,
- * LIT, SMS and SMT evidence can strengthen confidence or veto a conflicted setup.
+ * remain executable if its own setup was already EXECUTE.
+ *
+ * Raw LiTX, LiT, SMS, SMT and TradePro components remain visible for diagnostics,
+ * but correlated engines are reduced to evidence families before weighting.
+ * LiTX/LiT/SMS share structure/liquidity primitives and therefore cannot count
+ * as three independent confirmations merely because they have different names.
  */
-class SignalFusionEngine @Inject constructor() {
+class SignalFusionEngine @Inject constructor(
+    private val evidenceReducer: SignalEvidenceReducer = SignalEvidenceReducer(),
+) {
 
     data class Output(
         val tradePro: TradeProAnalysis?,
@@ -62,16 +68,34 @@ class SignalFusionEngine @Inject constructor() {
             )
         }
 
-        val targetDirection = tradePro?.setup?.direction ?: weightedDirection(components)
-        if (targetDirection == null) {
+        // Keep all raw components in the returned audit object, but use only one
+        // representative per correlated evidence-family/direction for math.
+        val evidence = evidenceReducer.reduce(components)
+        if (evidence.isEmpty()) {
             return Output(
                 tradePro = tradePro,
-                fusion = SignalFusionResult(null, 50, false, true, components, emptyList(), "Phase 13 evidence is directionally balanced."),
+                fusion = SignalFusionResult(null, 0, false, false, components, emptyList(), "No active signal evidence."),
             )
         }
 
-        val supportive = components.filter { it.direction == targetDirection }
-        val opposing = components.filter { it.direction != null && it.direction != targetDirection }
+        val targetDirection = tradePro?.setup?.direction ?: weightedDirection(evidence)
+        if (targetDirection == null) {
+            return Output(
+                tradePro = tradePro,
+                fusion = SignalFusionResult(
+                    null,
+                    50,
+                    false,
+                    true,
+                    components,
+                    emptyList(),
+                    "Phase 13 evidence is directionally balanced after correlation reduction.",
+                ),
+            )
+        }
+
+        val supportive = evidence.filter { it.direction == targetDirection }
+        val opposing = evidence.filter { it.direction != null && it.direction != targetDirection }
         val supportWeight = supportive.sumOf { weight(it.name) }
         val oppositionWeight = opposing.sumOf { weight(it.name) }
         val supportQuality = if (supportWeight > 0.0) {
@@ -79,22 +103,23 @@ class SignalFusionEngine @Inject constructor() {
         } else 0.0
         val totalWeight = supportWeight + oppositionWeight
         val oppositionRatio = if (totalWeight > 0.0) oppositionWeight / totalWeight else 0.0
-        val diversityBoost = ((supportive.map { it.name }.distinct().size - 1).coerceAtLeast(0) * 3.0).coerceAtMost(9.0)
+        val supportiveFamilies = evidenceReducer.distinctFamilyCount(supportive)
+        val diversityBoost = ((supportiveFamilies - 1).coerceAtLeast(0) * 3.0).coerceAtMost(9.0)
         val fusedScore = (supportQuality + diversityBoost - oppositionRatio * 42.0).roundToInt().coerceIn(0, 100)
         val hardConflict = opposing.any { it.score >= HARD_CONFLICT_SCORE } || oppositionRatio >= HARD_CONFLICT_RATIO
-        val strong = !hardConflict && fusedScore >= STRONG_SCORE && supportive.map { it.name }.distinct().size >= 2
+        val strong = !hardConflict && fusedScore >= STRONG_SCORE && supportiveFamilies >= 2
 
         val confirmations = supportive
             .sortedByDescending { it.score }
-            .map { "${it.name}:${it.score}" }
+            .map { "${evidenceReducer.family(it.name).name}:${it.name}:${it.score}" }
         val narrative = buildString {
             append(targetDirection.name)
             append(" fusion ")
             append(fusedScore)
             append("/100")
-            if (hardConflict) append(" — BLOCKED by opposing institutional evidence")
-            else if (strong) append(" — multi-engine confirmation")
-            else append(" — partial confirmation")
+            if (hardConflict) append(" — BLOCKED by opposing evidence family")
+            else if (strong) append(" — multi-family confirmation")
+            else append(" — partial/correlated confirmation")
         }
         val fusion = SignalFusionResult(
             direction = targetDirection,
@@ -117,7 +142,9 @@ class SignalFusionEngine @Inject constructor() {
                 setup.stage == SetupStage.EXECUTE -> ((setup.confidence * 0.55) + (fusedScore * 0.45)).roundToInt().coerceIn(0, 100)
                 else -> setup.confidence
             }
-            val tags = setup.confluences + confirmations.map { "PH13_${it.substringBefore(':').uppercase()}" }
+            val tags = setup.confluences + confirmations.map { confirmation ->
+                "PH13_${confirmation.substringAfter(':').substringBefore(':').uppercase()}"
+            }
             val noteSuffix = if (shouldBlock) {
                 " Phase 13 gate: ${fusion.narrative}. Re-review after fresh confirmation."
             } else {
