@@ -450,7 +450,17 @@ class MetaApiDataSource @Inject constructor(
         token: String,
         accountId: String,
         positionId: Long,
-    ): Double? = getClosedPositionDetails(token, accountId, positionId)?.realizedProfit
+    ): Double? {
+        require(positionId > 0L) { "Position id must be positive" }
+        val region = resolveRegion(token, accountId)
+        val deals = api.getDealsByPosition(
+            url = MetaApiEndpointResolver.clientUrl(
+                region, accountId, "history-deals", "position", positionId.toString()
+            ),
+            authToken = token,
+        )
+        return deals.realizedProfitOrNull()
+    }
 
     /**
      * Reconstructs a closed position from authoritative history deals. The
@@ -473,19 +483,12 @@ class MetaApiDataSource @Inject constructor(
         )
         if (deals.isEmpty()) return null
         val exits = deals.filter { deal ->
-            deal.entryType.uppercase() in setOf("DEAL_ENTRY_OUT", "DEAL_ENTRY_INOUT", "DEAL_ENTRY_OUT_BY") &&
+            deal.entryType.uppercase() in EXIT_DEAL_TYPES &&
                 deal.price.isFinite() && deal.price > 0.0 && deal.volume.isFinite() && kotlin.math.abs(deal.volume) > 0.0
         }
         if (exits.isEmpty()) return null
 
-        var realized = 0.0
-        deals.forEach { deal ->
-            if (!deal.profit.isFinite() || !deal.commission.isFinite() || !deal.swap.isFinite()) {
-                throw IllegalStateException("MetaApi returned non-finite realized P/L data")
-            }
-            realized += deal.profit + deal.commission + deal.swap
-            if (!realized.isFinite()) throw IllegalStateException("MetaApi realized P/L overflow")
-        }
+        val realized = deals.realizedProfitOrNull() ?: return null
         val totalExitVolume = exits.sumOf { kotlin.math.abs(it.volume) }
         if (!totalExitVolume.isFinite() || totalExitVolume <= 0.0) return null
         val exitPrice = exits.sumOf { it.price * kotlin.math.abs(it.volume) } / totalExitVolume
@@ -497,6 +500,19 @@ class MetaApiDataSource @Inject constructor(
             exitTime = exitTime,
             realizedProfit = realized,
         )
+    }
+
+    private fun List<MetaApiDealResponse>.realizedProfitOrNull(): Double? {
+        if (none { it.entryType.uppercase() in EXIT_DEAL_TYPES }) return null
+        var realized = 0.0
+        forEach { deal ->
+            if (!deal.profit.isFinite() || !deal.commission.isFinite() || !deal.swap.isFinite()) {
+                throw IllegalStateException("MetaApi returned non-finite realized P/L data")
+            }
+            realized += deal.profit + deal.commission + deal.swap
+            if (!realized.isFinite()) throw IllegalStateException("MetaApi realized P/L overflow")
+        }
+        return realized
     }
 
     suspend fun getSymbolSpecification(
@@ -671,6 +687,7 @@ class MetaApiDataSource @Inject constructor(
     private enum class MetaApiTradeOutcome { SUCCESS, REJECTED, UNKNOWN }
 
     private companion object {
+        val EXIT_DEAL_TYPES = setOf("DEAL_ENTRY_OUT", "DEAL_ENTRY_INOUT", "DEAL_ENTRY_OUT_BY")
         val SUCCESS_NUMERIC_CODES = setOf(0, 10008, 10009, 10010, 10025)
         val SUCCESS_STRING_CODES = setOf(
             "ERR_NO_ERROR",
