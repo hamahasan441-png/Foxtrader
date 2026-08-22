@@ -14,45 +14,27 @@ import com.foxtrader.app.domain.model.OrderBlockType
 import com.foxtrader.app.domain.model.SessionRange
 import com.foxtrader.app.domain.model.VolumeProfile
 import kotlin.math.max
+import kotlin.math.min
 
 /**
- * SMC (Smart Money Concepts) chart overlay renderers.
+ * SMC chart overlay renderers.
  *
- * Draws institutional-grade visualization overlays:
- * - Order Blocks (supply/demand zones)
- * - Fair Value Gaps (price imbalances)
- * - Liquidity Pools (equal highs/lows + sweeps)
- * - Session Backgrounds (London/NY/Tokyo/Sydney highlights)
- * - Volume Profile (horizontal histogram)
- *
- * All renderers are viewport-culled: only draw elements that are visible.
- * Zero allocations in the hot path.
+ * Every external/domain geometry is validated before it reaches Compose Canvas.
+ * Invalid indices, NaN/Infinity prices, reversed rectangles and negative sizes
+ * are skipped rather than being allowed to trigger IllegalArgumentException in
+ * a draw pass when an SMC indicator is enabled.
  */
 
-// ============================================================================
-// ORDER BLOCKS
-// ============================================================================
-
-private val OB_BULLISH_COLOR = Color(0x2600C873)   // Semi-transparent green
-private val OB_BEARISH_COLOR = Color(0x26E8364F)   // Semi-transparent red
+private val OB_BULLISH_COLOR = Color(0x2600C873)
+private val OB_BEARISH_COLOR = Color(0x26E8364F)
 private val OB_BULLISH_BORDER = Color(0x6600C873)
 private val OB_BEARISH_BORDER = Color(0x66E8364F)
-
-// Target absolute opacities for order-block zones (fill is a faint tint so the
-// candles remain the visual focus; borders are more visible to mark the level).
 private const val OB_FILL_ALPHA = 0.14f
 private const val OB_FILL_ALPHA_MITIGATED = 0.05f
 private const val OB_BORDER_ALPHA = 0.45f
 private const val OB_BORDER_ALPHA_MITIGATED = 0.18f
-
-// How many bars an un-filled order block / FVG projects to the right. Keeping
-// this bounded stops old zones from stretching across the entire viewport.
 private const val ZONE_PROJECT_BARS = 60
 
-/**
- * Draw order blocks as filled rectangles with border.
- * Un-mitigated blocks are solid; mitigated blocks are faded.
- */
 fun DrawScope.drawOrderBlocks(
     orderBlocks: List<OrderBlock>,
     viewport: ChartViewport,
@@ -60,24 +42,29 @@ fun DrawScope.drawOrderBlocks(
     ch: Float,
     intensity: Float = 1f,
 ) {
+    if (!cw.isDrawableSpan() || !ch.isDrawableSpan()) return
     val startIdx = max(0, viewport.startIndex.toInt())
     val endIdx = (viewport.startIndex + viewport.visibleBars).toInt() + 1
+    val safeIntensity = intensity.coerceIn(0f, 1f)
 
     for (ob in orderBlocks) {
-        // Viewport culling: skip if entirely outside visible range
+        if (ob.startIndex < 0 || ob.endIndex < ob.startIndex) continue
+        if (!ob.highPrice.isDrawablePrice() || !ob.lowPrice.isDrawablePrice() || ob.highPrice <= ob.lowPrice) continue
         if (ob.endIndex < startIdx || ob.startIndex > endIdx) continue
 
-        val x1 = viewport.xForIndex(ob.startIndex.toFloat(), cw).coerceAtLeast(0f)
-        val x2 = viewport.xForIndex(ob.endIndex.toFloat(), cw).coerceAtMost(cw)
-        val yHigh = viewport.yForPrice(ob.highPrice, ch)
-        val yLow = viewport.yForPrice(ob.lowPrice, ch)
+        val xSpan = horizontalSpan(
+            viewport.xForIndex(ob.startIndex.toFloat(), cw),
+            viewport.xForIndex(ob.endIndex.toFloat(), cw),
+            cw,
+        ) ?: continue
+        val ySpan = verticalSpan(
+            viewport.yForPrice(ob.highPrice, ch),
+            viewport.yForPrice(ob.lowPrice, ch),
+            ch,
+        ) ?: continue
 
-        // Keep zones subtle so price action stays readable. Un-mitigated blocks
-        // are a faint tint; mitigated blocks fade further. (Previously this
-        // overrode the baked-in ~15% alpha with 1f, painting solid opaque boxes
-        // that swamped the chart.)
-        val fillAlpha = (if (ob.mitigated) OB_FILL_ALPHA_MITIGATED else OB_FILL_ALPHA) * intensity
-        val borderAlpha = (if (ob.mitigated) OB_BORDER_ALPHA_MITIGATED else OB_BORDER_ALPHA) * intensity
+        val fillAlpha = (if (ob.mitigated) OB_FILL_ALPHA_MITIGATED else OB_FILL_ALPHA) * safeIntensity
+        val borderAlpha = (if (ob.mitigated) OB_BORDER_ALPHA_MITIGATED else OB_BORDER_ALPHA) * safeIntensity
         val fillColor = when (ob.type) {
             OrderBlockType.BULLISH -> OB_BULLISH_COLOR
             OrderBlockType.BEARISH -> OB_BEARISH_COLOR
@@ -87,32 +74,15 @@ fun DrawScope.drawOrderBlocks(
             OrderBlockType.BEARISH -> OB_BEARISH_BORDER
         }.copy(alpha = borderAlpha)
 
-        // Fill
         drawRect(
             color = fillColor,
-            topLeft = Offset(x1, yHigh),
-            size = Size(x2 - x1, yLow - yHigh),
+            topLeft = Offset(xSpan.first, ySpan.first),
+            size = Size(xSpan.second - xSpan.first, ySpan.second - ySpan.first),
         )
-        // Top border
-        drawLine(
-            color = borderColor,
-            start = Offset(x1, yHigh),
-            end = Offset(x2, yHigh),
-            strokeWidth = 1f,
-        )
-        // Bottom border
-        drawLine(
-            color = borderColor,
-            start = Offset(x1, yLow),
-            end = Offset(x2, yLow),
-            strokeWidth = 1f,
-        )
+        drawLine(borderColor, Offset(xSpan.first, ySpan.first), Offset(xSpan.second, ySpan.first), 1f)
+        drawLine(borderColor, Offset(xSpan.first, ySpan.second), Offset(xSpan.second, ySpan.second), 1f)
     }
 }
-
-// ============================================================================
-// FAIR VALUE GAPS
-// ============================================================================
 
 private val FVG_BULLISH_COLOR = Color(0x2000C873)
 private val FVG_BEARISH_COLOR = Color(0x20E8364F)
@@ -120,10 +90,6 @@ private val FVG_BULLISH_BORDER = Color(0x5000C873)
 private val FVG_BEARISH_BORDER = Color(0x50E8364F)
 private val FvgDash = PathEffect.dashPathEffect(floatArrayOf(4f, 3f))
 
-/**
- * Draw Fair Value Gaps as semi-transparent zones.
- * Partially filled gaps show the remaining unfilled portion.
- */
 fun DrawScope.drawFairValueGaps(
     gaps: List<FairValueGap>,
     viewport: ChartViewport,
@@ -131,68 +97,59 @@ fun DrawScope.drawFairValueGaps(
     ch: Float,
     intensity: Float = 1f,
 ) {
+    if (!cw.isDrawableSpan() || !ch.isDrawableSpan()) return
     val startIdx = max(0, viewport.startIndex.toInt())
     val endIdx = (viewport.startIndex + viewport.visibleBars).toInt() + 1
+    val safeIntensity = intensity.coerceIn(0f, 1f)
 
     for (gap in gaps) {
-        // Skip fully filled gaps
-        if (gap.filled) continue
-        // Viewport culling
+        if (gap.filled || gap.index < 0) continue
+        if (!gap.highPrice.isDrawablePrice() || !gap.lowPrice.isDrawablePrice() || gap.highPrice <= gap.lowPrice) continue
         if (gap.index < startIdx - 50 || gap.index > endIdx) continue
 
-        val x1 = viewport.xForIndex(gap.index.toFloat(), cw)
-        // Project a bounded distance to the right instead of the full chart width,
-        // so an old un-filled gap doesn't paint a band across the whole viewport.
-        val x2 = viewport.xForIndex((gap.index + ZONE_PROJECT_BARS).toFloat(), cw).coerceAtMost(cw)
-        val yHigh = viewport.yForPrice(gap.highPrice, ch)
-        val yLow = viewport.yForPrice(gap.lowPrice, ch)
+        val xSpan = horizontalSpan(
+            viewport.xForIndex(gap.index.toFloat(), cw),
+            viewport.xForIndex((gap.index + ZONE_PROJECT_BARS).toFloat(), cw),
+            cw,
+        ) ?: continue
+        val ySpan = verticalSpan(
+            viewport.yForPrice(gap.highPrice, ch),
+            viewport.yForPrice(gap.lowPrice, ch),
+            ch,
+        ) ?: continue
 
-        val fillColor = when (gap.type) {
-            FvgType.BULLISH -> FVG_BULLISH_COLOR
-            FvgType.BEARISH -> FVG_BEARISH_COLOR
-        }.copy(alpha = (if (gap.type == FvgType.BULLISH) FVG_BULLISH_COLOR.alpha else FVG_BEARISH_COLOR.alpha) * intensity)
-        val borderColor = when (gap.type) {
-            FvgType.BULLISH -> FVG_BULLISH_BORDER
-            FvgType.BEARISH -> FVG_BEARISH_BORDER
-        }.copy(alpha = (if (gap.type == FvgType.BULLISH) FVG_BULLISH_BORDER.alpha else FVG_BEARISH_BORDER.alpha) * intensity)
+        val fillBase = if (gap.type == FvgType.BULLISH) FVG_BULLISH_COLOR else FVG_BEARISH_COLOR
+        val borderBase = if (gap.type == FvgType.BULLISH) FVG_BULLISH_BORDER else FVG_BEARISH_BORDER
+        val fillColor = fillBase.copy(alpha = fillBase.alpha * safeIntensity)
+        val borderColor = borderBase.copy(alpha = borderBase.alpha * safeIntensity)
 
-        // Fill zone
         drawRect(
             color = fillColor,
-            topLeft = Offset(x1.coerceAtLeast(0f), yHigh),
-            size = Size((x2 - x1).coerceAtLeast(0f), (yLow - yHigh).coerceAtLeast(0f)),
+            topLeft = Offset(xSpan.first, ySpan.first),
+            size = Size(xSpan.second - xSpan.first, ySpan.second - ySpan.first),
         )
-        // Border lines
         drawLine(
             color = borderColor,
-            start = Offset(x1.coerceAtLeast(0f), yHigh),
-            end = Offset(x2, yHigh),
+            start = Offset(xSpan.first, ySpan.first),
+            end = Offset(xSpan.second, ySpan.first),
             strokeWidth = 0.8f,
             pathEffect = FvgDash,
         )
         drawLine(
             color = borderColor,
-            start = Offset(x1.coerceAtLeast(0f), yLow),
-            end = Offset(x2, yLow),
+            start = Offset(xSpan.first, ySpan.second),
+            end = Offset(xSpan.second, ySpan.second),
             strokeWidth = 0.8f,
             pathEffect = FvgDash,
         )
     }
 }
 
-// ============================================================================
-// LIQUIDITY POOLS
-// ============================================================================
-
-private val LIQ_BUY_COLOR = Color(0xCC3B8DF0)   // Blue (buy-side = stops above)
-private val LIQ_SELL_COLOR = Color(0xCCE6A030)   // Orange (sell-side = stops below)
-private val LIQ_SWEPT_ALPHA = 0.3f
+private val LIQ_BUY_COLOR = Color(0xCC3B8DF0)
+private val LIQ_SELL_COLOR = Color(0xCCE6A030)
+private const val LIQ_SWEPT_ALPHA = 0.3f
 private val LiquidityDash = PathEffect.dashPathEffect(floatArrayOf(6f, 4f))
 
-/**
- * Draw liquidity pools as dashed horizontal lines with dots at touches.
- * Swept pools are faded; un-swept pools are bright.
- */
 fun DrawScope.drawLiquidityPools(
     pools: List<LiquidityPool>,
     viewport: ChartViewport,
@@ -200,60 +157,51 @@ fun DrawScope.drawLiquidityPools(
     ch: Float,
     intensity: Float = 1f,
 ) {
+    if (!cw.isDrawableSpan() || !ch.isDrawableSpan()) return
     val startIdx = max(0, viewport.startIndex.toInt())
     val endIdx = (viewport.startIndex + viewport.visibleBars).toInt() + 1
+    val safeIntensity = intensity.coerceIn(0f, 1f)
 
     for (pool in pools) {
+        if (pool.startIndex < 0 || pool.endIndex < pool.startIndex || !pool.price.isDrawablePrice()) continue
         if (pool.endIndex < startIdx || pool.startIndex > endIdx) continue
 
-        val x1 = viewport.xForIndex(pool.startIndex.toFloat(), cw).coerceAtLeast(0f)
-        val x2 = viewport.xForIndex((pool.endIndex + 10).toFloat(), cw).coerceAtMost(cw)
+        val xSpan = horizontalSpan(
+            viewport.xForIndex(pool.startIndex.toFloat(), cw),
+            viewport.xForIndex((pool.endIndex + 10).toFloat(), cw),
+            cw,
+        ) ?: continue
         val y = viewport.yForPrice(pool.price, ch)
+        if (!y.isFinite() || y < 0f || y > ch) continue
 
-        if (y < 0f || y > ch) continue
-
-        val alpha = (if (pool.swept) LIQ_SWEPT_ALPHA else 1f) * intensity
+        val alpha = (if (pool.swept) LIQ_SWEPT_ALPHA else 1f) * safeIntensity
         val color = when (pool.type) {
             LiquidityType.BUY_SIDE -> LIQ_BUY_COLOR
             LiquidityType.SELL_SIDE -> LIQ_SELL_COLOR
-        }.copy(alpha = alpha)
+        }.copy(alpha = alpha.coerceIn(0f, 1f))
 
-        // Dashed line at the liquidity level
         drawLine(
             color = color,
-            start = Offset(x1, y),
-            end = Offset(x2, y),
+            start = Offset(xSpan.first, y),
+            end = Offset(xSpan.second, y),
             strokeWidth = 1.2f,
             pathEffect = LiquidityDash,
         )
+        drawCircle(color = color, radius = 3f, center = Offset(xSpan.first, y))
+        drawCircle(color = color, radius = 3f, center = Offset(xSpan.second, y))
 
-        // Small circles at touch points (simulated: at start and end)
-        drawCircle(color = color, radius = 3f, center = Offset(x1, y))
-        drawCircle(color = color, radius = 3f, center = Offset(x2, y))
-
-        // Sweep arrow if swept
-        if (pool.swept && pool.sweepIndex != null) {
-            val sweepX = viewport.xForIndex(pool.sweepIndex.toFloat(), cw)
-            if (sweepX in 0f..cw) {
-                drawCircle(
-                    color = Color(0xFFFF5722),
-                    radius = 5f,
-                    center = Offset(sweepX, y),
-                )
+        val sweepIndex = pool.sweepIndex
+        if (pool.swept && sweepIndex != null && sweepIndex >= 0) {
+            val sweepX = viewport.xForIndex(sweepIndex.toFloat(), cw)
+            if (sweepX.isFinite() && sweepX in 0f..cw) {
+                drawCircle(color = Color(0xFFFF5722), radius = 5f, center = Offset(sweepX, y))
             }
         }
     }
 }
 
-// ============================================================================
-// SESSION BACKGROUNDS
-// ============================================================================
-
 private const val SESSION_BAND_ALPHA = 0.05f
 
-/**
- * Draw trading session backgrounds as colored vertical bands.
- */
 fun DrawScope.drawSessionBackgrounds(
     sessions: List<SessionRange>,
     viewport: ChartViewport,
@@ -261,65 +209,63 @@ fun DrawScope.drawSessionBackgrounds(
     ch: Float,
     intensity: Float = 1f,
 ) {
+    if (!cw.isDrawableSpan() || !ch.isDrawableSpan()) return
     val startIdx = max(0, viewport.startIndex.toInt())
     val endIdx = (viewport.startIndex + viewport.visibleBars).toInt() + 1
+    val alpha = (SESSION_BAND_ALPHA * intensity.coerceIn(0f, 1f)).coerceIn(0f, 1f)
 
     for (session in sessions) {
+        if (session.startIndex < 0 || session.endIndex < session.startIndex) continue
         if (session.endIndex < startIdx || session.startIndex > endIdx) continue
-
-        val x1 = viewport.xForIndex(session.startIndex.toFloat(), cw).coerceAtLeast(0f)
-        val x2 = viewport.xForIndex(session.endIndex.toFloat(), cw).coerceAtMost(cw)
-        // Clamp to a very faint tint regardless of the session colour's own alpha,
-        // so the band highlights the window without washing out the candles.
-        val color = Color(session.session.color).copy(alpha = SESSION_BAND_ALPHA)
-
+        val xSpan = horizontalSpan(
+            viewport.xForIndex(session.startIndex.toFloat(), cw),
+            viewport.xForIndex(session.endIndex.toFloat(), cw),
+            cw,
+        ) ?: continue
+        val color = Color(session.session.color).copy(alpha = alpha)
         drawRect(
             color = color,
-            topLeft = Offset(x1, 0f),
-            size = Size(x2 - x1, ch),
+            topLeft = Offset(xSpan.first, 0f),
+            size = Size(xSpan.second - xSpan.first, ch),
         )
     }
 }
-
-// ============================================================================
-// VOLUME PROFILE
-// ============================================================================
 
 private val VP_BUY_COLOR = Color(0x6600C873)
 private val VP_SELL_COLOR = Color(0x66E8364F)
 private val VP_POC_COLOR = Color(0xCCD4A84E)
 private val ValueAreaDash = PathEffect.dashPathEffect(floatArrayOf(4f, 3f))
 
-/**
- * Draw volume profile as a horizontal histogram on the right side of the chart.
- * POC (Point of Control) is highlighted.
- */
 fun DrawScope.drawVolumeProfile(
     profile: VolumeProfile,
     viewport: ChartViewport,
     cw: Float,
     ch: Float,
 ) {
-    if (profile.levels.isEmpty()) return
+    if (profile.levels.isEmpty() || !cw.isDrawableSpan() || !ch.isDrawableSpan()) return
+    val validLevels = profile.levels.filter {
+        it.priceLevel.isDrawablePrice() && it.volume.isFinite() && it.volume >= 0.0 &&
+            it.buyVolume.isFinite() && it.buyVolume >= 0.0
+    }
+    if (validLevels.isEmpty()) return
 
-    val maxVol = profile.levels.maxOf { it.volume }
-    if (maxVol <= 0) return
+    val maxVol = validLevels.maxOf { it.volume }
+    if (!maxVol.isFinite() || maxVol <= 0.0) return
+    val maxBarWidth = cw * 0.15f
+    if (!maxBarWidth.isDrawableSpan()) return
 
-    val maxBarWidth = cw * 0.15f // Max 15% of chart width
-
-    for (level in profile.levels) {
+    for (level in validLevels) {
         val y = viewport.yForPrice(level.priceLevel, ch)
-        if (y < 0f || y > ch) continue
+        if (!y.isFinite() || y < 0f || y > ch) continue
 
         val totalWidth = (level.volume / maxVol * maxBarWidth).toFloat()
-        val buyWidth = if (level.volume > 0) (level.buyVolume / level.volume * totalWidth).toFloat() else 0f
-        val sellWidth = totalWidth - buyWidth
-        val barHeight = (ch / profile.levels.size * 0.8f).coerceAtMost(8f)
-
-        // Draw from right edge of chart area inward
+        if (!totalWidth.isFinite() || totalWidth < 0f) continue
+        val buyRatio = if (level.volume > 0.0) (level.buyVolume / level.volume).coerceIn(0.0, 1.0) else 0.0
+        val buyWidth = (buyRatio * totalWidth).toFloat()
+        val sellWidth = (totalWidth - buyWidth).coerceAtLeast(0f)
+        val barHeight = (ch / validLevels.size * 0.8f).coerceIn(0.5f, 8f)
         val baseX = cw - 4f
 
-        // Buy volume (green, from right)
         if (buyWidth > 0.5f) {
             drawRect(
                 color = VP_BUY_COLOR,
@@ -327,7 +273,6 @@ fun DrawScope.drawVolumeProfile(
                 size = Size(buyWidth, barHeight),
             )
         }
-        // Sell volume (red, stacked left of buy)
         if (sellWidth > 0.5f) {
             drawRect(
                 color = VP_SELL_COLOR,
@@ -337,31 +282,46 @@ fun DrawScope.drawVolumeProfile(
         }
     }
 
-    // POC line
-    val pocY = viewport.yForPrice(profile.pocPrice, ch)
-    if (pocY in 0f..ch) {
-        drawLine(
-            color = VP_POC_COLOR,
-            start = Offset(cw * 0.7f, pocY),
-            end = Offset(cw, pocY),
-            strokeWidth = 1.5f,
-        )
-    }
-
-    // Value Area boundaries (dashed)
-    val vahY = viewport.yForPrice(profile.vahPrice, ch)
-    val valY = viewport.yForPrice(profile.valPrice, ch)
+    drawProfileLevel(profile.pocPrice, viewport, cw, ch, VP_POC_COLOR, 1.5f, null)
     val vaColor = Color(0x40D4A84E)
-    if (vahY in 0f..ch) {
-        drawLine(
-            color = vaColor, start = Offset(cw * 0.7f, vahY), end = Offset(cw, vahY),
-            strokeWidth = 0.8f, pathEffect = ValueAreaDash,
-        )
-    }
-    if (valY in 0f..ch) {
-        drawLine(
-            color = vaColor, start = Offset(cw * 0.7f, valY), end = Offset(cw, valY),
-            strokeWidth = 0.8f, pathEffect = ValueAreaDash,
-        )
-    }
+    drawProfileLevel(profile.vahPrice, viewport, cw, ch, vaColor, 0.8f, ValueAreaDash)
+    drawProfileLevel(profile.valPrice, viewport, cw, ch, vaColor, 0.8f, ValueAreaDash)
 }
+
+private fun DrawScope.drawProfileLevel(
+    price: Double,
+    viewport: ChartViewport,
+    cw: Float,
+    ch: Float,
+    color: Color,
+    strokeWidth: Float,
+    pathEffect: PathEffect?,
+) {
+    if (!price.isDrawablePrice()) return
+    val y = viewport.yForPrice(price, ch)
+    if (!y.isFinite() || y !in 0f..ch) return
+    drawLine(
+        color = color,
+        start = Offset(cw * 0.7f, y),
+        end = Offset(cw, y),
+        strokeWidth = strokeWidth,
+        pathEffect = pathEffect,
+    )
+}
+
+private fun horizontalSpan(a: Float, b: Float, width: Float): Pair<Float, Float>? {
+    if (!a.isFinite() || !b.isFinite() || !width.isDrawableSpan()) return null
+    val left = min(a, b).coerceIn(0f, width)
+    val right = max(a, b).coerceIn(0f, width)
+    return if (right - left > 0.25f) left to right else null
+}
+
+private fun verticalSpan(a: Float, b: Float, height: Float): Pair<Float, Float>? {
+    if (!a.isFinite() || !b.isFinite() || !height.isDrawableSpan()) return null
+    val top = min(a, b).coerceIn(0f, height)
+    val bottom = max(a, b).coerceIn(0f, height)
+    return if (bottom - top > 0.25f) top to bottom else null
+}
+
+private fun Double.isDrawablePrice(): Boolean = isFinite() && this > 0.0
+private fun Float.isDrawableSpan(): Boolean = isFinite() && this > 0f

@@ -18,12 +18,8 @@ import com.foxtrader.app.ui.theme.FoxBullish
 import com.foxtrader.app.ui.theme.FoxNeutral20
 import com.foxtrader.app.ui.theme.FoxNeutral60
 import kotlin.math.abs
-
-// Advanced analysis layers added in Sprint 8.3.
-//
-// - Market Profile (TPO) histogram, left-aligned
-// - Support / Resistance auto-zones
-// - Auto Fibonacci retracement grid on the dominant recent swing
+import kotlin.math.max
+import kotlin.math.min
 
 private val SupportResistanceDash = PathEffect.dashPathEffect(floatArrayOf(8f, 6f))
 private val AutoFibDash = PathEffect.dashPathEffect(floatArrayOf(6f, 4f))
@@ -38,24 +34,31 @@ internal fun DrawScope.drawSupportResistanceZones(
     ch: Float,
     labelPaint: Paint,
 ) {
-    if (zones.isEmpty()) return
+    if (zones.isEmpty() || !cw.isDrawableSpan() || !ch.isDrawableSpan()) return
     val originalAlign = labelPaint.textAlign
     for (zone in zones.take(6)) {
-        val yTop = viewport.yForPrice(zone.upperBound, ch)
-        val yBottom = viewport.yForPrice(zone.lowerBound, ch)
-        val top = minOf(yTop, yBottom)
-        val bottom = maxOf(yTop, yBottom)
-        if (bottom < 0f || top > ch) continue
+        if (!zone.upperBound.isDrawablePrice() || !zone.lowerBound.isDrawablePrice() || !zone.price.isDrawablePrice()) continue
+        if (zone.upperBound < zone.lowerBound || zone.price !in zone.lowerBound..zone.upperBound) continue
+
+        val yTopRaw = viewport.yForPrice(zone.upperBound, ch)
+        val yBottomRaw = viewport.yForPrice(zone.lowerBound, ch)
+        if (!yTopRaw.isFinite() || !yBottomRaw.isFinite()) continue
+        val top = min(yTopRaw, yBottomRaw).coerceIn(0f, ch)
+        val bottom = max(yTopRaw, yBottomRaw).coerceIn(0f, ch)
+        val height = bottom - top
+        if (height <= 0.25f) continue
 
         val baseColor = if (zone.isSupport) FoxBullish else FoxBearish
-        val alpha = (0.05f + ((zone.strength / 100.0) * 0.12f).toFloat()).coerceIn(0.05f, 0.18f)
+        val strength = if (zone.strength.isFinite()) zone.strength else 0.0
+        val alpha = (0.05f + ((strength.coerceIn(0.0, 100.0) / 100.0) * 0.12f).toFloat()).coerceIn(0.05f, 0.18f)
         drawRect(
             color = baseColor.copy(alpha = alpha),
             topLeft = Offset(0f, top),
-            size = Size(cw, (bottom - top).coerceAtLeast(1f)),
+            size = Size(cw, height),
         )
 
         val centerY = viewport.yForPrice(zone.price, ch)
+        if (!centerY.isFinite() || centerY !in 0f..ch) continue
         drawLine(
             color = baseColor.copy(alpha = 0.45f),
             start = Offset(0f, centerY),
@@ -65,11 +68,12 @@ internal fun DrawScope.drawSupportResistanceZones(
         )
 
         labelPaint.color = if (zone.isSupport) SupportLabelArgb else ResistanceLabelArgb
+        labelPaint.textAlign = Paint.Align.LEFT
         drawContext.canvas.nativeCanvas.drawText(
-            "${if (zone.isSupport) "S" else "R"} ${zone.touches}x",
+            "${if (zone.isSupport) "S" else "R"} ${zone.touches.coerceAtLeast(0)}x",
             8f,
-            centerY - 4f,
-            labelPaint.apply { textAlign = Paint.Align.LEFT },
+            (centerY - 4f).coerceIn(10f, ch),
+            labelPaint,
         )
     }
     labelPaint.textAlign = originalAlign
@@ -81,26 +85,43 @@ internal fun DrawScope.drawMarketProfile(
     cw: Float,
     ch: Float,
 ) {
-    if (profile.levels.isEmpty()) return
+    if (profile.levels.isEmpty() || !cw.isDrawableSpan() || !ch.isDrawableSpan()) return
 
-    val maxTpo = profile.levels.maxOfOrNull { it.tpoCount }?.coerceAtLeast(1) ?: 1
-    val barMaxWidth = cw * 0.18f
-    val step = if (profile.levels.size >= 2) {
-        abs(profile.levels[1].priceLevel - profile.levels[0].priceLevel).coerceAtLeast(1e-9)
-    } else {
-        (profile.profileHigh - profile.profileLow).coerceAtLeast(1e-9)
+    val validLevels = profile.levels.filter {
+        it.priceLevel.isDrawablePrice() && it.tpoCount >= 0
     }
+    if (validLevels.isEmpty()) return
 
-    for (level in profile.levels) {
-        val yTop = viewport.yForPrice(level.priceLevel + step / 2.0, ch)
-        val yBottom = viewport.yForPrice(level.priceLevel - step / 2.0, ch)
-        val top = minOf(yTop, yBottom)
-        val bottom = maxOf(yTop, yBottom)
-        if (bottom < 0f || top > ch) continue
+    val maxTpo = validLevels.maxOfOrNull { it.tpoCount }?.coerceAtLeast(1) ?: 1
+    val barMaxWidth = cw * 0.18f
+    if (!barMaxWidth.isDrawableSpan()) return
 
-        val width = (level.tpoCount.toFloat() / maxTpo.toFloat()) * barMaxWidth
-        val inValueArea = level.priceLevel in profile.valueAreaLow..profile.valueAreaHigh
-        val isPoc = abs(level.priceLevel - profile.poc) <= step / 2.0
+    val step = if (validLevels.size >= 2) {
+        abs(validLevels[1].priceLevel - validLevels[0].priceLevel)
+    } else if (profile.profileHigh.isDrawablePrice() && profile.profileLow.isDrawablePrice()) {
+        abs(profile.profileHigh - profile.profileLow)
+    } else {
+        0.0
+    }.takeIf { it.isFinite() && it > 1e-9 } ?: return
+
+    val valueAreaLow = profile.valueAreaLow.takeIf { it.isDrawablePrice() }
+    val valueAreaHigh = profile.valueAreaHigh.takeIf { it.isDrawablePrice() }
+    val hasValueArea = valueAreaLow != null && valueAreaHigh != null && valueAreaLow <= valueAreaHigh
+    val poc = profile.poc.takeIf { it.isDrawablePrice() }
+
+    for (level in validLevels) {
+        val yTopRaw = viewport.yForPrice(level.priceLevel + step / 2.0, ch)
+        val yBottomRaw = viewport.yForPrice(level.priceLevel - step / 2.0, ch)
+        if (!yTopRaw.isFinite() || !yBottomRaw.isFinite()) continue
+        val top = min(yTopRaw, yBottomRaw).coerceIn(0f, ch)
+        val bottom = max(yTopRaw, yBottomRaw).coerceIn(0f, ch)
+        val height = bottom - top
+        if (height <= 0.25f) continue
+
+        val width = ((level.tpoCount.toFloat() / maxTpo.toFloat()) * barMaxWidth)
+            .takeIf { it.isFinite() && it >= 0f } ?: continue
+        val inValueArea = hasValueArea && level.priceLevel in valueAreaLow!!..valueAreaHigh!!
+        val isPoc = poc != null && abs(level.priceLevel - poc) <= step / 2.0
         val color = when {
             isPoc -> FoxAmber50.copy(alpha = 0.36f)
             inValueArea -> FoxNeutral60.copy(alpha = 0.18f)
@@ -109,19 +130,21 @@ internal fun DrawScope.drawMarketProfile(
         drawRect(
             color = color,
             topLeft = Offset(0f, top),
-            size = Size(width.coerceAtLeast(1f), (bottom - top).coerceAtLeast(1f)),
+            size = Size(width.coerceAtLeast(1f), height.coerceAtLeast(1f)),
         )
     }
 
-    val pocY = viewport.yForPrice(profile.poc, ch)
-    if (pocY in 0f..ch) {
-        drawLine(
-            color = FoxAmber50.copy(alpha = 0.7f),
-            start = Offset(0f, pocY),
-            end = Offset(barMaxWidth, pocY),
-            strokeWidth = 1.5f,
-            cap = StrokeCap.Round,
-        )
+    if (poc != null) {
+        val pocY = viewport.yForPrice(poc, ch)
+        if (pocY.isFinite() && pocY in 0f..ch) {
+            drawLine(
+                color = FoxAmber50.copy(alpha = 0.7f),
+                start = Offset(0f, pocY),
+                end = Offset(barMaxWidth, pocY),
+                strokeWidth = 1.5f,
+                cap = StrokeCap.Round,
+            )
+        }
     }
 }
 
@@ -135,13 +158,18 @@ internal fun DrawScope.drawAutoFibonacciLevels(
     ch: Float,
     labelPaint: Paint,
 ) {
-    if (levels.isEmpty() || direction == null || swingHigh == null || swingLow == null) return
+    if (
+        levels.isEmpty() || direction == null || swingHigh == null || swingLow == null ||
+        !swingHigh.isDrawablePrice() || !swingLow.isDrawablePrice() || swingHigh <= swingLow ||
+        !cw.isDrawableSpan() || !ch.isDrawableSpan()
+    ) return
 
     val trendColor = if (direction == Direction.BULLISH) FoxBullish else FoxBearish
     val originalAlign = labelPaint.textAlign
     for (level in levels) {
+        if (!level.price.isDrawablePrice() || !level.ratio.isFinite()) continue
         val y = viewport.yForPrice(level.price, ch)
-        if (y !in 0f..ch) continue
+        if (!y.isFinite() || y !in 0f..ch) continue
         val keyLevel = level.ratio == 0.0 || level.ratio == 0.5 || level.ratio == 0.618 || level.ratio == 1.0
         drawLine(
             color = trendColor.copy(alpha = if (keyLevel) 0.52f else 0.32f),
@@ -152,18 +180,19 @@ internal fun DrawScope.drawAutoFibonacciLevels(
         )
 
         labelPaint.color = FibLabelArgb
+        labelPaint.textAlign = Paint.Align.RIGHT
         drawContext.canvas.nativeCanvas.drawText(
             "${level.label} ${formatLayerPrice(level.price)}",
-            cw - 8f,
-            y - 4f,
-            labelPaint.apply { textAlign = Paint.Align.RIGHT },
+            (cw - 8f).coerceAtLeast(0f),
+            (y - 4f).coerceIn(10f, ch),
+            labelPaint,
         )
     }
     labelPaint.textAlign = originalAlign
 
     val highY = viewport.yForPrice(swingHigh, ch)
     val lowY = viewport.yForPrice(swingLow, ch)
-    if (highY in 0f..ch || lowY in 0f..ch) {
+    if (highY.isFinite() && lowY.isFinite() && (highY in 0f..ch || lowY in 0f..ch)) {
         drawLine(
             color = trendColor.copy(alpha = 0.55f),
             start = Offset(cw * 0.06f, highY.coerceIn(0f, ch)),
@@ -175,5 +204,8 @@ internal fun DrawScope.drawAutoFibonacciLevels(
 }
 
 private fun formatLayerPrice(price: Double): String =
-    if (abs(price) >= 1000.0) String.format("%,.2f", price)
-    else String.format("%.5f", price)
+    if (abs(price) >= 1000.0) String.format(java.util.Locale.US, "%,.2f", price)
+    else String.format(java.util.Locale.US, "%.5f", price)
+
+private fun Double.isDrawablePrice(): Boolean = isFinite() && this > 0.0
+private fun Float.isDrawableSpan(): Boolean = isFinite() && this > 0f

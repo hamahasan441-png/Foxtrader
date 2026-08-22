@@ -20,18 +20,17 @@ import com.foxtrader.app.domain.usecase.sessions.SessionDetector
 import com.foxtrader.app.domain.usecase.smc.SmcDetector
 import com.foxtrader.app.feature.chart.presentation.IndicatorToggles
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlin.math.abs
 
 /**
  * Domain use case that computes all chart overlays (indicators + SMC + sessions)
  * from a candle series and a set of toggle flags.
  *
- * Extracted from [com.foxtrader.app.feature.chart.presentation.ChartViewModel]
- * to keep the ViewModel thin and to make indicator computation independently
- * testable without a ViewModel / CoroutineScope.
- *
- * All computations are pure: same inputs → same outputs. The use case carries
- * no mutable state and is safe to call from any coroutine context.
+ * Each study is isolated at this boundary. One defective/custom indicator can
+ * degrade its own output to null/empty without aborting the rest of the frame.
+ * That is important for the chart toggle UX: enabling one study must never make
+ * already-working studies disappear because a sibling engine threw.
  */
 class ComputeIndicatorsUseCase @Inject constructor(
     private val bollingerBands: BollingerBands,
@@ -49,15 +48,6 @@ class ComputeIndicatorsUseCase @Inject constructor(
     private val pivotPoints: PivotPoints,
 ) {
 
-    /**
-     * Holds all computed overlay data for a single chart render frame.
-     *
-     * NOTE on equality: this data class contains primitive arrays which do not
-     * override equals/hashCode by identity in Kotlin. We provide explicit
-     * overrides so that two Result instances with identical array *contents*
-     * compare equal — required for correct behaviour in tests and any caching
-     * layers.
-     */
     data class Result(
         val emaShort: DoubleArray?,
         val emaLong: DoubleArray?,
@@ -199,81 +189,83 @@ class ComputeIndicatorsUseCase @Inject constructor(
         }
     }
 
-    /**
-     * Compute all enabled indicators for [candles] according to [toggles].
-     * Safe to call on Dispatchers.Default (CPU-bound, no I/O).
-     */
     operator fun invoke(candles: List<Candle>, toggles: IndicatorToggles): Result {
-        // Reject malformed external candles before any indicator math runs. A
-        // non-finite or negative price, or a high below its low, can produce
-        // NaN/Infinity that then poisons every dependent indicator and the
-        // published chart state. Fail closed: return an empty frame instead.
         if (!areWellFormed(candles)) return emptyResult()
 
         val emaShort = if (toggles.ema && candles.size >= 20)
-            TechnicalIndicators.calculateEMA(candles, 20) else null
+            safeOrNull { TechnicalIndicators.calculateEMA(candles, 20) } else null
         val emaLong = if (toggles.ema && candles.size >= 50)
-            TechnicalIndicators.calculateEMA(candles, 50) else null
+            safeOrNull { TechnicalIndicators.calculateEMA(candles, 50) } else null
         val vwap = if (toggles.vwap && candles.isNotEmpty())
-            TechnicalIndicators.calculateVWAP(candles) else null
+            safeOrNull { TechnicalIndicators.calculateVWAP(candles) } else null
         val anchoredVwap = if (toggles.anchoredVwap && candles.size >= ANCHORED_VWAP_MIN_BARS)
-            AnchoredVwap.calculate(candles, AnchoredVwap.autoAnchorIndex(candles)) else null
+            safeOrNull { AnchoredVwap.calculate(candles, AnchoredVwap.autoAnchorIndex(candles)) } else null
         val rsi = if (toggles.rsi && candles.size >= 15)
-            TechnicalIndicators.calculateRSI(candles, 14) else null
+            safeOrNull { TechnicalIndicators.calculateRSI(candles, 14) } else null
         val macd = if (toggles.macd && candles.size >= 35)
-            TechnicalIndicators.calculateMACD(candles) else null
+            safeOrNull { TechnicalIndicators.calculateMACD(candles) } else null
         val stoch = if (toggles.stochastic && candles.size >= STOCHASTIC_MIN_BARS)
-            stochasticOscillator.calculate(candles) else null
+            safeOrNull { stochasticOscillator.calculate(candles) } else null
         val obv = if (toggles.obv && candles.size >= 2)
-            volumeIndicators.obv(candles) else null
+            safeOrNull { volumeIndicators.obv(candles) } else null
         val mfi = if (toggles.moneyFlowIndex && candles.size >= MFI_MIN_BARS)
-            volumeIndicators.moneyFlowIndex(candles) else null
+            safeOrNull { volumeIndicators.moneyFlowIndex(candles) } else null
         val keltner = if (toggles.keltner && candles.size >= KELTNER_MIN_BARS)
-            channelIndicators.keltner(candles) else null
+            safeOrNull { channelIndicators.keltner(candles) } else null
         val donchian = if (toggles.donchian && candles.size >= DONCHIAN_MIN_BARS)
-            channelIndicators.donchian(candles) else null
-        // Daily pivots need two distinct UTC days of bars; calculateDaily
-        // returns null when that is not satisfied, so no extra guard is needed.
-        val pivots = if (toggles.pivotPoints) pivotPoints.calculateDaily(candles) else null
+            safeOrNull { channelIndicators.donchian(candles) } else null
+        val pivots = if (toggles.pivotPoints) safeOrNull { pivotPoints.calculateDaily(candles) } else null
 
         val ichimoku = if (toggles.ichimoku && candles.size >= 52)
-            ichimokuCloud.calculate(candles) else null
+            safeOrNull { ichimokuCloud.calculate(candles) } else null
         val boll = if (toggles.bollinger && candles.size >= 20)
-            bollingerBands.calculate(candles) else null
+            safeOrNull { bollingerBands.calculate(candles) } else null
         val st = if (toggles.superTrend && candles.size >= 15)
-            superTrend.calculate(candles) else null
+            safeOrNull { superTrend.calculate(candles) } else null
         val psar = if (toggles.parabolicSar && candles.size >= 2)
-            parabolicSar.calculate(candles).sar else null
+            safeOrNull { parabolicSar.calculate(candles).sar } else null
 
-        val orderBlocks: List<com.foxtrader.app.domain.model.OrderBlock>
-        val fairValueGaps: List<com.foxtrader.app.domain.model.FairValueGap>
-        val liquidityPools: List<com.foxtrader.app.domain.model.LiquidityPool>
+        var orderBlocks: List<com.foxtrader.app.domain.model.OrderBlock> = emptyList()
+        var fairValueGaps: List<com.foxtrader.app.domain.model.FairValueGap> = emptyList()
+        var liquidityPools: List<com.foxtrader.app.domain.model.LiquidityPool> = emptyList()
 
         if (toggles.orderBlocks && toggles.fairValueGaps) {
-            // Use analyzeAll to compute OBs and FVGs once, sharing them across
-            // dependent detections (breakers, IFVGs, BPRs).
-            val smcResult = smcDetector.analyzeAll(candles)
-            orderBlocks = smcResult.orderBlocks
-            fairValueGaps = smcResult.fairValueGaps
-            liquidityPools = if (toggles.liquidity) smcResult.liquidityPools else emptyList()
+            val smcResult = safeOrNull { smcDetector.analyzeAll(candles) }
+            if (smcResult != null) {
+                orderBlocks = smcResult.orderBlocks
+                fairValueGaps = smcResult.fairValueGaps
+                if (toggles.liquidity) liquidityPools = smcResult.liquidityPools
+            } else {
+                // A failure in an optional dependent SMC detector must not hide
+                // the core OB/FVG/liquidity layers. Retry those primitives alone.
+                orderBlocks = safeOrDefault(emptyList()) { smcDetector.detectOrderBlocks(candles) }
+                fairValueGaps = safeOrDefault(emptyList()) { smcDetector.detectFairValueGaps(candles) }
+                if (toggles.liquidity) {
+                    liquidityPools = safeOrDefault(emptyList()) { smcDetector.detectLiquidity(candles) }
+                }
+            }
         } else {
-            orderBlocks = if (toggles.orderBlocks)
-                smcDetector.detectOrderBlocks(candles) else emptyList()
-            fairValueGaps = if (toggles.fairValueGaps)
-                smcDetector.detectFairValueGaps(candles) else emptyList()
-            liquidityPools = if (toggles.liquidity)
-                smcDetector.detectLiquidity(candles) else emptyList()
+            if (toggles.orderBlocks) {
+                orderBlocks = safeOrDefault(emptyList()) { smcDetector.detectOrderBlocks(candles) }
+            }
+            if (toggles.fairValueGaps) {
+                fairValueGaps = safeOrDefault(emptyList()) { smcDetector.detectFairValueGaps(candles) }
+            }
+            if (toggles.liquidity) {
+                liquidityPools = safeOrDefault(emptyList()) { smcDetector.detectLiquidity(candles) }
+            }
         }
+
         val volumeProfile = if (toggles.volumeProfile && candles.size >= 20)
-            smcDetector.computeVolumeProfile(candles) else null
+            safeOrNull { smcDetector.computeVolumeProfile(candles) } else null
         val marketProfileResult = if (toggles.marketProfile && candles.size >= 30)
-            marketProfile.compute(candles) else null
+            safeOrNull { marketProfile.compute(candles) } else null
         val supportResistanceZones = if (toggles.supportResistance && candles.size >= 25)
-            supportResistanceDetector.detect(candles) else emptyList()
+            safeOrDefault(emptyList()) { supportResistanceDetector.detect(candles) } else emptyList()
         val autoFib = if (toggles.fibonacci && candles.size >= AUTO_FIB_MIN_BARS)
-            buildAutoFib(candles) else null
+            safeOrNull { buildAutoFib(candles) } else null
         val sessions = if (toggles.sessions)
-            sessionDetector.detectSessions(candles) else emptyList()
+            safeOrDefault(emptyList()) { sessionDetector.detectSessions(candles) } else emptyList()
 
         return Result(
             emaShort = emaShort,
@@ -308,9 +300,6 @@ class ComputeIndicatorsUseCase @Inject constructor(
             ichimokuSenkouA = ichimoku?.senkouA,
             ichimokuSenkouB = ichimoku?.senkouB,
             ichimokuChikou = ichimoku?.chikou,
-            // SMC render lists are capped to the most recent items to bound
-            // Canvas/GC work on large charts; the tail is the only part a
-            // renderer actually draws.
             orderBlocks = capRecent(orderBlocks, SMC_RENDER_CAP),
             fairValueGaps = capRecent(fairValueGaps, SMC_RENDER_CAP),
             liquidityPools = capRecent(liquidityPools, SMC_RENDER_CAP),
@@ -331,80 +320,88 @@ class ComputeIndicatorsUseCase @Inject constructor(
         previous: Result,
         recomputeFrom: Int,
     ): Result {
-        // Preserve the latest valid frame rather than run indicator math on
-        // malformed bars.
         if (!areWellFormed(candles)) return previous
 
         val emaShort = if (toggles.ema && candles.size >= 20)
-            TechnicalIndicators.calculateEMAIncremental(candles, 20, previous.emaShort, recomputeFrom) else null
+            safeOrPrevious(previous.emaShort) {
+                TechnicalIndicators.calculateEMAIncremental(candles, 20, previous.emaShort, recomputeFrom)
+            } else null
         val emaLong = if (toggles.ema && candles.size >= 50)
-            TechnicalIndicators.calculateEMAIncremental(candles, 50, previous.emaLong, recomputeFrom) else null
+            safeOrPrevious(previous.emaLong) {
+                TechnicalIndicators.calculateEMAIncremental(candles, 50, previous.emaLong, recomputeFrom)
+            } else null
         val vwap = if (toggles.vwap && candles.isNotEmpty())
-            TechnicalIndicators.calculateVWAPIncremental(candles, previous.vwap, recomputeFrom) else null
-        // Anchored VWAP is cheap and its auto-anchor may shift as bars arrive,
-        // so it is recomputed in full rather than incrementally patched.
+            safeOrPrevious(previous.vwap) {
+                TechnicalIndicators.calculateVWAPIncremental(candles, previous.vwap, recomputeFrom)
+            } else null
         val anchoredVwap = if (toggles.anchoredVwap && candles.size >= ANCHORED_VWAP_MIN_BARS)
-            AnchoredVwap.calculate(candles, AnchoredVwap.autoAnchorIndex(candles)) else null
+            safeOrPrevious(previous.anchoredVwap) {
+                AnchoredVwap.calculate(candles, AnchoredVwap.autoAnchorIndex(candles))
+            } else null
         val ichimoku = if (toggles.ichimoku && candles.size >= 52)
-            ichimokuCloud.calculateIncremental(candles, previous.toIchimokuResult(), recomputeFrom) else null
+            safeOrPrevious(previous.toIchimokuResult()) {
+                ichimokuCloud.calculateIncremental(candles, previous.toIchimokuResult(), recomputeFrom)
+            } else null
         val boll = if (toggles.bollinger && candles.size >= 20)
-            bollingerBands.calculateIncremental(candles, previous.toBollingerResult(candles), recomputeFrom) else null
+            safeOrPrevious(previous.toBollingerResult(candles)) {
+                bollingerBands.calculateIncremental(candles, previous.toBollingerResult(candles), recomputeFrom)
+            } else null
         val st = if (toggles.superTrend && candles.size >= 15)
-            superTrend.calculateIncremental(candles, previous.toSuperTrendResult(), recomputeFrom) else null
+            safeOrPrevious(previous.toSuperTrendResult()) {
+                superTrend.calculateIncremental(candles, previous.toSuperTrendResult(), recomputeFrom)
+            } else null
         val psar = if (toggles.parabolicSar && candles.size >= 2)
-            parabolicSar.calculate(candles).sar else null
+            safeOrPrevious(previous.parabolicSar) { parabolicSar.calculate(candles).sar } else null
         val rsi = if (toggles.rsi && candles.size >= 15)
-            TechnicalIndicators.calculateRSI(candles, 14) else null
+            safeOrPrevious(previous.rsi) { TechnicalIndicators.calculateRSI(candles, 14) } else null
         val macd = if (toggles.macd && candles.size >= 35)
-            TechnicalIndicators.calculateMACD(candles) else null
-        // These are all O(n) single-pass (or small-window) computations, so a
-        // full recompute stays well inside the frame budget and avoids the
-        // seam artefacts an incremental patch would risk.
+            safeOrNull { TechnicalIndicators.calculateMACD(candles) } else null
         val stoch = if (toggles.stochastic && candles.size >= STOCHASTIC_MIN_BARS)
-            stochasticOscillator.calculate(candles) else null
+            safeOrNull { stochasticOscillator.calculate(candles) } else null
         val obv = if (toggles.obv && candles.size >= 2)
-            volumeIndicators.obv(candles) else null
+            safeOrPrevious(previous.obv) { volumeIndicators.obv(candles) } else null
         val mfi = if (toggles.moneyFlowIndex && candles.size >= MFI_MIN_BARS)
-            volumeIndicators.moneyFlowIndex(candles) else null
+            safeOrPrevious(previous.moneyFlowIndex) { volumeIndicators.moneyFlowIndex(candles) } else null
         val keltner = if (toggles.keltner && candles.size >= KELTNER_MIN_BARS)
-            channelIndicators.keltner(candles) else null
+            safeOrNull { channelIndicators.keltner(candles) } else null
         val donchian = if (toggles.donchian && candles.size >= DONCHIAN_MIN_BARS)
-            channelIndicators.donchian(candles) else null
-        val pivots = if (toggles.pivotPoints) pivotPoints.calculateDaily(candles) else null
+            safeOrNull { channelIndicators.donchian(candles) } else null
+        val pivots = if (toggles.pivotPoints)
+            safeOrPrevious(previous.pivotLevels) { pivotPoints.calculateDaily(candles) } else null
 
         return previous.copy(
             emaShort = emaShort,
             emaLong = emaLong,
-            bollingerUpper = boll?.upper,
-            bollingerMiddle = boll?.middle,
-            bollingerLower = boll?.lower,
-            superTrendValues = st?.values,
-            superTrendDir = st?.direction,
-            superTrendFinalUpper = st?.finalUpperBands,
-            superTrendFinalLower = st?.finalLowerBands,
+            bollingerUpper = boll?.upper ?: previous.bollingerUpper.takeIf { toggles.bollinger },
+            bollingerMiddle = boll?.middle ?: previous.bollingerMiddle.takeIf { toggles.bollinger },
+            bollingerLower = boll?.lower ?: previous.bollingerLower.takeIf { toggles.bollinger },
+            superTrendValues = st?.values ?: previous.superTrendValues.takeIf { toggles.superTrend },
+            superTrendDir = st?.direction ?: previous.superTrendDir.takeIf { toggles.superTrend },
+            superTrendFinalUpper = st?.finalUpperBands ?: previous.superTrendFinalUpper.takeIf { toggles.superTrend },
+            superTrendFinalLower = st?.finalLowerBands ?: previous.superTrendFinalLower.takeIf { toggles.superTrend },
             parabolicSar = psar,
             vwap = vwap,
             anchoredVwap = anchoredVwap,
             rsi = rsi,
-            macdLine = macd?.macd,
-            macdSignal = macd?.signal,
-            macdHistogram = macd?.histogram,
-            stochasticK = stoch?.percentK,
-            stochasticD = stoch?.percentD,
+            macdLine = macd?.macd ?: previous.macdLine.takeIf { toggles.macd },
+            macdSignal = macd?.signal ?: previous.macdSignal.takeIf { toggles.macd },
+            macdHistogram = macd?.histogram ?: previous.macdHistogram.takeIf { toggles.macd },
+            stochasticK = stoch?.percentK ?: previous.stochasticK.takeIf { toggles.stochastic },
+            stochasticD = stoch?.percentD ?: previous.stochasticD.takeIf { toggles.stochastic },
             obv = obv,
             moneyFlowIndex = mfi,
-            keltnerUpper = keltner?.upper,
-            keltnerMiddle = keltner?.middle,
-            keltnerLower = keltner?.lower,
-            donchianUpper = donchian?.upper,
-            donchianMiddle = donchian?.middle,
-            donchianLower = donchian?.lower,
+            keltnerUpper = keltner?.upper ?: previous.keltnerUpper.takeIf { toggles.keltner },
+            keltnerMiddle = keltner?.middle ?: previous.keltnerMiddle.takeIf { toggles.keltner },
+            keltnerLower = keltner?.lower ?: previous.keltnerLower.takeIf { toggles.keltner },
+            donchianUpper = donchian?.upper ?: previous.donchianUpper.takeIf { toggles.donchian },
+            donchianMiddle = donchian?.middle ?: previous.donchianMiddle.takeIf { toggles.donchian },
+            donchianLower = donchian?.lower ?: previous.donchianLower.takeIf { toggles.donchian },
             pivotLevels = pivots,
-            ichimokuTenkan = ichimoku?.tenkan,
-            ichimokuKijun = ichimoku?.kijun,
-            ichimokuSenkouA = ichimoku?.senkouA,
-            ichimokuSenkouB = ichimoku?.senkouB,
-            ichimokuChikou = ichimoku?.chikou,
+            ichimokuTenkan = ichimoku?.tenkan ?: previous.ichimokuTenkan.takeIf { toggles.ichimoku },
+            ichimokuKijun = ichimoku?.kijun ?: previous.ichimokuKijun.takeIf { toggles.ichimoku },
+            ichimokuSenkouA = ichimoku?.senkouA ?: previous.ichimokuSenkouA.takeIf { toggles.ichimoku },
+            ichimokuSenkouB = ichimoku?.senkouB ?: previous.ichimokuSenkouB.takeIf { toggles.ichimoku },
+            ichimokuChikou = ichimoku?.chikou ?: previous.ichimokuChikou.takeIf { toggles.ichimoku },
         )
     }
 
@@ -486,11 +483,33 @@ class ComputeIndicatorsUseCase @Inject constructor(
                 c.high >= c.low && c.volume >= 0.0
         }
 
-    /** Caps a list to its [max] most-recent (trailing) entries. */
+    private inline fun <T> safeOrNull(block: () -> T): T? = try {
+        block()
+    } catch (cancel: CancellationException) {
+        throw cancel
+    } catch (_: Exception) {
+        null
+    }
+
+    private inline fun <T> safeOrDefault(default: T, block: () -> T): T = try {
+        block()
+    } catch (cancel: CancellationException) {
+        throw cancel
+    } catch (_: Exception) {
+        default
+    }
+
+    private inline fun <T> safeOrPrevious(previous: T?, block: () -> T): T? = try {
+        block()
+    } catch (cancel: CancellationException) {
+        throw cancel
+    } catch (_: Exception) {
+        previous
+    }
+
     private fun <T> capRecent(list: List<T>, max: Int): List<T> =
         if (list.size <= max) list else list.takeLast(max)
 
-    /** A fully-empty result used to fail closed on malformed input. */
     private fun emptyResult(): Result = Result(
         emaShort = null,
         emaLong = null,
