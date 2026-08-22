@@ -1,9 +1,5 @@
 package com.foxtrader.app.feature.chart.presentation
 
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import com.foxtrader.app.domain.model.ChartBarMode
 
 /**
@@ -12,8 +8,6 @@ import com.foxtrader.app.domain.model.ChartBarMode
  * A large class of "indicator does nothing" reports are not engine failures at
  * all: the study was enabled before enough bars were loaded, or on a synthetic
  * bar mode (Renko) that intentionally disables time/index-sensitive SMC logic.
- * Keeping the requirements in one catalog lets the UI explain that state before
- * a trader mistakes a correct fail-closed decision for a broken indicator.
  */
 enum class ChartStudyId(
     val label: String,
@@ -65,16 +59,16 @@ data class IndicatorReadiness(
 
 /**
  * Primary-chart runtime snapshot consumed by the indicator command center.
- *
- * This lives in presentation scope (not domain) and is published only after a
- * completed chart computation is mapped to UI state. Compose state means an
- * open indicator panel updates immediately when history loads or the user
- * switches between Time/Heikin/Renko without coupling the panel to a ViewModel.
+ * Volatile primitives avoid Compose snapshot writes from the computation path;
+ * ChartScreen state updates already trigger the recomposition that reads them.
  */
 object ChartIndicatorRuntime {
-    var candleCount: Int by mutableIntStateOf(0)
+    @Volatile
+    var candleCount: Int = 0
         private set
-    var barMode: ChartBarMode by mutableStateOf(ChartBarMode.TIME)
+
+    @Volatile
+    var barMode: ChartBarMode = ChartBarMode.TIME
         private set
 
     fun publish(candleCount: Int, barMode: ChartBarMode) {
