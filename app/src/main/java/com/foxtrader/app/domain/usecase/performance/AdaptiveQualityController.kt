@@ -4,12 +4,14 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Adaptive Quality Controller — dynamically adjusts chart detail level
- * based on real-time performance metrics from the PerformanceProfiler.
+ * Adaptive Quality Controller — dynamically adjusts decorative/render density
+ * without changing the semantic content the trader explicitly selected.
  *
- * User-selected indicator lines are never removed completely. Under emergency
- * load we reduce their point budget instead; a selected study disappearing from
- * the chart is semantically worse than drawing it at reduced density.
+ * A selected study must never disappear because the device had a slow frame.
+ * Doing so makes a healthy indicator look broken and can hide structure exactly
+ * when the user is inspecting it. Degradation therefore keeps indicator,
+ * profile, session and structure layers enabled and only drops decoration,
+ * anti-aliasing and the line-point budget.
  */
 @Singleton
 class AdaptiveQualityController @Inject constructor(
@@ -50,7 +52,6 @@ class AdaptiveQualityController @Inject constructor(
                 consecutiveGoodFrames = 0
             }
         }
-
         getSettings(currentLevel)
     }
 
@@ -67,52 +68,47 @@ class AdaptiveQualityController @Inject constructor(
     }
 
     fun getSettings(level: QualityLevel = currentLevel): QualitySettings = when (level) {
-        QualityLevel.ULTRA -> QualitySettings(
+        QualityLevel.ULTRA -> semanticSettings(
             gridLines = true,
-            volumeProfile = true,
-            indicators = true,
-            sessions = true,
-            structureAnnotations = true,
             antiAlias = true,
             maxVisibleIndicatorPoints = Int.MAX_VALUE,
         )
-        QualityLevel.HIGH -> QualitySettings(
+        QualityLevel.HIGH -> semanticSettings(
             gridLines = true,
-            volumeProfile = true,
-            indicators = true,
-            sessions = true,
-            structureAnnotations = true,
             antiAlias = true,
             maxVisibleIndicatorPoints = 500,
         )
-        QualityLevel.MEDIUM -> QualitySettings(
+        QualityLevel.MEDIUM -> semanticSettings(
             gridLines = true,
-            volumeProfile = false,
-            indicators = true,
-            sessions = true,
-            structureAnnotations = true,
             antiAlias = true,
             maxVisibleIndicatorPoints = 300,
         )
-        QualityLevel.LOW -> QualitySettings(
+        QualityLevel.LOW -> semanticSettings(
             gridLines = true,
-            volumeProfile = false,
-            indicators = true,
-            sessions = false,
-            structureAnnotations = false,
             antiAlias = false,
             maxVisibleIndicatorPoints = 150,
         )
-        QualityLevel.MINIMAL -> QualitySettings(
+        QualityLevel.MINIMAL -> semanticSettings(
             gridLines = false,
-            volumeProfile = false,
-            indicators = true,
-            sessions = false,
-            structureAnnotations = false,
             antiAlias = false,
             maxVisibleIndicatorPoints = MINIMAL_INDICATOR_POINT_BUDGET,
         )
     }
+
+    /** All user-selectable semantic study categories stay visible at every tier. */
+    private fun semanticSettings(
+        gridLines: Boolean,
+        antiAlias: Boolean,
+        maxVisibleIndicatorPoints: Int,
+    ) = QualitySettings(
+        gridLines = gridLines,
+        volumeProfile = true,
+        indicators = true,
+        sessions = true,
+        structureAnnotations = true,
+        antiAlias = antiAlias,
+        maxVisibleIndicatorPoints = maxVisibleIndicatorPoints,
+    )
 
     fun getCurrentLevel(): QualityLevel = synchronized(lock) { currentLevel }
 

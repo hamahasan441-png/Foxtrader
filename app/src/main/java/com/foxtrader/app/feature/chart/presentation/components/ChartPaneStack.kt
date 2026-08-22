@@ -1,17 +1,20 @@
 package com.foxtrader.app.feature.chart.presentation.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -20,29 +23,33 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.foxtrader.app.R
 import com.foxtrader.app.domain.usecase.chart.ChartViewportState
 import com.foxtrader.app.feature.chart.presentation.CandleSeries
-import com.foxtrader.app.feature.chart.presentation.ChartDimens
 import com.foxtrader.app.feature.chart.presentation.ImmutableDoubleSeries
 import com.foxtrader.app.feature.chart.presentation.IndicatorToggles
-import com.foxtrader.app.ui.theme.FoxNeutral60
+import com.foxtrader.app.ui.theme.FoxTheme
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * Compact stack of separate-pane studies.
+ * Floating study deck for oscillators/volume.
  *
- * Multiple oscillators remain available, but the whole stack is capped and
- * scrollable so enabling RSI/MACD/Stochastic/OBV/MFI/Volume can never collapse
- * the main price chart into a tiny strip.
+ * RSI/MACD/Stochastic/OBV/MFI live on their own numeric scales, so forcing them
+ * into the price canvas would be mathematically misleading. The old implementation
+ * stacked every enabled pane below the chart and could consume ~190dp of vertical
+ * space. This deck is rendered in a Popup instead: the price chart keeps 100% of
+ * its measured height while every enabled study remains one tap away in a compact
+ * on-chart dock.
+ *
+ * Only one study canvas is expanded at a time. Enabled studies remain visible as
+ * tabs, which avoids a wall of miniature panels and keeps the chart readable on
+ * phones. No signal logic is changed here; this is presentation only.
  */
 @Composable
 fun ChartPaneStack(
@@ -60,127 +67,165 @@ fun ChartPaneStack(
     fallbackViewport: ChartViewportState?,
     modifier: Modifier = Modifier,
 ) {
+    val active = buildList {
+        if (indicators.rsi && rsiValues != null) add(StudyPane.RSI)
+        if (indicators.macd && macdLine != null && macdSignal != null && macdHistogram != null) add(StudyPane.MACD)
+        if (indicators.stochastic && stochasticK != null && stochasticD != null) add(StudyPane.STOCHASTIC)
+        if (indicators.obv && obv != null) add(StudyPane.OBV)
+        if (indicators.moneyFlowIndex && moneyFlowIndex != null) add(StudyPane.MFI)
+        if (indicators.volume && candles.isNotEmpty()) add(StudyPane.VOLUME)
+    }
+    if (active.isEmpty()) return
+
     val liveViewport by viewportFlow.collectAsStateWithLifecycle()
     val vp = liveViewport ?: fallbackViewport
-    val startIndex = vp?.startIndex ?: 0f
-    val visibleBars = vp?.visibleBars ?: 120f
-    val scrollState = rememberScrollState()
+    val startIndex = (vp?.startIndex ?: 0f).coerceAtLeast(0f)
+    val visibleBars = (vp?.visibleBars ?: 120f).coerceAtLeast(2f)
 
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .heightIn(max = ChartDimens.paneStackMaxHeight)
-            .verticalScroll(scrollState),
+    var selectedKey by rememberSaveable { mutableStateOf(active.first().key) }
+    var collapsed by rememberSaveable { mutableStateOf(false) }
+    val selected = active.firstOrNull { it.key == selectedKey } ?: active.first()
+
+    val density = LocalDensity.current
+    val popupOffset = with(density) { IntOffset(0, (-84).dp.roundToPx()) }
+    val colors = FoxTheme.colors
+    val shape = RoundedCornerShape(FoxTheme.shapes.lg)
+
+    Popup(
+        alignment = Alignment.BottomCenter,
+        offset = popupOffset,
+        properties = PopupProperties(
+            focusable = false,
+            dismissOnBackPress = false,
+            dismissOnClickOutside = false,
+            clippingEnabled = true,
+        ),
     ) {
-        if (indicators.rsi && rsiValues != null) {
-            ResizablePane(paneKey = "rsi", paneName = "RSI") { h ->
-                RsiSubChart(
-                    rsiValues = rsiValues,
-                    startIndex = startIndex,
-                    visibleBars = visibleBars,
-                    canvasHeight = h,
+        Column(
+            modifier = modifier
+                .fillMaxWidth(0.96f)
+                .widthIn(max = 720.dp)
+                .heightIn(max = 132.dp)
+                .clip(shape)
+                .background(colors.surfaceElevated.copy(alpha = 0.97f))
+                .border(1.dp, colors.borderStrong, shape)
+                .padding(horizontal = FoxTheme.spacing.sm, vertical = FoxTheme.spacing.xs),
+            verticalArrangement = Arrangement.spacedBy(FoxTheme.spacing.xs),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                active.forEach { pane ->
+                    StudyTab(
+                        label = pane.label,
+                        selected = pane == selected && !collapsed,
+                        onClick = {
+                            if (selectedKey == pane.key && !collapsed) {
+                                collapsed = true
+                            } else {
+                                selectedKey = pane.key
+                                collapsed = false
+                            }
+                        },
+                    )
+                }
+                StudyTab(
+                    label = if (collapsed) "Show" else "Hide",
+                    selected = collapsed,
+                    onClick = { collapsed = !collapsed },
                 )
             }
-        }
 
-        if (indicators.macd && macdLine != null && macdSignal != null && macdHistogram != null) {
-            ResizablePane(paneKey = "macd", paneName = "MACD") { h ->
-                MacdSubChart(
-                    macdLine = macdLine,
-                    macdSignal = macdSignal,
-                    macdHistogram = macdHistogram,
-                    startIndex = startIndex,
-                    visibleBars = visibleBars,
-                    canvasHeight = h,
-                )
-            }
-        }
-
-        if (indicators.stochastic && stochasticK != null && stochasticD != null) {
-            ResizablePane(paneKey = "stochastic", paneName = "Stochastic") { h ->
-                StochasticSubChart(
-                    percentK = stochasticK,
-                    percentD = stochasticD,
-                    startIndex = startIndex,
-                    visibleBars = visibleBars,
-                    canvasHeight = h,
-                )
-            }
-        }
-
-        if (indicators.obv && obv != null) {
-            ResizablePane(paneKey = "obv", paneName = "OBV") { h ->
-                ObvSubChart(
-                    obv = obv,
-                    startIndex = startIndex,
-                    visibleBars = visibleBars,
-                    canvasHeight = h,
-                )
-            }
-        }
-
-        if (indicators.moneyFlowIndex && moneyFlowIndex != null) {
-            ResizablePane(paneKey = "mfi", paneName = "MFI") { h ->
-                MoneyFlowSubChart(
-                    mfi = moneyFlowIndex,
-                    startIndex = startIndex,
-                    visibleBars = visibleBars,
-                    canvasHeight = h,
-                )
-            }
-        }
-
-        if (indicators.volume && candles.isNotEmpty()) {
-            ResizablePane(paneKey = "volume", paneName = "Volume") { h ->
-                VolumePane(
-                    candles = candles,
-                    startIndex = startIndex,
-                    visibleBars = visibleBars,
-                    canvasHeight = h,
-                )
+            if (!collapsed) {
+                when (selected) {
+                    StudyPane.RSI -> rsiValues?.let {
+                        RsiSubChart(
+                            rsiValues = it,
+                            startIndex = startIndex,
+                            visibleBars = visibleBars,
+                            canvasHeight = STUDY_CANVAS_HEIGHT,
+                        )
+                    }
+                    StudyPane.MACD -> if (macdLine != null && macdSignal != null && macdHistogram != null) {
+                        MacdSubChart(
+                            macdLine = macdLine,
+                            macdSignal = macdSignal,
+                            macdHistogram = macdHistogram,
+                            startIndex = startIndex,
+                            visibleBars = visibleBars,
+                            canvasHeight = STUDY_CANVAS_HEIGHT,
+                        )
+                    }
+                    StudyPane.STOCHASTIC -> if (stochasticK != null && stochasticD != null) {
+                        StochasticSubChart(
+                            percentK = stochasticK,
+                            percentD = stochasticD,
+                            startIndex = startIndex,
+                            visibleBars = visibleBars,
+                            canvasHeight = STUDY_CANVAS_HEIGHT,
+                        )
+                    }
+                    StudyPane.OBV -> obv?.let {
+                        ObvSubChart(
+                            obv = it,
+                            startIndex = startIndex,
+                            visibleBars = visibleBars,
+                            canvasHeight = STUDY_CANVAS_HEIGHT,
+                        )
+                    }
+                    StudyPane.MFI -> moneyFlowIndex?.let {
+                        MoneyFlowSubChart(
+                            mfi = it,
+                            startIndex = startIndex,
+                            visibleBars = visibleBars,
+                            canvasHeight = STUDY_CANVAS_HEIGHT,
+                        )
+                    }
+                    StudyPane.VOLUME -> if (candles.isNotEmpty()) {
+                        VolumePane(
+                            candles = candles,
+                            startIndex = startIndex,
+                            visibleBars = visibleBars,
+                            canvasHeight = STUDY_CANVAS_HEIGHT,
+                        )
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun ResizablePane(
-    paneKey: String,
-    paneName: String,
-    content: @Composable (canvasHeight: Dp) -> Unit,
+private fun StudyTab(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
 ) {
-    val density = LocalDensity.current
-    val minDp = ChartDimens.paneMinHeight.value
-    val maxDp = ChartDimens.paneMaxHeight.value
-    var heightDp by rememberSaveable(key = "pane_height_$paneKey") {
-        mutableStateOf(ChartDimens.paneDefaultHeight.value)
-    }
-    val resizeCd = stringResource(R.string.chart_pane_resize_cd, paneName)
-
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(ChartDimens.paneSplitterHeight)
-                .background(MaterialTheme.colorScheme.surface)
-                .pointerInput(paneKey) {
-                    detectVerticalDragGestures { change, dragAmount ->
-                        change.consume()
-                        val deltaDp = dragAmount / density.density
-                        heightDp = (heightDp - deltaDp).coerceIn(minDp, maxDp)
-                    }
-                }
-                .semantics { contentDescription = resizeCd },
-            contentAlignment = Alignment.Center,
-        ) {
-            Box(
-                modifier = Modifier
-                    .width(36.dp)
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(FoxNeutral60.copy(alpha = 0.5f)),
-            )
-        }
-        content(heightDp.dp)
-    }
+    val colors = FoxTheme.colors
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
+        color = if (selected) colors.accent else colors.textSecondary,
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (selected) colors.accentMuted else colors.surfaceStrong)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+    )
 }
+
+private enum class StudyPane(val key: String, val label: String) {
+    RSI("rsi", "RSI"),
+    MACD("macd", "MACD"),
+    STOCHASTIC("stochastic", "Stoch"),
+    OBV("obv", "OBV"),
+    MFI("mfi", "MFI"),
+    VOLUME("volume", "Volume"),
+}
+
+private val STUDY_CANVAS_HEIGHT = 70.dp
