@@ -4,6 +4,9 @@ import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.ChartSignal
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.LitXAnalysis
+import com.foxtrader.app.domain.model.LitAnalysis
+import com.foxtrader.app.domain.model.SmsAnalysis
+import com.foxtrader.app.domain.model.SignalFusionResult
 import com.foxtrader.app.domain.model.SignalSource
 import com.foxtrader.app.domain.model.tradepro.SetupStage
 import com.foxtrader.app.domain.model.tradepro.TradeProAnalysis
@@ -40,6 +43,10 @@ class SignalComputer @Inject constructor() {
         candles: List<Candle>,
         currentTimeMillis: Long = System.currentTimeMillis(),
         strategySignals: List<ChartSignal> = emptyList(),
+        litAnalysis: LitAnalysis? = null,
+        smsAnalysis: SmsAnalysis? = null,
+        latestConfirmedIndex: Int = candles.lastIndex,
+        fusion: SignalFusionResult? = null,
     ): List<ChartSignal> {
         if (candles.isEmpty()) return emptyList()
 
@@ -50,8 +57,13 @@ class SignalComputer @Inject constructor() {
         // the confluence pass alongside the engine-derived signals.
         signals += strategySignals
 
-        // LIT X signal
+        // LIT X signal. Phase 13 plots it on the confirmation bar; legacy
+        // signals without an explicit index safely fall back to the newest
+        // confirmed bar rather than an in-progress candle.
         litXAnalysis?.signal?.let { signal ->
+            val barIndex = signal.confirmationIndex.takeIf { it in candles.indices }
+                ?: latestConfirmedIndex.takeIf { it in candles.indices }
+                ?: candles.lastIndex
             signals.add(
                 ChartSignal(
                     id = "litx_${signal.timestamp}",
@@ -60,10 +72,53 @@ class SignalComputer @Inject constructor() {
                     entry = signal.entry,
                     sl = signal.stopLoss,
                     tp = signal.takeProfit1,
-                    barIndex = candles.lastIndex,
+                    barIndex = barIndex,
                     timestamp = signal.timestamp,
                     confidence = signal.confidence.score.toDouble(),
-                    isLive = true,
+                    isLive = barIndex == latestConfirmedIndex,
+                    label = buildSignalLabel("LiTX", signal.confidence.score, signal.confirmations),
+                )
+            )
+        }
+
+        // First-class LIT institutional sequence.
+        litAnalysis?.signal?.let { signal ->
+            val barIndex = signal.confirmationIndex.takeIf { it in candles.indices } ?: return@let
+            signals.add(
+                ChartSignal(
+                    id = "lit_${signal.symbol}_${signal.timestamp}_${signal.direction}",
+                    source = SignalSource.LIT,
+                    direction = signal.direction,
+                    entry = signal.entry,
+                    sl = signal.stopLoss,
+                    tp = signal.takeProfit,
+                    barIndex = barIndex,
+                    timestamp = signal.timestamp,
+                    confidence = signal.confidence.toDouble(),
+                    isLive = barIndex == latestConfirmedIndex,
+                    label = buildSignalLabel("LiT", signal.confidence, signal.confirmations),
+                )
+            )
+        }
+
+        // Smart Money Structure: the marker belongs to the confirmation bar,
+        // never the hindsight swing/event bar. SMS is context-only (no SL/TP).
+        smsAnalysis?.signal?.let { signal ->
+            val barIndex = signal.confirmationIndex.takeIf { it in candles.indices } ?: return@let
+            val entry = candles[barIndex].close
+            signals.add(
+                ChartSignal(
+                    id = "sms_${signal.symbol}_${signal.type}_${signal.eventIndex}_${signal.confirmationIndex}",
+                    source = SignalSource.SMS,
+                    direction = signal.direction,
+                    entry = entry,
+                    sl = 0.0,
+                    tp = 0.0,
+                    barIndex = barIndex,
+                    timestamp = candles[barIndex].timestamp,
+                    confidence = signal.confidence.toDouble(),
+                    isLive = barIndex == latestConfirmedIndex,
+                    label = buildSignalLabel("SMS ${signal.type}", signal.confidence, signal.confirmations),
                 )
             )
         }
@@ -71,18 +126,26 @@ class SignalComputer @Inject constructor() {
         // TradePro signal (only EXECUTE stage)
         tradeProAnalysis?.setup?.let { setup ->
             if (setup.stage == SetupStage.EXECUTE) {
+                val barIndex = latestConfirmedIndex.takeIf { it in candles.indices } ?: candles.lastIndex
                 signals.add(
                     ChartSignal(
-                        id = "tradepro_${setup.symbol}_${setup.entry}",
+                        id = "tradepro_${setup.symbol}_${setup.entry}_${candles[barIndex].timestamp}",
                         source = SignalSource.TRADEPRO,
                         direction = setup.direction,
                         entry = setup.entry,
                         sl = setup.stopLoss,
                         tp = setup.target1,
-                        barIndex = candles.lastIndex,
-                        timestamp = currentTimeMillis,
+                        barIndex = barIndex,
+                        // Stable/replayable timestamp: the confirmed bar that
+                        // produced the setup, never wall-clock render time.
+                        timestamp = candles[barIndex].timestamp,
                         confidence = setup.confidence.toDouble(),
-                        isLive = true,
+                        isLive = latestConfirmedIndex in candles.indices,
+                        label = buildSignalLabel(
+                            "TradePro",
+                            setup.confidence,
+                            fusion?.confirmations ?: setup.confluences.takeLast(5),
+                        ),
                     )
                 )
             }
@@ -98,15 +161,17 @@ class SignalComputer @Inject constructor() {
                         "${div.primaryIndex}_${div.confirmationIndex}",
                     source = SignalSource.SMT,
                     direction = div.direction,
-                    entry = div.primaryPrice,
+                    // Unified arrows are placed where the divergence becomes
+                    // actionable. The dedicated SMT layer still draws the
+                    // original swing-to-confirmation ray for context.
+                    entry = confirmationCandle.close,
                     sl = 0.0,
                     tp = 0.0,
-                    barIndex = div.primaryIndex,
-                    // The divergence is plotted at the swing, but it only
-                    // becomes knowable after the right-hand confirmation bars.
+                    barIndex = div.confirmationIndex,
                     timestamp = confirmationCandle.timestamp,
                     confidence = div.confidence,
-                    isLive = div.confirmationIndex == candles.lastIndex,
+                    isLive = div.confirmationIndex == latestConfirmedIndex,
+                    label = "SMT ${div.peerSymbol} · ${"%.0f".format(div.confidence)}",
                 )
             )
         }
@@ -117,7 +182,7 @@ class SignalComputer @Inject constructor() {
         val renderable = signals
             .filter { it.isRenderable(candles) }
             .map { it.copy(confidence = normalizeConfidence(it.confidence)) }
-        return applyConfluence(renderable)
+        return applyConfluence(renderable, phase13TradeProAlreadyFused = fusion != null)
     }
 
     /**
@@ -132,7 +197,10 @@ class SignalComputer @Inject constructor() {
      * A single source (or multiple entries from the same source, e.g. several
      * SMT divergences) receives no boost, so single-source output is unchanged.
      */
-    private fun applyConfluence(signals: List<ChartSignal>): List<ChartSignal> {
+    private fun applyConfluence(
+        signals: List<ChartSignal>,
+        phase13TradeProAlreadyFused: Boolean,
+    ): List<ChartSignal> {
         if (signals.size < 2) return signals
 
         // Only *live* signals represent the current read of the market, so only
@@ -140,12 +208,20 @@ class SignalComputer @Inject constructor() {
         // setups, superseded SMT divergences) describe bars that have already
         // closed and must not inflate the confidence of a signal firing now.
         val liveSourcesByDirection: Map<Direction, Set<SignalSource>> =
-            signals.filter { it.isLive }
+            signals.filter { it.isLive && it.source != SignalSource.BINARY3M }
                 .groupBy { it.direction }
                 .mapValues { (_, group) -> group.map { it.source }.toSet() }
 
         return signals.map { signal ->
             if (!signal.isLive) return@map signal
+            // Binary3m confidence is part of the fixed-expiry strategy contract
+            // shared with the backtester. Do not mutate it with chart-only
+            // confluence or the live display would diverge from measured logic.
+            if (signal.source == SignalSource.BINARY3M) return@map signal
+            // TradePro confidence has already been adjusted by the Phase 13
+            // fusion engine. Applying the generic chart-source boost again
+            // would double-count LiTX/LiT/SMS/SMT evidence.
+            if (phase13TradeProAlreadyFused && signal.source == SignalSource.TRADEPRO) return@map signal
             val agreeing = liveSourcesByDirection[signal.direction].orEmpty()
             val otherSources = (agreeing - signal.source).size
             if (otherSources <= 0) {
@@ -172,9 +248,11 @@ class SignalComputer @Inject constructor() {
     private fun ChartSignal.isRenderable(candles: List<Candle>): Boolean {
         if (barIndex !in candles.indices || !entry.isFinite() || entry <= 0.0) return false
         if (!confidence.isFinite()) return false
-        if (source == SignalSource.STRATEGY && timestamp != candles[barIndex].timestamp) return false
+        if ((source == SignalSource.STRATEGY || source == SignalSource.BINARY3M) &&
+            timestamp != candles[barIndex].timestamp
+        ) return false
 
-        if (source == SignalSource.SMT) {
+        if (source == SignalSource.SMT || source == SignalSource.SMS || source == SignalSource.BINARY3M) {
             return sl == 0.0 && tp == 0.0
         }
 
@@ -183,6 +261,11 @@ class SignalComputer @Inject constructor() {
             Direction.BULLISH -> sl < entry && tp > entry
             Direction.BEARISH -> sl > entry && tp < entry
         }
+    }
+
+    private fun buildSignalLabel(name: String, score: Int, confirmations: List<String>): String {
+        val compact = confirmations.take(4).joinToString(" · ")
+        return if (compact.isBlank()) "$name $score" else "$name $score · $compact"
     }
 
     private companion object {

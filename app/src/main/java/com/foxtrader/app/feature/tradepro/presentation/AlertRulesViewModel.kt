@@ -11,6 +11,7 @@ import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.ai.MtfContextProvider
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.domain.usecase.scanner.ScannerUseCase
+import com.foxtrader.app.domain.usecase.signalintel.ConfirmedBarPolicy
 import com.foxtrader.app.domain.usecase.tradepro.AlertRuleEngine
 import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -116,9 +117,17 @@ class AlertRulesViewModel @Inject constructor(
                 val prices = HashMap<String, Double>()
                 for (entry in watchlist) {
                     val timeframe = ruleTimeframe(rules, entry.symbol)
-                    val candles = repository.getSourcedCandles(entry.symbol, timeframe).candles
+                    val now = System.currentTimeMillis()
+                    val candles = ConfirmedBarPolicy.confirmedPrefix(
+                        repository.getSourcedCandles(entry.symbol, timeframe).candles,
+                        timeframe,
+                        now,
+                    )
                     if (candles.size < MIN_BARS) continue
-                    val htf = mtfContextProvider.getHtfContext(entry.symbol, timeframe)
+                    val htf = ConfirmedBarPolicy.confirmedMap(
+                        mtfContextProvider.getHtfContext(entry.symbol, timeframe),
+                        now,
+                    )
                     val analysis = withContext(defaultDispatcher) {
                         signalEngine.analyze(entry.symbol, candles, config, htf)
                     }

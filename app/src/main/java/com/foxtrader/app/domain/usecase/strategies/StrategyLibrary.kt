@@ -15,6 +15,7 @@ import com.foxtrader.app.domain.usecase.backtest.StrategyFunction
 import com.foxtrader.app.domain.usecase.indicators.IchimokuCloud
 import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
 import com.foxtrader.app.domain.usecase.litx.LitXEngine
+import com.foxtrader.app.domain.usecase.signalintel.LitEngine
 import com.foxtrader.app.domain.usecase.smc.SmcDetector
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -40,14 +41,25 @@ class StrategyLibrary @Inject constructor(
     private val analyzeStructure: AnalyzeMarketStructureUseCase,
     private val ichimokuCloud: IchimokuCloud,
     private val litXEngine: LitXEngine,
+    // Default keeps legacy direct-construction tests/source compatible; Hilt
+    // still injects the singleton binding in production.
+    private val litEngine: LitEngine = LitEngine(
+        smcDetector = SmcDetector(),
+        analyzeStructure = AnalyzeMarketStructureUseCase(),
+        displacementDetector = com.foxtrader.app.domain.usecase.litx.DisplacementDetector(),
+        premiumDiscount = com.foxtrader.app.domain.usecase.litx.PremiumDiscountCalculator(),
+    ),
 ) {
 
 
     /** Registry of all available strategies by type. */
-    fun all(): Map<StrategyType, StrategyDefinition> = mapOf(
+    fun all(
+        symbol: String = "",
+        timeframe: Timeframe = Timeframe.H1,
+    ): Map<StrategyType, StrategyDefinition> = mapOf(
         StrategyType.SMART_MONEY to smcOrderBlockStrategy(),
-        StrategyType.LIT to litInstitutionalStrategy(),
-        StrategyType.LITX to litXStrategy(),
+        StrategyType.LIT to litInstitutionalStrategy(symbol, timeframe),
+        StrategyType.LITX to litXStrategy(symbol, timeframe),
         StrategyType.TREND_FOLLOWING to emaCrossoverStrategy(),
         StrategyType.MEAN_REVERSION to rsiMeanReversionStrategy(),
         StrategyType.BREAKOUT to structureBreakoutStrategy(),
@@ -57,7 +69,11 @@ class StrategyLibrary @Inject constructor(
     )
 
     /** Get a single strategy by type. */
-    fun get(type: StrategyType): StrategyDefinition = all().getValue(type)
+    fun get(
+        type: StrategyType,
+        symbol: String = "",
+        timeframe: Timeframe = Timeframe.H1,
+    ): StrategyDefinition = all(symbol, timeframe).getValue(type)
 
     // =========================================================================
     // STRATEGY 1: Smart Money — Order Block Retest
@@ -138,70 +154,35 @@ class StrategyLibrary @Inject constructor(
     // Stop:  Below/above the mitigation zone + ATR pad.
     // TP:    3:1 minimum (targets the opposing liquidity).
     // =========================================================================
-    private fun litInstitutionalStrategy() = StrategyDefinition(
+    private fun litInstitutionalStrategy(symbol: String, timeframe: Timeframe) = StrategyDefinition(
         name = "LIT Institutional Entry",
         type = StrategyType.LIT,
-        description = "Full institutional model: sweep → structure shift → mitigation zone retest.",
-        minimumBars = 80,
-        function = litInstitutionalFunction(),
+        description = "Phase 13 LIT engine: reclaiming sweep → confirmed CHOCH/MSS → displacement → first POI retest.",
+        minimumBars = 60,
+        function = litInstitutionalFunction(symbol, timeframe),
     )
 
-    private fun litInstitutionalFunction(): StrategyFunction = fn@{ candles, i ->
-        if (i < 80) return@fn null
+    /**
+     * The built-in LIT strategy delegates to the same first-class [LitEngine]
+     * used by the live chart. This removes the old live/backtest logic split:
+     * for a historical bar i, the engine receives exactly [0..i], and because
+     * [LitEngine] emits only on the first confirmed retest, the strategy is
+     * prefix-stable and cannot manufacture repeated zone signals.
+     */
+    private fun litInstitutionalFunction(symbol: String, timeframe: Timeframe): StrategyFunction = fn@{ candles, i ->
+        if (i < 60) return@fn null
         val slice = candles.subList(0, i + 1)
-        val bar = candles[i]
-        val atr = TechnicalIndicators.calculateATR(slice, 14)[i]
-        if (atr <= 0.0) return@fn null
-
-        val structure = analyzeStructure(slice)
-        val recentBreak = structure.breaks.lastOrNull { it.confirmed } ?: return@fn null
-        val breakRecency = i - recentBreak.breakIndex
-        if (breakRecency > 10) return@fn null
-
-        val sweeps = smcDetector.detectLiquidity(slice).filter { it.swept && it.sweepIndex != null }
-        val recentSweep = sweeps.maxByOrNull { it.sweepIndex ?: -1 } ?: return@fn null
-        val sweepIdx = recentSweep.sweepIndex ?: return@fn null
-        val sweepRecency = i - sweepIdx
-        if (sweepRecency > 12) return@fn null
-
-
-        val dir = if (recentSweep.type == LiquidityType.SELL_SIDE)
-            Direction.BULLISH else Direction.BEARISH
-        if (dir != recentBreak.direction) return@fn null
-
-        val obs = smcDetector.detectOrderBlocks(slice).filter { !it.mitigated }
-        val fvgs = smcDetector.detectFairValueGaps(slice).filter { !it.filled }
-
-        val mitigationOb = obs.lastOrNull {
-            (dir == Direction.BULLISH && it.type == OrderBlockType.BULLISH) ||
-                (dir == Direction.BEARISH && it.type == OrderBlockType.BEARISH)
-        }
-        val mitigationFvg = fvgs.lastOrNull {
-            (dir == Direction.BULLISH && it.type == FvgType.BULLISH) ||
-                (dir == Direction.BEARISH && it.type == FvgType.BEARISH)
-        }
-
-        val entry = mitigationOb?.let { (it.highPrice + it.lowPrice) / 2.0 }
-            ?: mitigationFvg?.let { (it.highPrice + it.lowPrice) / 2.0 }
-            ?: return@fn null
-
-        if (abs(bar.close - entry) > atr * 0.75) return@fn null
-
-        val slBase = when {
-            mitigationOb != null && dir == Direction.BULLISH -> mitigationOb.lowPrice
-            mitigationOb != null -> mitigationOb.highPrice
-            mitigationFvg != null && dir == Direction.BULLISH -> mitigationFvg.lowPrice
-            else -> mitigationFvg?.highPrice ?: return@fn null
-        }
-        val sl = if (dir == Direction.BULLISH) slBase - atr * 0.15 else slBase + atr * 0.15
-        val risk = abs(entry - sl)
-        if (risk <= 0.0) return@fn null
-        val tp = if (dir == Direction.BULLISH) entry + risk * 3.0 else entry - risk * 3.0
-
+        val signal = litEngine.analyze(symbol, timeframe, slice).signal ?: return@fn null
+        if (signal.confirmationIndex != i || signal.timestamp != candles[i].timestamp) return@fn null
         StrategySignal(
-            index = i, timestamp = bar.timestamp, direction = dir,
-            entry = entry, stopLoss = sl, takeProfit = tp,
-            confidence = 80, setupType = "LIT_INSTITUTIONAL",
+            index = i,
+            timestamp = signal.timestamp,
+            direction = signal.direction,
+            entry = signal.entry,
+            stopLoss = signal.stopLoss,
+            takeProfit = signal.takeProfit,
+            confidence = signal.confidence.coerceIn(50, 95),
+            setupType = "LIT_PHASE13",
         )
     }
 
@@ -214,18 +195,18 @@ class StrategyLibrary @Inject constructor(
     // model. Non-repainting: the engine only sees candles [0..i]. Fires on bars
     // where a setup validates; the backtester opens on the non-null return.
     // =========================================================================
-    private fun litXStrategy() = StrategyDefinition(
+    private fun litXStrategy(symbol: String, timeframe: Timeframe) = StrategyDefinition(
         name = "LIT X Institutional",
         type = StrategyType.LITX,
         description = "LIT X engine: sweep → market shift (CHOCH/MSS) → POI retest, gated by an 11-factor score.",
         minimumBars = 60,
-        function = litXFunction(),
+        function = litXFunction(symbol, timeframe),
     )
 
-    private fun litXFunction(): StrategyFunction = fn@{ candles, i ->
+    private fun litXFunction(symbol: String, timeframe: Timeframe): StrategyFunction = fn@{ candles, i ->
         if (i < 60) return@fn null
         val slice = candles.subList(0, i + 1) // non-repainting
-        val analysis = litXEngine.analyze(symbol = "", timeframe = Timeframe.H1, candles = slice)
+        val analysis = litXEngine.analyze(symbol = symbol, timeframe = timeframe, candles = slice)
         val signal = analysis.signal ?: return@fn null
         StrategySignal(
             index = i,

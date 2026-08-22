@@ -28,8 +28,11 @@ data class JournalEntry(
     val emotionTag: EmotionTag = EmotionTag.NEUTRAL,
     val screenshot: String? = null, // Path to chart screenshot
     val tags: List<String> = emptyList(),
-    val isOpen: Boolean = exitPrice == null,
 ) {
+    // Open/closed state is derived from authoritative exit data. Keeping this as
+    // a stored constructor value makes data-class copy() preserve stale state
+    // after an exitPrice change, which can misclassify closed trades as open.
+    val isOpen: Boolean get() = exitPrice == null
     val isWin: Boolean get() = (pnl ?: 0.0) > 0.0
     val holdingTimeMs: Long? get() = if (exitTime != null) exitTime - entryTime else null
 }

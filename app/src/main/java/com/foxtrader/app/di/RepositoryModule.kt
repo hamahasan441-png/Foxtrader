@@ -3,6 +3,7 @@ package com.foxtrader.app.di
 import com.foxtrader.app.data.repository.AlertRepositoryImpl
 import com.foxtrader.app.data.repository.AuthRepositoryImpl
 import com.foxtrader.app.data.repository.DrawingRepositoryImpl
+import com.foxtrader.app.data.repository.DerivRepositoryImpl
 import com.foxtrader.app.data.repository.JournalRepositoryImpl
 import com.foxtrader.app.data.repository.LitXSignalRepositoryImpl
 import com.foxtrader.app.data.repository.MarketRepositoryImpl
@@ -10,6 +11,7 @@ import com.foxtrader.app.data.repository.WatchlistRepositoryImpl
 import com.foxtrader.app.domain.repository.AlertRepository
 import com.foxtrader.app.domain.repository.AuthRepository
 import com.foxtrader.app.domain.repository.DrawingRepository
+import com.foxtrader.app.domain.repository.DerivRepository
 import com.foxtrader.app.domain.repository.JournalRepository
 import com.foxtrader.app.domain.repository.LitXSignalRepository
 import com.foxtrader.app.domain.repository.MarketRepository
@@ -55,4 +57,8 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindLitXSignalRepository(impl: LitXSignalRepositoryImpl): LitXSignalRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindDerivRepository(impl: DerivRepositoryImpl): DerivRepository
 }

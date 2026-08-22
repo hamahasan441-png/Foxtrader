@@ -6,6 +6,9 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.foxtrader.app.domain.model.AgentContext
 import com.foxtrader.app.domain.model.FoxAlert
+import com.foxtrader.app.domain.model.AlertPriority
+import com.foxtrader.app.domain.model.Direction
+import com.foxtrader.app.domain.model.StrategyType
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.ai.AgentOrchestrator
@@ -14,6 +17,8 @@ import com.foxtrader.app.domain.usecase.ai.MasterDecisionEngine
 import com.foxtrader.app.domain.usecase.ai.MtfContextProvider
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.domain.usecase.scanner.ScannerUseCase
+import com.foxtrader.app.domain.usecase.scanner.Phase4ConfluenceEngine
+import com.foxtrader.app.domain.usecase.alerts.AlertEngine
 import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -44,6 +49,8 @@ class ScanAlertWorker @AssistedInject constructor(
     private val mtfContextProvider: MtfContextProvider,
     private val aiAlertService: AiAlertService,
     private val alertDispatcher: AlertDispatcher,
+    private val alertEngine: AlertEngine,
+    private val phase4ConfluenceEngine: Phase4ConfluenceEngine,
     private val tradeProEngine: TradeProSignalEngine,
     private val appPreferences: AppPreferences,
 ) : CoroutineWorker(appContext, params) {
@@ -79,12 +86,13 @@ class ScanAlertWorker @AssistedInject constructor(
         // the standalone TRADEPRO read below (HTF defines bias, LTF the entry).
         val htfCandles = mtfContextProvider.getHtfContext(symbol, SCAN_TIMEFRAME)
 
+        val correlatedCandles = mtfContextProvider.getCorrelatedContext(symbol, SCAN_TIMEFRAME)
         val context = AgentContext(
             symbol = symbol,
             timeframe = SCAN_TIMEFRAME,
             candles = candles,
             mtfCandles = htfCandles,
-            correlatedCandles = mtfContextProvider.getCorrelatedContext(symbol, SCAN_TIMEFRAME),
+            correlatedCandles = correlatedCandles,
         )
 
         val orchestratorResult = orchestrator.analyze(context)
@@ -93,32 +101,64 @@ class ScanAlertWorker @AssistedInject constructor(
         val alert = aiAlertService.evaluate(decision, symbol)
         if (alert != null) {
             alertDispatcher.dispatch(alert)
+            return
         }
 
         // TRADEPRO standalone: if the full AI consensus didn't approve but the TRADEPRO
         // engine independently found an EXECUTE setup, notify the trader. This surfaces
         // confirmed order-flow/auction setups that the conservative 5-confluence gate
         // might miss (TRADEPRO has its own Flip-Zone/Hold-Zone/imbalance qualification).
-        if (alert == null) {
-            // MTF-validated: HTF bias must agree before a background alert fires,
-            // and the user's configured TRADEPRO settings are honoured.
-            val analysis = tradeProEngine.analyze(
-                symbol,
-                candles,
-                appPreferences.tradeProConfig.value,
-                htfCandles,
+        // MTF-validated: HTF bias must agree before a background alert fires,
+        // and the user's configured TRADEPRO settings are honoured. The AI path
+        // already returned above if it dispatched, so this cannot duplicate it.
+        val analysis = tradeProEngine.analyze(
+            symbol,
+            candles,
+            appPreferences.tradeProConfig.value,
+            htfCandles,
+        )
+        val setup = analysis.setup
+        if (setup != null && setup.isExecutable) {
+            val tradeProAlert = FoxAlert(
+                id = "tradepro-${symbol}-${setup.entry.toLong()}",
+                title = "TRADEPRO ${if (setup.direction == com.foxtrader.app.domain.model.Direction.BULLISH) "BUY" else "SELL"} — $symbol",
+                body = setup.note,
+                priority = com.foxtrader.app.domain.model.AlertPriority.MEDIUM,
+                symbol = symbol,
+                timestamp = System.currentTimeMillis(),
             )
-            val setup = analysis.setup
-            if (setup != null && setup.isExecutable) {
-                val tradeProAlert = FoxAlert(
-                    id = "tradepro-${symbol}-${setup.entry.toLong()}",
-                    title = "TRADEPRO ${if (setup.direction == com.foxtrader.app.domain.model.Direction.BULLISH) "BUY" else "SELL"} — $symbol",
-                    body = setup.note,
-                    priority = com.foxtrader.app.domain.model.AlertPriority.MEDIUM,
+            alertDispatcher.dispatch(tradeProAlert)
+            return
+        }
+
+        // Phase 4 fallback: a high-quality scanner opportunity may be valid even when neither the
+        // AI consensus nor TRADEPRO reaches its own stricter execution state. It must still pass
+        // real-data provenance, MTF alignment, SMT conflict checks and the adaptive risk gate.
+        val baseScan = scannerUseCase(
+            dataMap = mapOf(symbol to candles),
+            strategy = StrategyType.CONFLUENCE,
+        ).results.firstOrNull { it.symbol.equals(symbol, ignoreCase = true) }
+        if (baseScan != null) {
+            val phase4 = phase4ConfluenceEngine.enrich(
+                base = baseScan,
+                baseCandles = candles,
+                higherTimeframeCandles = htfCandles,
+                correlatedCandles = correlatedCandles,
+                dataTrustworthy = sourced.source.isTrustworthy,
+            )
+            if (phase4.actionable) {
+                val side = if (phase4.direction == Direction.BULLISH) "BUY" else "SELL"
+                val p4Alert = alertEngine.send(
+                    title = "Phase 4 $side — $symbol",
+                    body = "Score ${phase4.score}/100 · MTF ${(phase4.mtfAlignment * 100).toInt()}%" +
+                        (phase4.smtPeer?.let { " · SMT $it" } ?: "") +
+                        " · suggested risk x${"%.2f".format(phase4.riskMultiplier)}",
+                    priority = if (phase4.score >= 85) AlertPriority.HIGH else AlertPriority.MEDIUM,
                     symbol = symbol,
-                    timestamp = System.currentTimeMillis(),
+                    cooldownKey = "phase4-$symbol-${phase4.direction}",
+                    cooldownMsOverride = PHASE4_ALERT_COOLDOWN_MS,
                 )
-                alertDispatcher.dispatch(tradeProAlert)
+                if (p4Alert != null) alertDispatcher.dispatch(p4Alert)
             }
         }
     }
@@ -127,6 +167,7 @@ class ScanAlertWorker @AssistedInject constructor(
         const val WORK_NAME = "fox_scan_alert_periodic"
         private const val MAX_SYMBOLS = 10
         private const val MIN_BARS = 50
+        private const val PHASE4_ALERT_COOLDOWN_MS = 45 * 60_000L
         private val SCAN_TIMEFRAME = Timeframe.H1
     }
 }

@@ -40,9 +40,12 @@ class RiskGatedBrokerExecutor @Inject constructor(
         takeProfit: Double? = null,
         candles: List<Candle>? = null,
         volumeOverride: Double? = null,
+        /** Phase 4 adaptive-risk multiplier. May reduce size, never increase it. */
+        riskMultiplier: Double = 1.0,
         executionAuthorized: Boolean,
     ): RiskGatedBrokerResult {
         val validation = validateAuthorization(executionAuthorized) +
+            validateRiskMultiplier(riskMultiplier) +
             validateAdapterSupport(adapter, symbol) +
             validateStop(direction, entryPrice, stopLoss) +
             validateTakeProfit(direction, entryPrice, takeProfit)
@@ -50,6 +53,7 @@ class RiskGatedBrokerExecutor @Inject constructor(
 
         val sizing = riskEngine.calculatePositionSize(symbol, entryPrice, stopLoss, candles)
             .withVolumeOverride(volumeOverride, entryPrice, stopLoss)
+            .withRiskMultiplier(riskMultiplier, entryPrice, stopLoss)
         val riskCheck = riskEngine.canOpenTrade(sizing.riskAmount)
         if (!riskCheck.allowed) {
             return RiskGatedBrokerResult.rejected(riskCheck.reasons, sizing, riskCheck)
@@ -70,6 +74,13 @@ class RiskGatedBrokerExecutor @Inject constructor(
 
     private fun validateAuthorization(executionAuthorized: Boolean): List<String> =
         if (executionAuthorized) emptyList() else listOf("Live order execution is not authorized")
+
+    private fun validateRiskMultiplier(multiplier: Double): List<String> =
+        if (multiplier.isFinite() && multiplier > 0.0 && multiplier <= 1.0) {
+            emptyList()
+        } else {
+            listOf("Adaptive risk multiplier must be in (0, 1]")
+        }
 
     private fun validateAdapterSupport(adapter: BrokerAdapter, symbol: String): List<String> =
         if (adapter.supportedAssets.isEmpty() || adapter.supportedAssets.any { it.equals(symbol, ignoreCase = true) }) {
@@ -102,6 +113,27 @@ class RiskGatedBrokerExecutor @Inject constructor(
                 listOf("Bearish take-profit must be below entry")
             else -> emptyList()
         }
+    }
+
+    private fun PositionSizeResult.withRiskMultiplier(
+        multiplier: Double,
+        entryPrice: Double,
+        stopLoss: Double,
+    ): PositionSizeResult {
+        if (multiplier >= 0.999999) return this
+        val adjustedVolume = maxOf(0.01, volume * multiplier)
+        val adjustedRisk = abs(entryPrice - stopLoss) * adjustedVolume * contractSize
+        val adjustedRiskPercent = if (riskAmount > 0.0) {
+            riskPercent * (adjustedRisk / riskAmount)
+        } else {
+            riskPercent * multiplier
+        }
+        return copy(
+            volume = adjustedVolume,
+            riskAmount = adjustedRisk,
+            riskPercent = adjustedRiskPercent.coerceAtLeast(0.0),
+            warnings = warnings + "Phase 4 adaptive risk x${"%.2f".format(multiplier)} applied",
+        )
     }
 
     private fun PositionSizeResult.withVolumeOverride(

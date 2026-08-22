@@ -1,0 +1,53 @@
+FOX Trader Phase 10 — Deriv API & Account Switcher Validation
+
+RESULT SUMMARY
+- Phase 9 native-Deriv regression preflight: PASS
+- Phase 10 API/account switcher preflight: PASS
+- DerivModels + DerivUiState standalone Kotlin compile: PASS
+- Android backup/data-extraction XML parse: PASS
+- Kotlin parser smoke for modified ViewModel/Compose screen: no syntax/conflicting-declaration diagnostics; unresolved Android/Compose dependencies are expected outside Gradle
+- Full Android Gradle compile: BLOCKED by sandbox network/Gradle distribution availability
+
+PHASE 9 REGRESSION PREFLIGHT
+PASS: New Deriv REST + public WebSocket hosts
+PASS: No legacy Deriv transport host in native layer
+PASS: New proposal/account-context field rules
+PASS: Dedicated zero-log Deriv client injected
+PASS: Deriv client has no HTTP logger (OTP URL protected)
+PASS: Deriv bearer token encrypted at rest
+PASS: REAL execution freshness/account-switch gate
+PASS: Phase 9 navigation route
+PASS: Health + demo lifecycle REST endpoints
+PASS: Position management: history/sell/update
+PASS: Authenticated account history: profit table + statement
+PASS: Read-only wallet visibility + transaction history
+PASS: Wallet cursor pagination constrained to Deriv origin
+PASS: Create-demo schema pinned to production OpenAPI
+PASS: OTP WebSocket URL exact host/path validation
+PASS: No wallet transfer / bulk REAL / unattended auto-start path
+
+PHASE 10 SWITCHER PREFLIGHT
+PASS: Credential edits invalidate old Deriv session
+PASS: Dirty API configuration is not authenticated
+PASS: API credentials are verified and race-checked before persistence
+PASS: Old saved account id is cleared on API identity change
+PASS: Repository enforces credential replacement boundary
+PASS: Explicit safe account switching UI
+PASS: In-app Deriv API replace/revert controls
+PASS: Deriv credential store excluded from backup/device transfer
+PASS: Pre-existing duplicate profit declaration fixed
+PASS: REAL manual-confirmation safety preserved
+
+FULL GRADLE NOTE
+The Gradle wrapper requires Gradle 8.9 from services.gradle.org. The sandbox cannot resolve that host, so a full Android compile cannot be truthfully marked PASS here. Run `./gradlew :app:compileDebugKotlin :app:testDebugUnitTest` in a normal networked Android development environment before release acceptance.
+
+KEY SAFETY CONDITIONS VERIFIED
+- Editing App ID/token invalidates the old authenticated Deriv session immediately.
+- Dirty/unapplied credentials cannot be treated as authenticated.
+- New credentials are persisted only after account verification succeeds.
+- A stale verification response cannot overwrite newer credential edits.
+- Remembered account ID is cleared when credential identity changes.
+- Switching accounts obtains a fresh OTP/session via the existing Phase 9 connection path.
+- REAL manual-confirmation guard remains present.
+- Deriv encrypted credentials are excluded from backup/device transfer.
+- Pre-existing duplicate `profit` declaration was removed.

@@ -9,7 +9,8 @@
 | **Market Data — Polygon.io REST & WS** | 🔵 | Complete (`PolygonDataSource`, `PolygonWebSocket`, `PolygonCandleAggregator`) | Full (`MarketRepositoryImpl`) | `PolygonDataSourceTest`, `PolygonTickerTest`, `PolygonWebSocketProtocolTest`, `PolygonCandleAggregatorTest` | High | Encrypted API key storage | Multi-asset live feed | **PRODUCTION READY** |
 | **Market Data — Twelve Data REST** | 🔵 | Complete (`TwelveDataDataSource`, `TwelveDataProviderAdapter`) | Full (`MarketRepositoryImpl`) | `TwelveDataDataSourceTest`, `TwelveDataProviderAdapterTest` | Rate-limit managed | Encrypted API key storage | Multi-asset historical feed | **PRODUCTION READY** |
 | **Market Data — Alpha Vantage REST** | 🔵 | Complete (`AlphaVantageDataSource`) | Full (`MarketRepositoryImpl`) | `AlphaVantageDataSourceTest` | Rate-limit managed | Encrypted API key storage | Stocks / Forex | **PRODUCTION READY** |
-| **Market Data — MetaApi MT4/MT5** | 🔵 | Complete (`MetaApiDataSource`, `Mt4RepositoryImpl`, `Mt4QuoteStream`) | Full (`Mt4Module`, `Mt4ViewModel`) | `MetaApiDataSourceTest` | High | Encrypted token storage | Account, positions & trade execution | **PRODUCTION READY** |
+| **Market Data — MetaApi MT4/MT5 (Phase 12)** | 🟡 | Socket.IO + REST fallback, market/pending execution, position manager (`MetaApiDataSource`, `MetaApiStreamingClient`, `Mt4QuoteStream`, `Mt4RepositoryImpl`) | Full source wiring (`Mt4Module`, `Mt4ViewModel`) | DataSource + independent Kotlin/smoke/preflight checks | Socket.IO primary; REST watchdog fallback | Encrypted token, zero-log Socket client, durable UNKNOWN/idempotency | Account, pending orders, positions, management, journal | **SOURCE-HARDENED; BROKER E2E PENDING** |
+| **Broker Integration — Native Deriv Options API (Phase 9/10)** | 🟡 | Source implementation complete (`DerivRestClient`, `DerivWebSocketClient`, `DerivRepositoryImpl`) | Full native screen + in-app API/account switcher; MT4/MT5 path retained | Domain/request-builder smoke + Phase 9/10 preflight pass; full Gradle blocked by environment | Bounded requests, correlated WS, stale-session guard, stale-credential response guard | Encrypted token, zero-log OTP transport, strict REAL manual confirmation, backup exclusion, safe wallet pagination | API replace/revert, account switch, market data, contract lifecycle, history, read-only wallets | **RELEASE ACCEPTANCE PENDING** |
 | **Market Data — Local Database & Cache** | 🔵 | Complete (`FoxDatabase` v1-v7 migrations, `CandleDao`, `CandleRetentionWorker`) | Single source of truth in `MarketRepositoryImpl` | `CandleProvenanceMapperTest` | Viewport queries indexed by (symbol, timeframe, timestamp) | SQLCipher / Room encrypted storage ready | Offline-first reactive UI | **PRODUCTION READY** |
 | **Market Data — Provenance & Synthetic Gating** | 🔵 | Complete (`CandleSource` LIVE vs SYNTHETIC tagging) | Decision engine & UI badging | `CandleSourceTest` | Zero overhead | Prevents synthetic data leakage into trades | Clearly badged in UI | **PRODUCTION READY** |
 | **Trading Engine — Market Structure (BOS/CHOCH/MSS)** | 🔵 | Complete (`AnalyzeMarketStructureUseCase`, `MssClassifier`) | Full (Strategy library, AI agents, chart layers) | `AnalyzeMarketStructureUseCaseTest`, `MssClassifierTest` | Non-repainting $O(N)$ pass | Zero look-ahead guarantee | Plotted in structure layer | **PRODUCTION READY** |
@@ -32,11 +33,26 @@
 
 ### Audit Summary
 
-- **Total Features & Subsystems Audited**: 25/25
+- **Total Features & Subsystems Audited**: 26/26
 - **Critical / Blocker Issues Found & Resolved**:
   1. Implemented complete real **Dukascopy Market Data Pipeline** (`LzmaDecompressor`, `DukascopyDataSource`, `DukascopyAdapter`, `DataProvider.DUKASCOPY`, `MarketRepositoryImpl`).
   2. Implemented strict **SMT Divergence Time Synchronization** (inner timestamp join preventing temporal misalignment and holiday/weekend skew).
   3. Expanded **Scripting Engine** with built-in indicators (SMA, EMA, RSI, ATR, MACD, Bollinger, Stochastic), DSL Parser, and Visual StrategyBlueprint Compilation Bridge.
   4. Optimized **Chart Engine Inner Draw Loop** (eliminated frame allocations in `ChartSignalLayer`, pre-allocating reusable Paint/Path instances).
   5. Verified zero look-ahead bias across all strategies and backtest engines.
-- **Production Status**: **ALL CRITICAL ACCEPTANCE CRITERIA MET — PRODUCTION READY**
+  6. Added Phase 9 native Deriv Options REST/WebSocket integration with encrypted bearer storage, strict OTP transport, REAL manual-confirmation gates, account history, and read-only wallet visibility.
+  7. Added Phase 10 in-app Deriv API replacement/revert + Demo/REAL account switching with immediate stale-session invalidation, stale-response protection, and credential backup exclusion.
+- **Production Status**: **SOURCE FEATURE COMPLETE UNDER THE CURRENT NON-GRADLE CHECKPOINT; CREDENTIALED BROKER E2E ACCEPTANCE REMAINS OUTSTANDING. ANDROID/GRADLE BUILD ACCEPTANCE IS OUTSIDE THE CURRENT REQUESTED SCOPE.**
+
+## Phase 11 — Deep audit checkpoint
+
+Phase 11 completed a non-Gradle deep audit/hardening pass over execution, MetaApi, Native Deriv, auth, persistence, concurrency, logging/secrets and account-switch lifecycle. The reproducible checks are in `scripts/phase11_audit_preflight.sh`, `scripts/verify_room_migrations.py`, and `VALIDATION_RESULTS_PHASE11.txt`. Full Android/Gradle acceptance and credentialed broker E2E are intentionally not claimed here.
+
+
+## Phase 12 — Professional execution checkpoint
+
+Phase 12 adds MetaApi Socket.IO prices, REST fallback/recovery, pending-order lifecycle, professional position management, stale-review broker-state binding, durable state-bound management idempotency/reconciliation, chart-to-broker draft hand-off, and broker-authoritative journal synchronization/analytics. The reproducible non-Gradle checks are in `scripts/phase12_professional_execution_preflight.sh` and `VALIDATION_RESULTS_PHASE12.txt`. Per project-owner instruction, Gradle/APK build validation is outside this checkpoint. Credentialed MetaApi/Deriv broker E2E is not claimed.
+## Phase 13 — Signal intelligence checkpoint
+
+Phase 13 makes LiTX, LiT, SMT, SMS and the TradePro chart decision path share a confirmed-bar/non-repaint contract. LiT is now canonical across chart, StrategyLibrary, scanner and the AI agent; SMS is first-class Smart Money Structure; SMT is synchronization/confirmation-bound; LiTX has profile-aware causal gates; and TradePro fusion may veto but never invent an executable setup. Conservative `SignalOutcomeEvaluator` metrics are available for objective entry/SL/TP signals. LiTX/LiT/SMT/SMS now expose persisted presets and bounded advanced settings, and chart recomputation applies them immediately. Source/regression validation is recorded in `scripts/phase13_signal_intelligence_preflight.sh` and `VALIDATION_RESULTS_PHASE13.txt`. A universal accuracy percentage is intentionally **not** claimed; out-of-sample/walk-forward acceptance remains data-specific. Gradle is outside this checkpoint by explicit project-owner instruction.
+

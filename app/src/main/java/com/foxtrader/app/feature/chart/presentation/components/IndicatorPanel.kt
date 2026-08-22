@@ -99,7 +99,9 @@ fun IndicatorPanel(
                 Chip(stringResource(R.string.chart_indicator_order_blocks), toggles.orderBlocks) { onToggle { it.copy(orderBlocks = !it.orderBlocks) } }
                 Chip(stringResource(R.string.chart_indicator_fvg), toggles.fairValueGaps) { onToggle { it.copy(fairValueGaps = !it.fairValueGaps) } }
                 Chip(stringResource(R.string.chart_indicator_liquidity), toggles.liquidity) { onToggle { it.copy(liquidity = !it.liquidity) } }
-                Chip("LIT X", toggles.litX) { onToggle { it.copy(litX = !it.litX) } }
+                Chip("LiTX", toggles.litX) { onToggle { it.copy(litX = !it.litX) } }
+                Chip("LiT", toggles.lit) { onToggle { it.copy(lit = !it.lit) } }
+                Chip("SMS", toggles.sms) { onToggle { it.copy(sms = !it.sms) } }
                 Chip("SMT", toggles.smt) { onToggle { it.copy(smt = !it.smt) } }
                 Chip("TradePro", toggles.tradePro) { onToggle { it.copy(tradePro = !it.tradePro) } }
             }
@@ -107,17 +109,29 @@ fun IndicatorPanel(
             // strategy (bounded to 180 bars / 12 signals each). Picking any one
             // strategy (or Off) exits "All" mode.
             Group("Strategy signals") {
+                Chip("Deriv 3m (M1)", toggles.binary3m) {
+                    onToggle { current ->
+                        val enable = !current.binary3m
+                        current.copy(
+                            binary3m = enable,
+                            activeStrategy = if (enable) null else current.activeStrategy,
+                            activeBlueprintId = if (enable) null else current.activeBlueprintId,
+                            allStrategies = if (enable) false else current.allStrategies,
+                        )
+                    }
+                }
                 Chip(
                     "Off",
-                    toggles.activeStrategy == null && toggles.activeBlueprintId == null && !toggles.allStrategies,
+                    !toggles.binary3m && toggles.activeStrategy == null && toggles.activeBlueprintId == null && !toggles.allStrategies,
                 ) {
                     onToggle {
-                        it.copy(activeStrategy = null, activeBlueprintId = null, allStrategies = false)
+                        it.copy(binary3m = false, activeStrategy = null, activeBlueprintId = null, allStrategies = false)
                     }
                 }
                 Chip("All built-in", toggles.allStrategies) {
                     onToggle {
                         it.copy(
+                            binary3m = false,
                             allStrategies = !it.allStrategies,
                             activeStrategy = null,
                             activeBlueprintId = null,
@@ -128,6 +142,7 @@ fun IndicatorPanel(
                     Chip(type.label, toggles.activeStrategy == type) {
                         onToggle { current ->
                             current.copy(
+                                binary3m = false,
                                 activeStrategy = if (current.activeStrategy == type) null else type,
                                 activeBlueprintId = null,
                                 allStrategies = false,
@@ -139,6 +154,7 @@ fun IndicatorPanel(
                     Chip("My: ${blueprint.name}", toggles.activeBlueprintId == blueprint.id) {
                         onToggle { current ->
                             current.copy(
+                                binary3m = false,
                                 activeStrategy = null,
                                 activeBlueprintId = if (current.activeBlueprintId == blueprint.id) {
                                     null

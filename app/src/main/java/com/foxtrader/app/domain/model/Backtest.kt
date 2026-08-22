@@ -58,6 +58,32 @@ data class BacktestTrade(
 
 enum class ExitReason { TP, SL, END }
 
+/** Outcome used by the on-chart backtest renderer. */
+enum class BacktestOutcome { WIN, LOSS, BREAKEVEN }
+
+/**
+ * Lightweight chart projection of a completed backtest trade.
+ *
+ * Keeping this separate from [BacktestTrade] lets the chart render historical
+ * entries/exits without depending on account-sizing details that are irrelevant
+ * to the Canvas layer. Indices map directly onto the candle series used for the
+ * backtest, so markers never drift from their source bars.
+ */
+data class BacktestChartMarker(
+    val tradeId: Int,
+    val direction: Direction,
+    val entryIndex: Int,
+    val entryTime: Long,
+    val entryPrice: Double,
+    val exitIndex: Int,
+    val exitTime: Long,
+    val exitPrice: Double,
+    val outcome: BacktestOutcome,
+    val netPnL: Double,
+    val rMultiple: Double,
+    val exitReason: ExitReason,
+)
+
 /**
  * Full backtest performance metrics.
  */

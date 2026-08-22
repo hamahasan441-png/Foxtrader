@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import com.foxtrader.app.data.local.entity.CandleEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -37,12 +38,39 @@ interface CandleDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(candles: List<CandleEntity>)
 
+    /**
+     * Atomically replace one hot-cache series with a single provider snapshot.
+     * This is deliberately replacement, not merge: provider changes, symbol
+     * mappings and partial REST windows must never leave old-provider tails in
+     * a series used by signals/backtests.
+     */
+    @Transaction
+    suspend fun replaceSeries(symbol: String, timeframe: String, candles: List<CandleEntity>) {
+        clear(symbol, timeframe)
+        if (candles.isNotEmpty()) upsertAll(candles)
+    }
+
     /** Upsert a single candle (real-time forming bar). */
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(candle: CandleEntity)
 
     @Query("DELETE FROM candles WHERE symbol = :symbol AND timeframe = :timeframe")
     suspend fun clear(symbol: String, timeframe: String)
+
+    /**
+     * Clear the whole market-data hot cache when the global provider changes.
+     * CandleEntity intentionally has no provider column, so keeping rows across
+     * a provider switch could mix broker/exchange bars in one series.
+     */
+    @Query("DELETE FROM candles")
+    suspend fun clearAll()
+
+    /** Remove fabricated seed/history rows before committing a successful real fetch. */
+    @Query(
+        "DELETE FROM candles WHERE symbol = :symbol AND timeframe = :timeframe " +
+            "AND source = 'SYNTHETIC'"
+    )
+    suspend fun clearSynthetic(symbol: String, timeframe: String)
 
     @Query("SELECT COUNT(*) FROM candles WHERE symbol = :symbol AND timeframe = :timeframe")
     suspend fun count(symbol: String, timeframe: String): Int

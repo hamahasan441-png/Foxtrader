@@ -1,0 +1,78 @@
+FOX Trader Phase 3 — validation results
+Date: 2026-08-21
+
+PASS  Backend Python compile: python -m compileall -q .
+PASS  Backend pytest: 82/82 tests
+PASS  XML parse: 13 app/benchmark XML files, 0 parse errors
+PASS  Main Kotlin string-resource audit: 217 referenced R.string names, 0 missing
+PASS  Standalone real BacktestEngine Kotlin compile/run: BACKTEST_SMOKE_PASS trades=3 wins=0 losses=3 net=-15.00
+PASS  Modified Kotlin structural syntax smoke: 0 structural syntax diagnostics
+BLOCK Full Android Gradle test/build/lint: Gradle wrapper requires 8.9; download failed in this environment with java.net.UnknownHostException: services.gradle.org
+
+Static security scan (production source):
+PASS  no custom trust-all X509TrustManager
+PASS  no permissive HostnameVerifier
+PASS  no WebView addJavascriptInterface bridge
+PASS  no Runtime.exec / ProcessBuilder command execution
+PASS  no dynamic DexClassLoader
+PASS  no world-readable storage
+PASS  no direct MD5/SHA-1 digest usage
+PASS  no active fallbackToDestructiveMigration call (text hits are comments/tests)
+
+Important fixed audit findings:
+- backend sample/synthetic candle provenance can no longer be persisted as LIVE
+- ranged history prefetch guards against symbol/timeframe context races
+- chart lifecycle WebSocket disconnect is non-blocking with timeout
+- concurrent 401 refresh handles already-rotated access tokens before consuming a single-use refresh token
+- release dynamic backend override cannot redirect bearer tokens to another host
+- release no longer silently uses debug signing
+- release cleartext traffic is disabled; debug local cleartext remains explicit
+- debug HTTP body logging removed; crash breadcrumb raw text is not forwarded
+- LIT X StrategyLibrary resolution now uses the actual symbol/timeframe in live chart and backtest contexts
+
+======================================================================
+FOX Trader Phase 4 — validation results
+Date: 2026-08-21
+======================================================================
+
+PASS  Backend Python compile: python -m compileall -q .
+PASS  Backend pytest: 82/82 tests
+PASS  XML parse: 13 app/benchmark XML files, 0 parse errors
+PASS  Main Kotlin string-resource audit: 217 referenced R.string names, 0 missing
+PASS  Phase 4 changed-Kotlin lexical/delimiter scan: 17 files
+PASS  Phase 4 optimizer standalone compile + runtime smoke
+      Result: PHASE4_OPTIMIZER_RUNTIME_PASS grade=A folds=4/4 score=100.0
+PASS  Phase 4 optimizer ViewModel/UI-state targeted Kotlin compile with dependency stubs
+      Result: PHASE4_OPTIMIZER_VM_UISTATE_COMPILE_PASS
+PASS  Phase 4 MTF + real SMT detector compile + runtime smoke
+      Result: PHASE4_MTF_SMT_RUNTIME_PASS score=94 mtf=1.0 smt=GBPUSD risk=1.0
+PASS  Scanner ViewModel/UI-state targeted Kotlin compile with dependency stubs
+      Result: PHASE4_SCANNER_VM_UISTATE_COMPILE_PASS
+PASS  Confirmed-only LIST + HEATMAP runtime filter smoke
+      Result: PHASE4_CONFIRMED_FILTER_RUNTIME_PASS
+PASS  Background ScanAlertWorker targeted Kotlin compile with dependency stubs
+      Result: PHASE4_SCAN_ALERT_WORKER_COMPILE_PASS
+PASS  AlertEngine compile + runtime cooldown/dedup smoke
+      Result: PHASE4_ALERT_ENGINE_SMOKE_PASS
+PASS  RiskGatedBrokerExecutor compile + runtime down-only sizing smoke
+      Result: PHASE4_RISK_RUNTIME_SMOKE_PASS volume=1.0
+PASS  Phase 4 changed-file security grep: no hardcoded password/API-key/secret assignment,
+      Runtime.exec, trust-all/HostnameVerifier, WebView bridge or DexClassLoader pattern
+PASS  No test-generated Python cache/database artifacts retained in the final tree
+BLOCK Full Android Gradle unit/build/lint: wrapper needs Gradle 8.9; download failed with
+      java.net.UnknownHostException: services.gradle.org
+
+Phase 4 regression tests added/extended (will execute under the normal Gradle environment):
+- Phase4ConfluenceEngineTest: MTF actionability, untrusted-data fail-closed, fresh SMT confirmation,
+  explicit peer resolution
+- TradeProOptimizerTest: anchored walk-forward robustness report on sufficient history
+- AlertEngineTest: per-call Phase 4 cooldown override suppresses duplicates
+- RiskGatedBrokerExecutorTest: down-only risk multiplier and >1.0 rejection
+
+Phase 4 safety findings addressed:
+- walk-forward candidate-pool selection is deterministic/data-independent (no future-ranked pool leak)
+- optimizer apply is blocked without real data + qualified best + A/B robustness recommendation
+- scanner actionability fails closed on untrusted data / absent HTF / opposing SMT / HIGH risk
+- scanner confluence tag rows cannot overflow a phone-width card
+- background Phase 4 alerts are per-symbol/direction cooldown-deduplicated
+- adaptive broker sizing cannot use a multiplier above 1.0

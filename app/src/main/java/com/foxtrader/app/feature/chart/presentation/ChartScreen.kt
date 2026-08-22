@@ -3,6 +3,7 @@ package com.foxtrader.app.feature.chart.presentation
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -35,8 +36,13 @@ import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.filled.StackedLineChart
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -51,6 +57,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalView
@@ -70,6 +77,11 @@ import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.model.ChartSignal
 import com.foxtrader.app.domain.model.ChartBarMode
 import com.foxtrader.app.domain.model.ConnectionState
+import com.foxtrader.app.domain.model.DataProvider
+import com.foxtrader.app.domain.model.EquityPoint
+import com.foxtrader.app.domain.model.MarketDataFreshness
+import com.foxtrader.app.domain.model.StrategyType
+import com.foxtrader.app.domain.model.StrategyBlueprint
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.ui.theme.FoxWarning
 import com.foxtrader.app.feature.chart.presentation.components.CandleChart
@@ -109,6 +121,8 @@ fun ChartScreen(
     modifier: Modifier = Modifier,
     onNavigateToAlerts: () -> Unit = {},
     onNavigateToTradeManagement: () -> Unit = {},
+    onNavigateToBrokerTrading: () -> Unit = {},
+    onNavigateToStudio: () -> Unit = {},
     onNavigateToLitX: (String, Timeframe) -> Unit = { _, _ -> },
     immersive: Boolean = false,
     onToggleImmersive: () -> Unit = {},
@@ -159,6 +173,21 @@ fun ChartScreen(
         (if (replayState.isActive) replayState.visibleCandles else state.candles).asCandleSeries()
     }
 
+    // Keep the default price canvas clean: current/live confirmations remain
+    // visible, while historical strategy markers appear only when the trader
+    // explicitly enables Signal History from the chart toolbar.
+    val visibleSignals = remember(state.signals, state.showSignalHistory) {
+        if (state.showSignalHistory) state.signals else state.signals.filter { it.isLive }
+    }
+
+    val visibleBacktestMarkers = remember(
+        state.chartBacktest.markers, state.chartBacktest.showMarkers, replayState.isActive,
+    ) {
+        // Never expose completed-trade outcomes while replaying historical bars;
+        // doing so would leak future information into the replay session.
+        if (state.chartBacktest.showMarkers && !replayState.isActive) state.chartBacktest.markers else emptyList()
+    }
+
     // `INSETS` The app-level Scaffold in FoxNavHost already applies the system-bar
     // window insets (status bar on top, navigation bar on the bottom) to the
     // NavHost that hosts this screen. The previous manual `padding(top = 24.dp)`
@@ -179,6 +208,7 @@ fun ChartScreen(
                 onAlertsClick = onNavigateToAlerts,
                 onCalculatorClick = viewModel::openCalculator,
                 onSymbolClick = viewModel::openSymbolPicker,
+                onProviderChange = viewModel::onDataProviderChange,
                 onLiveToggle = viewModel::toggleLive,
                 onToggleAnalysis = { analysisExpanded = !analysisExpanded },
             )
@@ -207,6 +237,7 @@ fun ChartScreen(
                 onToggleScaleLock = { scaleLocked = !scaleLocked },
                 signalsActive = state.showSignalHistory,
                 onSignalsToggle = viewModel::toggleSignalHistory,
+                onOpenStudio = onNavigateToStudio,
             )
         }
 
@@ -252,6 +283,28 @@ fun ChartScreen(
                 toggles = state.indicators,
                 strategyBlueprints = state.strategyBlueprints,
                 onToggle = viewModel::updateIndicators,
+            )
+        }
+
+        // Backtest-on-chart dropdown
+        AnimatedVisibility(
+            visible = !immersive && activeMenu == ChartMenu.BACKTEST,
+            enter = expandVertically(),
+            exit = shrinkVertically(),
+        ) {
+            ChartBacktestPanel(
+                state = state.chartBacktest,
+                blueprints = state.strategyBlueprints,
+                currentBarCount = state.candles.size,
+                currentNewestTimestamp = state.candles.lastOrNull()?.timestamp,
+                currentBarMode = state.barMode,
+                dataIsSynthetic = state.isSyntheticData,
+                onStrategySelect = viewModel::selectChartBacktestStrategy,
+                onRangeSelect = viewModel::selectChartBacktestRange,
+                onBlueprintSelect = viewModel::selectChartBacktestBlueprint,
+                onRun = viewModel::runChartBacktest,
+                onClear = viewModel::clearChartBacktest,
+                onToggleMarkers = viewModel::toggleChartBacktestMarkers,
             )
         }
 
@@ -360,7 +413,8 @@ fun ChartScreen(
                             tradeProAnalysis = state.tradeProAnalysis,
                             litXAnalysis = state.litXAnalysis,
                             smtDivergences = state.smtDivergences,
-                            signals = state.signals,
+                            signals = visibleSignals,
+                            backtestMarkers = visibleBacktestMarkers,
                             indicators = state.indicators,
                             sessions = state.sessions,
                             drawings = state.drawings,
@@ -387,11 +441,21 @@ fun ChartScreen(
                         ChartOhlcLegend(
                             candle = displayCandles.lastOrNull(),
                             previousCandle = displayCandles.getOrNull(displayCandles.lastIndex - 1),
-                            source = state.dataSource,
+                            freshness = state.dataFreshness,
                             modifier = Modifier
                                 .align(Alignment.TopStart)
                                 .padding(8.dp),
                         )
+                        if (!replayState.isActive) {
+                            ChartBacktestSummaryOverlay(
+                                state = state.chartBacktest,
+                                currentBarCount = state.candles.size,
+                                currentNewestTimestamp = state.candles.lastOrNull()?.timestamp,
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(top = 44.dp, end = 70.dp),
+                            )
+                        }
                         }
                         state.isLoading -> CircularProgressIndicator(color = FoxAmber50)
                         state.error != null -> Text(
@@ -464,20 +528,41 @@ fun ChartScreen(
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
 
-            // --- Trade Management FAB (visible when executable setup is showing) ---
+            // --- Executable setup actions: simulation manager + broker review ---
+            // Broker hand-off stages only a short-lived draft. It never bypasses
+            // the broker screen's review/confirm/live-safety gates.
             if (state.tradeProAnalysis?.setup?.isExecutable == true) {
-                SmallFloatingActionButton(
-                    onClick = onNavigateToTradeManagement,
-                    containerColor = FoxAmber50,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                Column(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(end = 12.dp, bottom = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalAlignment = Alignment.End,
                 ) {
-                    Icon(
-                        Icons.Default.TrendingUp,
-                        contentDescription = stringResource(R.string.chart_open_trade_management),
-                    )
+                    SmallFloatingActionButton(
+                        onClick = {
+                            if (viewModel.stageExecutableBrokerTrade()) {
+                                onNavigateToBrokerTrading()
+                            }
+                        },
+                        containerColor = FoxAmber50,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ) {
+                        Icon(
+                            Icons.Default.ShowChart,
+                            contentDescription = "Review setup in broker trading",
+                        )
+                    }
+                    SmallFloatingActionButton(
+                        onClick = onNavigateToTradeManagement,
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    ) {
+                        Icon(
+                            Icons.Default.TrendingUp,
+                            contentDescription = stringResource(R.string.chart_open_trade_management),
+                        )
+                    }
                 }
             }
 
@@ -503,6 +588,7 @@ fun ChartScreen(
                     explanation = state.marketExplanation,
                     confluence = if (state.indicators.confluence) state.confluence else null,
                     tradeProAnalysis = state.tradeProAnalysis,
+                    phase13Fusion = state.signalFusion,
                     modifier = Modifier.align(Alignment.BottomCenter),
                 )
             }
@@ -584,15 +670,23 @@ private fun ChartTopBar(
     onAlertsClick: () -> Unit,
     onCalculatorClick: () -> Unit,
     onSymbolClick: () -> Unit,
+    onProviderChange: (DataProvider) -> Unit,
     onLiveToggle: () -> Unit,
     onToggleAnalysis: () -> Unit,
 ) {
+    var providerMenuExpanded by remember { mutableStateOf(false) }
     val currentSymbolDescription = stringResource(R.string.chart_current_symbol_cd, state.symbol)
-    val live = connectionState == ConnectionState.CONNECTED
-    val liveError = connectionState == ConnectionState.ERROR
+    val live = connectionState == ConnectionState.CONNECTED &&
+        state.dataFreshness == MarketDataFreshness.LIVE
+    val delayed = state.dataFreshness == MarketDataFreshness.DELAYED
+    val cached = state.dataFreshness == MarketDataFreshness.CACHED
+    val liveError = connectionState == ConnectionState.ERROR ||
+        connectionState == ConnectionState.AUTH_FAILED || connectionState == ConnectionState.FATAL
     val liveLabel = when {
         !state.liveAvailable && !state.liveEnabled -> stringResource(R.string.chart_live_unavailable)
         live -> stringResource(R.string.chart_live_connected)
+        delayed -> stringResource(R.string.chart_data_delayed)
+        cached && state.liveEnabled -> stringResource(R.string.chart_data_cached)
         liveError -> stringResource(R.string.chart_live_error)
         state.liveEnabled -> stringResource(R.string.chart_live_connecting)
         else -> stringResource(R.string.chart_live_off)
@@ -600,6 +694,8 @@ private fun ChartTopBar(
     val liveStateDescription = when {
         !state.liveAvailable && !state.liveEnabled -> stringResource(R.string.chart_live_unavailable_state)
         live -> stringResource(R.string.chart_live_connected_state)
+        delayed -> stringResource(R.string.chart_data_delayed_state)
+        cached -> stringResource(R.string.chart_data_cached_state)
         liveError -> stringResource(R.string.chart_live_error_state)
         else -> stringResource(R.string.chart_live_disconnected_state)
     }
@@ -637,6 +733,42 @@ private fun ChartTopBar(
                 .padding(horizontal = 10.dp, vertical = 5.dp)
                 .semantics { contentDescription = currentSymbolDescription },
         )
+        Box {
+            Text(
+                text = providerShortLabel(state.dataProvider),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .clickable(role = Role.Button) { providerMenuExpanded = true }
+                    .padding(horizontal = 7.dp, vertical = 4.dp),
+            )
+            DropdownMenu(
+                expanded = providerMenuExpanded,
+                onDismissRequest = { providerMenuExpanded = false },
+            ) {
+                providerGroups().forEach { (group, providers) ->
+                    Text(
+                        text = group,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = FoxNeutral60,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                    )
+                    providers.forEach { provider ->
+                        DropdownMenuItem(
+                            text = { Text(provider.displayName) },
+                            onClick = {
+                                providerMenuExpanded = false
+                                onProviderChange(provider)
+                            },
+                            enabled = provider != state.dataProvider,
+                        )
+                    }
+                }
+            }
+        }
         BiasBadge(state.bias)
         Text(
             text = liveLabel,
@@ -648,6 +780,7 @@ private fun ChartTopBar(
                 .background(
                     when {
                         live -> FoxSuccess
+                        delayed -> FoxWarning
                         liveError -> FoxError
                         else -> MaterialTheme.colorScheme.surfaceVariant
                     }
@@ -708,8 +841,24 @@ private fun ChartTopBar(
  * Enum for which dropdown menu is currently expanded.
  * Only one menu can be open at a time (TradingView behavior).
  */
+private fun providerShortLabel(provider: DataProvider): String = when (provider) {
+    DataProvider.DERIV -> "Deriv"
+    DataProvider.MT4 -> "MT4/5"
+    else -> provider.displayName
+}
+
+/** Keep broker-native chart sources visually separate from general market feeds. */
+private fun providerGroups(): List<Pair<String, List<DataProvider>>> {
+    val implemented = DataProvider.implemented()
+    return listOf(
+        "DERIV" to implemented.filter { it == DataProvider.DERIV },
+        "METATRADER" to implemented.filter { it == DataProvider.MT4 },
+        "OTHER DATA PROVIDERS" to implemented.filter { it != DataProvider.DERIV && it != DataProvider.MT4 },
+    ).filter { it.second.isNotEmpty() }
+}
+
 private enum class ChartMenu {
-    NONE, TIMEFRAME, BAR_MODE, INDICATORS, DRAWING, MULTI_CHART
+    NONE, TIMEFRAME, BAR_MODE, INDICATORS, BACKTEST, DRAWING, MULTI_CHART
 }
 
 /**
@@ -729,6 +878,7 @@ private fun ChartToolbar(
     onToggleScaleLock: () -> Unit,
     signalsActive: Boolean,
     onSignalsToggle: () -> Unit,
+    onOpenStudio: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -784,6 +934,18 @@ private fun ChartToolbar(
 
         Spacer(Modifier.weight(1f))
 
+        IconButton(
+            onClick = onOpenStudio,
+            modifier = Modifier.size(32.dp),
+        ) {
+            Icon(
+                Icons.Default.Tune,
+                contentDescription = "Open Pro Studio",
+                tint = FoxNeutral60,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+
         // Replay button (no dropdown, direct action)
         IconButton(
             onClick = onReplayStart,
@@ -806,6 +968,19 @@ private fun ChartToolbar(
                 Icons.Default.StackedLineChart,
                 contentDescription = "Toggle signal history",
                 tint = if (signalsActive) FoxAmber50 else FoxNeutral60,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+
+        // On-chart backtest controls
+        IconButton(
+            onClick = { onMenuToggle(ChartMenu.BACKTEST) },
+            modifier = Modifier.size(32.dp),
+        ) {
+            Icon(
+                Icons.Default.TrendingUp,
+                contentDescription = "Backtest on chart",
+                tint = if (activeMenu == ChartMenu.BACKTEST) FoxAmber50 else FoxNeutral60,
                 modifier = Modifier.size(18.dp),
             )
         }
@@ -884,6 +1059,281 @@ private fun ToolbarChipButton(
             tint = if (isActive) FoxAmber50 else FoxNeutral60,
             modifier = Modifier.size(12.dp),
         )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ChartBacktestPanel(
+    state: ChartBacktestState,
+    blueprints: List<StrategyBlueprint>,
+    currentBarCount: Int,
+    currentNewestTimestamp: Long?,
+    currentBarMode: ChartBarMode,
+    dataIsSynthetic: Boolean,
+    onStrategySelect: (StrategyType) -> Unit,
+    onRangeSelect: (ChartBacktestRange) -> Unit,
+    onBlueprintSelect: (String) -> Unit,
+    onRun: () -> Unit,
+    onClear: () -> Unit,
+    onToggleMarkers: () -> Unit,
+) {
+    val isStale = state.hasResult && (
+        state.sourceBarsAtRun != currentBarCount ||
+            (currentNewestTimestamp != null && state.sourceNewestTimestampAtRun != currentNewestTimestamp)
+        )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column {
+                Text(
+                    "Backtest on Chart",
+                    color = FoxAmber50,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.labelLarge,
+                )
+                Text(
+                    "Same non-repainting strategy logic as live signals",
+                    color = FoxNeutral60,
+                    fontSize = 10.sp,
+                )
+            }
+            if (state.isRunning) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+        }
+
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            StrategyType.entries.forEach { strategy ->
+                val selected = strategy == state.selectedStrategy && state.selectedBlueprintId == null
+                Text(
+                    text = strategy.label,
+                    color = if (selected) FoxAmber50 else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 10.sp,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(
+                            if (selected) MaterialTheme.colorScheme.primaryContainer
+                            else MaterialTheme.colorScheme.surfaceVariant
+                        )
+                        .clickable(enabled = !state.isRunning) { onStrategySelect(strategy) }
+                        .padding(horizontal = 9.dp, vertical = 6.dp),
+                )
+            }
+        }
+
+        Text("History range", color = FoxNeutral60, fontSize = 9.sp)
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            ChartBacktestRange.entries.forEach { range ->
+                val selected = state.selectedRange == range
+                Text(
+                    text = range.label,
+                    color = if (selected) FoxAmber50 else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 10.sp,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(
+                            if (selected) MaterialTheme.colorScheme.primaryContainer
+                            else MaterialTheme.colorScheme.surfaceVariant
+                        )
+                        .clickable(enabled = !state.isRunning) { onRangeSelect(range) }
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                )
+            }
+        }
+
+        if (blueprints.isNotEmpty()) {
+            Text("Custom strategies", color = FoxNeutral60, fontSize = 9.sp)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                blueprints.forEach { blueprint ->
+                    val selected = state.selectedBlueprintId == blueprint.id
+                    Text(
+                        text = blueprint.name,
+                        color = if (selected) FoxAmber50 else MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 10.sp,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(
+                                if (selected) MaterialTheme.colorScheme.primaryContainer
+                                else MaterialTheme.colorScheme.surfaceVariant
+                            )
+                            .clickable(enabled = !state.isRunning) { onBlueprintSelect(blueprint.id) }
+                            .padding(horizontal = 9.dp, vertical = 6.dp),
+                    )
+                }
+            }
+        }
+
+        if (dataIsSynthetic) {
+            Text(
+                "Real market data is required. Simulated bars are never accepted for backtest results.",
+                color = FoxWarning,
+                fontSize = 10.sp,
+            )
+        }
+        if (currentBarMode != ChartBarMode.TIME) {
+            Text(
+                "Switch bar mode to Time for executable-price backtesting.",
+                color = FoxWarning,
+                fontSize = 10.sp,
+            )
+        }
+        state.error?.let { error ->
+            Text(error, color = FoxBearishText, fontSize = 10.sp)
+        }
+        state.historyNotice?.let { notice ->
+            Text(notice, color = FoxWarning, fontSize = 9.sp)
+        }
+
+        if (state.hasResult) {
+            Text(
+                "${state.strategyName}: ${state.totalSignals} signals • W ${state.winningSignals} • L ${state.losingSignals} • B ${state.breakevenSignals} • ${String.format(java.util.Locale.US, "%.1f", state.winRate)}% win rate • ${state.testedBars} closed bars${if (isStale) " • rerun for new bars" else ""}",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                "PF ${String.format(java.util.Locale.US, "%.2f", state.profitFactor)} • Return ${String.format(java.util.Locale.US, "%.2f", state.returnPercent)}% • Max DD ${String.format(java.util.Locale.US, "%.2f", state.maxDrawdownPercent)}% • Exp ${String.format(java.util.Locale.US, "%.2f", state.expectancy)} • Avg R ${String.format(java.util.Locale.US, "%.2f", state.averageR)}",
+                color = FoxNeutral60,
+                fontSize = 9.sp,
+            )
+            BacktestEquitySparkline(state = state)
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Button(
+                onClick = onRun,
+                enabled = !state.isRunning && !dataIsSynthetic && currentBarMode == ChartBarMode.TIME,
+                colors = ButtonDefaults.buttonColors(containerColor = FoxAmber50),
+                modifier = Modifier.weight(1f),
+            ) {
+                Text(if (state.isRunning) "Running…" else "Run Backtest", fontSize = 11.sp)
+            }
+            Text(
+                if (state.showMarkers) "Markers ON" else "Markers OFF",
+                color = if (state.showMarkers) FoxBullishText else FoxNeutral60,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .clickable(enabled = state.markers.isNotEmpty()) { onToggleMarkers() }
+                    .padding(horizontal = 10.dp, vertical = 9.dp),
+            )
+            Text(
+                "Clear",
+                color = FoxNeutral60,
+                fontSize = 10.sp,
+                modifier = Modifier
+                    .clickable(enabled = state.hasResult || state.error != null) { onClear() }
+                    .padding(8.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun BacktestEquitySparkline(state: ChartBacktestState) {
+    if (state.equityCurve.size < 2) return
+    val points = remember(state.equityCurve) {
+        val step = (state.equityCurve.size / 180).coerceAtLeast(1)
+        buildList<EquityPoint> {
+            var i = 0
+            while (i < state.equityCurve.size) {
+                add(state.equityCurve[i])
+                i += step
+            }
+            val last = state.equityCurve.last()
+            if (lastOrNull()?.timestamp != last.timestamp) add(last)
+        }
+    }
+    val minBalance = points.minOf { it.balance }
+    val maxBalance = points.maxOf { it.balance }
+    val range = (maxBalance - minBalance).takeIf { it > 0.0 } ?: 1.0
+    val lineColor = if (state.netPnL >= 0.0) FoxBullishText else FoxBearishText
+
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(42.dp),
+    ) {
+        val lastIndex = (points.size - 1).coerceAtLeast(1)
+        for (i in 1 until points.size) {
+            val prev = points[i - 1]
+            val cur = points[i]
+            val x1 = size.width * ((i - 1).toFloat() / lastIndex.toFloat())
+            val x2 = size.width * (i.toFloat() / lastIndex.toFloat())
+            val y1 = size.height - (((prev.balance - minBalance) / range).toFloat() * size.height)
+            val y2 = size.height - (((cur.balance - minBalance) / range).toFloat() * size.height)
+            drawLine(lineColor, Offset(x1, y1), Offset(x2, y2), strokeWidth = 2f)
+        }
+    }
+}
+
+@Composable
+private fun ChartBacktestSummaryOverlay(
+    state: ChartBacktestState,
+    currentBarCount: Int,
+    currentNewestTimestamp: Long?,
+    modifier: Modifier = Modifier,
+) {
+    if (!state.hasResult) return
+    val isStale = state.sourceBarsAtRun != currentBarCount ||
+        (currentNewestTimestamp != null && state.sourceNewestTimestampAtRun != currentNewestTimestamp)
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.90f))
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.End,
+    ) {
+        Text(
+            text = "BT ${state.strategyName ?: state.selectedStrategy.label} • ${state.selectedRange.label}${if (!state.rangeCoverageComplete) "*" else ""}",
+            color = FoxAmber50,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            text = "${state.totalSignals}  W ${state.winningSignals}  L ${state.losingSignals}  B ${state.breakevenSignals}",
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            text = "WR ${String.format(java.util.Locale.US, "%.1f", state.winRate)}%  P/L ${String.format(java.util.Locale.US, "%.0f", state.netPnL)}",
+            color = if (state.netPnL >= 0.0) FoxBullishText else FoxBearishText,
+            fontSize = 9.sp,
+        )
+        if (!state.rangeCoverageComplete) {
+            Text("PARTIAL RANGE", color = FoxWarning, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+        }
+        if (isStale) {
+            Text("NEW BARS — RERUN", color = FoxWarning, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+        }
     }
 }
 

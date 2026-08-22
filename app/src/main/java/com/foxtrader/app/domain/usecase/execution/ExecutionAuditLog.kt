@@ -1,40 +1,45 @@
 package com.foxtrader.app.domain.usecase.execution
 
 /**
- * Append-only seam for persisting execution receipts.
+ * Durable execution-state seam keyed by [TradeIntent.idempotencyKey].
  *
- * This is an interface/seam only for now: the production implementation
- * (encrypted, append-only Room entity + DAO + retention policy) is a pending
- * blocker. Everything downstream depends on this contract so the rest of the
- * safety stack can be built and tested against an in-memory fake.
+ * The latest receipt for a key is stored atomically/upserted. This supports a
+ * write-ahead UNKNOWN reservation before broker submission and a later
+ * transition to ACCEPTED/REJECTED after a definitive broker result.
  *
  * Contract:
- *  - [record] is append-only; a recorded receipt is never mutated or deleted.
- *  - [findByIdempotencyKey] supports duplicate-order blocking and reconciliation.
+ *  - [record] must be durable before it returns in production.
+ *  - [findByIdempotencyKey] must expose the latest state for duplicate-order
+ *    blocking and reconciliation.
+ *  - UNKNOWN/ACCEPTED states must survive process death.
  */
 interface ExecutionAuditLog {
     suspend fun record(receipt: ExecutionReceipt)
 
-    /** Returns the most recent receipt for an idempotency key, if any. */
+    /** Returns the latest receipt for an idempotency key, if any. */
     suspend fun findByIdempotencyKey(idempotencyKey: String): ExecutionReceipt?
 
-    /** All receipts in append order. */
+    /** Latest receipt for each idempotency key. */
     suspend fun all(): List<ExecutionReceipt>
 }
 
 /**
- * In-memory fake for tests and for the un-persisted interim. Not thread-safe by
- * itself; production must use the Room-backed implementation.
+ * In-memory test implementation with the same latest-state-per-key semantics
+ * as the Room implementation. Synchronization makes concurrency tests honest.
  */
 class InMemoryExecutionAuditLog : ExecutionAuditLog {
-    private val receipts = mutableListOf<ExecutionReceipt>()
+    private val lock = Any()
+    private val receipts = LinkedHashMap<String, ExecutionReceipt>()
 
     override suspend fun record(receipt: ExecutionReceipt) {
-        receipts += receipt
+        synchronized(lock) {
+            receipts[receipt.intent.idempotencyKey] = receipt
+        }
     }
 
     override suspend fun findByIdempotencyKey(idempotencyKey: String): ExecutionReceipt? =
-        receipts.lastOrNull { it.intent.idempotencyKey == idempotencyKey }
+        synchronized(lock) { receipts[idempotencyKey] }
 
-    override suspend fun all(): List<ExecutionReceipt> = receipts.toList()
+    override suspend fun all(): List<ExecutionReceipt> =
+        synchronized(lock) { receipts.values.toList() }
 }

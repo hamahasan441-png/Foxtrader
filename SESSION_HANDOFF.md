@@ -1,3 +1,11 @@
+# Latest checkpoint — Phase 13 Signal Intelligence (2026-08-22)
+
+Phase 13 is the newest source checkpoint. The signal stack has been hardened in the requested priority order **LiTX → LiT → SMT → SMS → TradePro**. Live signal entry points use confirmed-bar prefixes; LiT is a canonical first-class engine shared by chart/StrategyLibrary/scanner/AI; SMS is first-class Smart Money Structure; SMT is timestamp/swing synchronized and stamped on confirmation bars; LiTX is profile-aware with causal sweep→shift→POI→retest gates; TradePro receives a fusion/veto layer that cannot invent EXECUTE. The chart displays per-engine Phase 13 evidence and confidence. LiTX/LiT/SMT/SMS have persisted, editable profile/threshold/timing settings and chart recomputation applies changes immediately. Conservative outcome measurement is available through `SignalOutcomeEvaluator`.
+
+The reproducible checks are in `scripts/phase13_signal_intelligence_preflight.sh`, `scripts/phase13_package_hygiene.sh`, `PHASE13_SIGNAL_INTELLIGENCE.md`, and `VALIDATION_RESULTS_PHASE13.txt`. Gradle remains intentionally outside validation per project-owner instruction. Do not claim a universal accuracy percentage without genuine out-of-sample/walk-forward data.
+
+---
+
 # FoxTrader — Engineering Session Handoff
 
 **Branch:** `arena/01a002b9-foxtrader`

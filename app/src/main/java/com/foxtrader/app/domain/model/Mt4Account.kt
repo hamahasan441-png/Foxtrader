@@ -13,17 +13,32 @@ package com.foxtrader.app.domain.model
  * @param platform Trading platform identifier (defaults to "mt4").
  */
 data class Mt4Credentials(
-    val login: Int,
+    val login: Long,
     val password: String,
     val server: String,
     val platform: String = "mt4",
 )
 
+
 /**
- * MT4 account information retrieved from the broker via MetaApi.
+ * Password-free saved broker account descriptor for Phase 6 account switching.
+ * Credentials are never persisted here; selecting a profile only pre-fills
+ * login/server/platform and still requires the user to enter the password.
+ */
+data class Mt4AccountProfile(
+    val login: Long,
+    val server: String,
+    val platform: String = "mt4",
+    val displayName: String = "",
+    /** Non-secret MetaApi provisioning id used to avoid duplicate cloud accounts. */
+    val metaApiAccountId: String? = null,
+)
+
+/**
+ * MT4/MT5 account information retrieved from the broker via MetaApi.
  */
 data class Mt4AccountInfo(
-    val login: Int,
+    val login: Long,
     val balance: Double,
     val equity: Double,
     val margin: Double,

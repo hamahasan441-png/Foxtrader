@@ -60,9 +60,10 @@ class AuthInterceptorTest {
     /** Stub the TokenManager calls the interceptor makes during a 401 flow. */
     private fun stubTokenManager(
         accessToken: String?,
-        accessAfterRefresh: String? = accessToken,
+        accessAfter401: String? = accessToken,
+        accessAfterRefresh: String? = accessAfter401,
     ): Unit {
-        every { tokenManager.getAccessToken() } returns accessToken andThen accessAfterRefresh
+        every { tokenManager.getAccessToken() } returns accessToken andThen accessAfter401 andThen accessAfterRefresh
         every { tokenManager.getRefreshToken() } returns "refresh-token"
         every { tokenManager.isRefreshTokenExpired() } returns false
     }
@@ -130,7 +131,7 @@ class AuthInterceptorTest {
     fun `missing new token after a refresh returns a readable 401`() {
         // First read returns the header token; the post-refresh read yields
         // null, exercising the defensive `?: return ...` branch.
-        stubTokenManager(accessToken = "expired-access-token", accessAfterRefresh = null)
+        stubTokenManager(accessToken = "expired-access-token", accessAfter401 = "expired-access-token", accessAfterRefresh = null)
         fakeApi.onRefresh = { refreshResponse() }
 
         val chain = stubChain(build401())
@@ -147,7 +148,7 @@ class AuthInterceptorTest {
 
     @Test
     fun `successful refresh retries the request and returns the retried response`() {
-        stubTokenManager(accessToken = "expired-access", accessAfterRefresh = "new-access")
+        stubTokenManager(accessToken = "expired-access", accessAfter401 = "expired-access", accessAfterRefresh = "new-access")
         fakeApi.onRefresh = { refreshResponse() }
 
         // First proceed returns the 401 (triggers refresh), second returns the
@@ -162,6 +163,31 @@ class AuthInterceptorTest {
         // The retry response is returned, not the closed 401.
         assertEquals(200, result.code)
         assertEquals("{\"ok\":true}", result.body?.string())
+    }
+
+
+    @Test
+    fun `401 retries newer concurrent access token without reusing refresh token`() {
+        stubTokenManager(
+            accessToken = "expired-access",
+            accessAfter401 = "new-access-from-other-request",
+            accessAfterRefresh = "new-access-from-other-request",
+        )
+        var refreshCalls = 0
+        fakeApi.onRefresh = {
+            refreshCalls++
+            refreshResponse()
+        }
+
+        val chain = mockk<Interceptor.Chain>()
+        every { chain.request() } returns request
+        every { chain.proceed(any<Request>()) } returns build401() andThen buildOk()
+
+        val interceptor = AuthInterceptor(tokenManager, provider())
+        val result = interceptor.intercept(chain)
+
+        assertEquals(200, result.code)
+        assertEquals(0, refreshCalls)
     }
 
     @Test

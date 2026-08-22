@@ -393,4 +393,35 @@ class FoxDatabaseMigrationTest {
         assertTrue("Room could not open the migrated database", room.isOpen)
         room.close()
     }
+    @Test
+    fun migration9To10_addsExecutionScope_withoutLosingAuditRows() {
+        val db = openRaw(9) { d ->
+            d.execSQL(DDL_CANDLES_V1)
+            d.execSQL(DDL_CANDLES_INDEX_V1)
+            FoxDatabase.MIGRATION_1_2.migrate(d)
+            FoxDatabase.MIGRATION_2_3.migrate(d)
+            FoxDatabase.MIGRATION_3_4.migrate(d)
+            FoxDatabase.MIGRATION_4_5.migrate(d)
+            FoxDatabase.MIGRATION_5_6.migrate(d)
+            FoxDatabase.MIGRATION_6_7.migrate(d)
+            FoxDatabase.MIGRATION_7_8.migrate(d)
+            FoxDatabase.MIGRATION_8_9.migrate(d)
+        }
+        db.execSQL(
+            "INSERT INTO execution_audit_log " +
+                "(idempotencyKey, status, symbol, direction, volume, entryPrice, stopLoss, takeProfit, orderId, reasons, timestamp, realizedProfit) " +
+                "VALUES ('legacy-key', 'UNKNOWN', 'EURUSD', 'BULLISH', 0.1, 1.1, NULL, NULL, NULL, '', 1000, NULL)"
+        )
+
+        FoxDatabase.MIGRATION_9_10.migrate(db)
+
+        db.query("SELECT executionScope, operationTag, status FROM execution_audit_log WHERE idempotencyKey = 'legacy-key'").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals("", c.getString(0))
+            assertEquals("OPEN", c.getString(1))
+            assertEquals("UNKNOWN", c.getString(2))
+        }
+        db.close()
+    }
+
 }

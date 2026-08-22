@@ -9,6 +9,7 @@ import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.ai.MtfContextProvider
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.domain.usecase.scanner.ScannerUseCase
+import com.foxtrader.app.domain.usecase.signalintel.ConfirmedBarPolicy
 import com.foxtrader.app.domain.usecase.tradepro.OpportunityScorer
 import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -67,13 +68,17 @@ class OpportunityBoardViewModel @Inject constructor(
 
                 for (entry in watchlist) {
                     val sourced = repository.getSourcedCandles(entry.symbol, timeframe)
-                    val candles = sourced.candles
+                    val now = System.currentTimeMillis()
+                    val candles = ConfirmedBarPolicy.confirmedPrefix(sourced.candles, timeframe, now)
                     if (sourced.isSynthetic) hadSynthetic = true
                     if (candles.size < MIN_BARS) {
                         opportunities += TradeOpportunity.noData(entry.symbol, "Insufficient data")
                         continue
                     }
-                    val htf = mtfContextProvider.getHtfContext(entry.symbol, timeframe)
+                    val htf = ConfirmedBarPolicy.confirmedMap(
+                        mtfContextProvider.getHtfContext(entry.symbol, timeframe),
+                        now,
+                    )
                     val opportunity = withContext(defaultDispatcher) {
                         val analysis = signalEngine.analyze(entry.symbol, candles, config, htf)
                         scorer.score(analysis, candles.last().close, config)

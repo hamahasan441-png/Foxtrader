@@ -1,11 +1,12 @@
 package com.foxtrader.app.data.local.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
- * Append-only persisted record of a live MT4 order attempt.
+ * Durable persisted state of a live MT4 order attempt.
  *
  * One row per idempotency key (each distinct order intent). Recording the latest
  * receipt for a key is what lets us block duplicate submissions and reconcile an
@@ -20,10 +21,17 @@ import androidx.room.PrimaryKey
     indices = [
         Index(value = ["timestamp"]),
         Index(value = ["status"]),
+        Index(value = ["executionScope"]),
     ],
 )
 data class ExecutionAuditLogEntity(
     @PrimaryKey val idempotencyKey: String,
+    /** Opaque broker-account execution scope. Empty marks legacy pre-v10 rows. */
+    @ColumnInfo(defaultValue = "''")
+    val executionScope: String = "",
+    /** OPEN for normal orders; CLOSE:<ticket> for close receipts. */
+    @ColumnInfo(defaultValue = "'OPEN'")
+    val operationTag: String = "OPEN",
     /** ACCEPTED / REJECTED / UNKNOWN (see [com.foxtrader.app.domain.usecase.execution.ExecutionReceipt]). */
     val status: String,
     val symbol: String,

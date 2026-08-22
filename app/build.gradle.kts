@@ -21,6 +21,21 @@ plugins {
     jacoco
 }
 
+private fun buildConfigString(value: String): String = buildString {
+    append('"')
+    value.forEach { ch ->
+        when (ch) {
+            '\\' -> append("\\\\")
+            '"' -> append("\\\"")
+            '\n' -> append("\\n")
+            '\r' -> append("\\r")
+            '\t' -> append("\\t")
+            else -> append(ch)
+        }
+    }
+    append('"')
+}
+
 android {
     namespace = "com.foxtrader.app"
     compileSdk = 36
@@ -31,11 +46,15 @@ android {
         targetSdk = 36
         // Version is driven by CI (env or -P property) for reproducible release
         // numbering, with safe local-dev fallbacks so a plain build still works.
-        versionCode = (System.getenv("FOXTRADER_VERSION_CODE")
-            ?: (project.findProperty("FOXTRADER_VERSION_CODE") as? String))
-            ?.toIntOrNull() ?: 1
-        versionName = System.getenv("FOXTRADER_VERSION_NAME")
-            ?: (project.findProperty("FOXTRADER_VERSION_NAME") as? String)
+        versionCode = sequenceOf(
+            System.getenv("FOXTRADER_VERSION_CODE"),
+            project.findProperty("FOXTRADER_VERSION_CODE") as? String,
+        ).filterNotNull().map(String::trim).firstOrNull { it.isNotEmpty() }
+            ?.toIntOrNull()?.takeIf { it > 0 } ?: 1
+        versionName = sequenceOf(
+            System.getenv("FOXTRADER_VERSION_NAME"),
+            project.findProperty("FOXTRADER_VERSION_NAME") as? String,
+        ).filterNotNull().map(String::trim).firstOrNull { it.isNotEmpty() }
             ?: "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -51,14 +70,14 @@ android {
         val backendUrl = (project.findProperty("FOXTRADER_BASE_URL") as? String)
             ?: System.getenv("FOXTRADER_BASE_URL")
             ?: ""
-        buildConfigField("String", "FOXTRADER_BASE_URL", "\"$backendUrl\"")
+        buildConfigField("String", "FOXTRADER_BASE_URL", buildConfigString(backendUrl))
 
         // Remote crash-reporting DSN — override via local.properties or CI secrets.
         // Left blank by default; the NoOpCrashBackend handles the empty-DSN case.
         val crashDsn = (project.findProperty("CRASH_REPORTING_DSN") as? String)
             ?: System.getenv("CRASH_REPORTING_DSN")
             ?: ""
-        buildConfigField("String", "CRASH_REPORTING_DSN", "\"$crashDsn\"")
+        buildConfigField("String", "CRASH_REPORTING_DSN", buildConfigString(crashDsn))
 
         // Certificate-pinning pins for the FoxTrader backend, comma-separated
         // SHA-256 hashes (e.g. "sha256/AAAA..."). When empty, no pinning is
@@ -67,24 +86,30 @@ android {
         val certPins = (project.findProperty("FOXTRADER_CERT_PINS") as? String)
             ?: System.getenv("FOXTRADER_CERT_PINS")
             ?: ""
-        buildConfigField("String", "FOXTRADER_CERT_PINS", "\"$certPins\"")
+        buildConfigField("String", "FOXTRADER_CERT_PINS", buildConfigString(certPins))
     }
 
     // Release signing is driven entirely by environment/secrets so no key
-    // material ever lives in the repo. When the keystore env vars are absent
-    // (local dev, or CI without secrets) the release build falls back to the
-    // debug signing config so the build still succeeds and produces a testable —
-    // if not store-uploadable — artifact.
+    // material ever lives in the repo. If release credentials are absent the
+    // release variant remains unsigned; it must never silently fall back to the
+    // debug key. CI/store publishing supplies the production signing material.
     val releaseKeystorePath: String? = System.getenv("FOXTRADER_KEYSTORE_PATH")
-    val releaseSigningReady: Boolean = releaseKeystorePath?.let { file(it).exists() } ?: false
+    val releaseStorePassword: String? = System.getenv("FOXTRADER_KEYSTORE_PASSWORD")
+    val releaseKeyAlias: String? = System.getenv("FOXTRADER_KEY_ALIAS")
+    val releaseKeyPassword: String? = System.getenv("FOXTRADER_KEY_PASSWORD")
+    val releaseSigningReady: Boolean =
+        releaseKeystorePath?.let { file(it).isFile } == true &&
+            !releaseStorePassword.isNullOrBlank() &&
+            !releaseKeyAlias.isNullOrBlank() &&
+            !releaseKeyPassword.isNullOrBlank()
 
     signingConfigs {
         create("release") {
             if (releaseSigningReady) {
                 storeFile = file(releaseKeystorePath!!)
-                storePassword = System.getenv("FOXTRADER_KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("FOXTRADER_KEY_ALIAS")
-                keyPassword = System.getenv("FOXTRADER_KEY_PASSWORD")
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
             }
         }
     }
@@ -94,22 +119,23 @@ android {
             isMinifyEnabled = false
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
+            buildConfigField("boolean", "FOXTRADER_RELEASE_SIGNING_READY", "false")
         }
         release {
+            buildConfigField("boolean", "FOXTRADER_RELEASE_SIGNING_READY", releaseSigningReady.toString())
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = if (releaseSigningReady) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
+            if (releaseSigningReady) {
+                signingConfig = signingConfigs.getByName("release")
             }
         }
         create("benchmark") {
             initWith(getByName("release"))
+            buildConfigField("boolean", "FOXTRADER_RELEASE_SIGNING_READY", "false")
             signingConfig = signingConfigs.getByName("debug")
             matchingFallbacks += listOf("release")
             isDebuggable = false
@@ -156,6 +182,30 @@ android {
         xmlReport = true
         warningsAsErrors = false
     }
+}
+
+// Fail the release build before packaging when its mandatory backend origin is
+// absent or unsafe. The app's auth/sync flow depends on this endpoint; allowing
+// a signed release to silently fall back to the emulator address creates a
+// binary that cannot authenticate in production.
+val verifyProductionConfig by tasks.registering {
+    group = "verification"
+    doLast {
+        val configured = sequenceOf(
+            project.findProperty("FOXTRADER_BASE_URL") as? String,
+            System.getenv("FOXTRADER_BASE_URL"),
+        ).filterNotNull().map(String::trim).firstOrNull { it.isNotEmpty() }
+        require(!configured.isNullOrBlank()) {
+            "FOXTRADER_BASE_URL is required for release builds"
+        }
+        require(configured.startsWith("https://")) {
+            "FOXTRADER_BASE_URL must use HTTPS for release builds"
+        }
+    }
+}
+
+tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+    dependsOn(verifyProductionConfig)
 }
 
 composeCompiler {
@@ -447,6 +497,10 @@ dependencies {
     implementation(libs.okhttp.logging)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.retrofit.kotlinx.serialization)
+    implementation(libs.socket.io.client) {
+        // Android provides org.json; avoid duplicate classes from the Java client.
+        exclude(group = "org.json", module = "json")
+    }
 
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)

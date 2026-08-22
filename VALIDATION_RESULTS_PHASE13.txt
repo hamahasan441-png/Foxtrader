@@ -1,0 +1,73 @@
+FOX Trader Phase 13 — Signal Intelligence & Indicator Accuracy
+Final validation mode: NON-GRADLE (explicit project-owner instruction)
+Date: 2026-08-22
+
+PASS — Phase 13 signal-intelligence source preflight
+  scripts/phase13_signal_intelligence_preflight.sh
+  Covers confirmed-bar policy, LiTX/LiT/SMS causality, SMT synchronization,
+  TradePro fusion guards, chart wiring, editable-settings persistence/wiring,
+  scanner/AI/strategy consistency, conservative accuracy measurement, and
+  production-source hygiene.
+
+PASS — Phase 9 Deriv regression preflight
+PASS — Phase 10 Deriv API/account-switcher regression preflight
+PASS — Phase 11 full-audit regression preflight
+PASS — Phase 12 professional-execution regression preflight
+
+PASS — Backend test suite: 85/85 tests
+  Re-run with bytecode/cache disabled before final packaging.
+PASS — Room migration verifier: v1 -> v10
+
+PASS — Independent Kotlin compile: final Phase 13 configurable signal core
+  LiTX model + engine
+  LiT model/config + engine
+  SMS model/config + engine
+  SMT config + synchronized divergence detector
+
+PASS — Editable signal settings integration
+  LiTX / LiT / SMT / SMS settings exposed in Settings UI
+  DataStore persistence wired for all four engines
+  Stored values sanitized/clamped before use
+  SCALPING / INTRADAY / SWING presets available for all four engines
+  LiTX minimum grade + enable switch supported
+  chart reads persisted configs and recomputes when settings change
+  LiTX enable/disable is respected by chart/fusion computation
+
+PASS — Editable-settings unit-test source compile
+  Phase13EditableSettingsTest.kt
+
+PASS — Editable-settings behavior smoke
+  config sanitization clamps invalid extremes
+  preset ordering/values verified
+  LiT/SMS/SMT custom presets do not manufacture flat-market signals
+
+PASS — Phase 13 behavior smoke
+  active candle excluded from M15 confirmed prefix
+  duplicate timestamp rejected
+  pre-shift displacement does not confirm MSS
+  causal post-shift displacement confirms MSS
+  fusion cannot invent a TradePro setup
+  strong opposite LiTX evidence blocks/demotes TradePro EXECUTE
+  SMT marker uses confirmation bar/time
+  TradePro marker uses confirmed candle timestamp rather than wall clock
+  same-candle SL+TP ambiguity is recorded as conservative LOSS
+
+PASS — Flat-market false-positive smoke
+  LiTX: no false signal
+  LiT: no false signal
+  SMS: no false signal
+  SMT: no false divergence on identical flat peer series
+
+PASS — Android XML parse: 12 XML files
+PASS — shell syntax
+PASS — Python syntax: 42 files
+PASS — no production TODO()/NotImplementedError/GlobalScope
+PASS — no merge-conflict markers
+PASS — Phase 13 package hygiene
+
+NOT CLAIMED — Gradle/APK build (explicitly excluded by project owner).
+NOT CLAIMED — a universal/fixed LiTX/LiT/SMT/SMS/TradePro accuracy percentage.
+Accuracy must be measured by symbol, timeframe and market regime using genuine
+out-of-sample/walk-forward data. Phase 13 removes known lookahead/repaint and
+same-bar optimistic accounting paths, but cannot make future market outcomes
+certain.

@@ -21,6 +21,15 @@ data class TradeProOptimizerUiState(
 ) {
     val hasReport: Boolean get() = report != null
 
+    /** Phase 4 guard: tuned parameters are only one-click applicable after real-data walk-forward validation. */
+    val canApplyBest: Boolean
+        get() {
+            val current = report ?: return false
+            return !isSynthetic &&
+                current.best?.qualified == true &&
+                current.robustness?.recommended == true
+        }
+
     companion object {
         val DEFAULT_SYMBOLS: ImmutableList<String> = persistentListOf(
             "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "XAUUSD",

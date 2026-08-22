@@ -49,6 +49,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.AlertPriority
+import com.foxtrader.app.domain.model.SignalProfile
+import com.foxtrader.app.domain.model.LitXGrade
 import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.PositionSizingMethod
 import com.foxtrader.app.domain.model.Timeframe
@@ -505,7 +507,7 @@ fun SettingsScreen(
                         color = FoxNeutral60,
                     )
                 }
-                if (state.dataProvider == DataProvider.BINANCE || state.dataProvider == DataProvider.BYBIT) {
+                if (state.dataProvider.implemented && state.dataProvider.supportsLive && state.dataProvider != DataProvider.SAMPLE) {
                     Spacer(Modifier.height(4.dp))
                     Text(
                         text = stringResource(R.string.settings_live_routing_active, state.dataProvider.displayName),
@@ -658,10 +660,46 @@ fun SettingsScreen(
                     onCheckedChange = viewModel::setLitXEnabled,
                 )
                 Spacer(Modifier.height(12.dp))
+                DropdownSetting(
+                    label = "Signal profile",
+                    selected = state.litXConfig.profile.name,
+                    options = SignalProfile.entries.map { it.name },
+                    onSelect = { selected ->
+                        SignalProfile.entries.firstOrNull { it.name == selected }?.let(viewModel::setLitXProfile)
+                    },
+                )
+                Spacer(Modifier.height(12.dp))
+                DropdownSetting(
+                    label = "Minimum grade",
+                    selected = state.litXConfig.minGrade.name,
+                    options = listOf(LitXGrade.A_PLUS.name, LitXGrade.A.name, LitXGrade.B.name),
+                    onSelect = { n -> LitXGrade.entries.firstOrNull { it.name == n }?.let(viewModel::setLitXMinGrade) },
+                )
+                Spacer(Modifier.height(12.dp))
                 SwitchSetting(
                     label = stringResource(R.string.settings_litx_require_htf),
                     checked = state.litXConfig.requireHtfAlignment,
                     onCheckedChange = viewModel::setLitXRequireHtf,
+                )
+                Spacer(Modifier.height(8.dp))
+                SwitchSetting(
+                    label = "Require displacement-confirmed MSS",
+                    checked = state.litXConfig.requireStrongMss,
+                    onCheckedChange = viewModel::setLitXRequireStrongMss,
+                )
+                Spacer(Modifier.height(8.dp))
+                SwitchSetting(
+                    label = "Require premium/discount alignment",
+                    checked = state.litXConfig.requireDirectionalZone,
+                    onCheckedChange = viewModel::setLitXRequireDirectionalZone,
+                )
+                Spacer(Modifier.height(8.dp))
+                SliderSetting(
+                    label = "Minimum confidence",
+                    value = state.litXConfig.minConfidenceScore.toFloat(),
+                    range = 50f..95f,
+                    suffix = "%",
+                    onValueChange = { viewModel.setLitXMinConfidence(it.toInt()) },
                 )
                 Spacer(Modifier.height(8.dp))
                 SliderSetting(
@@ -671,6 +709,100 @@ fun SettingsScreen(
                     suffix = "R",
                     onValueChange = { viewModel.setLitXMinRiskReward(it.toDouble()) },
                 )
+                Spacer(Modifier.height(8.dp))
+                SliderSetting(
+                    label = "Displacement ATR",
+                    value = state.litXConfig.displacementAtrMultiple.toFloat(),
+                    range = 0.8f..3f, suffix = "x",
+                    onValueChange = { viewModel.setLitXDisplacement(it.toDouble()) },
+                )
+                Spacer(Modifier.height(8.dp))
+                SliderSetting(
+                    label = "Max sweep → shift bars",
+                    value = state.litXConfig.maxSweepToShiftBars.toFloat(),
+                    range = 3f..30f, suffix = "",
+                    onValueChange = { viewModel.setLitXSweepToShift(it.toInt()) },
+                )
+                Spacer(Modifier.height(8.dp))
+                SliderSetting(
+                    label = "Max shift → retest bars",
+                    value = state.litXConfig.maxShiftToRetestBars.toFloat(),
+                    range = 3f..40f, suffix = "",
+                    onValueChange = { viewModel.setLitXShiftToRetest(it.toInt()) },
+                )
+            }
+
+            SectionHeader("LIT — Liquidity / Inducement")
+            SettingsCard {
+                DropdownSetting(
+                    label = "Preset", selected = state.litConfig.profile.name,
+                    options = SignalProfile.entries.map { it.name },
+                    onSelect = { n -> SignalProfile.entries.firstOrNull { it.name == n }?.let(viewModel::setLitProfile) },
+                )
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Minimum confidence", state.litConfig.minConfidence.toFloat(), 50f..95f, "%") { viewModel.setLitMinConfidence(it.toInt()) }
+                Spacer(Modifier.height(8.dp))
+                SwitchSetting("Require premium/discount alignment", state.litConfig.requireDirectionalZone, viewModel::setLitDirectionalZone)
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Setup lookback", state.litConfig.setupLookback.toFloat(), 20f..120f, " bars") { viewModel.setLitSetupLookback(it.toInt()) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Max sweep → shift", state.litConfig.maxSweepToShiftBars.toFloat(), 3f..30f, " bars") { viewModel.setLitSweepToShift(it.toInt()) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Max shift → retest", state.litConfig.maxShiftToRetestBars.toFloat(), 3f..40f, " bars") { viewModel.setLitShiftToRetest(it.toInt()) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Minimum R:R", state.litConfig.minRiskReward.toFloat(), 1f..5f, "R") { viewModel.setLitMinRr(it.toDouble()) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Displacement ATR", state.litConfig.displacementAtrMultiple.toFloat(), 0.8f..3f, "x") { viewModel.setLitDisplacement(it.toDouble()) }
+            }
+
+            SectionHeader("SMT — Divergence")
+            SettingsCard {
+                DropdownSetting(
+                    label = "Preset", selected = state.smtConfig.profile.name,
+                    options = SignalProfile.entries.map { it.name },
+                    onSelect = { n -> SignalProfile.entries.firstOrNull { it.name == n }?.let(viewModel::setSmtProfile) },
+                )
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Comparison period", state.smtConfig.period.toFloat(), 40f..600f, " bars") { viewModel.setSmtPeriod(it.toInt()) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Swing confirmation", state.smtConfig.swingLookback.toFloat(), 1f..10f, " bars") { viewModel.setSmtSwingLookback(it.toInt()) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Minimum correlation", (state.smtConfig.minCorrelation * 100).toFloat(), 10f..95f, "%") { viewModel.setSmtMinCorrelation(it / 100.0) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Max timestamp skew", (state.smtConfig.maxTimestampSkewFraction * 100).toFloat(), 0f..50f, "% bar") { viewModel.setSmtMaxSkewFraction(it / 100.0) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Swing sync tolerance", state.smtConfig.maxSwingSyncBars.toFloat(), 1f..12f, " bars") { viewModel.setSmtSyncBars(it.toInt()) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Max signal age", state.smtConfig.maxSignalAgeBars.toFloat(), 1f..80f, " bars") { viewModel.setSmtMaxAge(it.toInt()) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Minimum divergence strength", (state.smtConfig.minDivergenceStrength * 100).toFloat(), 1f..100f, "%") { viewModel.setSmtMinStrength(it / 100.0) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Minimum confidence", state.smtConfig.minConfidence.toFloat(), 50f..95f, "%") { viewModel.setSmtMinConfidence(it.toInt()) }
+            }
+
+            SectionHeader("SMS — Smart Money Structure")
+            SettingsCard {
+                DropdownSetting(
+                    label = "Preset", selected = state.smsConfig.profile.name,
+                    options = SignalProfile.entries.map { it.name },
+                    onSelect = { n -> SignalProfile.entries.firstOrNull { it.name == n }?.let(viewModel::setSmsProfile) },
+                )
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Swing confirmation", state.smsConfig.swingBars.toFloat(), 2f..12f, " bars") { viewModel.setSmsSwingBars(it.toInt()) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Displacement ATR", state.smsConfig.displacementAtrMultiple.toFloat(), 0.8f..3f, "x") { viewModel.setSmsDisplacement(it.toDouble()) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Max displacement gap", state.smsConfig.maxDisplacementGapBars.toFloat(), 1f..20f, " bars") { viewModel.setSmsGap(it.toInt()) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Max sweep → shift", state.smsConfig.maxSweepToShiftBars.toFloat(), 2f..30f, " bars") { viewModel.setSmsSweepToShift(it.toInt()) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Max signal age", state.smsConfig.maxSignalAgeBars.toFloat(), 1f..20f, " bars") { viewModel.setSmsMaxAge(it.toInt()) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Minimum confidence", state.smsConfig.minConfidence.toFloat(), 50f..95f, "%") { viewModel.setSmsMinConfidence(it.toInt()) }
+                Spacer(Modifier.height(8.dp))
+                SwitchSetting("Require liquidity sweep", state.smsConfig.requireLiquiditySweep, viewModel::setSmsRequireSweep)
+                Spacer(Modifier.height(8.dp))
+                SwitchSetting("Require displacement for CHOCH/MSS", state.smsConfig.requireDisplacementForChoch, viewModel::setSmsRequireDisplacement)
             }
 
             // === GENERAL ===

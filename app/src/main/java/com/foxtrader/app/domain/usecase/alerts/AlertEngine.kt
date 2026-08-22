@@ -34,12 +34,14 @@ class AlertEngine @Inject constructor() {
      * The caller (data layer) is responsible for dispatching the returned alert
      * to Android's NotificationManager.
      */
+    @Synchronized
     fun send(
         title: String,
         body: String,
         priority: AlertPriority,
         symbol: String? = null,
         cooldownKey: String? = null,
+        cooldownMsOverride: Long? = null,
     ): FoxAlert? {
         // Priority filter
         if (!meetsMinPriority(priority)) return null
@@ -47,7 +49,10 @@ class AlertEngine @Inject constructor() {
         // Cooldown dedup
         val key = cooldownKey ?: "${title}_$symbol"
         val lastSent = cooldowns[key] ?: 0L
-        if (System.currentTimeMillis() - lastSent < config.cooldownMs) return null
+        val effectiveCooldown = cooldownMsOverride
+            ?.takeIf { it >= 0L }
+            ?: config.cooldownMs
+        if (System.currentTimeMillis() - lastSent < effectiveCooldown) return null
 
         // Hourly rate limit
         if (System.currentTimeMillis() > hourlyResetTime) {
@@ -75,27 +80,33 @@ class AlertEngine @Inject constructor() {
     }
 
     /** Acknowledge (dismiss) an alert by ID. */
+    @Synchronized
     fun acknowledge(id: String) {
         val idx = alerts.indexOfFirst { it.id == id }
         if (idx >= 0) alerts[idx] = alerts[idx].copy(acknowledged = true)
     }
 
     /** Get all alerts (newest first). */
+    @Synchronized
     fun getAlerts(limit: Int? = null): List<FoxAlert> {
         val sorted = alerts.sortedByDescending { it.timestamp }
         return if (limit != null) sorted.take(limit) else sorted
     }
 
     /** Get unacknowledged alerts. */
+    @Synchronized
     fun getUnacknowledged(): List<FoxAlert> = alerts.filter { !it.acknowledged }
 
     /** Clear all stored alerts. */
+    @Synchronized
     fun clearAll() { alerts.clear() }
 
     /** Update alert configuration. */
+    @Synchronized
     fun updateConfig(newConfig: AlertConfig) { config = newConfig }
 
     /** Get current configuration. */
+    @Synchronized
     fun getConfig(): AlertConfig = config
 
     // ========================================================================

@@ -37,7 +37,7 @@ def _env_int(name: str, default: int) -> int:
 class Settings:
     """Backend settings resolved from environment variables."""
 
-    #: Which provider to serve candles from. Only "sample" ships today.
+    #: Which provider to serve candles from. Supported: sample, twelvedata, polygon.
     provider: str = "sample"
     #: CORS allow-list. Defaults to a single local origin rather than "*" so a
     #: fresh deployment never silently allows any cross-origin site to call the

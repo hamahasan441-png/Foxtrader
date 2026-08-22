@@ -5,6 +5,7 @@ import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.TickUpdate
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.usecase.marketdata.MarketProviderRouter
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -15,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -22,84 +24,69 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Provider-aware live market-data router.
+ * Symbol-aware live market-data router.
  *
- * The chart depends on the stable [MarketWebSocket] interface while Settings can
- * switch providers. This router delegates subscriptions to the currently
- * selected, implemented live provider (Binance, Bybit, or Polygon) and forwards
- * only the active provider's ticks/connection state.
+ * Routing identity and provider transport symbols are deliberately separated.
+ * FoxTrader may normalize `BTC/USDT` and `BTCUSDT` to the same internal key, but
+ * broker-native identifiers such as Deriv `R_100` or MT4 symbols containing a
+ * suffix/prefix must be sent to the provider exactly as the user selected them.
  */
 @Singleton
 class ProviderMarketWebSocket @Inject constructor(
     private val appPreferences: AppPreferences,
+    private val providerRouter: MarketProviderRouter,
     private val binanceWebSocket: BinanceWebSocket,
     private val bybitWebSocket: BybitWebSocket,
     private val polygonWebSocket: PolygonWebSocket,
     private val mt4MarketWebSocket: Mt4MarketWebSocket,
+    private val dukascopyWebSocket: DukascopyPollingWebSocket,
+    private val derivMarketWebSocket: DerivMarketWebSocket,
     @IoDispatcher io: CoroutineDispatcher,
 ) : MarketWebSocket {
 
     private val scope = CoroutineScope(SupervisorJob() + io)
     private val mutex = Mutex()
-    private val subscriptions = mutableSetOf<Pair<String, Timeframe>>()
+
+    /** Internal normalized route key -> concrete transport + exact requested symbol. */
+    private data class RouteBinding(
+        val socket: MarketWebSocket,
+        val requestedSymbol: String,
+        val provider: DataProvider,
+    )
+
+    private val routes = mutableMapOf<Pair<String, Timeframe>, RouteBinding>()
 
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
     override val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
-    private val _ticks = MutableSharedFlow<TickUpdate>(extraBufferCapacity = 64)
+    private val _ticks = MutableSharedFlow<TickUpdate>(extraBufferCapacity = 128)
     override val ticks: Flow<TickUpdate> = _ticks.asSharedFlow()
 
-    @Volatile
-    private var activeProvider: DataProvider? = null
-
-    @Volatile
-    private var activeSocket: MarketWebSocket? = null
-
     init {
-        forward(binanceWebSocket)
-        forward(bybitWebSocket)
-        forward(polygonWebSocket)
-        forward(mt4MarketWebSocket)
+        allSockets().forEach(::forward)
         observeProviderChanges()
     }
 
     override suspend fun subscribe(symbol: String, timeframe: Timeframe) {
-        mutex.withLock {
-            val pair = symbol to timeframe
-            val added = subscriptions.add(pair)
-            val provider = appPreferences.dataProvider.value
-            val previousSocket = activeSocket
-
-            ensureProviderLocked(provider)
-
-            if (added && activeSocket != null && activeSocket === previousSocket) {
-                activeSocket?.subscribe(symbol, timeframe)
-            }
-        }
+        val requested = symbol.trim()
+        require(requested.isNotBlank()) { "Market symbol is required" }
+        val key = providerRouter.canonicalSymbol(requested) to timeframe
+        mutex.withLock { routePairLocked(key, requested, appPreferences.dataProvider.value) }
     }
 
     override suspend fun unsubscribe(symbol: String, timeframe: Timeframe) {
+        val key = providerRouter.canonicalSymbol(symbol) to timeframe
         mutex.withLock {
-            val removed = subscriptions.remove(symbol to timeframe)
-            if (removed) {
-                activeSocket?.unsubscribe(symbol, timeframe)
-                if (subscriptions.isEmpty()) {
-                    activeSocket?.disconnectAll()
-                    activeSocket = null
-                    _connectionState.value = ConnectionState.DISCONNECTED
-                }
-            }
+            val binding = routes.remove(key) ?: return
+            binding.socket.unsubscribe(binding.requestedSymbol, key.second)
+            recomputeConnectionStateLocked()
         }
     }
 
     override suspend fun disconnectAll() {
         mutex.withLock {
-            subscriptions.clear()
-            binanceWebSocket.disconnectAll()
-            bybitWebSocket.disconnectAll()
-            polygonWebSocket.disconnectAll()
-            mt4MarketWebSocket.disconnectAll()
-            activeSocket = null
+            routes.clear()
+            allSockets().forEach { socket -> socket.disconnectAll() }
             _connectionState.value = ConnectionState.DISCONNECTED
         }
     }
@@ -107,59 +94,90 @@ class ProviderMarketWebSocket @Inject constructor(
     private fun forward(socket: MarketWebSocket) {
         scope.launch {
             socket.ticks.collect { tick ->
-                if (socket === activeSocket) {
-                    _ticks.emit(tick)
+                val key = providerRouter.canonicalSymbol(tick.symbol) to tick.timeframe
+                val binding = mutex.withLock { routes[key]?.takeIf { it.socket === socket } }
+                if (binding != null) {
+                    // Preserve the exact chart symbol. ChartDataController compares
+                    // this value against its selected symbol before persisting.
+                    _ticks.emit(
+                        tick.copy(
+                            symbol = binding.requestedSymbol,
+                            provider = binding.provider,
+                        )
+                    )
                 }
             }
         }
         scope.launch {
-            socket.connectionState.collect { state ->
-                if (socket === activeSocket) {
-                    _connectionState.value = state
-                }
+            socket.connectionState.collect {
+                mutex.withLock { recomputeConnectionStateLocked() }
             }
         }
     }
 
     private fun observeProviderChanges() {
         scope.launch {
-            appPreferences.dataProvider.collect { provider ->
+            appPreferences.dataProvider.collect { preferred ->
                 mutex.withLock {
-                    if (subscriptions.isNotEmpty() && provider != activeProvider) {
-                        switchProviderLocked(provider)
-                    } else if (subscriptions.isEmpty()) {
-                        activeProvider = provider
-                    }
+                    if (routes.isEmpty()) return@withLock
+                    val existing = routes.map { (key, binding) -> key to binding.requestedSymbol }
+                    allSockets().forEach { it.disconnectAll() }
+                    routes.clear()
+                    for ((key, requested) in existing) routePairLocked(key, requested, preferred)
                 }
             }
         }
     }
 
-    private suspend fun ensureProviderLocked(provider: DataProvider) {
-        if (provider != activeProvider || activeSocket == null) {
-            switchProviderLocked(provider)
+    private suspend fun routePairLocked(
+        key: Pair<String, Timeframe>,
+        requestedSymbol: String,
+        preferred: DataProvider,
+    ) {
+        val effectiveProvider = providerRouter.liveProviderFor(requestedSymbol, preferred)
+        val target = effectiveProvider?.let(::socketFor)
+        val previous = routes[key]
+
+        if (previous != null && previous.socket === target && target != null && previous.requestedSymbol == requestedSymbol) {
+            recomputeConnectionStateLocked()
+            return
         }
-    }
-
-    private suspend fun switchProviderLocked(provider: DataProvider) {
-        val target = socketFor(provider)
-
-        activeSocket?.disconnectAll()
-        activeSocket = target
-        activeProvider = provider
+        if (previous != null) previous.socket.unsubscribe(previous.requestedSymbol, key.second)
 
         if (target == null) {
-            _connectionState.value = if (subscriptions.isEmpty()) {
-                ConnectionState.DISCONNECTED
-            } else {
-                ConnectionState.ERROR
-            }
+            routes.remove(key)
+            _connectionState.value = ConnectionState.ERROR
             return
         }
 
-        _connectionState.value = target.connectionState.value
-        subscriptions.forEach { (symbol, timeframe) ->
-            target.subscribe(symbol, timeframe)
+        routes[key] = RouteBinding(target, requestedSymbol, effectiveProvider)
+        try {
+            target.subscribe(requestedSymbol, key.second)
+        } catch (error: Exception) {
+            // Do not leave a dead route installed after a synchronous provider
+            // validation/configuration failure.
+            routes.remove(key)
+            recomputeConnectionStateLocked()
+            throw error
+        }
+        recomputeConnectionStateLocked()
+    }
+
+    private fun recomputeConnectionStateLocked() {
+        if (routes.isEmpty()) {
+            _connectionState.value = ConnectionState.DISCONNECTED
+            return
+        }
+        val states = routes.values.map { it.socket }.distinct().map { it.connectionState.value }
+        _connectionState.value = when {
+            states.any { it == ConnectionState.CONNECTED } -> ConnectionState.CONNECTED
+            states.any { it == ConnectionState.RECONNECTING } -> ConnectionState.RECONNECTING
+            states.any { it == ConnectionState.CONNECTING } -> ConnectionState.CONNECTING
+            states.any { it == ConnectionState.AUTH_FAILED } -> ConnectionState.AUTH_FAILED
+            states.any { it == ConnectionState.STALE } -> ConnectionState.STALE
+            states.any { it == ConnectionState.FATAL } -> ConnectionState.FATAL
+            states.any { it == ConnectionState.ERROR } -> ConnectionState.ERROR
+            else -> ConnectionState.DISCONNECTED
         }
     }
 
@@ -168,6 +186,17 @@ class ProviderMarketWebSocket @Inject constructor(
         DataProvider.BYBIT -> bybitWebSocket
         DataProvider.POLYGON -> polygonWebSocket
         DataProvider.MT4 -> mt4MarketWebSocket
+        DataProvider.DUKASCOPY -> dukascopyWebSocket
+        DataProvider.DERIV -> derivMarketWebSocket
         else -> null
     }
+
+    private fun allSockets(): List<MarketWebSocket> = listOf(
+        binanceWebSocket,
+        bybitWebSocket,
+        polygonWebSocket,
+        mt4MarketWebSocket,
+        dukascopyWebSocket,
+        derivMarketWebSocket,
+    )
 }

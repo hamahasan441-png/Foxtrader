@@ -4,6 +4,9 @@ import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.model.ChartBarMode
 import com.foxtrader.app.domain.model.LitXAnalysis
+import com.foxtrader.app.domain.model.LitAnalysis
+import com.foxtrader.app.domain.model.SmsAnalysis
+import com.foxtrader.app.domain.model.SignalFusionResult
 import com.foxtrader.app.domain.model.tradepro.TradeProAnalysis
 import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
 import kotlinx.collections.immutable.persistentListOf
@@ -25,6 +28,9 @@ internal fun ChartUiState.withComputation(
     toggles: IndicatorToggles,
     tradeProAnalysis: TradeProAnalysis?,
     litXAnalysis: LitXAnalysis? = null,
+    litAnalysis: LitAnalysis? = null,
+    smsAnalysis: SmsAnalysis? = null,
+    signalFusion: SignalFusionResult? = null,
     smtDivergences: List<SmtDivergenceDetector.SmtDivergence> = emptyList(),
     barMode: ChartBarMode = ChartBarMode.TIME,
 ): ChartUiState {
@@ -80,6 +86,9 @@ internal fun ChartUiState.withComputation(
         liquidityPools = if (gateSmcOverlays) persistentListOf() else computation.overlays.liquidityPools.toPersistentList(),
         tradeProAnalysis = tradeProAnalysis,
         litXAnalysis = litXAnalysis,
+        litAnalysis = litAnalysis,
+        smsAnalysis = smsAnalysis,
+        signalFusion = signalFusion,
         smtDivergences = smtDivergences,
         volumeProfile = computation.overlays.volumeProfile,
         marketProfile = computation.overlays.marketProfile,

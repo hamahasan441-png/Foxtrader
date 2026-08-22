@@ -18,7 +18,10 @@ class ExecutionSafetyLayerTest {
     private val now = 1_000_000L
 
     private val enabledPolicy = ExecutionPolicy(liveModeEnabled = true)
-    private val enabledContext = ExecutionContext(spec = eurUsdSpec())
+    private val enabledContext = ExecutionContext(
+        quote = Mt4Quote("EURUSD", 1.0999, 1.1000, now),
+        spec = eurUsdSpec(),
+    )
 
     private fun intent(
         direction: Direction = Direction.BULLISH,
@@ -125,12 +128,10 @@ class ExecutionSafetyLayerTest {
     }
 
     @Test
-    fun `max daily loss gate is skipped when dailyLoss is null`() {
-        // Null means no P&L source — gate permissive (pre-fix behavior). After fix,
-        // buildExecutionContext wires a real source, so null means truly no loss today.
+    fun `enabled daily loss gate rejects when loss source is unavailable`() {
         val policy = ExecutionPolicy(liveModeEnabled = true, maxDailyLossInAccountCurrency = 500.0)
         val context = enabledContext.copy(dailyLossInAccountCurrency = null)
-        assertAllowed(layer.evaluate(intent(), policy, context, now))
+        assertRejected(layer.evaluate(intent(), policy, context, now))
     }
 
     @Test
@@ -173,6 +174,67 @@ class ExecutionSafetyLayerTest {
     fun `non positive slippage is rejected`() {
         val bad = intent().copy(maxSlippagePoints = -1.0)
         assertRejected(layer.evaluate(bad, enabledPolicy, enabledContext, now))
+    }
+
+    @Test
+    fun `missing quote is rejected for live execution`() {
+        assertRejected(layer.evaluate(intent(), enabledPolicy, enabledContext.copy(quote = null), now))
+    }
+
+    @Test
+    fun `future confirmation timestamp is rejected`() {
+        assertRejected(layer.evaluate(intent(confirmation = now + 1_000L), enabledPolicy, enabledContext, now))
+    }
+
+    @Test
+    fun `estimated broker specification is rejected`() {
+        val estimated = eurUsdSpec().copy(isEstimated = true)
+        assertRejected(layer.evaluate(intent(), enabledPolicy, enabledContext.copy(spec = estimated), now))
+    }
+
+    @Test
+    fun `missing broker specification is rejected`() {
+        assertRejected(layer.evaluate(intent(), enabledPolicy, enabledContext.copy(spec = null), now))
+    }
+
+    @Test
+    fun `enabled free margin gate rejects missing source`() {
+        val policy = ExecutionPolicy(liveModeEnabled = true, minFreeMarginInAccountCurrency = 100.0)
+        assertRejected(layer.evaluate(intent(), policy, enabledContext.copy(freeMargin = null), now))
+    }
+
+
+    @Test
+    fun `review drift above configured broker points is rejected`() {
+        val movedContext = enabledContext.copy(
+            quote = Mt4Quote("EURUSD", 1.1005, 1.1006, now),
+        )
+        val reviewed = intent(entry = 1.1000).copy(maxSlippagePoints = 50.0)
+        val decision = layer.evaluate(reviewed, enabledPolicy, movedContext, now)
+        assertRejected(decision)
+        val reasons = (decision as ExecutionSafetyDecision.Rejected).reasons
+        assertTrue(reasons.any { it.contains("Price moved") })
+    }
+
+    @Test
+    fun `review drift within configured broker points is allowed`() {
+        val movedContext = enabledContext.copy(
+            quote = Mt4Quote("EURUSD", 1.1003, 1.1004, now),
+        )
+        val reviewed = intent(entry = 1.1000).copy(maxSlippagePoints = 50.0)
+        assertAllowed(layer.evaluate(reviewed, enabledPolicy, movedContext, now))
+    }
+
+    @Test
+    fun `stop loss is validated against current executable price not reviewed price`() {
+        val movedContext = enabledContext.copy(
+            quote = Mt4Quote("EURUSD", 1.0939, 1.0940, now),
+        )
+        val reviewed = intent(entry = 1.1000, sl = 1.0950, tp = 1.1050)
+        val decision = layer.evaluate(reviewed, enabledPolicy, movedContext, now)
+        assertRejected(decision)
+        val reasons = (decision as ExecutionSafetyDecision.Rejected).reasons
+        assertTrue(reasons.any { it.contains("Bullish stop-loss") })
     }
 
     @Test

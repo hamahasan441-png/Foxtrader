@@ -20,5 +20,9 @@ data class CandleDto(
 data class CandlesResponse(
     val symbol: String,
     val timeframe: String,
+    /** Upstream/provider identifier (e.g. sample, polygon, twelvedata). */
+    val provider: String? = null,
+    /** Provenance contract from the backend: "live" or "synthetic". */
+    val source: String? = null,
     val candles: List<CandleDto>,
 )

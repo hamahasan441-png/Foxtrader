@@ -35,6 +35,7 @@ import com.foxtrader.app.data.local.entity.WatchlistSymbolEntity
  * - v7: adds litx_signals (validated LIT X institutional signal history).
  * - v8: adds execution_audit_log (append-only record of live MT4 order attempts).
  * - v9: adds execution_audit_log.realizedProfit (daily loss gate needs close P&L).
+ * - v10: scopes execution audit rows to a broker account to prevent cross-account collisions.
  *
  * `exportSchema = true` writes the schema JSON to app/schemas/, which is what
  * makes MigrationTestHelper possible. Destructive fallback is deliberately NOT
@@ -53,7 +54,7 @@ import com.foxtrader.app.data.local.entity.WatchlistSymbolEntity
         LitXSignalEntity::class,
         ExecutionAuditLogEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 abstract class FoxDatabase : RoomDatabase() {
@@ -318,6 +319,30 @@ abstract class FoxDatabase : RoomDatabase() {
             }
         }
 
+
+        /**
+         * v9 -> v10: bind execution receipts to an opaque broker-account scope.
+         *
+         * Legacy rows cannot be attributed safely after the fact, so they keep
+         * the empty default. New live orders always write a non-empty scope.
+         * Keeping legacy rows intact preserves UNKNOWN/ACCEPTED duplicate guards
+         * while preventing new rows on different accounts from colliding.
+         */
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE execution_audit_log ADD COLUMN executionScope TEXT NOT NULL DEFAULT ''"
+                )
+                db.execSQL(
+                    "ALTER TABLE execution_audit_log ADD COLUMN operationTag TEXT NOT NULL DEFAULT 'OPEN'"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_execution_audit_log_executionScope " +
+                        "ON execution_audit_log (executionScope)"
+                )
+            }
+        }
+
         val MIGRATIONS = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -327,6 +352,7 @@ abstract class FoxDatabase : RoomDatabase() {
             MIGRATION_6_7,
             MIGRATION_7_8,
             MIGRATION_8_9,
+            MIGRATION_9_10,
         )
     }
 }

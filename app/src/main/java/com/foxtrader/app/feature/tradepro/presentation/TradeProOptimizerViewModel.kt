@@ -82,8 +82,15 @@ class TradeProOptimizerViewModel @Inject constructor(
     }
 
     fun applyBestConfig() {
-        val best = _uiState.value.report?.best?.config ?: return
+        val state = _uiState.value
+        if (!state.canApplyBest) {
+            _uiState.update {
+                it.copy(error = "Phase 4 robustness gate blocked apply. Run on real data and require an A/B walk-forward grade.")
+            }
+            return
+        }
+        val best = state.report?.best?.config ?: return
         appPreferences.setTradeProConfig(best)
-        _uiState.update { it.copy(applied = true) }
+        _uiState.update { it.copy(applied = true, error = null) }
     }
 }

@@ -22,6 +22,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -38,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.foxtrader.app.domain.model.Mt4AccountProfile
 import com.foxtrader.app.domain.model.Mt4Broker
 import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxBearishText
@@ -78,14 +80,14 @@ fun Mt4LoginScreen(
         verticalArrangement = Arrangement.Center,
     ) {
         Text(
-            text = "MT4 Connection",
+            text = "Broker Connection",
             fontSize = 28.sp,
             fontWeight = FontWeight.Bold,
             color = FoxAmber50,
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            text = "Connect your MT4 account via MetaApi",
+            text = "Connect MT4 / MT5 accounts via MetaApi",
             style = MaterialTheme.typography.bodyMedium,
             color = FoxNeutral60,
         )
@@ -96,12 +98,30 @@ fun Mt4LoginScreen(
             color = FoxNeutral60,
         )
 
-        Spacer(Modifier.height(32.dp))
+        Spacer(Modifier.height(20.dp))
+
+        PlatformSelector(
+            platform = disconnected?.platform ?: "mt4",
+            enabled = !isConnecting,
+            onPlatformChange = viewModel::onPlatformChange,
+        )
+
+        if (!disconnected?.savedAccounts.isNullOrEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            SavedAccountSection(
+                accounts = disconnected?.savedAccounts.orEmpty(),
+                enabled = !isConnecting,
+                onSelect = viewModel::onSavedAccountSelected,
+                onRemove = viewModel::removeSavedAccount,
+            )
+        }
+
+        Spacer(Modifier.height(20.dp))
 
         OutlinedTextField(
             value = disconnected?.login.orEmpty(),
             onValueChange = viewModel::onLoginChange,
-            label = { Text("MT4 Login") },
+            label = { Text("Trading Login") },
             singleLine = true,
             enabled = !isConnecting,
             modifier = Modifier.fillMaxWidth(),
@@ -201,6 +221,87 @@ fun Mt4LoginScreen(
  * that broker's exact server string.
  */
 @Composable
+private fun PlatformSelector(
+    platform: String,
+    enabled: Boolean,
+    onPlatformChange: (String) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text("Platform", style = MaterialTheme.typography.labelLarge)
+        Spacer(Modifier.height(6.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            listOf("mt4" to "MT4", "mt5" to "MT5 / Deriv").forEach { (value, label) ->
+                val selected = platform.equals(value, ignoreCase = true)
+                if (selected) {
+                    Button(
+                        onClick = { onPlatformChange(value) },
+                        enabled = enabled,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = FoxAmber50),
+                    ) { Text(label, color = MaterialTheme.colorScheme.onPrimary) }
+                } else {
+                    OutlinedButton(
+                        onClick = { onPlatformChange(value) },
+                        enabled = enabled,
+                        modifier = Modifier.weight(1f),
+                    ) { Text(label) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SavedAccountSection(
+    accounts: List<Mt4AccountProfile>,
+    enabled: Boolean,
+    onSelect: (Mt4AccountProfile) -> Unit,
+    onRemove: (Mt4AccountProfile) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text("Saved accounts", style = MaterialTheme.typography.labelLarge)
+        Text(
+            "Passwords are never saved. Select a profile, then enter the password.",
+            style = MaterialTheme.typography.bodySmall,
+            color = FoxNeutral60,
+        )
+        Spacer(Modifier.height(6.dp))
+        accounts.forEach { profile ->
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 3.dp)
+                    .clickable(enabled = enabled) { onSelect(profile) },
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            profile.displayName.ifBlank { "Account ${profile.login}" },
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            "${profile.platform.uppercase()} · ${profile.login} · ${profile.server}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = FoxNeutral60,
+                        )
+                    }
+                    TextButton(onClick = { onRemove(profile) }, enabled = enabled) { Text("Remove") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun BrokerSearchSection(
     query: String,
     results: List<Mt4Broker>,
@@ -216,7 +317,7 @@ private fun BrokerSearchSection(
         value = query,
         onValueChange = onQueryChange,
         label = { Text("Search broker") },
-        placeholder = { Text("e.g. IC Markets or ICMarkets-Demo") },
+        placeholder = { Text("e.g. Deriv, IC Markets, Exness") },
         singleLine = true,
         enabled = enabled,
         modifier = Modifier.fillMaxWidth(),

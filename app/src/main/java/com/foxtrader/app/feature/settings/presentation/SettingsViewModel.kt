@@ -5,6 +5,12 @@ import com.foxtrader.app.data.alerts.ScanAlertScheduler
 import com.foxtrader.app.data.auth.BiometricAuthManager
 import com.foxtrader.app.data.sync.SyncManager
 import com.foxtrader.app.domain.model.AlertConfig
+import com.foxtrader.app.domain.model.SignalProfile
+import com.foxtrader.app.domain.model.LitConfig
+import com.foxtrader.app.domain.model.LitXConfig
+import com.foxtrader.app.domain.model.LitXGrade
+import com.foxtrader.app.domain.model.SmtConfig
+import com.foxtrader.app.domain.model.SmsConfig
 import com.foxtrader.app.domain.model.AlertPriority
 import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.DecisionConfig
@@ -22,6 +28,7 @@ import com.foxtrader.app.domain.usecase.risk.RiskEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.collections.immutable.toPersistentMap
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -45,6 +52,8 @@ class SettingsViewModel @Inject constructor(
     private val scanAlertScheduler: ScanAlertScheduler,
     private val marketRepository: MarketRepository,
 ) : ViewModel() {
+
+    private var providerSwitchJob: Job? = null
 
     private val _uiState = MutableStateFlow(
         SettingsUiState(
@@ -70,6 +79,9 @@ class SettingsViewModel @Inject constructor(
             crashReportingEnabled = appPreferences.crashReportingEnabled.value,
             tradeProConfig = appPreferences.tradeProConfig.value,
             litXConfig = appPreferences.litXConfig.value,
+            litConfig = appPreferences.litConfig.value,
+            smtConfig = appPreferences.smtConfig.value,
+            smsConfig = appPreferences.smsConfig.value,
             mt4LiveModeEnabled = appPreferences.mt4LiveModeEnabled.value,
             mt4KillSwitchEngaged = appPreferences.mt4KillSwitch.value,
             mt4StaleQuoteTimeoutMs = appPreferences.mt4StaleQuoteTimeoutMs.value,
@@ -110,6 +122,15 @@ class SettingsViewModel @Inject constructor(
             .launchIn(viewModelScope)
         appPreferences.litXConfig
             .onEach { cfg -> _uiState.update { it.copy(litXConfig = cfg) } }
+            .launchIn(viewModelScope)
+        appPreferences.litConfig
+            .onEach { cfg -> _uiState.update { it.copy(litConfig = cfg) } }
+            .launchIn(viewModelScope)
+        appPreferences.smtConfig
+            .onEach { cfg -> _uiState.update { it.copy(smtConfig = cfg) } }
+            .launchIn(viewModelScope)
+        appPreferences.smsConfig
+            .onEach { cfg -> _uiState.update { it.copy(smsConfig = cfg) } }
             .launchIn(viewModelScope)
         combine(
             appPreferences.aiMinConfluences,
@@ -154,8 +175,19 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun setDataProvider(provider: DataProvider) {
-        appPreferences.setDataProvider(provider)
-        _uiState.update { it.copy(dataProvider = provider, saved = false) }
+        val previous = _uiState.value.dataProvider
+        if (previous == provider) return
+        _uiState.update { it.copy(dataProvider = provider, saved = false, providerTest = ConnectionTest.Idle) }
+        providerSwitchJob?.cancel()
+        providerSwitchJob = viewModelScope.launch {
+            // Provider is a global preference while CandleEntity has no provider
+            // dimension. Clear on both sides of the preference flip: the first
+            // purge removes the old snapshot; the second removes any old-feed
+            // tick that raced with ProviderMarketWebSocket's re-route.
+            marketRepository.clearMarketDataCache()
+            appPreferences.setDataProvider(provider)
+            marketRepository.clearMarketDataCache()
+        }
     }
 
     /** Backend origin override — persisted on Save (like the other text fields). */
@@ -184,6 +216,7 @@ class SettingsViewModel @Inject constructor(
         appPreferences.setApiKey(state.dataProvider, state.currentProviderApiKey)
         _uiState.update { it.copy(providerTest = ConnectionTest.Testing) }
         viewModelScope.launch {
+            providerSwitchJob?.join()
             val result = marketRepository.testProviderConnection()
             _uiState.update {
                 it.copy(
@@ -329,6 +362,65 @@ class SettingsViewModel @Inject constructor(
         _uiState.update { it.copy(crashReportingEnabled = enabled) }
     }
 
+    // --- Phase 13 signal intelligence settings (persist immediately) ---
+
+    private fun updateLit(transform: (LitConfig) -> LitConfig) {
+        val cfg = transform(_uiState.value.litConfig).sanitized()
+        appPreferences.setLitConfig(cfg)
+        _uiState.update { it.copy(litConfig = cfg, saved = false) }
+    }
+
+    fun setLitProfile(profile: SignalProfile) {
+        val cfg = LitConfig.preset(profile)
+        appPreferences.setLitConfig(cfg)
+        _uiState.update { it.copy(litConfig = cfg, saved = false) }
+    }
+    fun setLitMinConfidence(v: Int) = updateLit { it.copy(minConfidence = v) }
+    fun setLitDirectionalZone(v: Boolean) = updateLit { it.copy(requireDirectionalZone = v) }
+    fun setLitSetupLookback(v: Int) = updateLit { it.copy(setupLookback = v) }
+    fun setLitSweepToShift(v: Int) = updateLit { it.copy(maxSweepToShiftBars = v) }
+    fun setLitShiftToRetest(v: Int) = updateLit { it.copy(maxShiftToRetestBars = v) }
+    fun setLitMinRr(v: Double) = updateLit { it.copy(minRiskReward = v) }
+    fun setLitDisplacement(v: Double) = updateLit { it.copy(displacementAtrMultiple = v) }
+
+    private fun updateSmt(transform: (SmtConfig) -> SmtConfig) {
+        val cfg = transform(_uiState.value.smtConfig).sanitized()
+        appPreferences.setSmtConfig(cfg)
+        _uiState.update { it.copy(smtConfig = cfg, saved = false) }
+    }
+    fun setSmtProfile(profile: SignalProfile) {
+        val cfg = SmtConfig.preset(profile)
+        appPreferences.setSmtConfig(cfg)
+        _uiState.update { it.copy(smtConfig = cfg, saved = false) }
+    }
+    fun setSmtPeriod(v: Int) = updateSmt { it.copy(period = v) }
+    fun setSmtSwingLookback(v: Int) = updateSmt { it.copy(swingLookback = v) }
+    fun setSmtMinCorrelation(v: Double) = updateSmt { it.copy(minCorrelation = v) }
+    fun setSmtMaxSkewFraction(v: Double) = updateSmt { it.copy(maxTimestampSkewFraction = v) }
+    fun setSmtSyncBars(v: Int) = updateSmt { it.copy(maxSwingSyncBars = v) }
+    fun setSmtMaxAge(v: Int) = updateSmt { it.copy(maxSignalAgeBars = v) }
+    fun setSmtMinStrength(v: Double) = updateSmt { it.copy(minDivergenceStrength = v) }
+    fun setSmtMinConfidence(v: Int) = updateSmt { it.copy(minConfidence = v) }
+
+    private fun updateSms(transform: (SmsConfig) -> SmsConfig) {
+        val cfg = transform(_uiState.value.smsConfig).sanitized()
+        appPreferences.setSmsConfig(cfg)
+        _uiState.update { it.copy(smsConfig = cfg, saved = false) }
+    }
+    fun setSmsProfile(profile: SignalProfile) {
+        val cfg = SmsConfig.preset(profile)
+        appPreferences.setSmsConfig(cfg)
+        _uiState.update { it.copy(smsConfig = cfg, saved = false) }
+    }
+    fun setSmsSwingBars(v: Int) = updateSms { it.copy(swingBars = v) }
+    fun setSmsDisplacement(v: Double) = updateSms { it.copy(displacementAtrMultiple = v) }
+    fun setSmsGap(v: Int) = updateSms { it.copy(maxDisplacementGapBars = v) }
+    fun setSmsSweepToShift(v: Int) = updateSms { it.copy(maxSweepToShiftBars = v) }
+    fun setSmsMaxAge(v: Int) = updateSms { it.copy(maxSignalAgeBars = v) }
+    fun setSmsMinConfidence(v: Int) = updateSms { it.copy(minConfidence = v) }
+    fun setSmsRequireSweep(v: Boolean) = updateSms { it.copy(requireLiquiditySweep = v) }
+    fun setSmsRequireDisplacement(v: Boolean) = updateSms { it.copy(requireDisplacementForChoch = v) }
+
     // --- TRADEPRO ---
 
     // --- LIT X (persisted immediately so the toggle applies at once) ---
@@ -349,6 +441,54 @@ class SettingsViewModel @Inject constructor(
         val cfg = _uiState.value.litXConfig.copy(minRiskReward = value.coerceIn(1.0, 5.0))
         appPreferences.setLitXConfig(cfg)
         _uiState.update { it.copy(litXConfig = cfg) }
+    }
+
+    fun setLitXProfile(profile: SignalProfile) {
+        val cfg = LitXConfig.preset(profile, enabled = _uiState.value.litXConfig.enabled)
+        appPreferences.setLitXConfig(cfg)
+        _uiState.update { it.copy(litXConfig = cfg, saved = false) }
+    }
+
+    fun setLitXMinGrade(grade: LitXGrade) {
+        val cfg = _uiState.value.litXConfig.copy(minGrade = grade)
+        appPreferences.setLitXConfig(cfg)
+        _uiState.update { it.copy(litXConfig = cfg, saved = false) }
+    }
+
+    fun setLitXRequireStrongMss(enabled: Boolean) {
+        val cfg = _uiState.value.litXConfig.copy(requireStrongMss = enabled)
+        appPreferences.setLitXConfig(cfg)
+        _uiState.update { it.copy(litXConfig = cfg) }
+    }
+
+    fun setLitXRequireDirectionalZone(enabled: Boolean) {
+        val cfg = _uiState.value.litXConfig.copy(requireDirectionalZone = enabled)
+        appPreferences.setLitXConfig(cfg)
+        _uiState.update { it.copy(litXConfig = cfg) }
+    }
+
+    fun setLitXMinConfidence(value: Int) {
+        val cfg = _uiState.value.litXConfig.copy(minConfidenceScore = value.coerceIn(50, 95))
+        appPreferences.setLitXConfig(cfg)
+        _uiState.update { it.copy(litXConfig = cfg) }
+    }
+
+    fun setLitXDisplacement(value: Double) {
+        val cfg = _uiState.value.litXConfig.copy(displacementAtrMultiple = value.coerceIn(0.8, 3.0))
+        appPreferences.setLitXConfig(cfg)
+        _uiState.update { it.copy(litXConfig = cfg, saved = false) }
+    }
+
+    fun setLitXSweepToShift(value: Int) {
+        val cfg = _uiState.value.litXConfig.copy(maxSweepToShiftBars = value.coerceIn(3, 30))
+        appPreferences.setLitXConfig(cfg)
+        _uiState.update { it.copy(litXConfig = cfg, saved = false) }
+    }
+
+    fun setLitXShiftToRetest(value: Int) {
+        val cfg = _uiState.value.litXConfig.copy(maxShiftToRetestBars = value.coerceIn(3, 40))
+        appPreferences.setLitXConfig(cfg)
+        _uiState.update { it.copy(litXConfig = cfg, saved = false) }
     }
 
     fun setTradeProStopPoints(value: Double) {

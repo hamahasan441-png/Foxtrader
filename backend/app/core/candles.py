@@ -3,7 +3,7 @@
 Pure module. The response dict produced here matches the Android client's
 `CandlesResponse`/`CandleDto` kotlinx-serialization models exactly:
 
-    {"symbol": str, "timeframe": str,
+    {"symbol": str, "timeframe": str, "provider": str, "source": str,
      "candles": [{"timestamp": int, "open": float, "high": float,
                   "low": float, "close": float, "volume": float}, ...]}
 """
@@ -44,10 +44,19 @@ def build_candles_response(
     symbol: str,
     timeframe_label: str,
     candles: list[Candle],
+    *,
+    provider: str = "unknown",
+    source: str = "live",
 ) -> dict[str, Any]:
-    """Assemble the exact JSON object the client deserializes into CandlesResponse."""
+    """Assemble the market-data response, including provenance metadata.
+
+    `source` is deliberately explicit so a development/sample backend can never
+    be mistaken for live market data by the Android client.
+    """
     return {
         "symbol": symbol,
         "timeframe": timeframe_label,
+        "provider": provider,
+        "source": source,
         "candles": [candle.to_dict() for candle in candles],
     }

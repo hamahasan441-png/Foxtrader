@@ -31,6 +31,8 @@ data class ScannerUiState(
     val selectedAssetClass: AssetClass? = null, // null = ALL
     val selectedRiskLevel: ScannerRiskLevel? = null, // null = ALL
     val selectedSortMode: ScannerSortMode = ScannerSortMode.SCORE,
+    /** Phase 4: hide base-only ideas and show only MTF/risk-confirmed opportunities. */
+    val confirmedOnly: Boolean = false,
     val viewMode: ScannerViewMode = ScannerViewMode.LIST,
     val heatmap: MarketHeatmap.HeatmapResult? = null,
     /**
@@ -52,9 +54,16 @@ data class ScannerUiState(
      * does not silently widen what the user is looking at.
      */
     val filteredHeatmapCells: List<MarketHeatmap.HeatmapCell>
-        get() = heatmap?.cells.orEmpty().let { cells ->
-            if (selectedAssetClass == null) cells
-            else cells.filter { it.assetClass == selectedAssetClass }
+        get() {
+            val confirmedSymbols = if (confirmedOnly) {
+                results.asSequence().filter { it.actionable }.map { it.symbol }.toSet()
+            } else {
+                emptySet()
+            }
+            return heatmap?.cells.orEmpty().filter { cell ->
+                (selectedAssetClass == null || cell.assetClass == selectedAssetClass) &&
+                    (!confirmedOnly || cell.symbol in confirmedSymbols)
+            }
         }
 
     val filteredResults: List<ScreenerResult>
@@ -69,11 +78,16 @@ data class ScannerUiState(
             } else {
                 assetFiltered.filter { it.riskLevel == selectedRiskLevel }
             }
+            val confirmationFiltered = if (confirmedOnly) {
+                riskFiltered.filter { it.actionable }
+            } else {
+                riskFiltered
+            }
             return when (selectedSortMode) {
-                ScannerSortMode.SCORE -> riskFiltered.sortedByDescending { it.score }
-                ScannerSortMode.TREND -> riskFiltered.sortedByDescending { it.trendStrength }
-                ScannerSortMode.MOMENTUM -> riskFiltered.sortedByDescending { it.momentum }
-                ScannerSortMode.VOLATILITY -> riskFiltered.sortedByDescending { it.volatility }
+                ScannerSortMode.SCORE -> confirmationFiltered.sortedByDescending { it.score }
+                ScannerSortMode.TREND -> confirmationFiltered.sortedByDescending { it.trendStrength }
+                ScannerSortMode.MOMENTUM -> confirmationFiltered.sortedByDescending { it.momentum }
+                ScannerSortMode.VOLATILITY -> confirmationFiltered.sortedByDescending { it.volatility }
             }
         }
 

@@ -35,4 +35,6 @@ data class TickUpdate(
     val candle: Candle,
     val isBarClose: Boolean,  // true = bar is confirmed/closed, false = still forming
     val timestamp: Long = System.currentTimeMillis(),
+    /** Filled by ProviderMarketWebSocket at the routing boundary. */
+    val provider: DataProvider? = null,
 )

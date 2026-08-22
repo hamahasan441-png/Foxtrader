@@ -118,6 +118,11 @@ fun ScannerScreen(
                 onSortSelect = viewModel::selectSortMode,
             )
 
+            Phase4ConfirmedFilter(
+                selected = state.confirmedOnly,
+                onToggle = viewModel::toggleConfirmedOnly,
+            )
+
             ViewModeToggle(
                 selected = state.viewMode,
                 onSelect = viewModel::selectViewMode,
@@ -191,6 +196,26 @@ fun ScannerScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun Phase4ConfirmedFilter(
+    selected: Boolean,
+    onToggle: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+    ) {
+        FilterChip(
+            selected = selected,
+            onClick = onToggle,
+            label = { Text("PHASE 4 CONFIRMED ONLY", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+            colors = FilterChipDefaults.filterChipColors(
+                selectedContainerColor = FoxBullishText.copy(alpha = 0.18f),
+                selectedLabelColor = FoxBullishText,
+            ),
+        )
     }
 }
 
@@ -617,6 +642,17 @@ private fun ScannerResultCard(result: ScreenerResult) {
                 ScannerMetric("Setup", result.setupQuality.toInt().toString())
             }
 
+            Spacer(Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                ScannerMetric("MTF", "${(result.mtfAlignment * 100).toInt()}%")
+                ScannerMetric("SMT", if (result.smtConfirmed) "YES" else "—")
+                ScannerMetric("Risk", String.format("%.2fx", result.riskMultiplier))
+                ScannerMetric("P4", if (result.actionable) "READY" else "WAIT")
+            }
+
             if (result.rationale.isNotBlank()) {
                 Spacer(Modifier.height(8.dp))
                 Text(
@@ -629,22 +665,20 @@ private fun ScannerResultCard(result: ScreenerResult) {
 
             Spacer(Modifier.height(8.dp))
 
-            // Tags row
+            // Phase 4 can add several confluence tags. Keep them horizontally
+            // scrollable so dense scanner metadata never forces a phone-width
+            // Row to overflow or compress the signal card.
             if (result.tags.isNotEmpty()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    result.tags.forEach { tag ->
-                        TagChip(tag)
-                    }
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(result.tags) { tag -> TagChip(tag) }
                 }
             }
 
-            // Category badges
+            // Category badges use the same overflow-safe treatment.
             if (result.categories.isNotEmpty()) {
                 Spacer(Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    result.categories.forEach { cat ->
-                        CategoryBadge(cat)
-                    }
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(result.categories) { cat -> CategoryBadge(cat) }
                 }
             }
         }

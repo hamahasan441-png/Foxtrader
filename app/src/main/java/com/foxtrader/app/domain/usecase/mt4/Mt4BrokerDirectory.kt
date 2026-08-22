@@ -28,6 +28,10 @@ class Mt4BrokerDirectory @Inject constructor() {
         if (query.isBlank()) brokers else brokers.filter { it.matches(query) }
 
     private fun buildBrokerList(): List<Mt4Broker> = listOf(
+        // Deriv primarily exposes MetaTrader 5 accounts. Server names can vary
+        // by account/region, so these are searchable seeds; the login form still
+        // allows the exact server string from the user's Deriv MT5 terminal.
+        Mt4Broker("Deriv", listOf("Deriv-Demo", "Deriv-Server", "Deriv-MT5"), "Deriv MT5 synthetic/financial accounts", "International"),
         Mt4Broker("IC Markets", listOf("ICMarkets-Live", "ICMarkets-Demo", "ICMarketsSC-Demo"), "Raw Spread + Standard, AU-regulated", "Australia"),
         Mt4Broker("Pepperstone", listOf("Pepperstone-MT4-Live", "Pepperstone-Demo"), "FX, indices, commodities, AU-regulated", "Australia"),
         Mt4Broker("Exness", listOf("Exness-MT4Real", "Exness-MT4Demo", "Exness-Real"), "Flexible leverage, global clients", "International"),

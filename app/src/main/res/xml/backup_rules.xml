@@ -7,7 +7,7 @@
     deliberately excluded from cloud auto-backup so a user's private trading
     data is never copied off-device in plaintext via the normal backup path.
 
-    EncryptedSharedPreferences files (fox_auth_tokens.xml, fox_provider_keys.xml)
+    EncryptedSharedPreferences files (fox_auth_tokens.xml, fox_provider_keys.xml, fox_deriv_credentials.xml)
     are also excluded: their underlying Keystore master key never travels with a
     backup, so a restore would hand the app undecryptable ciphertext and crash
     on prefs init. The app now defensively recovers by wiping a corrupt file,
@@ -20,4 +20,5 @@
     <exclude domain="database" path="foxtrader.db-shm" />
     <exclude domain="sharedpref" path="fox_auth_tokens.xml" />
     <exclude domain="sharedpref" path="fox_provider_keys.xml" />
+    <exclude domain="sharedpref" path="fox_deriv_credentials.xml" />
 </full-backup-content>

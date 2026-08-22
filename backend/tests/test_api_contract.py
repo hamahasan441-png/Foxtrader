@@ -34,6 +34,8 @@ def test_candles_endpoint_matches_client_contract(client: TestClient):
     body = r.json()
     assert body["symbol"] == "EURUSD"
     assert body["timeframe"] == "1H"
+    assert body["provider"] == "sample"
+    assert body["source"] == "synthetic"
     assert len(body["candles"]) == 100
     first = body["candles"][0]
     assert set(first.keys()) == {"timestamp", "open", "high", "low", "close", "volume"}

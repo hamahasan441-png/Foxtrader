@@ -87,6 +87,19 @@ class RemoteCrashReporterTest {
     }
 
     @Test
+    fun `context secrets are redacted before remote transmission`() {
+        val context = mapOf(
+            "auth" to "Bearer abc.def.ghi",
+            "request" to "password=hunter2 symbol=EURUSD",
+        )
+        val sanitized = reporter.sanitize(RuntimeException("ignored"), context)
+
+        assertTrue(sanitized.context.values.none { it.contains("abc.def.ghi") })
+        assertTrue(sanitized.context.values.none { it.contains("hunter2") })
+        assertTrue(sanitized.context.values.any { it.contains("<redacted>") })
+    }
+
+    @Test
     fun `sanitize preserves cause chain up to depth limit`() {
         val root = IllegalArgumentException("root cause")
         val mid = IllegalStateException("mid", root)
@@ -126,11 +139,16 @@ class RemoteCrashReporterTest {
     }
 
     @Test
-    fun `recordBreadcrumb forwards to backend when opted in`() {
+    fun `recordBreadcrumb strips raw message before forwarding when opted in`() {
         crashReportingEnabled.value = true
 
-        reporter.recordBreadcrumb("navigated to chart", "navigation")
+        reporter.recordBreadcrumb("navigated to chart account=secret-123", "navigation/user")
 
-        verify(exactly = 1) { backend.addBreadcrumb("navigated to chart", "navigation") }
+        verify(exactly = 1) {
+            backend.addBreadcrumb(
+                match { it.startsWith("event_length=") && !it.contains("secret-123") },
+                "navigationuser",
+            )
+        }
     }
 }

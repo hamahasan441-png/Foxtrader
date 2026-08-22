@@ -79,11 +79,12 @@ class AuthStore(Protocol):
 
     def user_by_email(self, email: str) -> StoredUser | None: ...
     def user_by_id(self, user_id: str) -> StoredUser | None: ...
-    def save_user(self, user: StoredUser) -> None: ...
+    def save_user(self, user: StoredUser) -> bool: ...
     def access_entry(self, token: str) -> tuple[str, int] | None: ...
     def save_access(self, token: str, user_id: str, expires_at: int) -> None: ...
     def delete_access(self, token: str) -> None: ...
     def refresh_entry(self, token: str) -> tuple[str, int] | None: ...
+    def consume_refresh(self, token: str) -> tuple[str, int] | None: ...
     def save_refresh(self, token: str, user_id: str, expires_at: int) -> None: ...
     def delete_refresh(self, token: str) -> None: ...
 
@@ -115,27 +116,42 @@ class MemoryStore(AuthStore, SyncStore):
     def user_by_id(self, user_id: str) -> StoredUser | None:
         return self._users.get(user_id)
 
-    def save_user(self, user: StoredUser) -> None:
-        self._users[user.id] = user
-        self._users_by_email[user.email] = user
+    def save_user(self, user: StoredUser) -> bool:
+        with self._lock:
+            if user.email in self._users_by_email or user.id in self._users:
+                return False
+            self._users[user.id] = user
+            self._users_by_email[user.email] = user
+            return True
 
     def access_entry(self, token: str) -> tuple[str, int] | None:
-        return self._access.get(token)
+        with self._lock:
+            return self._access.get(token)
 
     def save_access(self, token: str, user_id: str, expires_at: int) -> None:
-        self._access[token] = (user_id, expires_at)
+        with self._lock:
+            self._access[token] = (user_id, expires_at)
 
     def delete_access(self, token: str) -> None:
-        self._access.pop(token, None)
+        with self._lock:
+            self._access.pop(token, None)
 
     def refresh_entry(self, token: str) -> tuple[str, int] | None:
-        return self._refresh.get(token)
+        with self._lock:
+            return self._refresh.get(token)
+
+    def consume_refresh(self, token: str) -> tuple[str, int] | None:
+        """Atomically return-and-delete a single-use refresh token."""
+        with self._lock:
+            return self._refresh.pop(token, None)
 
     def save_refresh(self, token: str, user_id: str, expires_at: int) -> None:
-        self._refresh[token] = (user_id, expires_at)
+        with self._lock:
+            self._refresh[token] = (user_id, expires_at)
 
     def delete_refresh(self, token: str) -> None:
-        self._refresh.pop(token, None)
+        with self._lock:
+            self._refresh.pop(token, None)
 
     # -- SyncStore -----------------------------------------------------------
     def upsert_items(self, user_id: str, items: list[dict]) -> None:
@@ -193,17 +209,24 @@ class SqliteStore(AuthStore, SyncStore):
             ).fetchone()
         return self._row_to_user(row) if row else None
 
-    def save_user(self, user: StoredUser) -> None:
+    def save_user(self, user: StoredUser) -> bool:
         with self._lock, self._connect() as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO users "
-                "(id, email, password_hash, password_salt, display_name, created_at, device_id) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (
-                    user.id, user.email, user.password_hash, user.password_salt,
-                    user.display_name, user.created_at, user.device_id,
-                ),
-            )
+            try:
+                conn.execute(
+                    "INSERT INTO users "
+                    "(id, email, password_hash, password_salt, display_name, created_at, device_id) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        user.id, user.email, user.password_hash, user.password_salt,
+                        user.display_name, user.created_at, user.device_id,
+                    ),
+                )
+                return True
+            except sqlite3.IntegrityError:
+                # Registration uniqueness is enforced by SQLite as the final
+                # authority. Returning False lets AuthService translate a race
+                # into a deterministic DuplicateEmailError instead of HTTP 500.
+                return False
 
     def access_entry(self, token: str) -> tuple[str, int] | None:
         with self._lock, self._connect() as conn:
@@ -232,6 +255,21 @@ class SqliteStore(AuthStore, SyncStore):
                 (token,),
             ).fetchone()
         return (row["user_id"], row["expires_at"]) if row else None
+
+    def consume_refresh(self, token: str) -> tuple[str, int] | None:
+        """Atomically consume a single-use refresh token across DB clients."""
+        with self._lock, self._connect() as conn:
+            # Acquire the write lock before reading so two workers cannot both
+            # observe the same token and rotate it twice.
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT user_id, expires_at FROM refresh_tokens WHERE refresh_token = ?",
+                (token,),
+            ).fetchone()
+            if row is None:
+                return None
+            conn.execute("DELETE FROM refresh_tokens WHERE refresh_token = ?", (token,))
+            return (row["user_id"], row["expires_at"])
 
     def save_refresh(self, token: str, user_id: str, expires_at: int) -> None:
         with self._lock, self._connect() as conn:

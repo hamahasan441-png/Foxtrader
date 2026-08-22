@@ -10,6 +10,8 @@ import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.PriceZone
 import com.foxtrader.app.domain.usecase.ai.TradingAgent
+import com.foxtrader.app.domain.usecase.signalintel.ConfirmedBarPolicy
+import com.foxtrader.app.domain.usecase.signalintel.LitEngine
 import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
 import java.util.Locale
 import javax.inject.Inject
@@ -31,15 +33,26 @@ import kotlin.math.min
  */
 class LitAgent @Inject constructor(
     private val smtDivergenceDetector: SmtDivergenceDetector,
+    private val litEngine: LitEngine = LitEngine(
+        smcDetector = com.foxtrader.app.domain.usecase.smc.SmcDetector(),
+        analyzeStructure = com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase(),
+        displacementDetector = com.foxtrader.app.domain.usecase.litx.DisplacementDetector(),
+        premiumDiscount = com.foxtrader.app.domain.usecase.litx.PremiumDiscountCalculator(),
+    ),
 ) : TradingAgent {
 
     override val name = AgentName.LIT
     override val description = "Liquidity Inducement Theory — inducement, sweep and displacement confirmation."
-    override val version = "1.1.0"
+    override val version = "1.2.0"
 
     override fun analyze(context: AgentContext): AgentOutput {
         val start = System.nanoTime()
-        val candles = context.candles
+        val confirmedIndex = ConfirmedBarPolicy.latestConfirmedIndex(
+            context.candles,
+            context.timeframe,
+            System.currentTimeMillis(),
+        )
+        val candles = if (confirmedIndex >= 0) context.candles.subList(0, confirmedIndex + 1) else emptyList()
         if (candles.size < MIN_CANDLES) {
             return neutralOutput(name, "Insufficient data for LIT analysis.", start)
         }
@@ -51,26 +64,53 @@ class LitAgent @Inject constructor(
 
         // Sweeps from ICT or Smart Money agents.
         val sweeps = (ictInsights + smInsights).filter { insight ->
-            insight.type == "LIQUIDITY_SWEEP" || insight.tags.contains("SWEEP")
+            (insight.type == "LIQUIDITY_SWEEP" || insight.tags.contains("SWEEP")) &&
+                (insight.barIndex == null || insight.barIndex <= confirmedIndex)
         }
 
-        // Structure breaks from the structure agent.
-        val breaks = structInsights.filter { it.type in STRUCT_TYPES }
+        // Structure breaks from the structure agent. Ignore any upstream read
+        // that was stamped beyond our own confirmed-bar boundary.
+        val breaks = structInsights.filter {
+            it.type in CONFIRMATION_STRUCTURE_TYPES && (it.barIndex == null || it.barIndex <= confirmedIndex)
+        }
 
         val insights = mutableListOf<AgentInsight>()
+
+        // Canonical Phase-13 LIT read. The same LitEngine powers the chart and
+        // StrategyLibrary, so an execution-grade LIT insight cannot disagree
+        // simply because it came through the AI-agent path. When this canonical
+        // setup exists it supersedes the legacy direct entry detector below so
+        // one market event cannot vote twice inside the same LIT agent.
+        val canonicalLitSignal = litEngine.analyze(context.symbol, context.timeframe, candles).signal
+        canonicalLitSignal?.let { signal ->
+            insights += AgentInsight(
+                id = "${name}-PH13-${signal.confirmationIndex}-${signal.direction}",
+                agentName = name,
+                type = "LIT_PHASE13_VALIDATED",
+                direction = signal.direction,
+                confidence = signal.confidence.toDouble(),
+                price = signal.entry,
+                timestamp = signal.timestamp,
+                barIndex = signal.confirmationIndex,
+                detail = signal.rationale,
+                weight = 2.8,
+                tags = signal.confirmations + listOf("LIT", "PHASE13", "NON_REPAINT"),
+            )
+        }
 
         // Combo: sweep direction matches the most recent break direction -> institutional entry.
         val lastSweep = sweeps.lastOrNull { it.direction != null }
         val lastBreak = breaks.lastOrNull { it.direction != null }
 
-        if (lastSweep != null && lastBreak != null && lastSweep.direction == lastBreak.direction) {
+        if (canonicalLitSignal == null && lastSweep != null && lastBreak != null && lastSweep.direction == lastBreak.direction) {
             insights += AgentInsight(
                 id = "${name}-ENTRY-${candles.lastIndex}",
                 agentName = name,
                 type = "INSTITUTIONAL_ENTRY_SIGNAL",
                 direction = lastSweep.direction,
                 confidence = institutionalEntryConfidence(lastSweep.confidence, lastBreak.confidence),
-                timestamp = System.currentTimeMillis(),
+                // Replay-stable: stamp the confirmed market bar, never wall-clock time.
+                timestamp = candles.last().timestamp,
                 barIndex = candles.lastIndex,
                 detail = "Sweep + ${lastBreak.type} confirmation → institutional entry ${lastSweep.direction}",
                 weight = 2.5,
@@ -79,7 +119,7 @@ class LitAgent @Inject constructor(
         }
 
         // Upstream IDM detection: an IDM insight means a trap was set.
-        val idm = structInsights.lastOrNull { it.type == "IDM" }
+        val idm = structInsights.lastOrNull { it.type == "IDM" && (it.barIndex == null || it.barIndex <= confirmedIndex) }
         if (idm != null) {
             insights += AgentInsight(
                 id = "${name}-IDM-${idm.barIndex ?: candles.lastIndex}",
@@ -96,29 +136,37 @@ class LitAgent @Inject constructor(
         }
 
         // Direct LIT pass: equal-high/equal-low pool → sweep → displacement.
-        detectDirectInducementSetups(candles)
-            .takeLast(MAX_DIRECT_SETUPS)
-            .forEach { setup ->
-                insights += setup.toInsight(name, candles)
-            }
+        if (canonicalLitSignal == null) {
+            detectDirectInducementSetups(candles)
+                .takeLast(MAX_DIRECT_SETUPS)
+                .forEach { setup ->
+                    insights += setup.toInsight(name, candles)
+                }
+        }
 
         // Cross-symbol SMT pass: correlated symbols disagree at liquidity extremes.
+        val confirmedPeers = context.correlatedCandles.mapValues { (_, peer) ->
+            val peerIndex = ConfirmedBarPolicy.latestConfirmedIndex(peer, context.timeframe, System.currentTimeMillis())
+            if (peerIndex >= 0) peer.subList(0, peerIndex + 1) else emptyList()
+        }
         smtDivergenceDetector.detect(
             primarySymbol = context.symbol,
             primaryCandles = candles,
-            correlatedCandles = context.correlatedCandles,
+            correlatedCandles = confirmedPeers,
         )
             .takeLast(MAX_SMT_SETUPS)
             .forEach { smt ->
                 insights += AgentInsight(
-                    id = "$name-SMT-${smt.peerSymbol}-${smt.primaryIndex}-${smt.direction}",
+                    id = "$name-SMT-${smt.peerSymbol}-${smt.primaryIndex}-${smt.confirmationIndex}-${smt.direction}",
                     agentName = name,
                     type = "SMT",
                     direction = smt.direction,
                     confidence = smt.confidence,
-                    price = smt.primaryPrice,
-                    timestamp = candles.getOrNull(smt.primaryIndex)?.timestamp ?: System.currentTimeMillis(),
-                    barIndex = smt.primaryIndex,
+                    // SMT is actionable only when its right-side swing evidence
+                    // is confirmed; never back-stamp the insight on the swing.
+                    price = candles.getOrNull(smt.confirmationIndex)?.close ?: smt.primaryPrice,
+                    timestamp = candles.getOrNull(smt.confirmationIndex)?.timestamp ?: candles.last().timestamp,
+                    barIndex = smt.confirmationIndex,
                     detail = smt.detail + " (corr ${String.format(Locale.US, "%.2f", smt.correlation)})",
                     weight = 1.8,
                     tags = listOf("SMT", "DIVERGENCE", "CORRELATED_PAIR", "LIT"),
@@ -333,6 +381,6 @@ class LitAgent @Inject constructor(
         const val ENTRY_MIN_CONFIDENCE = 60.0
         const val ENTRY_MAX_CONFIDENCE = 92.0
 
-        val STRUCT_TYPES = setOf("BOS", "CHOCH", "MSS", "IDM")
+        val CONFIRMATION_STRUCTURE_TYPES = setOf("BOS", "CHOCH", "MSS")
     }
 }

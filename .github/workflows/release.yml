@@ -8,9 +8,8 @@ name: Android Release — AAB + APK
 # fast PR feedback loop (the debug build in android.yml) stays green and is not
 # gated on an R8/release build that requires signing secrets.
 #
-# Signing: supply these as repository Actions secrets. When absent, the release
-# build falls back to debug signing (see app/build.gradle.kts) and still
-# produces an installable-but-not-uploadable artifact for verification.
+# Signing: supply these as repository Actions secrets. A release artifact is
+# intentionally not published without a complete release-signing identity.
 #   FOXTRADER_KEYSTORE_BASE64   — base64 of the release keystore
 #   FOXTRADER_KEYSTORE_PASSWORD — keystore password
 #   FOXTRADER_KEY_ALIAS         — key alias
@@ -68,23 +67,66 @@ jobs:
             echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/foxtrader-release.jks"
             echo "path=$RUNNER_TEMP/foxtrader-release.jks" >> "$GITHUB_OUTPUT"
           else
-            echo "No keystore secret present — release build will fall back to debug signing."
+            echo "No release keystore secret present."
             echo "path=" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Derive version code
+      - name: Derive release version
         id: version
-        run: echo "code=$(( GITHUB_RUN_NUMBER + 1000 ))" >> "$GITHUB_OUTPUT"
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version_name }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          echo "code=$(( GITHUB_RUN_NUMBER + 1000 ))" >> "$GITHUB_OUTPUT"
+          version="${INPUT_VERSION#v}"
+          if [ -z "$version" ] && [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${REF_NAME#v}"
+          fi
+          if [ -z "$version" ]; then
+            echo "A non-empty release version is required." >&2
+            exit 1
+          fi
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid release version: $version" >&2
+            exit 1
+          fi
+          echo "name=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Build release AAB + APK
+      - name: Require complete release signing
+        env:
+          KEYSTORE_PATH: ${{ steps.keystore.outputs.path }}
+          KEYSTORE_PASSWORD: ${{ secrets.FOXTRADER_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.FOXTRADER_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.FOXTRADER_KEY_PASSWORD }}
+        run: |
+          for value in "$KEYSTORE_PATH" "$KEYSTORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD"; do
+            if [ -z "$value" ]; then
+              echo "Release signing is incomplete; refusing to produce a release artifact." >&2
+              exit 1
+            fi
+          done
+
+      - name: Production preflight
+        env:
+          FOXTRADER_REQUIRE_PRODUCTION_CONFIG: '1'
+          FOXTRADER_BASE_URL: ${{ vars.FOXTRADER_BASE_URL }}
+        run: |
+          bash scripts/release_preflight.sh
+          bash scripts/phase9_deriv_preflight.sh
+          bash scripts/phase10_deriv_switcher_preflight.sh
+
+      - name: Build, test and lint release
         env:
           FOXTRADER_KEYSTORE_PATH: ${{ steps.keystore.outputs.path }}
           FOXTRADER_KEYSTORE_PASSWORD: ${{ secrets.FOXTRADER_KEYSTORE_PASSWORD }}
           FOXTRADER_KEY_ALIAS: ${{ secrets.FOXTRADER_KEY_ALIAS }}
           FOXTRADER_KEY_PASSWORD: ${{ secrets.FOXTRADER_KEY_PASSWORD }}
           FOXTRADER_VERSION_CODE: ${{ steps.version.outputs.code }}
-          FOXTRADER_VERSION_NAME: ${{ github.event.inputs.version_name }}
-        run: ./gradlew :app:bundleRelease :app:assembleRelease --stacktrace --no-daemon --no-configuration-cache
+          FOXTRADER_VERSION_NAME: ${{ steps.version.outputs.name }}
+          FOXTRADER_BASE_URL: ${{ vars.FOXTRADER_BASE_URL }}
+          FOXTRADER_CERT_PINS: ${{ vars.FOXTRADER_CERT_PINS }}
+          CRASH_REPORTING_DSN: ${{ secrets.CRASH_REPORTING_DSN }}
+        run: ./gradlew :app:testDebugUnitTest :app:lintRelease :app:bundleRelease :app:assembleRelease --stacktrace --no-daemon --no-configuration-cache
 
       - name: Upload AAB artifact
         uses: actions/upload-artifact@v4

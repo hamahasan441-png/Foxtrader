@@ -41,6 +41,7 @@ import com.foxtrader.app.feature.backtest.presentation.BacktestLabScreen
 import com.foxtrader.app.feature.chart.presentation.ChartScreen
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.feature.home.presentation.HomeScreen
+import com.foxtrader.app.feature.journal.presentation.JournalScreen
 import com.foxtrader.app.feature.litx.presentation.LitXScreen
 import com.foxtrader.app.feature.more.presentation.MoreAction
 import com.foxtrader.app.feature.more.presentation.MoreScreen
@@ -58,8 +59,13 @@ import com.foxtrader.app.feature.scanner.presentation.ScannerScreen
 import com.foxtrader.app.feature.settings.presentation.SettingsScreen
 import com.foxtrader.app.feature.strategies.presentation.StrategiesScreen
 import com.foxtrader.app.feature.strategies.presentation.StrategyBuilderScreen
+import com.foxtrader.app.feature.strategies.presentation.Phase5StudioScreen
 import com.foxtrader.app.feature.subscription.presentation.SubscriptionScreen
 import com.foxtrader.app.feature.trademanagement.presentation.TradeManagementScreen
+import com.foxtrader.app.feature.trading.presentation.Phase6TradingScreen
+import com.foxtrader.app.feature.automation.presentation.Phase7AutomationScreen
+import com.foxtrader.app.feature.release.presentation.Phase8ReleaseReadinessScreen
+import com.foxtrader.app.feature.deriv.presentation.Phase9DerivScreen
 import com.foxtrader.app.feature.tradepro.presentation.TradeProBacktestReportScreen
 import com.foxtrader.app.feature.tradepro.presentation.TradeProOptimizerScreen
 import com.foxtrader.app.feature.tradepro.presentation.TradeProRiskDashboardScreen
@@ -75,6 +81,7 @@ object FoxRoutes {
     const val SCANNER = "scanner"
     const val STRATEGIES = "strategies"
     const val STRATEGY_BUILDER = "strategy_builder"
+    const val PRO_STUDIO = "pro_studio"
     const val BACKTEST_LAB = "backtest_lab"
     const val PORTFOLIO = "portfolio"
     const val ALERTS = "alerts"
@@ -98,6 +105,11 @@ object FoxRoutes {
     const val SUBSCRIPTION = "subscription"
     const val MT4_LOGIN = "mt4_login"
     const val MT4_ACCOUNT = "mt4_account"
+    const val LIVE_TRADING = "live_trading"
+    const val AUTOMATION = "automation"
+    const val RELEASE_READINESS = "release_readiness"
+    const val DERIV_NATIVE = "deriv_native"
+    const val JOURNAL = "journal"
     const val LITX = "litx/{symbol}/{timeframe}"
 
     fun litx(symbol: String, timeframeLabel: String): String =
@@ -155,6 +167,8 @@ fun FoxNavHost(
                 ChartScreen(
                     onNavigateToAlerts = { navController.navigate(FoxRoutes.ALERTS) },
                     onNavigateToTradeManagement = { navController.navigate(FoxRoutes.TRADE_MANAGEMENT) },
+                    onNavigateToBrokerTrading = { navController.navigate(FoxRoutes.MT4_LOGIN) },
+                    onNavigateToStudio = { navController.navigate(FoxRoutes.PRO_STUDIO) },
                     onNavigateToLitX = { symbol, tf ->
                         navController.navigate(FoxRoutes.litx(symbol, tf.label))
                     },
@@ -201,6 +215,13 @@ fun FoxNavHost(
             composable(FoxRoutes.STRATEGIES) {
                 StrategiesScreen()
             }
+            composable(FoxRoutes.PRO_STUDIO) {
+                Phase5StudioScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    onOpenBuilder = { navController.navigate(FoxRoutes.STRATEGY_BUILDER) },
+                    onOpenBacktest = { navController.navigate(FoxRoutes.BACKTEST_LAB) },
+                )
+            }
             composable(FoxRoutes.STRATEGY_BUILDER) {
                 StrategyBuilderScreen(
                     onNavigateBack = { navController.popBackStack() },
@@ -228,6 +249,9 @@ fun FoxNavHost(
                     onNavigateToPaperTrading = { navController.navigate(FoxRoutes.PAPER_TRADING) },
                 )
             }
+            composable(FoxRoutes.JOURNAL) {
+                JournalScreen(onNavigateBack = { navController.popBackStack() })
+            }
             composable(FoxRoutes.PAPER_TRADING) {
                 PaperTradingScreen(onNavigateBack = { navController.popBackStack() })
             }
@@ -242,6 +266,7 @@ fun FoxNavHost(
                             MoreAction.ALERTS -> FoxRoutes.ALERTS
                             MoreAction.STRATEGIES -> FoxRoutes.STRATEGIES
                             MoreAction.STRATEGY_BUILDER -> FoxRoutes.STRATEGY_BUILDER
+                            MoreAction.PRO_STUDIO -> FoxRoutes.PRO_STUDIO
                             MoreAction.AI -> FoxRoutes.AI
                             MoreAction.WATCHLIST -> FoxRoutes.WATCHLIST
                             MoreAction.PAPER -> FoxRoutes.PAPER_TRADING
@@ -251,10 +276,36 @@ fun FoxNavHost(
                             MoreAction.SETTINGS -> FoxRoutes.SETTINGS
                             MoreAction.SUBSCRIPTION -> FoxRoutes.SUBSCRIPTION
                             MoreAction.MT4 -> FoxRoutes.MT4_LOGIN
+                            MoreAction.LIVE_TRADING -> FoxRoutes.LIVE_TRADING
+                            MoreAction.AUTOMATION -> FoxRoutes.AUTOMATION
+                            MoreAction.RELEASE_READINESS -> FoxRoutes.RELEASE_READINESS
+                            MoreAction.DERIV_NATIVE -> FoxRoutes.DERIV_NATIVE
+                            MoreAction.JOURNAL -> FoxRoutes.JOURNAL
                         }
                         navController.navigate(route)
                     },
                 )
+            }
+            composable(FoxRoutes.LIVE_TRADING) {
+                Phase6TradingScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    onOpenPaper = { navController.navigate(FoxRoutes.PAPER_TRADING) },
+                    onOpenBroker = { navController.navigate(FoxRoutes.MT4_LOGIN) },
+                    onOpenDeriv = { navController.navigate(FoxRoutes.DERIV_NATIVE) },
+                )
+            }
+            composable(FoxRoutes.AUTOMATION) {
+                Phase7AutomationScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    onOpenTrading = { navController.navigate(FoxRoutes.LIVE_TRADING) },
+                    onOpenStudio = { navController.navigate(FoxRoutes.PRO_STUDIO) },
+                )
+            }
+            composable(FoxRoutes.RELEASE_READINESS) {
+                Phase8ReleaseReadinessScreen(onNavigateBack = { navController.popBackStack() })
+            }
+            composable(FoxRoutes.DERIV_NATIVE) {
+                Phase9DerivScreen(onNavigateBack = { navController.popBackStack() })
             }
             composable(FoxRoutes.MT4_LOGIN) {
                 Mt4LoginScreen(

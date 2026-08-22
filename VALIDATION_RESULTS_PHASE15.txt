@@ -1,0 +1,55 @@
+FOXTRADER PHASE 15 VALIDATION SUMMARY
+=====================================
+
+Deriv Binary 3m core:
+- deterministic pure-Kotlin compile: PASS
+- closed-bar / prefix-stability test: PASS
+- next M1 OPEN entry semantics: PASS
+- 3-bar / 3-minute expiry semantics: PASS
+- configurable payout + break-even formula: PASS
+- no Martingale sizing: PASS
+- overlapping contracts disabled by default: PASS
+
+Backtesting Lab:
+- Deriv provider lock for Binary 3m: PASS
+- M1 lock for Binary 3m: PASS
+- fresh provider refresh before measurement: PASS
+- 5000-bar Deriv refresh target: PASS
+- live-provider synthetic fallback rejection: PASS
+- payout/confidence controls: PASS
+- edge vs break-even / drawdown / expectancy reporting: PASS
+- chronological walk-forward validation: PASS
+- deterministic Monte Carlo robustness analysis: PASS
+- neutral TIE handling in analytics: PASS
+
+Live chart:
+- same DerivBinary3mSignalEngine as backtest: PASS
+- Deriv + M1 + raw TIME gating: PASS
+- B3 CALL/PUT chart markers: PASS
+- Binary score protected from chart-only confluence mutation: PASS
+- SL/TP evaluator excludes fixed-expiry markers: PASS
+
+Provider / app regression:
+- Phase 9 Deriv preflight: PASS
+- Phase 10 Deriv switcher preflight: PASS
+- Phase 11 audit preflight: PASS
+- Phase 12 professional execution preflight: PASS
+- Phase 13 signal intelligence preflight: PASS
+- Phase 13 package hygiene: PASS (after removing test artifacts)
+- Phase 14 end-to-end provider preflight: PASS
+- Phase 15 Deriv Binary3m preflight: PASS
+- Release security preflight: PASS
+- Room migration v1→v10: PASS
+- Backend pytest suite: PASS
+
+Android Gradle compile:
+- NOT COMPLETED in this environment.
+- Wrapper requires Gradle 8.9 from services.gradle.org.
+- Environment fails DNS with java.net.UnknownHostException: services.gradle.org.
+- Do not interpret this report as a successful APK build.
+
+Final validation additions:
+- Binary walk-forward + Monte Carlo integration: PASS
+- Binary analytics pure-Kotlin compile/harness: PASS
+- modified Kotlin parser-shape scan: PASS (no syntax/redeclaration/unclosed-token pattern)
+- Gradle retry: BLOCKED by java.net.UnknownHostException: services.gradle.org

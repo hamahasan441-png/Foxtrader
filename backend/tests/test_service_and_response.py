@@ -32,7 +32,9 @@ def test_build_response_shape():
     resp = build_candles_response("EURUSD", "1H", [
         Candle(1, 1.0, 1.2, 0.9, 1.1, 100.0),
     ])
-    assert set(resp.keys()) == {"symbol", "timeframe", "candles"}
+    assert set(resp.keys()) == {"symbol", "timeframe", "provider", "source", "candles"}
+    assert resp["provider"] == "unknown"
+    assert resp["source"] == "live"
     assert resp["symbol"] == "EURUSD"
     assert resp["timeframe"] == "1H"
     assert len(resp["candles"]) == 1

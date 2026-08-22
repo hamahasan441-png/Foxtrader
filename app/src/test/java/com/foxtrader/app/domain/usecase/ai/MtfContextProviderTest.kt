@@ -122,5 +122,7 @@ class MtfContextProviderTest {
         override suspend fun testProviderConnection(): Result<Int> = Result.success(0)
 
         override suspend fun testBackendConnection(): Result<Int> = Result.success(0)
+
+        override suspend fun clearMarketDataCache() = Unit
     }
 }

@@ -9,10 +9,13 @@ import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.model.LitXSignalRecord
 import com.foxtrader.app.domain.model.ScannerRiskLevel
 import com.foxtrader.app.domain.model.StrategyType
+import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.repository.LitXSignalRepository
 import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.heatmap.MarketHeatmap
 import com.foxtrader.app.domain.usecase.scanner.ScannerUseCase
+import com.foxtrader.app.domain.usecase.scanner.Phase4ConfluenceEngine
+import com.foxtrader.app.domain.usecase.scanner.Phase4SmtPeerResolver
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,6 +34,7 @@ class ScannerViewModel @Inject constructor(
     private val marketRepository: MarketRepository,
     private val litXSignalRepository: LitXSignalRepository,
     private val marketHeatmap: MarketHeatmap,
+    private val phase4ConfluenceEngine: Phase4ConfluenceEngine,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
 
@@ -53,6 +57,7 @@ class ScannerViewModel @Inject constructor(
                 val watchlist = scannerUseCase.getWatchlist()
                 val dataMap = mutableMapOf<String, List<Candle>>()
                 val sourceBySymbol = mutableMapOf<String, CandleSource>()
+                val htfBySymbol = mutableMapOf<String, MutableMap<Timeframe, List<Candle>>>()
                 val heatmapInput = mutableMapOf<String, Pair<AssetClass, List<Candle>>>()
                 var worstSource = CandleSource.LIVE
 
@@ -64,9 +69,45 @@ class ScannerViewModel @Inject constructor(
                     sourceBySymbol[ws.symbol] = sourced.source
                     heatmapInput[ws.symbol] = ws.assetClass to sourced.candles
                     worstSource = CandleSource.worstOf(listOf(worstSource, sourced.source))
+
+                    // Phase 4 MTF confirmation. Missing/untrusted HTF data is deliberately omitted,
+                    // causing the actionability gate to fail closed rather than manufacture alignment.
+                    for (tf in PHASE4_HIGHER_TIMEFRAMES) {
+                        val htf = try {
+                            marketRepository.getSourcedCandles(ws.symbol, tf)
+                        } catch (cancel: CancellationException) {
+                            throw cancel
+                        } catch (_: Exception) {
+                            null
+                        }
+                        if (htf != null && htf.source.isTrustworthy && htf.candles.isNotEmpty()) {
+                            htfBySymbol.getOrPut(ws.symbol) { mutableMapOf() }[tf] = htf.candles
+                        }
+                    }
                 }
 
                 val output = scannerUseCase(dataMap, _uiState.value.selectedStrategy)
+                val phase4Results = withContext(defaultDispatcher) {
+                    output.results.map { result ->
+                        val peers = Phase4SmtPeerResolver.peersFor(result.symbol)
+                            .mapNotNull { peer ->
+                                val peerCandles = dataMap[peer]
+                                if (peerCandles != null && sourceBySymbol[peer]?.isTrustworthy == true) {
+                                    peer to peerCandles
+                                } else {
+                                    null
+                                }
+                            }
+                            .toMap()
+                        phase4ConfluenceEngine.enrich(
+                            base = result,
+                            baseCandles = dataMap[result.symbol].orEmpty(),
+                            higherTimeframeCandles = htfBySymbol[result.symbol].orEmpty(),
+                            correlatedCandles = peers,
+                            dataTrustworthy = sourceBySymbol[result.symbol]?.isTrustworthy == true,
+                        )
+                    }.sortedByDescending { it.score }
+                }
 
                 // Persist only validated signals whose exact candle series is
                 // trustworthy. Per-symbol provenance is required here: one
@@ -92,7 +133,7 @@ class ScannerViewModel @Inject constructor(
 
                 _uiState.update {
                     it.copy(
-                        results = output.results.toPersistentList(),
+                        results = phase4Results.toPersistentList(),
                         heatmap = heatmap,
                         dataSource = if (dataMap.isEmpty()) CandleSource.CACHED else worstSource,
                         isLoading = false,
@@ -120,6 +161,10 @@ class ScannerViewModel @Inject constructor(
         _uiState.update { it.copy(selectedSortMode = sortMode) }
     }
 
+    fun toggleConfirmedOnly() {
+        _uiState.update { it.copy(confirmedOnly = !it.confirmedOnly) }
+    }
+
     fun selectStrategy(strategy: StrategyType) {
         _uiState.update { it.copy(selectedStrategy = strategy) }
         scan()
@@ -136,5 +181,6 @@ class ScannerViewModel @Inject constructor(
          * lookback so the list and grid cannot disagree about a mover.
          */
         const val HEATMAP_PERIOD = 20
+        val PHASE4_HIGHER_TIMEFRAMES = listOf(Timeframe.H4, Timeframe.D1)
     }
 }

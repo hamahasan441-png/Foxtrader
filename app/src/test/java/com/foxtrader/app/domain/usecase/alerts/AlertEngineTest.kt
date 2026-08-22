@@ -118,6 +118,25 @@ class AlertEngineTest {
     }
 
     @Test
+    fun `phase4 cooldown override can be stricter than global cooldown`() {
+        engine.updateConfig(AlertConfig(minPriority = AlertPriority.LOW, cooldownMs = 0L))
+        assertNotNull(
+            engine.send(
+                "P4", "confirmed", AlertPriority.MEDIUM,
+                cooldownKey = "phase4-EURUSD-BUY",
+                cooldownMsOverride = 45 * 60_000L,
+            ),
+        )
+        assertNull(
+            engine.send(
+                "P4", "confirmed", AlertPriority.MEDIUM,
+                cooldownKey = "phase4-EURUSD-BUY",
+                cooldownMsOverride = 45 * 60_000L,
+            ),
+        )
+    }
+
+    @Test
     fun `updateConfig is reflected by getConfig`() {
         val cfg = AlertConfig(minPriority = AlertPriority.HIGH, maxAlertsPerHour = 5)
         engine.updateConfig(cfg)

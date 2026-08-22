@@ -2,11 +2,14 @@ package com.foxtrader.app.feature.chart.presentation
 
 import androidx.compose.runtime.Immutable
 import com.foxtrader.app.domain.model.Bias
+import com.foxtrader.app.domain.model.BacktestChartMarker
+import com.foxtrader.app.domain.model.EquityPoint
 import com.foxtrader.app.domain.model.SmcVisualMode
 import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.model.ChartBarMode
 import com.foxtrader.app.domain.model.ChartSignal
 import com.foxtrader.app.domain.model.DecisionResult
+import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.ChartDrawing
 import com.foxtrader.app.domain.model.ConnectionState
@@ -14,7 +17,11 @@ import com.foxtrader.app.domain.model.DrawingMode
 import com.foxtrader.app.domain.model.DrawingToolType
 import com.foxtrader.app.domain.model.FairValueGap
 import com.foxtrader.app.domain.model.LitXAnalysis
+import com.foxtrader.app.domain.model.LitAnalysis
+import com.foxtrader.app.domain.model.SmsAnalysis
+import com.foxtrader.app.domain.model.SignalFusionResult
 import com.foxtrader.app.domain.model.LiquidityPool
+import com.foxtrader.app.domain.model.MarketDataFreshness
 import com.foxtrader.app.domain.model.OrderBlock
 import com.foxtrader.app.domain.model.SessionRange
 import com.foxtrader.app.domain.model.tradepro.TradeProAnalysis
@@ -66,8 +73,12 @@ data class IndicatorToggles(
     val structure: Boolean = false,
     // --- Strategy-as-Indicator overlays (gated independently of their engines) ---
     val litX: Boolean = false,
+    val lit: Boolean = false,
+    val sms: Boolean = false,
     val smt: Boolean = false,
     val tradePro: Boolean = false,
+    /** Closed-bar Deriv M1 setup for 3-minute CALL/PUT contracts. */
+    val binary3m: Boolean = false,
     // --- Separate-pane ("study") indicators, rendered in the resizable pane
     // stack below the price chart rather than as overlays (R3). ---
     val rsi: Boolean = false,
@@ -99,9 +110,51 @@ data class IndicatorToggles(
         get() = ema || bollinger || superTrend || parabolicSar || vwap || anchoredVwap ||
             ichimoku || keltner || donchian || pivotPoints || volumeProfile || marketProfile ||
             supportResistance || fibonacci || confluence || orderBlocks || fairValueGaps ||
-            liquidity || sessions || structure || litX || smt || tradePro ||
+            liquidity || sessions || structure || litX || lit || sms || smt || tradePro || binary3m ||
             rsi || macd || volume || stochastic || obv || moneyFlowIndex ||
             activeStrategy != null || activeBlueprintId != null || allStrategies
+}
+
+enum class ChartBacktestRange(val label: String, val days: Int?) {
+    LOADED("Loaded", null),
+    ONE_MONTH("1M", 30),
+    THREE_MONTHS("3M", 90),
+    SIX_MONTHS("6M", 180),
+    ONE_YEAR("1Y", 365),
+}
+
+@Immutable
+data class ChartBacktestState(
+    val selectedStrategy: StrategyType = StrategyType.LITX,
+    val selectedRange: ChartBacktestRange = ChartBacktestRange.LOADED,
+    val selectedBlueprintId: String? = null,
+    val isRunning: Boolean = false,
+    val error: String? = null,
+    val strategyName: String? = null,
+    val totalSignals: Int = 0,
+    val winningSignals: Int = 0,
+    val losingSignals: Int = 0,
+    val breakevenSignals: Int = 0,
+    val winRate: Double = 0.0,
+    val netPnL: Double = 0.0,
+    val profitFactor: Double = 0.0,
+    val returnPercent: Double = 0.0,
+    val maxDrawdownPercent: Double = 0.0,
+    val expectancy: Double = 0.0,
+    val averageR: Double = 0.0,
+    val showMarkers: Boolean = true,
+    val markers: ImmutableList<BacktestChartMarker> = persistentListOf(),
+    val equityCurve: ImmutableList<EquityPoint> = persistentListOf(),
+    val testedBars: Int = 0,
+    val testedFromTimestamp: Long = 0L,
+    val testedThroughTimestamp: Long = 0L,
+    val rangeCoverageComplete: Boolean = true,
+    val historyNotice: String? = null,
+    val sourceBarsAtRun: Int = 0,
+    val sourceNewestTimestampAtRun: Long = 0L,
+    val lastRunTime: Long = 0L,
+) {
+    val hasResult: Boolean get() = strategyName != null && !isRunning && error == null
 }
 
 /**
@@ -112,6 +165,8 @@ data class IndicatorToggles(
 data class ChartUiState(
     // --- Core market data ---
     val symbol: String = "EURUSD",
+    /** Market-data source selected for this chart. */
+    val dataProvider: DataProvider = DataProvider.DUKASCOPY,
     val timeframe: Timeframe = Timeframe.M15,
     val barMode: ChartBarMode = ChartBarMode.TIME,
     val renkoSize: Double = 10.0,
@@ -156,6 +211,9 @@ data class ChartUiState(
     val liquidityPools: ImmutableList<LiquidityPool> = persistentListOf(),
     val tradeProAnalysis: TradeProAnalysis? = null,
     val litXAnalysis: LitXAnalysis? = null,
+    val litAnalysis: LitAnalysis? = null,
+    val smsAnalysis: SmsAnalysis? = null,
+    val signalFusion: SignalFusionResult? = null,
     val smtDivergences: List<SmtDivergenceDetector.SmtDivergence> = emptyList(),
     val signals: List<ChartSignal> = emptyList(),
     val showSignalHistory: Boolean = false,
@@ -181,6 +239,8 @@ data class ChartUiState(
     val showIndicatorPanel: Boolean = false,
     val showSymbolPicker: Boolean = false,
     val showCalculator: Boolean = false,
+    /** On-chart, non-repainting backtest result and marker state. */
+    val chartBacktest: ChartBacktestState = ChartBacktestState(),
     /** Saved visual-builder strategies available to the chart indicator panel. */
     val strategyBlueprints: ImmutableList<StrategyBlueprint> = persistentListOf(),
     /**
@@ -192,7 +252,11 @@ data class ChartUiState(
     /** Active (default) watchlist id, or null before the first emission. */
     val activeWatchlistId: String? = null,
     val connectionState: ConnectionState = ConnectionState.DISCONNECTED,
-    /** True only when the selected provider has a working live feed and credentials. */
+    /** Freshness is separate from provenance: real cached bars are not automatically LIVE. */
+    val dataFreshness: MarketDataFreshness = MarketDataFreshness.CACHED,
+    /** Age of the newest bar open time, used for diagnostics/status surfaces. */
+    val dataAgeMs: Long? = null,
+    /** True only when a compatible live route exists for the active symbol. */
     val liveAvailable: Boolean = false,
     val liveEnabled: Boolean = false,
 

@@ -103,6 +103,17 @@ class TradeProOptimizerTest {
     }
 
     @Test
+    fun `phase4 optimizer emits anchored walk forward robustness on sufficient history`() {
+        val report = optimizer.optimize("MESUSD", uptrendH1(cycles = 40), baseTimeframe = Timeframe.H1)
+        val robustness = report.robustness
+        assertNotNull("400 bars should be enough for Phase 4 robustness folds", robustness)
+        assertTrue(robustness!!.folds.size >= 2)
+        assertTrue(robustness.passRate in 0.0..1.0)
+        assertTrue(robustness.winnerStability in 0.0..1.0)
+        assertTrue(robustness.robustnessScore in 0.0..100.0)
+    }
+
+    @Test
     fun `optimization is deterministic for identical inputs`() {
         val candles = uptrendH1()
         val first = optimizer.optimize("MESUSD", candles, baseTimeframe = Timeframe.H1)

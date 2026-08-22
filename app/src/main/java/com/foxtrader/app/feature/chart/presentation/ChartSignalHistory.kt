@@ -136,9 +136,12 @@ private fun SignalRow(signal: ChartSignal) {
 @Composable
 private fun SourceBadge(source: SignalSource) {
     val (label, color) = when (source) {
-        SignalSource.LITX -> "LIT X" to FoxAmber50
+        SignalSource.LITX -> "LiTX" to FoxAmber50
+        SignalSource.LIT -> "LiT" to FoxBullishText
+        SignalSource.SMS -> "SMS" to FoxAmber50
         SignalSource.TRADEPRO -> "TradePro" to FoxBullishText
         SignalSource.SMT -> "SMT" to FoxBearishText
+        SignalSource.BINARY3M -> "Binary 3m" to FoxBullishText
         SignalSource.STRATEGY -> "Strategy" to FoxAmber50
     }
     Text(

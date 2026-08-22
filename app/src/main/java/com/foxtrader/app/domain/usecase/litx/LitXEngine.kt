@@ -20,6 +20,7 @@ import com.foxtrader.app.domain.model.TradingSession
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import com.foxtrader.app.domain.usecase.sessions.SessionDetector
 import com.foxtrader.app.domain.usecase.smc.SmcDetector
+import com.foxtrader.app.domain.usecase.signalintel.SignalSeriesIntegrity
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.roundToInt
@@ -68,6 +69,14 @@ class LitXEngine @Inject constructor(
         val availableIndex: Int,
     )
 
+    private data class ProfileRules(
+        val displacementAtr: Double,
+        val minRiskReward: Double,
+        val minConfidence: Int,
+        val maxSweepToShiftBars: Int,
+        val maxShiftToRetestBars: Int,
+    )
+
     fun analyze(
         symbol: String,
         timeframe: Timeframe,
@@ -77,7 +86,19 @@ class LitXEngine @Inject constructor(
         htfAlignmentScore: Int = 50,
         precomputed: Precomputed? = null,
     ): LitXAnalysis {
-        if (candles.size < MIN_BARS) return LitXAnalysis.empty(symbol, timeframe)
+        val integrity = SignalSeriesIntegrity.validate(candles, MIN_BARS)
+        if (!integrity.valid) {
+            return LitXAnalysis.empty(symbol, timeframe).copy(
+                narrative = integrity.reason ?: "Invalid market data for LIT X.",
+            )
+        }
+
+        val cfg = config.sanitized()
+        val effectiveDisplacementAtr = cfg.displacementAtrMultiple
+        val effectiveMinRr = cfg.minRiskReward
+        val effectiveMinConfidence = cfg.minConfidenceScore
+        val effectiveSweepToShift = cfg.maxSweepToShiftBars
+        val effectiveShiftToRetest = cfg.maxShiftToRetestBars
 
         val now = candles.last().timestamp
         val setupStartIndex = (candles.lastIndex - SETUP_LOOKBACK_BARS + 1).coerceAtLeast(0)
@@ -92,13 +113,13 @@ class LitXEngine @Inject constructor(
         val sessions = precomputed?.sessions ?: sessionDetector.detectSessions(candles)
 
         // --- New LIT X primitives ---
-        val displacement = displacementDetector.detectLatest(candles, config.displacementAtrMultiple)
+        val displacement = displacementDetector.detectLatest(candles, effectiveDisplacementAtr)
         val mitigationBlocks = mitigationDetector.detect(candles, orderBlocks)
         val zone = premiumDiscount.calculate(candles)
         val shift = mssClassifier.classify(
             breaks = structure.breaks,
             displacement = displacement,
-            displacementAtrMultiple = config.displacementAtrMultiple,
+            displacementAtrMultiple = effectiveDisplacementAtr,
             minBreakIndex = setupStartIndex,
         )
 
@@ -149,7 +170,14 @@ class LitXEngine @Inject constructor(
         } else {
             null
         }
-        val shiftConfirmed = shift.present && shift.direction == intended && sweep != null
+        val sweepIndex = sweep?.sweepIndex ?: -1
+        val shiftKnowledgeIndex = if (shift.present) shift.breakIndex + STRUCTURE_RIGHT_BARS else -1
+        val orderedShift = shift.present && sweep != null &&
+            sweepIndex >= 0 && shift.breakIndex >= sweepIndex &&
+            shift.breakIndex - sweepIndex <= effectiveSweepToShift &&
+            shiftKnowledgeIndex <= candles.lastIndex
+        val shiftConfirmed = orderedShift && shift.direction == intended &&
+            (!cfg.requireStrongMss || shift.isStrong)
 
         // --- Point of interest (mitigation block > fresh OB > unfilled FVG) ---
         // A POI belongs to this setup only when it formed after the sweep. The
@@ -167,11 +195,22 @@ class LitXEngine @Inject constructor(
         } else {
             null
         }
-        val retestAfterShift = shiftConfirmed && poi != null &&
-            candles.lastIndex > shift.breakIndex && candles.lastIndex > poi.availableIndex
+        val retestSearchStart = if (shiftConfirmed && poi != null) {
+            maxOf(shiftKnowledgeIndex + 1, poi.availableIndex + 1)
+        } else {
+            Int.MAX_VALUE
+        }
+        val firstRetestIndex = if (poi != null && retestSearchStart <= candles.lastIndex) {
+            (retestSearchStart..candles.lastIndex).firstOrNull { idx ->
+                candles[idx].low <= poi.high && candles[idx].high >= poi.low
+            }
+        } else null
+        val retestAfterShift = firstRetestIndex != null &&
+            firstRetestIndex - shiftKnowledgeIndex <= effectiveShiftToRetest
+        val isFreshRetest = retestAfterShift && firstRetestIndex == candles.lastIndex
 
         // --- Entry validation: has price returned into the ordered POI? ---
-        val retestScore = if (poi == null || !retestAfterShift) {
+        val retestScore = if (poi == null || !isFreshRetest) {
             30
         } else {
             // Continuous score based on how far price sits from the POI band,
@@ -206,19 +245,32 @@ class LitXEngine @Inject constructor(
             volumeConfirmation = volumeConfirmation(candles),
             volatilityCondition = volatilityCondition(candles, vol),
             sessionQuality = if (isKillZone(sessions, candles.lastIndex)) 90 else 55,
-            riskReward = (rr.riskReward / config.minRiskReward.coerceAtLeast(1e-9) * 70.0)
+            riskReward = (rr.riskReward / effectiveMinRr.coerceAtLeast(1e-9) * 70.0)
                 .roundToInt().coerceIn(0, 100),
         )
         val confidence = scorer.score(inputs)
 
         // --- Stage progression ---
-        val poiTapped = retestAfterShift && poi != null && price in (poi.low - vol)..(poi.high + vol)
+        val poiTapped = retestAfterShift && poi != null &&
+            firstRetestIndex != null && candles[firstRetestIndex].low <= poi.high + vol &&
+            candles[firstRetestIndex].high >= poi.low - vol
+        val directionalZoneAligned = when {
+            zone == null -> true
+            bullish -> zone.currentZone == PriceZoneKind.DISCOUNT
+            else -> zone.currentZone == PriceZoneKind.PREMIUM
+        }
         // A validated LIT X setup requires the full institutional sequence: a
         // recent liquidity sweep, a confirmed market shift in our direction,
         // a post-shift POI retest, a real structural target meeting minimum
         // R:R, and a grade above the filter.
-        val validated = shiftConfirmed && poiTapped && rr.valid && rr.riskReward >= config.minRiskReward &&
-            retestScore >= 70 && LitXConfidenceScorer.meets(confidence.grade, config.minGrade)
+        val htfDirectionAligned = (bullish && effHtfBias == Bias.BULLISH) ||
+            (!bullish && effHtfBias == Bias.BEARISH)
+        val validated = shiftConfirmed && poiTapped && isFreshRetest && rr.valid &&
+            rr.riskReward >= effectiveMinRr && retestScore >= 70 &&
+            (!cfg.requireHtfAlignment || htfDirectionAligned) &&
+            (!cfg.requireDirectionalZone || directionalZoneAligned) &&
+            confidence.score >= effectiveMinConfidence &&
+            LitXConfidenceScorer.meets(confidence.grade, cfg.minGrade)
         val stage = when {
             validated -> LitXStage.VALIDATED
             poiTapped -> LitXStage.POI_TAPPED
@@ -237,6 +289,16 @@ class LitXEngine @Inject constructor(
                 riskReward = rr.riskReward, confidence = confidence, zone = zone,
                 rationale = buildRationale(bullish, shift.isStrong, sweep != null, poi, zone?.currentZone),
                 timestamp = now,
+                confirmationIndex = candles.lastIndex,
+                confirmations = buildList {
+                    add("LIQUIDITY_SWEEP")
+                    add(if (shift.isStrong) "MSS" else "CHOCH")
+                    if (displacement?.direction == intended) add("DISPLACEMENT")
+                    poi?.kind?.let { add(it.uppercase().replace(' ', '_')) }
+                    add("POI_RETEST")
+                    if (directionalZoneAligned) add("PREMIUM_DISCOUNT")
+                    add("RR_${"%.2f".format(rr.riskReward)}")
+                },
             )
         } else {
             null
@@ -244,12 +306,12 @@ class LitXEngine @Inject constructor(
 
         return LitXAnalysis(
             symbol = symbol, timeframe = timeframe, stage = stage,
-            bias = structure.bias, htfBias = htfBias,
+            bias = structure.bias, htfBias = effHtfBias,
             displacement = displacement, mitigationBlocks = mitigationBlocks,
             premiumDiscount = zone, signal = signal,
             narrative = signal?.rationale
                 ?: "Institutional pipeline at ${stage.name.lowercase().replace('_', ' ')}; " +
-                "conditions not yet sufficient for an ${config.minGrade.name} setup.",
+                "conditions not yet sufficient for an ${cfg.minGrade.name} setup.",
             timestamp = now,
         )
     }
@@ -472,11 +534,18 @@ class LitXEngine @Inject constructor(
         return "$dir: $sweepTxt$shiftTxt, entry from $poiTxt$zoneTxt."
     }
 
+    private fun profileRules(profile: com.foxtrader.app.domain.model.SignalProfile): ProfileRules = when (profile) {
+        com.foxtrader.app.domain.model.SignalProfile.SCALPING -> ProfileRules(1.20, 1.8, 76, 7, 7)
+        com.foxtrader.app.domain.model.SignalProfile.INTRADAY -> ProfileRules(1.25, 2.0, 78, 10, 12)
+        com.foxtrader.app.domain.model.SignalProfile.SWING -> ProfileRules(1.35, 2.3, 80, 16, 20)
+    }
+
     private companion object {
         const val MIN_BARS = 50
         const val SETUP_LOOKBACK_BARS = 30
         const val VOL_WINDOW = 14
         const val LONG_VOL_WINDOW = 50
+        const val STRUCTURE_RIGHT_BARS = 5
 
         // Continuous retest scoring: in-band max, decaying per volatility unit.
         // 92 - 22*1.0 = 70 keeps the ~1-vol near-band cutoff at the validation gate.
