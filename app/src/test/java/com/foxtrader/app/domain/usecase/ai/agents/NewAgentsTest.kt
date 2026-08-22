@@ -9,12 +9,26 @@ import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
+import com.foxtrader.app.domain.usecase.litx.DisplacementDetector
+import com.foxtrader.app.domain.usecase.litx.PremiumDiscountCalculator
+import com.foxtrader.app.domain.usecase.signalintel.LitEngine
+import com.foxtrader.app.domain.usecase.smc.SmcDetector
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NewAgentsTest {
+
+    private fun buildLitAgent() = LitAgent(
+        LitEngine(
+            smcDetector = SmcDetector(),
+            analyzeStructure = AnalyzeMarketStructureUseCase(),
+            displacementDetector = DisplacementDetector(),
+            premiumDiscount = PremiumDiscountCalculator(),
+        ),
+    )
 
     private fun candle(i: Int) = Candle(
         timestamp = 1_700_000_000_000L + i * 60 * 60_000L,
@@ -88,7 +102,7 @@ class NewAgentsTest {
             ),
         )
 
-        val result = LitAgent().analyze(ctx)
+        val result = buildLitAgent().analyze(ctx)
         assertEquals(Bias.NEUTRAL, result.bias)
         assertTrue(result.insights.isEmpty())
         assertFalse(result.insights.any { it.type == "INSTITUTIONAL_ENTRY_SIGNAL" })
@@ -97,7 +111,7 @@ class NewAgentsTest {
 
     @Test
     fun `LIT neutral when canonical sequence is absent`() {
-        val result = LitAgent().analyze(baseContext().copy(previousOutputs = emptyMap()))
+        val result = buildLitAgent().analyze(baseContext().copy(previousOutputs = emptyMap()))
         assertEquals(Bias.NEUTRAL, result.bias)
         assertTrue(result.insights.isEmpty())
     }
