@@ -8,14 +8,15 @@ import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import com.foxtrader.app.domain.usecase.ai.MarketExplanation
 import com.foxtrader.app.domain.usecase.ai.MarketExplanationEngine
 import com.foxtrader.app.domain.usecase.chart.ComputeIndicatorsUseCase
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 
 /**
- * Handles indicator computation, market structure analysis, and incremental frame
- * updates. Returns [ChartComputation] results that the ViewModel maps into UI state.
+ * Handles chart indicator computation and structure analysis off the main thread.
  *
- * This is a plain class instantiated by [ChartViewModel].
+ * Engine boundaries are isolated: a structure/explanation failure must not turn
+ * an indicator tap into an app crash or erase unrelated overlay output.
  */
 internal class ChartIndicatorCoordinator(
     private val analyzeStructure: AnalyzeMarketStructureUseCase,
@@ -26,12 +27,6 @@ internal class ChartIndicatorCoordinator(
 
     var lastProcessedSnapshot: ProcessedSnapshot? = null
 
-    /**
-     * Central candle processing pipeline.
-     *
-     * All CPU-bound work (structure analysis + indicator/SMC/session computation)
-     * is dispatched to [defaultDispatcher] so the main thread stays responsive.
-     */
     suspend fun processCandles(
         candles: List<Candle>,
         source: CandleSource,
@@ -83,18 +78,21 @@ internal class ChartIndicatorCoordinator(
         symbol: String,
         timeframe: Timeframe,
     ): ChartComputation {
-        val structure = analyzeStructure(candles)
+        val structure = containedOrNull { analyzeStructure(candles) }
         val overlays = computeIndicators(candles, toggles)
         val explanation = if (candles.size >= 50) {
-            marketExplanationEngine.explain(
-                symbol = symbol,
-                timeframe = timeframe,
-                candles = candles.asCandleSeries(),
-            )
+            containedOrNull {
+                marketExplanationEngine.explain(
+                    symbol = symbol,
+                    timeframe = timeframe,
+                    candles = candles.asCandleSeries(),
+                )
+            }
         } else null
+
         return ChartComputation(
-            bias = structure.bias,
-            structureBreaks = structure.breaks,
+            bias = structure?.bias ?: Bias.NEUTRAL,
+            structureBreaks = structure?.breaks.orEmpty(),
             overlays = overlays,
             marketExplanation = explanation,
         )
@@ -120,30 +118,28 @@ internal class ChartIndicatorCoordinator(
 
         val windowStart = (size - INCREMENTAL_ANALYSIS_WINDOW).coerceAtLeast(0)
         val windowCandles = candles.subList(windowStart, size)
-        val structure = analyzeStructure(windowCandles)
+        val structure = containedOrNull { analyzeStructure(windowCandles) }
         val overlays = computeIndicators(windowCandles, toggles)
-        // `PERF` The market-explanation narrative re-runs full structure + SMC
-        // analysis over the whole series — by far the heaviest part of an
-        // incremental frame, and it ran on EVERY intra-bar tick. The narrative
-        // is bar-granular by nature (HTF bias, value zone, liquidity), so
-        // recompute it only when a NEW bar has closed; on last-bar tick updates
-        // reuse the previous explanation. This cuts incremental-frame cost by
-        // roughly the explanation's share (structure+SMC over N bars) at tick
-        // frequency, with zero visible difference until the bar closes.
         val explanation = when {
             candles.size < 50 -> null
             isLastBarUpdate -> previous.marketExplanation
-            else -> marketExplanationEngine.explain(
-                symbol = symbol,
-                timeframe = timeframe,
-                candles = candles.asCandleSeries(),
-            )
+            else -> containedOrNull {
+                marketExplanationEngine.explain(
+                    symbol = symbol,
+                    timeframe = timeframe,
+                    candles = candles.asCandleSeries(),
+                )
+            }
         }
 
         return ChartComputation(
-            bias = structure.bias,
-            structureBreaks = previous.structureBreaks.filter { it.breakIndex < windowStart } +
-                structure.breaks.map { it.shift(windowStart) },
+            bias = structure?.bias ?: previous.bias,
+            structureBreaks = if (structure == null) {
+                previous.structureBreaks
+            } else {
+                previous.structureBreaks.filter { it.breakIndex < windowStart } +
+                    structure.breaks.map { it.shift(windowStart) }
+            },
             overlays = mergeOverlayWindow(candles, previous.overlays, overlays, toggles, windowStart),
             marketExplanation = explanation,
         )
@@ -213,14 +209,18 @@ internal class ChartIndicatorCoordinator(
         )
     }
 
+    private inline fun <T> containedOrNull(block: () -> T): T? = try {
+        block()
+    } catch (cancel: CancellationException) {
+        throw cancel
+    } catch (_: Exception) {
+        null
+    }
+
     companion object {
         const val INCREMENTAL_ANALYSIS_WINDOW = 320
     }
 }
-
-// ============================================================================
-// Extension functions for shifting index-based domain objects
-// ============================================================================
 
 internal fun com.foxtrader.app.domain.model.StructureBreak.shift(offset: Int) = copy(
     breakIndex = breakIndex + offset,
@@ -246,10 +246,6 @@ internal fun com.foxtrader.app.domain.model.SessionRange.shift(offset: Int) = co
     endIndex = endIndex + offset,
 )
 
-// ============================================================================
-// Internal data types for the indicator computation pipeline
-// ============================================================================
-
 internal data class ProcessedSnapshot(
     val symbol: String,
     val timeframe: Timeframe,
@@ -260,7 +256,6 @@ internal data class ProcessedSnapshot(
     val bias: Bias,
     val structureBreaks: List<com.foxtrader.app.domain.model.StructureBreak>,
     val overlays: ComputeIndicatorsUseCase.Result,
-    /** Reused on intra-bar ticks so the narrative engine only runs per closed bar. */
     val marketExplanation: MarketExplanation? = null,
 )
 
