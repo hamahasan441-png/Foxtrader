@@ -22,7 +22,7 @@ import javax.inject.Inject
  * newest signal available from that source.
  */
 class SignalComputer @Inject constructor(
-    private val evidenceReducer: SignalEvidenceReducer = SignalEvidenceReducer(),
+    private val evidenceReducer: SignalEvidenceReducer,
 ) {
 
     fun computeSignals(

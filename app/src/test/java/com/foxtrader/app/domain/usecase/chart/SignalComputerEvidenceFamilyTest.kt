@@ -4,11 +4,12 @@ import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.ChartSignal
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.SignalSource
+import com.foxtrader.app.domain.usecase.signalintel.SignalEvidenceReducer
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class SignalComputerEvidenceFamilyTest {
-    private val computer = SignalComputer()
+    private val computer = SignalComputer(SignalEvidenceReducer())
     private val candles = (0 until 5).map { index ->
         val close = 100.0 + index
         Candle(

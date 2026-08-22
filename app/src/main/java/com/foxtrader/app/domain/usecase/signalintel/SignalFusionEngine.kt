@@ -22,7 +22,7 @@ import kotlin.math.roundToInt
  * as three independent confirmations merely because they have different names.
  */
 class SignalFusionEngine @Inject constructor(
-    private val evidenceReducer: SignalEvidenceReducer = SignalEvidenceReducer(),
+    private val evidenceReducer: SignalEvidenceReducer,
 ) {
 
     data class Output(
