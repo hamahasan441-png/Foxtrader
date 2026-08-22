@@ -9,6 +9,11 @@ import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
+import com.foxtrader.app.domain.usecase.litx.DisplacementDetector
+import com.foxtrader.app.domain.usecase.litx.PremiumDiscountCalculator
+import com.foxtrader.app.domain.usecase.signalintel.LitEngine
+import com.foxtrader.app.domain.usecase.smc.SmcDetector
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -16,7 +21,14 @@ import org.junit.Test
 
 class LitAgentTest {
 
-    private val agent = LitAgent()
+    private val agent = LitAgent(buildLitEngine())
+
+    private fun buildLitEngine() = LitEngine(
+        smcDetector = SmcDetector(),
+        analyzeStructure = AnalyzeMarketStructureUseCase(),
+        displacementDetector = DisplacementDetector(),
+        premiumDiscount = PremiumDiscountCalculator(),
+    )
 
     private val flatCandles: List<Candle> = (0 until 80).map { i ->
         Candle(
