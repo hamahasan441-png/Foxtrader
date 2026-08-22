@@ -13,13 +13,9 @@ import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toPersistentList
 
 /**
- * Pure mapping from a completed [ChartComputation] onto [ChartUiState].
- *
- * Extracted from `ChartViewModel.processCandles` so the ViewModel stays a thin
- * orchestrator: this function owns the (large but mechanical) fan-out of the
- * indicator/SMC/overlay results into immutable UI-state fields, and nothing
- * else. It performs no I/O and reads no engines — [tradeProAnalysis] is
- * computed by the caller and passed in — which keeps it trivially testable.
+ * Pure-ish mapping from a completed [ChartComputation] onto [ChartUiState].
+ * The only presentation side effect is publishing the primary chart's bar-count
+ * and bar-mode readiness snapshot for the indicator command center.
  */
 internal fun ChartUiState.withComputation(
     candles: List<Candle>,
@@ -34,6 +30,8 @@ internal fun ChartUiState.withComputation(
     smtDivergences: List<SmtDivergenceDetector.SmtDivergence> = emptyList(),
     barMode: ChartBarMode = ChartBarMode.TIME,
 ): ChartUiState {
+    ChartIndicatorRuntime.publish(candles.size, barMode)
+
     // When the bar mode does not preserve the time axis (e.g. Renko), SMC
     // overlays that rely on accurate bar-index-to-time mapping are invalid.
     val gateSmcOverlays = !barMode.preservesTimeAxis
@@ -78,8 +76,6 @@ internal fun ChartUiState.withComputation(
         donchianUpper = computation.overlays.donchianUpper.asImmutableDoubleSeries(),
         donchianMiddle = computation.overlays.donchianMiddle.asImmutableDoubleSeries(),
         donchianLower = computation.overlays.donchianLower.asImmutableDoubleSeries(),
-        // Pivots are projected from the *previous* completed day, so they are
-        // only meaningful when the bar mode preserves a real time axis.
         pivotLevels = if (gateSmcOverlays) null else computation.overlays.pivotLevels,
         orderBlocks = if (gateSmcOverlays) persistentListOf() else computation.overlays.orderBlocks.toPersistentList(),
         fairValueGaps = if (gateSmcOverlays) persistentListOf() else computation.overlays.fairValueGaps.toPersistentList(),
