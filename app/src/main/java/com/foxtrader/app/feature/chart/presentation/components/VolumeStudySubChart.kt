@@ -35,20 +35,12 @@ private val ObvLine = Color(0xFF20C997)
 private val MfiLine = Color(0xFFAB47BC)
 private val MfiOverbought = Color(0xFFE53935)
 private val MfiOversold = Color(0xFF43A047)
-// `PERF` Hoisted guide colors — previously allocated per frame via copy(alpha=).
 private val MfiOverboughtGuide = MfiOverbought.copy(alpha = 0.5f)
 private val MfiOversoldGuide = MfiOversold.copy(alpha = 0.5f)
 private val GridLineColor = Color(0x33FFFFFF)
 private val LabelArgb = android.graphics.Color.parseColor("#99999F")
 
-/**
- * On-Balance Volume pane.
- *
- * Unlike RSI/Stochastic/MFI, OBV is an *unbounded cumulative* series, so it has
- * no fixed 0-100 axis. The pane therefore auto-scales to the min/max of the
- * currently visible window — which is also what makes it useful: the shape of
- * the line against price (divergence) is the signal, not its absolute value.
- */
+/** OBV pane with visible-window finite filtering. */
 @Composable
 fun ObvSubChart(
     obv: ImmutableDoubleSeries,
@@ -59,17 +51,8 @@ fun ObvSubChart(
 ) {
     val density = LocalDensity.current
     val priceScaleWidthPx = with(density) { ChartDimens.subPaneScaleWidth.toPx() }
-    val labelPaint = remember {
-        Paint().apply {
-            color = LabelArgb
-            textSize = with(density) { 9.dp.toPx() }
-            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
-            isAntiAlias = true
-            textAlign = Paint.Align.RIGHT
-        }
-    }
-
-    val current = if (obv.size > 0) obv[obv.size - 1] else 0.0
+    val labelPaint = rememberLabelPaint(density, LabelArgb)
+    val current = obv.lastFiniteStudyValue(0.0)
 
     Column(modifier = modifier.fillMaxWidth()) {
         PaneHeader(title = "OBV", value = formatCompact(current), valueColor = ObvLine)
@@ -80,36 +63,44 @@ fun ObvSubChart(
                 .height(canvasHeight)
                 .background(FoxNeutral5),
         ) {
+            if (!startIndex.isFinite() || !visibleBars.isFinite() || visibleBars <= 0f) return@Canvas
             val w = size.width
             val chartW = (w - priceScaleWidthPx).coerceAtLeast(1f)
             val chartH = size.height
-            if (obv.size < 2) return@Canvas
+            if (!chartW.isFinite() || chartW <= 0f || !chartH.isFinite() || chartH <= 0f || obv.size < 2) return@Canvas
 
+            val rawEnd = startIndex + visibleBars
+            if (!rawEnd.isFinite()) return@Canvas
             val visStart = max(0, startIndex.toInt())
-            val visEnd = min(obv.size, (startIndex + visibleBars).toInt() + 1)
+            val visEnd = min(obv.size, rawEnd.toInt() + 1)
             if (visEnd - visStart < 2) return@Canvas
 
-            // Auto-scale to the visible window so the line always fills the pane.
             var lo = Double.POSITIVE_INFINITY
             var hi = Double.NEGATIVE_INFINITY
+            var finiteCount = 0
             for (i in visStart until visEnd) {
                 val v = obv[i]
+                if (!v.isFinite()) continue
                 if (v < lo) lo = v
                 if (v > hi) hi = v
+                finiteCount++
             }
-            val range = (hi - lo).takeIf { it > 1e-9 } ?: 1.0
+            if (finiteCount < 2 || !lo.isFinite() || !hi.isFinite()) return@Canvas
+            val rawRange = hi - lo
+            val range = rawRange.takeIf { it.isFinite() && it > MIN_OBV_RANGE } ?: 1.0
 
             fun yFor(value: Double): Float = ((hi - value) / range * chartH).toFloat()
             val midY = yFor(lo + range / 2.0)
-            drawLine(
-                GridLineColor,
-                Offset(0f, midY),
-                Offset(chartW, midY),
-                strokeWidth = 0.5f,
-                pathEffect = PaneDash,
-            )
+            if (midY.isFinite()) {
+                drawLine(
+                    color = GridLineColor,
+                    start = Offset(0f, midY),
+                    end = Offset(chartW, midY),
+                    strokeWidth = 0.5f,
+                    pathEffect = PaneDash,
+                )
+            }
 
-            // `PERF` One batched Path stroke instead of a drawLine per bar.
             strokePaneSeries(obv, startIndex, visibleBars, chartW, ObvLine, 1.8f) { v -> yFor(v) }
 
             val canvas = drawContext.canvas.nativeCanvas
@@ -119,10 +110,7 @@ fun ObvSubChart(
     }
 }
 
-/**
- * Money Flow Index pane — a volume-weighted RSI on a fixed 0-100 axis, with the
- * conventional 80 / 20 overbought and oversold bands.
- */
+/** MFI pane on its fixed 0..100 scale, finite-safe during live recomputation. */
 @Composable
 fun MoneyFlowSubChart(
     mfi: ImmutableDoubleSeries,
@@ -133,17 +121,9 @@ fun MoneyFlowSubChart(
 ) {
     val density = LocalDensity.current
     val priceScaleWidthPx = with(density) { ChartDimens.subPaneScaleWidth.toPx() }
-    val labelPaint = remember {
-        Paint().apply {
-            color = LabelArgb
-            textSize = with(density) { 9.dp.toPx() }
-            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
-            isAntiAlias = true
-            textAlign = Paint.Align.RIGHT
-        }
-    }
+    val labelPaint = rememberLabelPaint(density, LabelArgb)
 
-    val current = if (mfi.size > 0) mfi[mfi.size - 1] else 50.0
+    val current = mfi.lastFiniteStudyValue(50.0).coerceIn(0.0, 100.0)
     val valueColor = when {
         current >= 80 -> MfiOverbought
         current <= 20 -> MfiOversold
@@ -163,18 +143,31 @@ fun MoneyFlowSubChart(
                 .height(canvasHeight)
                 .background(FoxNeutral5),
         ) {
+            if (!startIndex.isFinite() || !visibleBars.isFinite() || visibleBars <= 0f) return@Canvas
             val w = size.width
             val chartW = (w - priceScaleWidthPx).coerceAtLeast(1f)
             val chartH = size.height
+            if (!chartW.isFinite() || chartW <= 0f || !chartH.isFinite() || chartH <= 0f) return@Canvas
 
-            fun yFor(value: Double): Float = ((100.0 - value) / 100.0 * chartH).toFloat()
-            val dashEffect = PaneDash
+            fun yFor(value: Double): Float =
+                ((100.0 - value.coerceIn(0.0, 100.0)) / 100.0 * chartH).toFloat()
             val y80 = yFor(80.0)
             val y20 = yFor(20.0)
-            drawLine(MfiOverboughtGuide, Offset(0f, y80), Offset(chartW, y80), strokeWidth = 1f, pathEffect = dashEffect)
-            drawLine(MfiOversoldGuide, Offset(0f, y20), Offset(chartW, y20), strokeWidth = 1f, pathEffect = dashEffect)
+            drawLine(
+                color = MfiOverboughtGuide,
+                start = Offset(0f, y80),
+                end = Offset(chartW, y80),
+                strokeWidth = 1f,
+                pathEffect = PaneDash,
+            )
+            drawLine(
+                color = MfiOversoldGuide,
+                start = Offset(0f, y20),
+                end = Offset(chartW, y20),
+                strokeWidth = 1f,
+                pathEffect = PaneDash,
+            )
 
-            // `PERF` One batched Path stroke instead of a drawLine per bar.
             strokePaneSeries(mfi, startIndex, visibleBars, chartW, MfiLine, 1.8f) { v -> yFor(v) }
 
             val canvas = drawContext.canvas.nativeCanvas
@@ -184,7 +177,6 @@ fun MoneyFlowSubChart(
     }
 }
 
-/** Shared title/value strip used by the volume study panes. */
 @Composable
 private fun PaneHeader(title: String, value: String, valueColor: Color) {
     Box(
@@ -210,11 +202,30 @@ private fun PaneHeader(title: String, value: String, valueColor: Color) {
     }
 }
 
-/**
- * Compact SI-style formatting (1.2M, 3.4K). OBV values run to millions on
- * liquid instruments and would otherwise overflow the narrow scale gutter.
- */
+@Composable
+private fun rememberLabelPaint(
+    density: androidx.compose.ui.unit.Density,
+    color: Int,
+): Paint = remember(density, color) {
+    Paint().apply {
+        this.color = color
+        textSize = with(density) { 9.dp.toPx() }
+        typeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
+        isAntiAlias = true
+        textAlign = Paint.Align.RIGHT
+    }
+}
+
+private fun ImmutableDoubleSeries.lastFiniteStudyValue(default: Double): Double {
+    for (i in size - 1 downTo 0) {
+        val value = this[i]
+        if (value.isFinite()) return value
+    }
+    return default
+}
+
 private fun formatCompact(value: Double): String {
+    if (!value.isFinite()) return "—"
     val a = abs(value)
     return when {
         a >= 1_000_000_000 -> String.format(Locale.US, "%.1fB", value / 1_000_000_000)
@@ -223,3 +234,5 @@ private fun formatCompact(value: Double): String {
         else -> String.format(Locale.US, "%.0f", value)
     }
 }
+
+private const val MIN_OBV_RANGE = 1e-9

@@ -1,18 +1,11 @@
 package com.foxtrader.app.domain.usecase.performance
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
-/**
- * Unit tests for adaptive quality control (DEVELOPMENT.md §4.14).
- *
- * The contract under test is the asymmetric hysteresis: **downgrade fast,
- * upgrade slow**. Getting this wrong produces visible oscillation (layers
- * flickering on and off), which is worse than simply rendering at low quality.
- */
+/** Unit tests for adaptive quality control. */
 class AdaptiveQualityControllerTest {
 
     private lateinit var profiler: PerformanceProfiler
@@ -25,7 +18,6 @@ class AdaptiveQualityControllerTest {
         controller = AdaptiveQualityController(profiler)
     }
 
-    /** Drive the profiler into a specific tier, then evaluate [times] frames. */
     private fun runFrames(frameMs: Float, times: Int) {
         repeat(times) {
             profiler.reset()
@@ -61,7 +53,6 @@ class AdaptiveQualityControllerTest {
     fun `degraded frames need the full threshold before downgrading`() {
         runFrames(degradedMs, times = AdaptiveQualityController.DOWNGRADE_THRESHOLD - 1)
         assertEquals("must tolerate a short bad patch", QualityLevel.ULTRA, controller.getCurrentLevel())
-
         runFrames(degradedMs, times = 1)
         assertEquals(QualityLevel.HIGH, controller.getCurrentLevel())
     }
@@ -71,12 +62,7 @@ class AdaptiveQualityControllerTest {
         runFrames(degradedMs, times = AdaptiveQualityController.DOWNGRADE_THRESHOLD - 1)
         runFrames(goodMs, times = 1)
         runFrames(degradedMs, times = AdaptiveQualityController.DOWNGRADE_THRESHOLD - 1)
-
-        assertEquals(
-            "non-consecutive bad frames must not accumulate into a downgrade",
-            QualityLevel.ULTRA,
-            controller.getCurrentLevel(),
-        )
+        assertEquals(QualityLevel.ULTRA, controller.getCurrentLevel())
     }
 
     @Test
@@ -89,10 +75,8 @@ class AdaptiveQualityControllerTest {
     @Test
     fun `upgrade requires sustained excellent performance`() {
         controller.forceLevel(QualityLevel.LOW)
-
         runFrames(excellentMs, times = AdaptiveQualityController.UPGRADE_THRESHOLD - 1)
-        assertEquals("must not upgrade early", QualityLevel.LOW, controller.getCurrentLevel())
-
+        assertEquals(QualityLevel.LOW, controller.getCurrentLevel())
         runFrames(excellentMs, times = 1)
         assertEquals(QualityLevel.MEDIUM, controller.getCurrentLevel())
     }
@@ -100,10 +84,8 @@ class AdaptiveQualityControllerTest {
     @Test
     fun `upgrades happen one level at a time`() {
         controller.forceLevel(QualityLevel.MINIMAL)
-
         runFrames(excellentMs, times = AdaptiveQualityController.UPGRADE_THRESHOLD)
-        assertEquals("one threshold buys exactly one level", QualityLevel.LOW, controller.getCurrentLevel())
-
+        assertEquals(QualityLevel.LOW, controller.getCurrentLevel())
         runFrames(excellentMs, times = AdaptiveQualityController.UPGRADE_THRESHOLD)
         assertEquals(QualityLevel.MEDIUM, controller.getCurrentLevel())
     }
@@ -111,11 +93,9 @@ class AdaptiveQualityControllerTest {
     @Test
     fun `a single bad frame resets the upgrade streak`() {
         controller.forceLevel(QualityLevel.LOW)
-
         runFrames(excellentMs, times = AdaptiveQualityController.UPGRADE_THRESHOLD - 1)
         runFrames(degradedMs, times = 1)
         runFrames(excellentMs, times = AdaptiveQualityController.UPGRADE_THRESHOLD - 1)
-
         assertEquals(QualityLevel.LOW, controller.getCurrentLevel())
     }
 
@@ -129,12 +109,7 @@ class AdaptiveQualityControllerTest {
     fun `merely acceptable performance holds the current level`() {
         controller.forceLevel(QualityLevel.MEDIUM)
         runFrames(15f, times = 200)
-
-        assertEquals(
-            "no headroom means no upgrade, but no jank means no downgrade",
-            QualityLevel.MEDIUM,
-            controller.getCurrentLevel(),
-        )
+        assertEquals(QualityLevel.MEDIUM, controller.getCurrentLevel())
     }
 
     @Test
@@ -143,43 +118,30 @@ class AdaptiveQualityControllerTest {
             runFrames(excellentMs, times = 1)
             runFrames(degradedMs, times = 1)
         }
-
-        assertEquals(
-            "neither streak ever completes, so quality must be untouched",
-            QualityLevel.ULTRA,
-            controller.getCurrentLevel(),
-        )
+        assertEquals(QualityLevel.ULTRA, controller.getCurrentLevel())
     }
 
     @Test
-    fun `each level drops progressively more work without hiding selected indicators`() {
-        val ultra = controller.getSettings(QualityLevel.ULTRA)
-        val medium = controller.getSettings(QualityLevel.MEDIUM)
-        val low = controller.getSettings(QualityLevel.LOW)
+    fun `degradation reduces decoration and density but never hides selected studies`() {
+        for (level in QualityLevel.entries) {
+            val settings = controller.getSettings(level)
+            assertTrue("indicators must stay visible at $level", settings.indicators)
+            assertTrue("profiles must stay visible at $level", settings.volumeProfile)
+            assertTrue("sessions must stay visible at $level", settings.sessions)
+            assertTrue("structure must stay visible at $level", settings.structureAnnotations)
+        }
+
         val minimal = controller.getSettings(QualityLevel.MINIMAL)
-
-        assertTrue(ultra.volumeProfile)
-        assertFalse(medium.volumeProfile)
-        assertTrue(medium.sessions)
-        assertFalse(low.sessions)
-        assertFalse(low.structureAnnotations)
-
-        // Emergency mode strips decoration but keeps a small indicator budget so
-        // a user-selected EMA/RSI/etc never disappears and looks broken.
-        assertFalse(minimal.gridLines)
-        assertTrue(minimal.indicators)
+        assertTrue(!minimal.gridLines)
+        assertTrue(!minimal.antiAlias)
         assertEquals(AdaptiveQualityController.MINIMAL_INDICATOR_POINT_BUDGET, minimal.maxVisibleIndicatorPoints)
     }
 
     @Test
     fun `indicator point budget shrinks monotonically`() {
         val budgets = QualityLevel.entries.map { controller.getSettings(it).maxVisibleIndicatorPoints }
-
         for (i in 1 until budgets.size) {
-            assertTrue(
-                "level ${QualityLevel.entries[i]} must not allow more points than ${QualityLevel.entries[i - 1]}",
-                budgets[i] <= budgets[i - 1],
-            )
+            assertTrue(budgets[i] <= budgets[i - 1])
         }
     }
 
@@ -221,24 +183,14 @@ class AdaptiveQualityControllerTest {
         controller.setQualityCeiling(QualityLevel.HIGH)
         controller.forceLevel(QualityLevel.MINIMAL)
         runFrames(excellentMs, times = AdaptiveQualityController.UPGRADE_THRESHOLD * 6)
-
-        assertEquals(
-            "quality must never auto-restore above the configured ceiling",
-            QualityLevel.HIGH,
-            controller.getCurrentLevel(),
-        )
+        assertEquals(QualityLevel.HIGH, controller.getCurrentLevel())
     }
 
     @Test
     fun `degradation below the ceiling is still allowed under load`() {
         controller.setQualityCeiling(QualityLevel.HIGH)
         runFrames(criticalMs, times = 10)
-
-        assertEquals(
-            "the ceiling caps the best quality, not the worst — jank still degrades",
-            QualityLevel.MINIMAL,
-            controller.getCurrentLevel(),
-        )
+        assertEquals(QualityLevel.MINIMAL, controller.getCurrentLevel())
     }
 
     @Test

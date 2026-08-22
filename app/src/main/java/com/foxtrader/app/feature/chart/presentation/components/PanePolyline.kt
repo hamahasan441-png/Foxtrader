@@ -11,34 +11,18 @@ import com.foxtrader.app.feature.chart.presentation.ImmutableDoubleSeries
 import kotlin.math.max
 import kotlin.math.min
 
-/**
- * Batched polyline renderer shared by the oscillator/volume sub-panes.
- *
- * `PERF` The sub-panes redraw on EVERY pan/zoom frame (they collect the main
- * chart's viewport flow), and each previously issued one Compose drawLine —
- * with two Offset allocations — per visible bar per series. With RSI + MACD +
- * Stochastic open that was easily >1k Canvas calls per gesture frame. Each
- * series is now accumulated into a reusable Path and stroked ONCE.
- *
- * The scratch Path is shared across all panes in a frame; safe because all
- * drawing happens on the single UI/render thread (same contract as the other
- * chart-layer scratch buffers).
- */
+/** Batched, finite-safe polyline renderer shared by oscillator/volume panes. */
 private val paneScratchPath = Path()
 
-/**
- * Shared dashed-guide effect for the sub-panes' reference lines (70/30, 80/20,
- * zero line…). `PERF` Hoisted: `PathEffect.dashPathEffect` allocates a native
- * effect object, and each pane previously rebuilt it every frame.
- */
+/** Shared guide effect so the native effect is not allocated per frame. */
 internal val PaneDash: PathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 4f))
 
 /**
- * Stroke [series] over the visible window as a single path.
+ * Stroke [series] over the visible window as one path.
  *
- * @param yFor maps a series value to a pane-local y pixel. One small lambda
- *   per series per frame — negligible next to the per-bar allocations it
- *   replaces.
+ * Every numeric boundary is treated as untrusted. Live recomputes can briefly
+ * expose partially-defined arrays, and a NaN/Infinity reaching Path/Canvas is a
+ * much worse outcome than skipping one study segment for one frame.
  */
 internal fun DrawScope.strokePaneSeries(
     series: ImmutableDoubleSeries,
@@ -50,28 +34,57 @@ internal fun DrawScope.strokePaneSeries(
     yFor: (Double) -> Float,
 ) {
     if (series.size < 2) return
+    if (
+        !startIndex.isFinite() ||
+        !visibleBars.isFinite() || visibleBars <= 0f ||
+        !chartW.isFinite() || chartW <= 0f ||
+        !strokeWidth.isFinite() || strokeWidth <= 0f
+    ) return
+
+    val rawEnd = startIndex + visibleBars
+    if (!rawEnd.isFinite()) return
     val visStart = max(0, startIndex.toInt())
-    val visEnd = min(series.size, (startIndex + visibleBars).toInt() + 1)
+    val visEnd = min(series.size, rawEnd.toInt() + 1)
     if (visEnd - visStart < 2) return
 
     val path = paneScratchPath
     path.rewind()
     var penDown = false
+    var hasSegment = false
+
     for (i in visStart until visEnd) {
-        val x = (i + 0.5f - startIndex) / visibleBars * chartW
-        // Cull columns fully outside the pane; NaN values lift the pen so
-        // partially-defined series render only where valid.
         val v = series[i]
-        if (x < -strokeWidth || x > chartW + strokeWidth || v.isNaN()) {
+        if (!v.isFinite()) {
             penDown = false
             continue
         }
+
+        val x = (i + 0.5f - startIndex) / visibleBars * chartW
+        if (!x.isFinite() || x < -strokeWidth || x > chartW + strokeWidth) {
+            penDown = false
+            continue
+        }
+
         val y = yFor(v)
-        if (penDown) path.lineTo(x, y) else { path.moveTo(x, y); penDown = true }
+        if (!y.isFinite()) {
+            penDown = false
+            continue
+        }
+
+        if (penDown) {
+            path.lineTo(x, y)
+            hasSegment = true
+        } else {
+            path.moveTo(x, y)
+            penDown = true
+        }
     }
-    drawPath(
-        path = path,
-        color = color,
-        style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round),
-    )
+
+    if (hasSegment) {
+        drawPath(
+            path = path,
+            color = color,
+            style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round),
+        )
+    }
 }

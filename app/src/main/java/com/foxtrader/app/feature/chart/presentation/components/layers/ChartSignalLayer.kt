@@ -26,41 +26,15 @@ import com.foxtrader.app.ui.theme.FoxBullish
 
 private val SignalDash = PathEffect.dashPathEffect(floatArrayOf(10f, 8f), 0f)
 private val ContextDash = PathEffect.dashPathEffect(floatArrayOf(5f, 7f), 0f)
+private val SignalArrowScratch = Path()
 
 private val LiveSignalLabelPaint = Paint().apply {
     color = android.graphics.Color.WHITE
-    textSize = 18f
+    textSize = 13f
     typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     isAntiAlias = true
     textAlign = Paint.Align.CENTER
-    alpha = (0.92f * 255).toInt()
-}
-
-private val HistorySignalLabelPaint = Paint().apply {
-    color = android.graphics.Color.WHITE
-    textSize = 17f
-    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-    isAntiAlias = true
-    textAlign = Paint.Align.CENTER
-    alpha = (0.62f * 255).toInt()
-}
-
-private val InstitutionalContextPaint = Paint().apply {
-    color = android.graphics.Color.WHITE
-    textSize = 15f
-    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-    isAntiAlias = true
-    textAlign = Paint.Align.LEFT
-    alpha = (0.72f * 255).toInt()
-}
-
-private val SmtLabelPaint = Paint().apply {
-    color = android.graphics.Color.WHITE
-    textSize = 14f
-    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-    isAntiAlias = true
-    textAlign = Paint.Align.CENTER
-    alpha = (0.80f * 255).toInt()
+    alpha = (0.88f * 255).toInt()
 }
 
 private val BacktestOutcomeLabelPaint = Paint().apply {
@@ -72,13 +46,12 @@ private val BacktestOutcomeLabelPaint = Paint().apply {
 }
 
 /**
- * Premium LIT X projection.
+ * LIT X chart context.
  *
- * The previous renderer returned immediately when no final signal existed. That
- * made a healthy LIT X pipeline look broken during SCANNING/SHIFT/POI stages.
- * We now render the institutional context first (dealing range, equilibrium,
- * mitigation blocks and displacement), then add entry/risk geometry only when a
- * fully validated non-repainting signal exists.
+ * Final entries are deliberately NOT painted here. The unified signal layer is
+ * the single source of truth for LiTX/LiT/SMS/SMT/TradePro/strategy arrows, so a
+ * validated setup cannot be drawn twice as full-width entry/SL/TP lines plus an
+ * arrow. This function only paints lightweight institutional context.
  */
 internal fun DrawScope.drawLitXSignals(
     analysis: LitXAnalysis,
@@ -87,72 +60,6 @@ internal fun DrawScope.drawLitXSignals(
     ch: Float,
 ) {
     drawLitXContext(analysis, viewport, cw, ch)
-
-    val signal = analysis.signal ?: return
-    val validPrices = signal.entry.isDrawablePrice() &&
-        signal.stopLoss.isDrawablePrice() &&
-        signal.takeProfit1.isDrawablePrice() &&
-        signal.takeProfit2.isDrawablePrice()
-    val validGeometry = when (signal.direction) {
-        Direction.BULLISH -> signal.stopLoss < signal.entry &&
-            signal.takeProfit1 > signal.entry && signal.takeProfit2 > signal.entry
-        Direction.BEARISH -> signal.stopLoss > signal.entry &&
-            signal.takeProfit1 < signal.entry && signal.takeProfit2 < signal.entry
-    }
-    if (!validPrices || !validGeometry) return
-
-    val entryY = viewport.yForPrice(signal.entry, ch)
-    val stopY = viewport.yForPrice(signal.stopLoss, ch)
-    val tp1Y = viewport.yForPrice(signal.takeProfit1, ch)
-    val tp2Y = viewport.yForPrice(signal.takeProfit2, ch)
-    val dirColor = if (signal.direction == Direction.BULLISH) FoxBullish else FoxBearish
-
-    drawLine(
-        color = dirColor.copy(alpha = 0.95f),
-        start = Offset(0f, entryY),
-        end = Offset(cw, entryY),
-        strokeWidth = 2.8f,
-    )
-    drawLine(
-        color = FoxBearish.copy(alpha = 0.82f),
-        start = Offset(0f, stopY),
-        end = Offset(cw, stopY),
-        strokeWidth = 1.6f,
-        pathEffect = SignalDash,
-    )
-    drawLine(
-        color = FoxBullish.copy(alpha = 0.75f),
-        start = Offset(0f, tp1Y),
-        end = Offset(cw, tp1Y),
-        strokeWidth = 1.6f,
-        pathEffect = SignalDash,
-    )
-    drawLine(
-        color = FoxBullish.copy(alpha = 0.65f),
-        start = Offset(0f, tp2Y),
-        end = Offset(cw, tp2Y),
-        strokeWidth = 1.4f,
-        pathEffect = SignalDash,
-    )
-
-    val arrowSize = 11f
-    val arrowX = cw - 18f
-    val arrowPath = Path()
-    if (signal.direction == Direction.BULLISH) {
-        arrowPath.moveTo(arrowX, entryY - arrowSize)
-        arrowPath.lineTo(arrowX - arrowSize / 2f, entryY + arrowSize / 2f)
-        arrowPath.lineTo(arrowX + arrowSize / 2f, entryY + arrowSize / 2f)
-    } else {
-        arrowPath.moveTo(arrowX, entryY + arrowSize)
-        arrowPath.lineTo(arrowX - arrowSize / 2f, entryY - arrowSize / 2f)
-        arrowPath.lineTo(arrowX + arrowSize / 2f, entryY - arrowSize / 2f)
-    }
-    arrowPath.close()
-    drawPath(arrowPath, color = dirColor.copy(alpha = 0.98f), style = Fill)
-
-    val signalLabel = "LiTX ${signal.confidence.grade.name.replace('_', '+')} · ${signal.confidence.score}%"
-    val signalLabelY = if (signal.direction == Direction.BULLISH) entryY - 9f else entryY + 19f
-    drawContext.canvas.nativeCanvas.drawText(signalLabel, 10f, signalLabelY, InstitutionalContextPaint)
 }
 
 private fun DrawScope.drawLitXContext(
@@ -172,37 +79,38 @@ private fun DrawScope.drawLitXContext(
             val highY = viewport.yForPrice(zone.rangeHigh, ch)
             val eqY = viewport.yForPrice(zone.equilibrium, ch)
             val lowY = viewport.yForPrice(zone.rangeLow, ch)
-            val premiumTop = minOf(highY, eqY).coerceIn(0f, ch)
-            val premiumBottom = maxOf(highY, eqY).coerceIn(0f, ch)
-            val discountTop = minOf(eqY, lowY).coerceIn(0f, ch)
-            val discountBottom = maxOf(eqY, lowY).coerceIn(0f, ch)
-            val premiumAlpha = if (zone.currentZone == PriceZoneKind.PREMIUM) 0.10f else 0.045f
-            val discountAlpha = if (zone.currentZone == PriceZoneKind.DISCOUNT) 0.10f else 0.045f
+            if (highY.isFinite() && eqY.isFinite() && lowY.isFinite()) {
+                val premiumTop = minOf(highY, eqY).coerceIn(0f, ch)
+                val premiumBottom = maxOf(highY, eqY).coerceIn(0f, ch)
+                val discountTop = minOf(eqY, lowY).coerceIn(0f, ch)
+                val discountBottom = maxOf(eqY, lowY).coerceIn(0f, ch)
+                val premiumAlpha = if (zone.currentZone == PriceZoneKind.PREMIUM) 0.065f else 0.025f
+                val discountAlpha = if (zone.currentZone == PriceZoneKind.DISCOUNT) 0.065f else 0.025f
 
-            if (premiumBottom > premiumTop) {
-                drawRect(
-                    color = FoxBearish.copy(alpha = premiumAlpha),
-                    topLeft = Offset(0f, premiumTop),
-                    size = Size(cw, premiumBottom - premiumTop),
-                )
+                if (premiumBottom > premiumTop) {
+                    drawRect(
+                        color = FoxBearish.copy(alpha = premiumAlpha),
+                        topLeft = Offset(0f, premiumTop),
+                        size = Size(cw.coerceAtLeast(0f), premiumBottom - premiumTop),
+                    )
+                }
+                if (discountBottom > discountTop) {
+                    drawRect(
+                        color = FoxBullish.copy(alpha = discountAlpha),
+                        topLeft = Offset(0f, discountTop),
+                        size = Size(cw.coerceAtLeast(0f), discountBottom - discountTop),
+                    )
+                }
+                if (eqY in 0f..ch) {
+                    drawLine(
+                        color = FoxAmber50.copy(alpha = 0.34f),
+                        start = Offset(0f, eqY),
+                        end = Offset(cw, eqY),
+                        strokeWidth = 1f,
+                        pathEffect = ContextDash,
+                    )
+                }
             }
-            if (discountBottom > discountTop) {
-                drawRect(
-                    color = FoxBullish.copy(alpha = discountAlpha),
-                    topLeft = Offset(0f, discountTop),
-                    size = Size(cw, discountBottom - discountTop),
-                )
-            }
-            drawLine(
-                color = FoxAmber50.copy(alpha = 0.55f),
-                start = Offset(0f, eqY),
-                end = Offset(cw, eqY),
-                strokeWidth = 1.3f,
-                pathEffect = ContextDash,
-            )
-            drawContext.canvas.nativeCanvas.drawText("PREMIUM", 10f, (premiumTop + 17f).coerceAtMost(ch), InstitutionalContextPaint)
-            drawContext.canvas.nativeCanvas.drawText("EQ", 10f, (eqY - 5f).coerceIn(14f, ch), InstitutionalContextPaint)
-            drawContext.canvas.nativeCanvas.drawText("DISCOUNT", 10f, (discountTop + 17f).coerceAtMost(ch), InstitutionalContextPaint)
         }
     }
 
@@ -210,23 +118,28 @@ private fun DrawScope.drawLitXContext(
         if (!block.highPrice.isDrawablePrice() || !block.lowPrice.isDrawablePrice() || block.highPrice <= block.lowPrice) {
             return@forEach
         }
-        val topY = viewport.yForPrice(block.highPrice, ch).coerceIn(0f, ch)
-        val bottomY = viewport.yForPrice(block.lowPrice, ch).coerceIn(0f, ch)
+        val topYRaw = viewport.yForPrice(block.highPrice, ch)
+        val bottomYRaw = viewport.yForPrice(block.lowPrice, ch)
+        val xRaw = viewport.xForIndex(block.originIndex.toFloat(), cw)
+        if (!topYRaw.isFinite() || !bottomYRaw.isFinite() || !xRaw.isFinite()) return@forEach
+
+        val topY = topYRaw.coerceIn(0f, ch)
+        val bottomY = bottomYRaw.coerceIn(0f, ch)
         val y = minOf(topY, bottomY)
         val height = kotlin.math.abs(bottomY - topY)
         if (height <= 0f) return@forEach
-        val x = viewport.xForIndex(block.originIndex.toFloat(), cw).coerceIn(0f, cw)
+        val x = xRaw.coerceIn(0f, cw)
         val color = if (block.direction == Direction.BULLISH) FoxBullish else FoxBearish
         drawRect(
-            color = color.copy(alpha = 0.10f),
+            color = color.copy(alpha = 0.07f),
             topLeft = Offset(x, y),
             size = Size((cw - x).coerceAtLeast(0f), height),
         )
         drawLine(
-            color = color.copy(alpha = 0.46f),
+            color = color.copy(alpha = 0.32f),
             start = Offset(x, y),
             end = Offset(cw, y),
-            strokeWidth = 1.1f,
+            strokeWidth = 1f,
         )
     }
 
@@ -236,23 +149,23 @@ private fun DrawScope.drawLitXContext(
             val endX = viewport.xForIndex(displacement.endIndex + 0.5f, cw)
             val startY = viewport.yForPrice(displacement.startPrice, ch)
             val endY = viewport.yForPrice(displacement.endPrice, ch)
-            val color = if (displacement.direction == Direction.BULLISH) FoxBullish else FoxBearish
-            drawLine(
-                color = color.copy(alpha = 0.72f),
-                start = Offset(startX, startY),
-                end = Offset(endX, endY),
-                strokeWidth = 2.2f,
-            )
+            if (startX.isFinite() && endX.isFinite() && startY.isFinite() && endY.isFinite()) {
+                val color = if (displacement.direction == Direction.BULLISH) FoxBullish else FoxBearish
+                drawLine(
+                    color = color.copy(alpha = 0.54f),
+                    start = Offset(startX, startY),
+                    end = Offset(endX, endY),
+                    strokeWidth = 1.7f,
+                )
+            }
         }
     }
-
-    val stageText = "LiTX · ${analysis.stage.name.replace('_', ' ')}"
-    drawContext.canvas.nativeCanvas.drawText(stageText, 10f, 18f, InstitutionalContextPaint)
 }
 
 /**
- * Draws SMT divergence markers without projecting the peer instrument onto the
- * primary chart's incompatible price scale.
+ * SMT context stays subtle: the actionable confirmation is already represented
+ * by the unified SMT arrow. We keep only a faint swing-to-confirmation ray so
+ * the divergence can be audited without duplicating circles, labels and arrows.
  */
 internal fun DrawScope.drawSmtDivergences(
     divergences: List<SmtDivergenceDetector.SmtDivergence>,
@@ -265,7 +178,7 @@ internal fun DrawScope.drawSmtDivergences(
     val startIdx = viewport.startIndex.toInt().coerceAtLeast(0)
     val endIdx = (viewport.startIndex + viewport.visibleBars).toInt() + 1
 
-    for (div in divergences) {
+    for (div in divergences.takeLast(MAX_SMT_CONTEXT_RAYS)) {
         if (
             div.primaryIndex < 0 ||
             div.confirmationIndex < div.primaryIndex ||
@@ -274,50 +187,32 @@ internal fun DrawScope.drawSmtDivergences(
         if (div.primaryIndex > endIdx && div.confirmationIndex > endIdx) continue
         if (div.primaryIndex < startIdx && div.confirmationIndex < startIdx) continue
 
-        val color = if (div.direction == Direction.BULLISH) FoxBullish else FoxBearish
         val primaryX = viewport.xForIndex(div.primaryIndex + 0.5f, cw)
         val primaryY = viewport.yForPrice(div.primaryPrice, ch)
         val confirmationX = viewport.xForIndex(div.confirmationIndex + 0.5f, cw)
+        if (!primaryX.isFinite() || !primaryY.isFinite() || !confirmationX.isFinite()) continue
+        if (primaryY !in -8f..(ch + 8f)) continue
 
-        drawCircle(
-            color = color.copy(alpha = 0.94f),
-            radius = 7f,
-            center = Offset(primaryX, primaryY),
-        )
-        drawCircle(
-            color = color.copy(alpha = 0.30f),
-            radius = 11f,
-            center = Offset(primaryX, primaryY),
-            style = Stroke(width = 1.5f),
-        )
+        val color = if (div.direction == Direction.BULLISH) FoxBullish else FoxBearish
         drawLine(
-            color = color.copy(alpha = 0.68f),
+            color = color.copy(alpha = 0.36f),
             start = Offset(primaryX, primaryY),
             end = Offset(confirmationX, primaryY),
-            strokeWidth = 1.8f,
+            strokeWidth = 1.2f,
             pathEffect = SignalDash,
         )
         drawCircle(
-            color = color.copy(alpha = 0.78f),
-            radius = 5f,
-            center = Offset(confirmationX, primaryY),
-            style = Stroke(width = 1.8f),
-        )
-
-        val labelY = if (div.direction == Direction.BULLISH) primaryY + 22f else primaryY - 13f
-        drawContext.canvas.nativeCanvas.drawText(
-            "SMT ${div.peerSymbol} ${div.confidence.toInt()}%",
-            confirmationX,
-            labelY.coerceIn(14f, ch - 2f),
-            SmtLabelPaint,
+            color = color.copy(alpha = 0.58f),
+            radius = 3.2f,
+            center = Offset(primaryX, primaryY),
         )
     }
 }
 
 /**
- * Draws unified strategy/engine signals as directional arrows.
- * Live markers remain visually dominant; historical/template projections stay
- * clearly distinct while being readable enough to audit without a second view.
+ * Unified signal renderer: every signal-capable engine lands here as an arrow
+ * anchored to its confirmation bar. Historical markers are outline-only and do
+ * not carry text; the newest actionable markers are filled and labelled.
  */
 internal fun DrawScope.drawSignalMarkers(
     signals: List<ChartSignal>,
@@ -329,43 +224,54 @@ internal fun DrawScope.drawSignalMarkers(
 
     val startIdx = viewport.startIndex.toInt().coerceAtLeast(0)
     val endIdx = (viewport.startIndex + viewport.visibleBars).toInt() + 1
+    val laneCounts = HashMap<Long, Int>(8)
 
     for (signal in signals) {
         if (signal.barIndex < 0 || !signal.entry.isDrawablePrice()) continue
         if (signal.barIndex < startIdx || signal.barIndex > endIdx) continue
 
+        val x = viewport.xForIndex(signal.barIndex + 0.5f, cw)
+        val baseY = viewport.yForPrice(signal.entry, ch)
+        if (!x.isFinite() || !baseY.isFinite()) continue
+        if (baseY !in -48f..(ch + 48f)) continue
+
+        val directionBit = if (signal.direction == Direction.BULLISH) 0L else 1L
+        val laneKey = (signal.barIndex.toLong() shl 1) or directionBit
+        val lane = laneCounts[laneKey] ?: 0
+        laneCounts[laneKey] = lane + 1
+        val laneOffset = lane.coerceAtMost(MAX_SIGNAL_LANES - 1) * SIGNAL_LANE_SPACING
+        val markerY = if (signal.direction == Direction.BULLISH) baseY + laneOffset else baseY - laneOffset
+
+        // User-facing signal language: long = green, short = amber/yellow.
         val color = if (signal.direction == Direction.BULLISH) FoxBullish else FoxAmber50
         val alpha = if (signal.isLive) 0.98f else 0.58f
-        val x = viewport.xForIndex(signal.barIndex + 0.5f, cw)
-        val entryY = viewport.yForPrice(signal.entry, ch)
-        val arrow = signalArrowPath(x, entryY, signal.direction)
+        val arrow = signalArrowPath(x, markerY, signal.direction)
 
         drawPath(
             path = arrow,
             color = color.copy(alpha = alpha),
-            style = if (signal.isLive) Fill else Stroke(width = 2.2f),
+            style = if (signal.isLive) Fill else Stroke(width = 2f),
         )
 
         if (signal.isLive) {
-            drawCircle(
-                color = color.copy(alpha = 0.98f),
-                radius = 3.8f,
-                center = Offset(x, entryY),
+            val letter = when (signal.source) {
+                SignalSource.LITX -> "LX"
+                SignalSource.LIT -> "LIT"
+                SignalSource.SMS -> "SMS"
+                SignalSource.TRADEPRO -> "TP"
+                SignalSource.SMT -> "SMT"
+                SignalSource.BINARY3M -> "B3"
+                SignalSource.STRATEGY -> "ST"
+            }
+            val confidencePercent = (signal.confidence.coerceIn(0.0, 1.0) * 100.0).toInt()
+            val labelY = if (signal.direction == Direction.BULLISH) markerY + 29f else markerY - 21f
+            drawContext.canvas.nativeCanvas.drawText(
+                "$letter $confidencePercent%",
+                x,
+                labelY.coerceIn(13f, ch - 2f),
+                LiveSignalLabelPaint,
             )
         }
-
-        val letter = when (signal.source) {
-            SignalSource.LITX -> "LX"
-            SignalSource.LIT -> "LIT"
-            SignalSource.SMS -> "SMS"
-            SignalSource.TRADEPRO -> "TP"
-            SignalSource.SMT -> "SMT"
-            SignalSource.BINARY3M -> "B3"
-            SignalSource.STRATEGY -> "ST"
-        }
-        val labelPaint = if (signal.isLive) LiveSignalLabelPaint else HistorySignalLabelPaint
-        val labelY = if (signal.direction == Direction.BULLISH) entryY + 31f else entryY - 22f
-        drawContext.canvas.nativeCanvas.drawText(letter, x, labelY.coerceIn(14f, ch - 2f), labelPaint)
     }
 }
 
@@ -376,7 +282,7 @@ internal fun DrawScope.drawBacktestMarkers(
     cw: Float,
     ch: Float,
 ) {
-    if (markers.isEmpty()) return
+    if (markers.isEmpty() || candles.isEmpty()) return
 
     val startIdx = viewport.startIndex.toInt().coerceAtLeast(0)
     val endIdx = (viewport.startIndex + viewport.visibleBars).toInt() + 1
@@ -392,6 +298,8 @@ internal fun DrawScope.drawBacktestMarkers(
         val entryY = viewport.yForPrice(marker.entryPrice, ch)
         val exitX = viewport.xForIndex(exitIndex + 0.5f, cw)
         val exitY = viewport.yForPrice(marker.exitPrice, ch)
+        if (!entryX.isFinite() || !entryY.isFinite() || !exitX.isFinite() || !exitY.isFinite()) continue
+
         val entryColor = if (marker.direction == Direction.BULLISH) FoxBullish else FoxAmber50
         val outcomeColor = when (marker.outcome) {
             BacktestOutcome.WIN -> FoxBullish
@@ -400,33 +308,36 @@ internal fun DrawScope.drawBacktestMarkers(
         }
 
         drawLine(
-            color = outcomeColor.copy(alpha = 0.30f),
+            color = outcomeColor.copy(alpha = 0.24f),
             start = Offset(entryX, entryY),
             end = Offset(exitX, exitY),
-            strokeWidth = 1.25f,
+            strokeWidth = 1f,
             pathEffect = SignalDash,
         )
         drawPath(
             path = signalArrowPath(entryX, entryY, marker.direction),
-            color = entryColor.copy(alpha = 0.85f),
+            color = entryColor.copy(alpha = 0.78f),
             style = Fill,
         )
-        drawCircle(
-            color = outcomeColor.copy(alpha = 0.92f),
-            radius = 8f,
-            center = Offset(exitX, exitY),
-        )
-        val label = when (marker.outcome) {
-            BacktestOutcome.WIN -> "W"
-            BacktestOutcome.LOSS -> "L"
-            BacktestOutcome.BREAKEVEN -> "B"
+        if (exitY in -12f..(ch + 12f)) {
+            drawCircle(
+                color = outcomeColor.copy(alpha = 0.90f),
+                radius = 7f,
+                center = Offset(exitX, exitY),
+            )
+            val label = when (marker.outcome) {
+                BacktestOutcome.WIN -> "W"
+                BacktestOutcome.LOSS -> "L"
+                BacktestOutcome.BREAKEVEN -> "B"
+            }
+            drawContext.canvas.nativeCanvas.drawText(label, exitX, exitY + 5f, BacktestOutcomeLabelPaint)
         }
-        drawContext.canvas.nativeCanvas.drawText(label, exitX, exitY + 5f, BacktestOutcomeLabelPaint)
     }
 }
 
 private fun signalArrowPath(x: Float, entryY: Float, direction: Direction): Path {
-    val path = Path()
+    val path = SignalArrowScratch
+    path.rewind()
     val halfHead = 7f
     val stemHalf = 2.5f
     val stemLength = 9f
@@ -480,4 +391,7 @@ private fun BacktestChartMarker.resolveIndex(candles: List<Candle>, isEntry: Boo
 
 private fun Double.isDrawablePrice(): Boolean = isFinite() && this > 0.0
 
-private const val MAX_CONTEXT_BLOCKS = 4
+private const val MAX_CONTEXT_BLOCKS = 2
+private const val MAX_SMT_CONTEXT_RAYS = 6
+private const val MAX_SIGNAL_LANES = 3
+private const val SIGNAL_LANE_SPACING = 16f

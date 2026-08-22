@@ -34,23 +34,12 @@ private val StochOversold = Color(0xFF43A047)
 private val StochKLine = Color(0xFF42A5F5)
 private val StochDLine = Color(0xFFFF9F43)
 private val StochZoneFill = Color(0x1A42A5F5)
-// `PERF` Hoisted guide colors — previously allocated per frame via copy(alpha=).
 private val StochOverboughtGuide = StochOverbought.copy(alpha = 0.5f)
 private val StochOversoldGuide = StochOversold.copy(alpha = 0.5f)
 private val GridLineColor = Color(0x33FFFFFF)
 private val LabelArgb = android.graphics.Color.parseColor("#99999F")
 
-/**
- * Stochastic oscillator sub-chart (%K and %D), rendered below the price chart.
- *
- * Mirrors [RsiSubChart]'s layout and viewport contract: the pane is driven by
- * the primary chart's [startIndex] / [visibleBars] so bars stay aligned with
- * the candles above as the user pans and zooms.
- *
- * The 80 / 20 bands are the conventional overbought / oversold thresholds for
- * Stochastic (RSI uses 70 / 30), and the crossover of %K through %D is the
- * signal traders read from this study.
- */
+/** Stochastic pane that fails closed on partial/non-finite live values. */
 @Composable
 fun StochasticSubChart(
     percentK: ImmutableDoubleSeries,
@@ -72,8 +61,8 @@ fun StochasticSubChart(
         }
     }
 
-    val currentK = if (percentK.size > 0) percentK[percentK.size - 1] else 50.0
-    val currentD = if (percentD.size > 0) percentD[percentD.size - 1] else 50.0
+    val currentK = percentK.lastFiniteOrDefault(50.0).coerceIn(0.0, 100.0)
+    val currentD = percentD.lastFiniteOrDefault(50.0).coerceIn(0.0, 100.0)
     val kColor = when {
         currentK >= 80 -> StochOverbought
         currentK <= 20 -> StochOversold
@@ -109,12 +98,14 @@ fun StochasticSubChart(
                 .height(canvasHeight)
                 .background(FoxNeutral5),
         ) {
+            if (!startIndex.isFinite() || !visibleBars.isFinite() || visibleBars <= 0f) return@Canvas
             val w = size.width
             val chartW = (w - priceScaleWidthPx).coerceAtLeast(1f)
             val chartH = size.height
+            if (!chartW.isFinite() || chartW <= 0f || !chartH.isFinite() || chartH <= 0f) return@Canvas
 
-            fun yFor(value: Double): Float = ((100.0 - value) / 100.0 * chartH).toFloat()
-            val dashEffect = PaneDash
+            fun yFor(value: Double): Float =
+                ((100.0 - value.coerceIn(0.0, 100.0)) / 100.0 * chartH).toFloat()
             val y80 = yFor(80.0)
             val y20 = yFor(20.0)
             val y50 = yFor(50.0)
@@ -122,15 +113,30 @@ fun StochasticSubChart(
             drawRect(
                 color = StochZoneFill,
                 topLeft = Offset(0f, y80),
-                size = Size(chartW, y20 - y80),
+                size = Size(chartW, (y20 - y80).coerceAtLeast(0f)),
             )
-            drawLine(StochOverboughtGuide, Offset(0f, y80), Offset(chartW, y80), strokeWidth = 1f, pathEffect = dashEffect)
-            drawLine(StochOversoldGuide, Offset(0f, y20), Offset(chartW, y20), strokeWidth = 1f, pathEffect = dashEffect)
-            drawLine(GridLineColor, Offset(0f, y50), Offset(chartW, y50), strokeWidth = 0.5f, pathEffect = dashEffect)
+            drawLine(
+                color = StochOverboughtGuide,
+                start = Offset(0f, y80),
+                end = Offset(chartW, y80),
+                strokeWidth = 1f,
+                pathEffect = PaneDash,
+            )
+            drawLine(
+                color = StochOversoldGuide,
+                start = Offset(0f, y20),
+                end = Offset(chartW, y20),
+                strokeWidth = 1f,
+                pathEffect = PaneDash,
+            )
+            drawLine(
+                color = GridLineColor,
+                start = Offset(0f, y50),
+                end = Offset(chartW, y50),
+                strokeWidth = 0.5f,
+                pathEffect = PaneDash,
+            )
 
-            // `PERF` One batched Path stroke per series (strokePaneSeries)
-            // instead of a drawLine per visible bar per gesture frame.
-            // %D (signal) sits under %K so the faster line stays readable.
             strokePaneSeries(percentD, startIndex, visibleBars, chartW, StochDLine, 1.4f) { v -> yFor(v) }
             strokePaneSeries(percentK, startIndex, visibleBars, chartW, StochKLine, 2f) { v -> yFor(v) }
 
@@ -139,4 +145,12 @@ fun StochasticSubChart(
             canvas.drawText("20", w - 4f, y20 + 4f, labelPaint)
         }
     }
+}
+
+private fun ImmutableDoubleSeries.lastFiniteOrDefault(default: Double): Double {
+    for (i in size - 1 downTo 0) {
+        val value = this[i]
+        if (value.isFinite()) return value
+    }
+    return default
 }

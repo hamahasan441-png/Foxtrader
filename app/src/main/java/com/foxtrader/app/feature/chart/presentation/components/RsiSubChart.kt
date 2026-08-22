@@ -34,35 +34,19 @@ import com.foxtrader.app.ui.theme.FoxNeutral5
 import kotlin.math.max
 import kotlin.math.min
 
-
-private val RsiOverbought = Color(0xFFE53935) // Red zone > 70
-private val RsiOversold = Color(0xFF43A047)   // Green zone < 30
-private val RsiLine = Color(0xFFFFC107)       // Amber RSI line
-private val RsiZoneFill = Color(0x1AFFC107)   // Subtle fill between 30-70
+private val RsiOverbought = Color(0xFFE53935)
+private val RsiOversold = Color(0xFF43A047)
+private val RsiLine = Color(0xFFFFC107)
+private val RsiZoneFill = Color(0x1AFFC107)
 private val GridLineColor = Color(0x33FFFFFF)
 private val LabelArgb = android.graphics.Color.parseColor("#99999F")
-
-// `PERF` Hoisted guide-line colors — `.copy(alpha=)` allocated per frame.
 private val RsiOverboughtGuide = RsiOverbought.copy(alpha = 0.5f)
 private val RsiOversoldGuide = RsiOversold.copy(alpha = 0.5f)
-
-// `PERF` Reusable zone paths for the batched RSI line — rebuilt (rewind) every
-// frame, never reallocated. Safe: all drawing is on the single render thread.
 private val overboughtPath = Path()
 private val oversoldPath = Path()
 private val neutralPath = Path()
 
-/**
- * RSI oscillator sub-chart — rendered below the main candlestick chart.
- *
- * Displays:
- * - RSI(14) line in amber
- * - Overbought (70) and oversold (30) horizontal reference lines
- * - Shaded zone between 30-70
- * - Color-coded current RSI value label
- *
- * Layout syncs with the main chart's viewport via [startIndex] and [visibleBars].
- */
+/** RSI oscillator pane with finite-safe rendering for rapid indicator toggles. */
 @Composable
 fun RsiSubChart(
     rsiValues: ImmutableDoubleSeries,
@@ -83,8 +67,7 @@ fun RsiSubChart(
         }
     }
 
-    // Current RSI value for the label
-    val currentRsi = if (rsiValues.size > 0) rsiValues[rsiValues.size - 1] else 50.0
+    val currentRsi = rsiValues.lastFiniteOrDefault(50.0).coerceIn(0.0, 100.0)
     val rsiColor = when {
         currentRsi >= 70 -> RsiOverbought
         currentRsi <= 30 -> RsiOversold
@@ -92,7 +75,6 @@ fun RsiSubChart(
     }
 
     Column(modifier = modifier.fillMaxWidth()) {
-        // Header
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -107,7 +89,7 @@ fun RsiSubChart(
                 modifier = Modifier.align(Alignment.CenterStart),
             )
             Text(
-                text = String.format("%.1f", currentRsi),
+                text = String.format(java.util.Locale.US, "%.1f", currentRsi),
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold,
                 color = rsiColor,
@@ -115,106 +97,89 @@ fun RsiSubChart(
             )
         }
 
-        // Chart canvas (height is driven by the resizable pane stack, R3)
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(canvasHeight)
                 .background(FoxNeutral5),
         ) {
+            if (!startIndex.isFinite() || !visibleBars.isFinite() || visibleBars <= 0f) return@Canvas
             val w = size.width
             val h = size.height
-            val priceScaleWidth = priceScaleWidthPx // Right margin for labels
-
-            val chartW = (w - priceScaleWidth).coerceAtLeast(1f)
-            val chartH = h
-
-            // RSI range is always 0-100
-            val rsiHigh = 100.0
-            val rsiLow = 0.0
+            val chartW = (w - priceScaleWidthPx).coerceAtLeast(1f)
+            if (!chartW.isFinite() || chartW <= 0f || !h.isFinite() || h <= 0f) return@Canvas
 
             fun yForRsi(value: Double): Float =
-                ((rsiHigh - value) / (rsiHigh - rsiLow) * chartH).toFloat()
-
+                ((100.0 - value.coerceIn(0.0, 100.0)) / 100.0 * h).toFloat()
             fun xForIndex(index: Float): Float =
                 (index - startIndex) / visibleBars * chartW
 
-            val dashEffect = PaneDash
-
-            // Draw overbought line (70)
             val y70 = yForRsi(70.0)
+            val y30 = yForRsi(30.0)
+            val y50 = yForRsi(50.0)
             drawLine(
                 color = RsiOverboughtGuide,
                 start = Offset(0f, y70),
                 end = Offset(chartW, y70),
                 strokeWidth = 1f,
-                pathEffect = dashEffect,
+                pathEffect = PaneDash,
             )
-
-            // Draw oversold line (30)
-            val y30 = yForRsi(30.0)
             drawLine(
                 color = RsiOversoldGuide,
                 start = Offset(0f, y30),
                 end = Offset(chartW, y30),
                 strokeWidth = 1f,
-                pathEffect = dashEffect,
+                pathEffect = PaneDash,
             )
-
-            // Draw middle line (50)
-            val y50 = yForRsi(50.0)
             drawLine(
                 color = GridLineColor,
                 start = Offset(0f, y50),
                 end = Offset(chartW, y50),
                 strokeWidth = 0.5f,
-                pathEffect = dashEffect,
+                pathEffect = PaneDash,
             )
-
-            // Draw shaded zone between 30-70
             drawRect(
                 color = RsiZoneFill,
                 topLeft = Offset(0f, y70),
-                size = Size(chartW, y30 - y70),
+                size = Size(chartW, (y30 - y70).coerceAtLeast(0f)),
             )
 
-            // Draw RSI line.
-            // `PERF` Batched: segments are accumulated into three zone paths
-            // (overbought / oversold / neutral) and each is stroked once —
-            // 3 Canvas calls instead of one drawLine (+2 Offset allocations)
-            // per visible bar on every pan/zoom frame. Paths are module-level
-            // scratch objects reused across frames (single-threaded render).
-            val rsiData = rsiValues
-            if (rsiData.size > 1) {
+            if (rsiValues.size > 1) {
+                val rawEnd = startIndex + visibleBars
+                if (!rawEnd.isFinite()) return@Canvas
                 val visStart = max(0, startIndex.toInt())
-                val visEnd = min(rsiData.size, (startIndex + visibleBars).toInt() + 1)
+                val visEnd = min(rsiValues.size, rawEnd.toInt() + 1)
 
-                overboughtPath.rewind()
-                oversoldPath.rewind()
-                neutralPath.rewind()
-                // Pen state per zone path: a zone change or cull gap starts a
-                // fresh subpath anchored at the previous vertex.
-                var lastZone = -1
+                overboughtPath.rewind(); oversoldPath.rewind(); neutralPath.rewind()
+                var previousValue: Double? = null
                 var prevX = 0f
                 var prevY = 0f
-                var hasPrev = false
+                var lastZone = -1
+                var hasOverbought = false
+                var hasOversold = false
+                var hasNeutral = false
 
                 for (i in visStart until visEnd) {
-                    val x = xForIndex(i + 0.5f)
-                    if (x < -2f || x > chartW + 2f) {
-                        hasPrev = false
-                        // Force a moveTo on re-entry so the path never bridges
-                        // across the culled gap.
+                    val raw = rsiValues[i]
+                    if (!raw.isFinite()) {
+                        previousValue = null
                         lastZone = -1
                         continue
                     }
-                    val v = rsiData[i]
-                    val y = yForRsi(v)
-                    if (hasPrev) {
-                        val midVal = (rsiData[i - 1] + v) / 2.0
+                    val value = raw.coerceIn(0.0, 100.0)
+                    val x = xForIndex(i + 0.5f)
+                    val y = yForRsi(value)
+                    if (!x.isFinite() || !y.isFinite() || x < -2f || x > chartW + 2f) {
+                        previousValue = null
+                        lastZone = -1
+                        continue
+                    }
+
+                    val prev = previousValue
+                    if (prev != null) {
                         val zone = when {
-                            midVal >= 70 -> 0
-                            midVal <= 30 -> 1
+                            (prev + value) / 2.0 >= 70.0 -> 0
+                            (prev + value) / 2.0 <= 30.0 -> 1
                             else -> 2
                         }
                         val path = when (zone) {
@@ -224,20 +189,24 @@ fun RsiSubChart(
                         }
                         if (zone != lastZone) path.moveTo(prevX, prevY)
                         path.lineTo(x, y)
+                        when (zone) {
+                            0 -> hasOverbought = true
+                            1 -> hasOversold = true
+                            else -> hasNeutral = true
+                        }
                         lastZone = zone
                     }
+                    previousValue = value
                     prevX = x
                     prevY = y
-                    hasPrev = true
                 }
 
                 val stroke = Stroke(width = 2f, cap = StrokeCap.Round, join = StrokeJoin.Round)
-                if (!neutralPath.isEmpty) drawPath(neutralPath, RsiLine, style = stroke)
-                if (!overboughtPath.isEmpty) drawPath(overboughtPath, RsiOverbought, style = stroke)
-                if (!oversoldPath.isEmpty) drawPath(oversoldPath, RsiOversold, style = stroke)
+                if (hasNeutral) drawPath(neutralPath, RsiLine, style = stroke)
+                if (hasOverbought) drawPath(overboughtPath, RsiOverbought, style = stroke)
+                if (hasOversold) drawPath(oversoldPath, RsiOversold, style = stroke)
             }
 
-            // Draw Y-axis labels
             val canvas = drawContext.canvas.nativeCanvas
             labelPaint.textAlign = Paint.Align.RIGHT
             canvas.drawText("70", w - 4f, y70 + 4f, labelPaint)
@@ -245,4 +214,12 @@ fun RsiSubChart(
             canvas.drawText("50", w - 4f, y50 + 4f, labelPaint)
         }
     }
+}
+
+private fun ImmutableDoubleSeries.lastFiniteOrDefault(default: Double): Double {
+    for (i in size - 1 downTo 0) {
+        val value = this[i]
+        if (value.isFinite()) return value
+    }
+    return default
 }

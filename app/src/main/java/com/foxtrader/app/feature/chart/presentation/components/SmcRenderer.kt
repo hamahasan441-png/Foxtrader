@@ -17,12 +17,11 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * SMC chart overlay renderers.
+ * Finite-safe, density-aware SMC renderers.
  *
- * Every external/domain geometry is validated before it reaches Compose Canvas.
- * Invalid indices, NaN/Infinity prices, reversed rectangles and negative sizes
- * are skipped rather than being allowed to trigger IllegalArgumentException in
- * a draw pass when an SMC indicator is enabled.
+ * Minimal mode reduces the number and opacity of recent zones instead of
+ * disabling SMC. That keeps the chart readable and the render cost bounded
+ * while preserving the semantic fact that the study is enabled.
  */
 
 private val OB_BULLISH_COLOR = Color(0x2600C873)
@@ -45,9 +44,11 @@ fun DrawScope.drawOrderBlocks(
     if (!cw.isDrawableSpan() || !ch.isDrawableSpan()) return
     val startIdx = max(0, viewport.startIndex.toInt())
     val endIdx = (viewport.startIndex + viewport.visibleBars).toInt() + 1
-    val safeIntensity = intensity.coerceIn(0f, 1f)
+    val visualIntensity = intensity.smcIntensity()
+    val first = (orderBlocks.size - smcCap(visualIntensity, 8, 20, 40)).coerceAtLeast(0)
 
-    for (ob in orderBlocks) {
+    for (i in first until orderBlocks.size) {
+        val ob = orderBlocks[i]
         if (ob.startIndex < 0 || ob.endIndex < ob.startIndex) continue
         if (!ob.highPrice.isDrawablePrice() || !ob.lowPrice.isDrawablePrice() || ob.highPrice <= ob.lowPrice) continue
         if (ob.endIndex < startIdx || ob.startIndex > endIdx) continue
@@ -63,8 +64,10 @@ fun DrawScope.drawOrderBlocks(
             ch,
         ) ?: continue
 
-        val fillAlpha = (if (ob.mitigated) OB_FILL_ALPHA_MITIGATED else OB_FILL_ALPHA) * safeIntensity
-        val borderAlpha = (if (ob.mitigated) OB_BORDER_ALPHA_MITIGATED else OB_BORDER_ALPHA) * safeIntensity
+        val fillAlpha = ((if (ob.mitigated) OB_FILL_ALPHA_MITIGATED else OB_FILL_ALPHA) * visualIntensity)
+            .coerceIn(0f, 0.22f)
+        val borderAlpha = ((if (ob.mitigated) OB_BORDER_ALPHA_MITIGATED else OB_BORDER_ALPHA) * visualIntensity)
+            .coerceIn(0f, 0.72f)
         val fillColor = when (ob.type) {
             OrderBlockType.BULLISH -> OB_BULLISH_COLOR
             OrderBlockType.BEARISH -> OB_BEARISH_COLOR
@@ -100,9 +103,11 @@ fun DrawScope.drawFairValueGaps(
     if (!cw.isDrawableSpan() || !ch.isDrawableSpan()) return
     val startIdx = max(0, viewport.startIndex.toInt())
     val endIdx = (viewport.startIndex + viewport.visibleBars).toInt() + 1
-    val safeIntensity = intensity.coerceIn(0f, 1f)
+    val visualIntensity = intensity.smcIntensity()
+    val first = (gaps.size - smcCap(visualIntensity, 8, 20, 40)).coerceAtLeast(0)
 
-    for (gap in gaps) {
+    for (i in first until gaps.size) {
+        val gap = gaps[i]
         if (gap.filled || gap.index < 0) continue
         if (!gap.highPrice.isDrawablePrice() || !gap.lowPrice.isDrawablePrice() || gap.highPrice <= gap.lowPrice) continue
         if (gap.index < startIdx - 50 || gap.index > endIdx) continue
@@ -120,8 +125,8 @@ fun DrawScope.drawFairValueGaps(
 
         val fillBase = if (gap.type == FvgType.BULLISH) FVG_BULLISH_COLOR else FVG_BEARISH_COLOR
         val borderBase = if (gap.type == FvgType.BULLISH) FVG_BULLISH_BORDER else FVG_BEARISH_BORDER
-        val fillColor = fillBase.copy(alpha = fillBase.alpha * safeIntensity)
-        val borderColor = borderBase.copy(alpha = borderBase.alpha * safeIntensity)
+        val fillColor = fillBase.copy(alpha = (fillBase.alpha * visualIntensity).coerceIn(0f, 0.18f))
+        val borderColor = borderBase.copy(alpha = (borderBase.alpha * visualIntensity).coerceIn(0f, 0.55f))
 
         drawRect(
             color = fillColor,
@@ -160,9 +165,11 @@ fun DrawScope.drawLiquidityPools(
     if (!cw.isDrawableSpan() || !ch.isDrawableSpan()) return
     val startIdx = max(0, viewport.startIndex.toInt())
     val endIdx = (viewport.startIndex + viewport.visibleBars).toInt() + 1
-    val safeIntensity = intensity.coerceIn(0f, 1f)
+    val visualIntensity = intensity.smcIntensity()
+    val first = (pools.size - smcCap(visualIntensity, 10, 24, 48)).coerceAtLeast(0)
 
-    for (pool in pools) {
+    for (i in first until pools.size) {
+        val pool = pools[i]
         if (pool.startIndex < 0 || pool.endIndex < pool.startIndex || !pool.price.isDrawablePrice()) continue
         if (pool.endIndex < startIdx || pool.startIndex > endIdx) continue
 
@@ -174,27 +181,29 @@ fun DrawScope.drawLiquidityPools(
         val y = viewport.yForPrice(pool.price, ch)
         if (!y.isFinite() || y < 0f || y > ch) continue
 
-        val alpha = (if (pool.swept) LIQ_SWEPT_ALPHA else 1f) * safeIntensity
+        val alpha = ((if (pool.swept) LIQ_SWEPT_ALPHA else 1f) * visualIntensity).coerceIn(0f, 1f)
         val color = when (pool.type) {
             LiquidityType.BUY_SIDE -> LIQ_BUY_COLOR
             LiquidityType.SELL_SIDE -> LIQ_SELL_COLOR
-        }.copy(alpha = alpha.coerceIn(0f, 1f))
+        }.copy(alpha = alpha)
 
         drawLine(
             color = color,
             start = Offset(xSpan.first, y),
             end = Offset(xSpan.second, y),
-            strokeWidth = 1.2f,
+            strokeWidth = if (visualIntensity <= 0.55f) 1f else 1.2f,
             pathEffect = LiquidityDash,
         )
-        drawCircle(color = color, radius = 3f, center = Offset(xSpan.first, y))
-        drawCircle(color = color, radius = 3f, center = Offset(xSpan.second, y))
+        if (visualIntensity > 0.55f) {
+            drawCircle(color = color, radius = 2.5f, center = Offset(xSpan.first, y))
+            drawCircle(color = color, radius = 2.5f, center = Offset(xSpan.second, y))
+        }
 
         val sweepIndex = pool.sweepIndex
         if (pool.swept && sweepIndex != null && sweepIndex >= 0) {
             val sweepX = viewport.xForIndex(sweepIndex.toFloat(), cw)
             if (sweepX.isFinite() && sweepX in 0f..cw) {
-                drawCircle(color = Color(0xFFFF5722), radius = 5f, center = Offset(sweepX, y))
+                drawCircle(color = Color(0xFFFF5722).copy(alpha = 0.72f), radius = 4f, center = Offset(sweepX, y))
             }
         }
     }
@@ -212,7 +221,7 @@ fun DrawScope.drawSessionBackgrounds(
     if (!cw.isDrawableSpan() || !ch.isDrawableSpan()) return
     val startIdx = max(0, viewport.startIndex.toInt())
     val endIdx = (viewport.startIndex + viewport.visibleBars).toInt() + 1
-    val alpha = (SESSION_BAND_ALPHA * intensity.coerceIn(0f, 1f)).coerceIn(0f, 1f)
+    val alpha = (SESSION_BAND_ALPHA * intensity.smcIntensity()).coerceIn(0f, 0.07f)
 
     for (session in sessions) {
         if (session.startIndex < 0 || session.endIndex < session.startIndex) continue
@@ -321,6 +330,19 @@ private fun verticalSpan(a: Float, b: Float, height: Float): Pair<Float, Float>?
     val top = min(a, b).coerceIn(0f, height)
     val bottom = max(a, b).coerceIn(0f, height)
     return if (bottom - top > 0.25f) top to bottom else null
+}
+
+private fun Float.smcIntensity(): Float = when {
+    !isFinite() -> 1f
+    this < 0.25f -> 0.25f
+    this > 1.5f -> 1.5f
+    else -> this
+}
+
+private fun smcCap(intensity: Float, minimal: Int, professional: Int, full: Int): Int = when {
+    intensity <= 0.60f -> minimal
+    intensity <= 1.10f -> professional
+    else -> full
 }
 
 private fun Double.isDrawablePrice(): Boolean = isFinite() && this > 0.0
