@@ -218,12 +218,14 @@ data class LitXSignalRecord(
 
 /**
  * User-configurable LIT X behaviour. Persisted as a JSON string in DataStore.
- * Defaults to OFF so the module is strictly opt-in and adds zero cost until the
- * user enables it.
+ *
+ * Enabled is true by default so the on-chart LiTX switch is authoritative on a
+ * fresh install. The engine is still dormant until a chart/TradePro path asks
+ * for it, so this does not add background work or produce unsolicited signals.
  */
 @Serializable
 data class LitXConfig(
-    val enabled: Boolean = false,
+    val enabled: Boolean = true,
     /** Hide any setup graded below this. */
     val minGrade: LitXGrade = LitXGrade.A,
     val minRiskReward: Double = 2.0,
