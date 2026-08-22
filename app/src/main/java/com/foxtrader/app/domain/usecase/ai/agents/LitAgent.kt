@@ -6,33 +6,23 @@ import com.foxtrader.app.domain.model.AgentName
 import com.foxtrader.app.domain.model.AgentOutput
 import com.foxtrader.app.domain.model.AgentStatus
 import com.foxtrader.app.domain.model.Bias
-import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
-import com.foxtrader.app.domain.model.PriceZone
 import com.foxtrader.app.domain.usecase.ai.TradingAgent
 import com.foxtrader.app.domain.usecase.signalintel.ConfirmedBarPolicy
 import com.foxtrader.app.domain.usecase.signalintel.LitEngine
-import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
-import java.util.Locale
 import javax.inject.Inject
-import kotlin.math.abs
-import kotlin.math.max
-import kotlin.math.min
 
 /**
- * LIT (Liquidity Inducement Theory) agent.
+ * Canonical LiT (Liquidity Inducement Theory) agent.
  *
- * Detects the institutional trap sequence:
- *  1. Price advertises obvious liquidity (equal highs/lows or a tight local pool).
- *  2. A sweep grabs that liquidity and closes back inside the range.
- *  3. A displacement / market-structure shift confirms the real direction.
- *
- * The agent still consumes upstream MARKET_STRUCTURE / ICT / SMART_MONEY outputs,
- * but now also performs a direct, non-repainting candle pass so LIT remains useful
- * when those upstream agents did not emit explicit IDM insights.
+ * This agent is deliberately fail-closed. It may emit execution-grade LiT
+ * evidence only when the repository's canonical [LitEngine] validates the full
+ * confirmed-bar sequence. Generic upstream SMC/ICT sweeps, BOS/CHOCH events,
+ * direct equal-high/equal-low heuristics, or SMT divergence are not allowed to
+ * resurrect a setup rejected by [LitEngine]. Those remain independent evidence
+ * in their own engines/agents and must not be double-counted as LiT.
  */
 class LitAgent @Inject constructor(
-    private val smtDivergenceDetector: SmtDivergenceDetector,
     private val litEngine: LitEngine = LitEngine(
         smcDetector = com.foxtrader.app.domain.usecase.smc.SmcDetector(),
         analyzeStructure = com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase(),
@@ -42,8 +32,8 @@ class LitAgent @Inject constructor(
 ) : TradingAgent {
 
     override val name = AgentName.LIT
-    override val description = "Liquidity Inducement Theory — inducement, sweep and displacement confirmation."
-    override val version = "1.2.0"
+    override val description = "Canonical Liquidity Inducement Theory — validated confirmed-bar LiT sequence only."
+    override val version = "2.0.0"
 
     override fun analyze(context: AgentContext): AgentOutput {
         val start = System.nanoTime()
@@ -52,335 +42,79 @@ class LitAgent @Inject constructor(
             context.timeframe,
             System.currentTimeMillis(),
         )
-        val candles = if (confirmedIndex >= 0) context.candles.subList(0, confirmedIndex + 1) else emptyList()
+        val candles = if (confirmedIndex >= 0) {
+            context.candles.subList(0, confirmedIndex + 1)
+        } else {
+            emptyList()
+        }
+
         if (candles.size < MIN_CANDLES) {
-            return neutralOutput(name, "Insufficient data for LIT analysis.", start)
+            return neutralOutput(name, "Insufficient confirmed data for canonical LiT analysis.", start)
         }
 
-        val prev = context.previousOutputs
-        val structInsights = prev[AgentName.MARKET_STRUCTURE]?.insights.orEmpty()
-        val ictInsights = prev[AgentName.ICT]?.insights.orEmpty()
-        val smInsights = prev[AgentName.SMART_MONEY]?.insights.orEmpty()
-
-        // Sweeps from ICT or Smart Money agents.
-        val sweeps = (ictInsights + smInsights).filter { insight ->
-            (insight.type == "LIQUIDITY_SWEEP" || insight.tags.contains("SWEEP")) &&
-                (insight.barIndex == null || insight.barIndex <= confirmedIndex)
-        }
-
-        // Structure breaks from the structure agent. Ignore any upstream read
-        // that was stamped beyond our own confirmed-bar boundary.
-        val breaks = structInsights.filter {
-            it.type in CONFIRMATION_STRUCTURE_TYPES && (it.barIndex == null || it.barIndex <= confirmedIndex)
-        }
-
-        val insights = mutableListOf<AgentInsight>()
-
-        // Canonical Phase-13 LIT read. The same LitEngine powers the chart and
-        // StrategyLibrary, so an execution-grade LIT insight cannot disagree
-        // simply because it came through the AI-agent path. When this canonical
-        // setup exists it supersedes the legacy direct entry detector below so
-        // one market event cannot vote twice inside the same LIT agent.
-        val canonicalLitSignal = litEngine.analyze(context.symbol, context.timeframe, candles).signal
-        canonicalLitSignal?.let { signal ->
-            insights += AgentInsight(
-                id = "${name}-PH13-${signal.confirmationIndex}-${signal.direction}",
-                agentName = name,
-                type = "LIT_PHASE13_VALIDATED",
-                direction = signal.direction,
-                confidence = signal.confidence.toDouble(),
-                price = signal.entry,
-                timestamp = signal.timestamp,
-                barIndex = signal.confirmationIndex,
-                detail = signal.rationale,
-                weight = 2.8,
-                tags = signal.confirmations + listOf("LIT", "PHASE13", "NON_REPAINT"),
-            )
-        }
-
-        // Combo: sweep direction matches the most recent break direction -> institutional entry.
-        val lastSweep = sweeps.lastOrNull { it.direction != null }
-        val lastBreak = breaks.lastOrNull { it.direction != null }
-
-        if (canonicalLitSignal == null && lastSweep != null && lastBreak != null && lastSweep.direction == lastBreak.direction) {
-            insights += AgentInsight(
-                id = "${name}-ENTRY-${candles.lastIndex}",
-                agentName = name,
-                type = "INSTITUTIONAL_ENTRY_SIGNAL",
-                direction = lastSweep.direction,
-                confidence = institutionalEntryConfidence(lastSweep.confidence, lastBreak.confidence),
-                // Replay-stable: stamp the confirmed market bar, never wall-clock time.
-                timestamp = candles.last().timestamp,
-                barIndex = candles.lastIndex,
-                detail = "Sweep + ${lastBreak.type} confirmation → institutional entry ${lastSweep.direction}",
-                weight = 2.5,
-                tags = listOf("INSTITUTIONAL", "ENTRY_SIGNAL", "LIT", "SWEEP", lastBreak.type),
-            )
-        }
-
-        // Upstream IDM detection: an IDM insight means a trap was set.
-        val idm = structInsights.lastOrNull { it.type == "IDM" && (it.barIndex == null || it.barIndex <= confirmedIndex) }
-        if (idm != null) {
-            insights += AgentInsight(
-                id = "${name}-IDM-${idm.barIndex ?: candles.lastIndex}",
-                agentName = name,
-                type = "INDUCEMENT",
-                direction = idm.direction,
-                confidence = 60.0,
-                timestamp = idm.timestamp,
-                barIndex = idm.barIndex,
-                detail = "Inducement detected — trap before the real move",
-                weight = 1.5,
-                tags = listOf("INDUCEMENT", "LIT"),
-            )
-        }
-
-        // Direct LIT pass: equal-high/equal-low pool → sweep → displacement.
-        if (canonicalLitSignal == null) {
-            detectDirectInducementSetups(candles)
-                .takeLast(MAX_DIRECT_SETUPS)
-                .forEach { setup ->
-                    insights += setup.toInsight(name, candles)
-                }
-        }
-
-        // Cross-symbol SMT pass: correlated symbols disagree at liquidity extremes.
-        val confirmedPeers = context.correlatedCandles.mapValues { (_, peer) ->
-            val peerIndex = ConfirmedBarPolicy.latestConfirmedIndex(peer, context.timeframe, System.currentTimeMillis())
-            if (peerIndex >= 0) peer.subList(0, peerIndex + 1) else emptyList()
-        }
-        smtDivergenceDetector.detect(
-            primarySymbol = context.symbol,
-            primaryCandles = candles,
-            correlatedCandles = confirmedPeers,
+        val analysis = litEngine.analyze(
+            symbol = context.symbol,
+            timeframe = context.timeframe,
+            candles = candles,
         )
-            .takeLast(MAX_SMT_SETUPS)
-            .forEach { smt ->
-                insights += AgentInsight(
-                    id = "$name-SMT-${smt.peerSymbol}-${smt.primaryIndex}-${smt.confirmationIndex}-${smt.direction}",
-                    agentName = name,
-                    type = "SMT",
-                    direction = smt.direction,
-                    confidence = smt.confidence,
-                    // SMT is actionable only when its right-side swing evidence
-                    // is confirmed; never back-stamp the insight on the swing.
-                    price = candles.getOrNull(smt.confirmationIndex)?.close ?: smt.primaryPrice,
-                    timestamp = candles.getOrNull(smt.confirmationIndex)?.timestamp ?: candles.last().timestamp,
-                    barIndex = smt.confirmationIndex,
-                    detail = smt.detail + " (corr ${String.format(Locale.US, "%.2f", smt.correlation)})",
-                    weight = 1.8,
-                    tags = listOf("SMT", "DIVERGENCE", "CORRELATED_PAIR", "LIT"),
-                )
-            }
+        val signal = analysis.signal
+            ?: return neutralOutput(
+                name,
+                "Canonical LiT rejected the current setup at ${analysis.stage}; no fallback evidence may override it.",
+                start,
+            )
 
-        if (insights.isEmpty()) {
-            return neutralOutput(name, "No LIT setups (inducement + sweep + shift).", start)
+        if (
+            signal.confirmationIndex !in candles.indices ||
+            signal.confirmationIndex != candles.lastIndex ||
+            signal.timestamp != candles[signal.confirmationIndex].timestamp
+        ) {
+            return neutralOutput(
+                name,
+                "Canonical LiT signal failed confirmation-boundary validation.",
+                start,
+            )
         }
 
-        val bullW = insights.filter { it.direction == Direction.BULLISH }.sumOf { it.weight }
-        val bearW = insights.filter { it.direction == Direction.BEARISH }.sumOf { it.weight }
-        val bias = when {
-            bullW > bearW * 1.2 -> Bias.BULLISH
-            bearW > bullW * 1.2 -> Bias.BEARISH
-            else -> Bias.NEUTRAL
+        val insight = AgentInsight(
+            id = "${name}-CANONICAL-${signal.confirmationIndex}-${signal.direction}",
+            agentName = name,
+            type = "LIT_CANONICAL_VALIDATED",
+            direction = signal.direction,
+            confidence = signal.confidence.toDouble(),
+            price = signal.entry,
+            timestamp = signal.timestamp,
+            barIndex = signal.confirmationIndex,
+            detail = signal.rationale,
+            weight = CANONICAL_WEIGHT,
+            tags = signal.confirmations + listOf(
+                "LIT",
+                "CANONICAL",
+                "SEQUENCE_VALIDATED",
+                "NON_REPAINT",
+                "NO_FALLBACK",
+            ),
+        )
+
+        val bias = when (signal.direction) {
+            Direction.BULLISH -> Bias.BULLISH
+            Direction.BEARISH -> Bias.BEARISH
         }
-        val confidence = insights.maxOf { it.confidence }
 
         return AgentOutput(
             agentName = name,
             status = AgentStatus.COMPLETE,
             bias = bias,
-            confidence = confidence,
-            insights = insights,
-            narrative = "LIT: ${insights.size} signal(s). " +
-                "Inducement/sweep/displacement map complete where confirmed. Bias $bias.",
+            confidence = signal.confidence.toDouble(),
+            insights = listOf(insight),
+            narrative = "LiT: canonical validated sequence at confirmed bar ${signal.confirmationIndex}. Bias $bias.",
             processingTimeMs = elapsedMs(start),
             timestamp = System.currentTimeMillis(),
         )
     }
 
-    /**
-     * Direct non-repainting LIT detector.
-     *
-     * At sweep index i it only looks backward to identify the liquidity pool.
-     * It emits a setup at the later confirmation index j once displacement has
-     * printed, so historical signals do not repaint.
-     */
-    private fun detectDirectInducementSetups(candles: List<Candle>): List<LitSetup> {
-        if (candles.size < MIN_CANDLES) return emptyList()
-
-        val setups = mutableListOf<LitSetup>()
-        for (sweepIndex in LOOKBACK_BARS until candles.lastIndex) {
-            val sweep = candles[sweepIndex]
-            val lookbackStart = max(0, sweepIndex - LOOKBACK_BARS)
-            val lookback = candles.subList(lookbackStart, sweepIndex)
-            if (lookback.size < MIN_POOL_BARS) continue
-
-            // Thresholds are calculated from candles available before the sweep,
-            // never from future bars, preserving the non-repainting contract.
-            val rangeStart = max(0, sweepIndex - RANGE_SAMPLE_SIZE)
-            val priorRanges = candles.subList(rangeStart, sweepIndex).map { it.range }.filter { it > 0.0 }
-            val avgRange = priorRanges.average().takeIf { it.isFinite() && it > 0.0 } ?: continue
-            val poolTolerance = avgRange * POOL_TOLERANCE_MULTIPLIER
-            val sweepThreshold = avgRange * SWEEP_THRESHOLD_MULTIPLIER
-            val displacementThreshold = avgRange * DISPLACEMENT_BODY_MULTIPLIER
-
-            // Sell-side inducement: obvious equal lows get swept, then price reclaims above the pool.
-            val sellSideLevel = lookback.minOf { it.low }
-            val sellSideTouches = lookback.count { abs(it.low - sellSideLevel) <= poolTolerance }
-            val sweptSellSide = sellSideTouches >= MIN_POOL_TOUCHES &&
-                sweep.low < sellSideLevel - sweepThreshold &&
-                sweep.close > sellSideLevel &&
-                sweep.isBullish
-
-            if (sweptSellSide) {
-                findBullishConfirmation(candles, sweepIndex, displacementThreshold)?.let { confirmIndex ->
-                    setups += LitSetup(
-                        direction = Direction.BULLISH,
-                        liquidityLevel = sellSideLevel,
-                        sweepIndex = sweepIndex,
-                        confirmIndex = confirmIndex,
-                        sweepPrice = sweep.low,
-                        confidence = confidenceFor(candles, sweepIndex, confirmIndex, avgRange),
-                        detail = "Sell-side inducement swept below ${sellSideLevel.fmt()} and reclaimed; bullish displacement confirmed.",
-                    )
-                }
-            }
-
-            // Buy-side inducement: obvious equal highs get swept, then price rejects below the pool.
-            val buySideLevel = lookback.maxOf { it.high }
-            val buySideTouches = lookback.count { abs(it.high - buySideLevel) <= poolTolerance }
-            val sweptBuySide = buySideTouches >= MIN_POOL_TOUCHES &&
-                sweep.high > buySideLevel + sweepThreshold &&
-                sweep.close < buySideLevel &&
-                !sweep.isBullish
-
-            if (sweptBuySide) {
-                findBearishConfirmation(candles, sweepIndex, displacementThreshold)?.let { confirmIndex ->
-                    setups += LitSetup(
-                        direction = Direction.BEARISH,
-                        liquidityLevel = buySideLevel,
-                        sweepIndex = sweepIndex,
-                        confirmIndex = confirmIndex,
-                        sweepPrice = sweep.high,
-                        confidence = confidenceFor(candles, sweepIndex, confirmIndex, avgRange),
-                        detail = "Buy-side inducement swept above ${buySideLevel.fmt()} and rejected; bearish displacement confirmed.",
-                    )
-                }
-            }
-        }
-
-        // If overlapping windows detect the same confirmation, keep the strongest version.
-        return setups
-            .groupBy { it.direction to it.confirmIndex }
-            .values
-            .mapNotNull { group -> group.maxByOrNull { it.confidence } }
-            .sortedBy { it.confirmIndex }
-    }
-
-    private fun findBullishConfirmation(
-        candles: List<Candle>,
-        sweepIndex: Int,
-        displacementThreshold: Double,
-    ): Int? {
-        val sweep = candles[sweepIndex]
-        val end = min(candles.lastIndex, sweepIndex + CONFIRMATION_WINDOW_BARS)
-        return (sweepIndex + 1..end).firstOrNull { index ->
-            val candle = candles[index]
-            candle.close > sweep.high || (candle.isBullish && candle.bodySize >= displacementThreshold)
-        }
-    }
-
-    private fun findBearishConfirmation(
-        candles: List<Candle>,
-        sweepIndex: Int,
-        displacementThreshold: Double,
-    ): Int? {
-        val sweep = candles[sweepIndex]
-        val end = min(candles.lastIndex, sweepIndex + CONFIRMATION_WINDOW_BARS)
-        return (sweepIndex + 1..end).firstOrNull { index ->
-            val candle = candles[index]
-            candle.close < sweep.low || (!candle.isBullish && candle.bodySize >= displacementThreshold)
-        }
-    }
-
-    private fun confidenceFor(
-        candles: List<Candle>,
-        sweepIndex: Int,
-        confirmIndex: Int,
-        avgRange: Double,
-    ): Double {
-        val sweep = candles[sweepIndex]
-        val confirm = candles[confirmIndex]
-        val sweepStrength = (sweep.range / avgRange).coerceIn(0.0, 2.0) * 10.0
-        val displacementStrength = (confirm.bodySize / avgRange).coerceIn(0.0, 2.0) * 12.0
-        val speedBonus = (CONFIRMATION_WINDOW_BARS - (confirmIndex - sweepIndex) + 1).coerceAtLeast(0) * 2.0
-        return (58.0 + sweepStrength + displacementStrength + speedBonus).coerceIn(60.0, 88.0)
-    }
-
-    private data class LitSetup(
-        val direction: Direction,
-        val liquidityLevel: Double,
-        val sweepIndex: Int,
-        val confirmIndex: Int,
-        val sweepPrice: Double,
-        val confidence: Double,
-        val detail: String,
-    ) {
-        fun toInsight(agentName: AgentName, candles: List<Candle>): AgentInsight {
-            val high = max(liquidityLevel, sweepPrice)
-            val low = min(liquidityLevel, sweepPrice)
-            return AgentInsight(
-                id = "$agentName-LIT-$confirmIndex-$direction",
-                agentName = agentName,
-                type = "LIT_INDUCEMENT_REVERSAL",
-                direction = direction,
-                confidence = confidence,
-                price = candles[confirmIndex].close,
-                timestamp = candles[confirmIndex].timestamp,
-                barIndex = confirmIndex,
-                zone = PriceZone(high = high, low = low),
-                detail = detail,
-                weight = 2.2,
-                tags = listOf("LIT", "INDUCEMENT", "SWEEP", "MSS", "ENTRY_SIGNAL"),
-            )
-        }
-    }
-
-    /**
-     * Confidence for a sweep + structure-break confluence, weighted toward the
-     * stronger of the two pieces of evidence. Replaces a flat 80 so the signal
-     * reflects the actual quality of the underlying sweep and break rather than
-     * a constant, and stays within a sane institutional-entry band.
-     */
-    private fun institutionalEntryConfidence(sweepConfidence: Double, breakConfidence: Double): Double {
-        val stronger = maxOf(sweepConfidence, breakConfidence)
-        val weaker = minOf(sweepConfidence, breakConfidence)
-        return (ENTRY_STRONGER_WEIGHT * stronger + ENTRY_WEAKER_WEIGHT * weaker)
-            .coerceIn(ENTRY_MIN_CONFIDENCE, ENTRY_MAX_CONFIDENCE)
-    }
-
-    private fun Double.fmt(): String = String.format(Locale.US, "%.5f", this)
-
     private companion object {
-        const val MIN_CANDLES = 30
-        const val LOOKBACK_BARS = 12
-        const val MIN_POOL_BARS = 8
-        const val MIN_POOL_TOUCHES = 2
-        const val CONFIRMATION_WINDOW_BARS = 3
-        const val RANGE_SAMPLE_SIZE = 50
-        const val MAX_DIRECT_SETUPS = 3
-        const val MAX_SMT_SETUPS = 2
-        const val POOL_TOLERANCE_MULTIPLIER = 0.25
-        const val SWEEP_THRESHOLD_MULTIPLIER = 0.05
-        const val DISPLACEMENT_BODY_MULTIPLIER = 0.60
-
-        // Institutional-entry confidence blend (sweep + break confluence).
-        const val ENTRY_STRONGER_WEIGHT = 0.6
-        const val ENTRY_WEAKER_WEIGHT = 0.4
-        const val ENTRY_MIN_CONFIDENCE = 60.0
-        const val ENTRY_MAX_CONFIDENCE = 92.0
-
-        val CONFIRMATION_STRUCTURE_TYPES = setOf("BOS", "CHOCH", "MSS")
+        const val MIN_CANDLES = 60
+        const val CANONICAL_WEIGHT = 2.8
     }
 }
