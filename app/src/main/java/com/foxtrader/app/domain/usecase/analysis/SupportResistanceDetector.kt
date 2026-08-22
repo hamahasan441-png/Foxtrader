@@ -5,22 +5,18 @@ import javax.inject.Inject
 import kotlin.math.abs
 
 /**
- * Support/Resistance Detector — auto-identifies horizontal S/R zones.
- *
- * Method: finds swing points, then clusters nearby swings into zones.
- * A zone touched more times = stronger. Recent touches weighted higher.
- *
- * Non-repainting: only uses confirmed swings.
+ * Support/Resistance detector with parameter and numeric containment.
+ * Non-repainting: only confirmed swings are used.
  */
 class SupportResistanceDetector @Inject constructor() {
 
     data class SRZone(
-        val price: Double,        // Center of the zone
+        val price: Double,
         val upperBound: Double,
         val lowerBound: Double,
         val touches: Int,
-        val strength: Double,     // 0-100
-        val isSupport: Boolean,   // true = mostly held as support
+        val strength: Double,
+        val isSupport: Boolean,
         val lastTouchIndex: Int,
     )
 
@@ -29,53 +25,64 @@ class SupportResistanceDetector @Inject constructor() {
         swingLookback: Int = 5,
         maxZones: Int = 8,
     ): List<SRZone> {
-        if (candles.size < swingLookback * 2 + 1) return emptyList()
+        val lookback = swingLookback.coerceAtLeast(1)
+        val zoneLimit = maxZones.coerceAtLeast(0)
+        if (zoneLimit == 0 || candles.size < lookback * 2 + 1) return emptyList()
+        if (candles.any { !it.isWellFormed() }) return emptyList()
 
-        val avgRange = candles.takeLast(50).map { it.high - it.low }.average()
+        val ranges = candles.takeLast(50).map { it.high - it.low }.filter { it.isFinite() && it >= 0.0 }
+        if (ranges.isEmpty()) return emptyList()
+        val avgRange = ranges.average()
+        if (!avgRange.isFinite() || avgRange <= 0.0) return emptyList()
         val tolerance = avgRange * 0.5
+        if (!tolerance.isFinite() || tolerance <= 0.0) return emptyList()
 
-        // Collect swing highs and lows as (index, price, isHigh)
         val swings = mutableListOf<Triple<Int, Double, Boolean>>()
-        for (i in swingLookback until candles.size - swingLookback) {
-            val isHigh = (i - swingLookback until i).all { candles[it].high <= candles[i].high } &&
-                (i + 1..i + swingLookback).all { candles[it].high <= candles[i].high }
-            val isLow = (i - swingLookback until i).all { candles[it].low >= candles[i].low } &&
-                (i + 1..i + swingLookback).all { candles[it].low >= candles[i].low }
+        for (i in lookback until candles.size - lookback) {
+            val isHigh = (i - lookback until i).all { candles[it].high <= candles[i].high } &&
+                (i + 1..i + lookback).all { candles[it].high <= candles[i].high }
+            val isLow = (i - lookback until i).all { candles[it].low >= candles[i].low } &&
+                (i + 1..i + lookback).all { candles[it].low >= candles[i].low }
             if (isHigh) swings.add(Triple(i, candles[i].high, true))
             else if (isLow) swings.add(Triple(i, candles[i].low, false))
         }
 
-        // Cluster swings by price proximity
         val clusters = mutableListOf<MutableList<Triple<Int, Double, Boolean>>>()
         for (swing in swings) {
             val existing = clusters.firstOrNull { cluster ->
-                abs(cluster.map { it.second }.average() - swing.second) <= tolerance
+                val mean = cluster.map { it.second }.average()
+                mean.isFinite() && abs(mean - swing.second) <= tolerance
             }
             if (existing != null) existing.add(swing) else clusters.add(mutableListOf(swing))
         }
 
-        // Build zones (only clusters with >= 2 touches)
-        val zones = clusters
+        return clusters
             .filter { it.size >= 2 }
-            .map { cluster ->
-                val prices = cluster.map { it.second }
+            .mapNotNull { cluster ->
+                val prices = cluster.map { it.second }.filter { it.isFinite() && it > 0.0 }
+                if (prices.size != cluster.size) return@mapNotNull null
                 val center = prices.average()
+                val upper = prices.maxOrNull() ?: return@mapNotNull null
+                val lower = prices.minOrNull() ?: return@mapNotNull null
+                if (!center.isFinite() || upper < lower) return@mapNotNull null
                 val highCount = cluster.count { it.third }
                 val lastTouch = cluster.maxOf { it.first }
-                val recencyBonus = (lastTouch.toDouble() / candles.size) * 20
+                val recencyBonus = (lastTouch.toDouble() / candles.size.toDouble()) * 20.0
                 SRZone(
                     price = center,
-                    upperBound = prices.max(),
-                    lowerBound = prices.min(),
+                    upperBound = upper,
+                    lowerBound = lower,
                     touches = cluster.size,
-                    strength = (cluster.size * 15.0 + recencyBonus).coerceAtMost(100.0),
+                    strength = (cluster.size * 15.0 + recencyBonus).coerceIn(0.0, 100.0),
                     isSupport = highCount < cluster.size / 2.0,
                     lastTouchIndex = lastTouch,
                 )
             }
             .sortedByDescending { it.strength }
-            .take(maxZones)
-
-        return zones
+            .take(zoneLimit)
     }
+
+    private fun Candle.isWellFormed(): Boolean =
+        open.isFinite() && high.isFinite() && low.isFinite() && close.isFinite() &&
+            open > 0.0 && high > 0.0 && low > 0.0 && close > 0.0 && high >= low
 }
