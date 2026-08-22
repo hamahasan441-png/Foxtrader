@@ -1,18 +1,17 @@
 package com.foxtrader.app.domain.usecase.signalintel
 
-import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
-import com.foxtrader.app.domain.model.FvgType
-import com.foxtrader.app.domain.model.LiquidityType
 import com.foxtrader.app.domain.model.LitAnalysis
 import com.foxtrader.app.domain.model.LitConfig
+import com.foxtrader.app.domain.model.LitEventType
+import com.foxtrader.app.domain.model.LitLevel
+import com.foxtrader.app.domain.model.LitPoiZone
+import com.foxtrader.app.domain.model.LitProContext
+import com.foxtrader.app.domain.model.LitScob
 import com.foxtrader.app.domain.model.LitSignal
 import com.foxtrader.app.domain.model.LitStage
-import com.foxtrader.app.domain.model.OrderBlockType
 import com.foxtrader.app.domain.model.PriceZoneKind
-import com.foxtrader.app.domain.model.SignalProfile
-import com.foxtrader.app.domain.model.StructureBreakType
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import com.foxtrader.app.domain.usecase.litx.DisplacementDetector
@@ -24,40 +23,28 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
- * First-class LIT (Liquidity Inducement Theory) engine for Phase 13.
+ * LiT Pro — confirmed-bar Liquidity Inducement Theory execution engine.
  *
- * Institutional sequence:
- *   liquidity pool -> reclaiming sweep -> CHOCH/MSS -> aligned displacement ->
- *   post-confirmation POI retest -> bounded risk/reward.
+ * The previous Phase-13 implementation treated LIT mostly as a liquidity sweep
+ * followed by CHOCH/MSS. LiT Pro makes the structural lifecycle explicit:
  *
- * The engine is intentionally stricter than the legacy StrategyLibrary LIT rule:
- * it emits only on the first confirmed retest bar, so a zone cannot print the
- * same arrow on every candle. The caller must provide closed candles.
+ *   Pullback -> IDM sweep/reclaim -> BOS -> CHOCH -> POI -> SCOB -> retest entry
+ *
+ * Every event carries an origin index and the first bar where it is objectively
+ * knowable. The engine only emits on the first confirmed POI retest, so replay,
+ * live chart and scanner use the same non-repainting decision boundary.
  */
 @Singleton
+@Suppress("UNUSED_PARAMETER")
 class LitEngine @Inject constructor(
-    private val smcDetector: SmcDetector,
+    // Kept in the constructor for binary/source compatibility with Phase-13
+    // manual construction in LitAgent and existing DI wiring.
+    smcDetector: SmcDetector,
     private val analyzeStructure: AnalyzeMarketStructureUseCase,
     private val displacementDetector: DisplacementDetector,
     private val premiumDiscount: PremiumDiscountCalculator,
+    private val structureDetector: LitProStructureDetector = LitProStructureDetector(),
 ) {
-
-    private data class ProfileRules(
-        val setupLookback: Int,
-        val maxSweepToShiftBars: Int,
-        val maxShiftToRetestBars: Int,
-        val minRr: Double,
-        val displacementAtr: Double,
-    )
-
-    private data class Poi(
-        val low: Double,
-        val high: Double,
-        val originIndex: Int,
-        val availableIndex: Int,
-        val quality: Int,
-        val label: String,
-    )
 
     fun analyze(
         symbol: String,
@@ -66,233 +53,342 @@ class LitEngine @Inject constructor(
         config: LitConfig = LitConfig(),
     ): LitAnalysis {
         val integrity = SignalSeriesIntegrity.validate(candles, MIN_BARS)
-        if (!integrity.valid) return LitAnalysis.empty(symbol, timeframe, integrity.reason ?: "Invalid market data.")
+        if (!integrity.valid) {
+            return LitAnalysis.empty(symbol, timeframe, integrity.reason ?: "Invalid market data.")
+        }
 
         val cfg = config.sanitized()
-        val rules = ProfileRules(
-            setupLookback = cfg.setupLookback,
-            maxSweepToShiftBars = cfg.maxSweepToShiftBars,
-            maxShiftToRetestBars = cfg.maxShiftToRetestBars,
-            minRr = cfg.minRiskReward,
-            displacementAtr = cfg.displacementAtrMultiple,
+        val context = structureDetector.detect(candles, cfg)
+        val baseStage = stageFor(context)
+
+        val choch = context.choch
+            ?: return result(symbol, timeframe, baseStage, context, narrativeFor(baseStage, context))
+        val poi = context.poi
+            ?.takeIf { it.confirmationIndex == choch.confirmationIndex && it.direction == choch.direction }
+            ?: return result(
+                symbol,
+                timeframe,
+                LitStage.CHOCH_CONFIRMED,
+                context,
+                "LiT Pro: CHOCH confirmed; waiting for a valid post-shift POI.",
+            )
+
+        // A LiT reversal must have a continuation BOS before the opposite CHOCH.
+        // This prevents a first/isolated structural break from being mislabeled as
+        // a complete institutional reversal sequence.
+        val bos = context.bos
+        if (bos == null || bos.confirmationIndex >= choch.confirmationIndex || bos.direction == choch.direction) {
+            return result(
+                symbol,
+                timeframe,
+                LitStage.CHOCH_CONFIRMED,
+                context,
+                "LiT Pro: CHOCH is visible, but the preceding opposite BOS is not fully confirmed.",
+            )
+        }
+
+        val idm = context.inducement
+            ?: return result(
+                symbol,
+                timeframe,
+                LitStage.BOS_CONFIRMED,
+                context,
+                "LiT Pro: BOS/CHOCH mapped; waiting for a confirmed IDM sweep/reclaim in the sequence.",
+            )
+        if (idm.confirmationIndex >= choch.confirmationIndex) {
+            return result(symbol, timeframe, LitStage.BOS_CONFIRMED, context, "LiT Pro: IDM chronology is not valid yet.")
+        }
+
+        val volatility = averageRange(candles, choch.confirmationIndex)
+            ?: return result(symbol, timeframe, baseStage, context, "LiT Pro: volatility is not measurable.")
+
+        // Freeze displacement evidence at the CHOCH confirmation boundary. A
+        // future impulse is never allowed to retroactively validate an old shift.
+        val throughChoch = candles.subList(0, choch.confirmationIndex + 1)
+        val displacement = displacementDetector.detectLatest(
+            candles = throughChoch,
+            atrMultiple = cfg.displacementAtrMultiple,
+            lookback = DISPLACEMENT_LOOKBACK,
         )
-        val last = candles.lastIndex
-        val rangeStart = (last - rules.setupLookback + 1).coerceAtLeast(0)
-        val avgRange = candles.takeLast(ATR_WINDOW).map { it.range }.filter { it > 0.0 }.average()
-            .takeIf { it.isFinite() && it > 0.0 }
-            ?: return LitAnalysis.empty(symbol, timeframe, "Volatility is not measurable.")
-
-        val liquidity = smcDetector.detectLiquidity(candles)
-        val recentSweeps = liquidity.asSequence()
-            .filter { it.swept && (it.sweepIndex ?: -1) in rangeStart..last }
-            .sortedByDescending { it.sweepIndex }
-            .toList()
-        if (recentSweeps.isEmpty()) {
-            return LitAnalysis(symbol, timeframe, LitStage.LIQUIDITY_READY, null, "LIT: liquidity mapped; waiting for a reclaiming sweep.")
+        val displacementAligned = displacement != null &&
+            displacement.direction == choch.direction &&
+            displacement.startIndex in (choch.confirmationIndex - MAX_DISPLACEMENT_LEAD_BARS)
+                .coerceAtLeast(0)..choch.confirmationIndex
+        if (!displacementAligned) {
+            return result(
+                symbol,
+                timeframe,
+                LitStage.CHOCH_CONFIRMED,
+                context,
+                "LiT Pro: structure shifted; waiting for aligned displacement confirmation.",
+            )
         }
 
-        val structure = analyzeStructure(candles)
-        val displacement = displacementDetector.detectLatest(candles, rules.displacementAtr)
-        val zone = premiumDiscount.calculate(candles)
-        val orderBlocks = smcDetector.detectOrderBlocks(candles)
-        val fvgs = smcDetector.detectFairValueGaps(candles)
+        val retestStart = choch.confirmationIndex + 1
+        val retestEnd = minOf(candles.lastIndex, choch.confirmationIndex + cfg.maxPoiAgeBars)
+        if (retestStart > retestEnd) {
+            return result(symbol, timeframe, LitStage.POI_READY, context, "LiT Pro: POI ready; waiting for first mitigation.")
+        }
+        val retestIndex = (retestStart..retestEnd).firstOrNull { index -> overlaps(candles[index], poi) }
+            ?: return result(symbol, timeframe, LitStage.POI_READY, context, "LiT Pro: POI ready; waiting for first mitigation.")
 
-        // Work newest-to-oldest but accept only a fully ordered institutional sequence.
-        for (sweep in recentSweeps) {
-            val sweepIndex = sweep.sweepIndex ?: continue
-            val direction = if (sweep.type == LiquidityType.SELL_SIDE) Direction.BULLISH else Direction.BEARISH
-            if (!isReclaimingSweep(candles, sweepIndex, sweep.price, direction, avgRange)) continue
-
-            val shift = structure.breaks.lastOrNull { br ->
-                br.confirmed &&
-                    br.direction == direction &&
-                    br.type in setOf(StructureBreakType.CHOCH, StructureBreakType.MSS) &&
-                    br.breakIndex >= sweepIndex &&
-                    br.breakIndex - sweepIndex <= rules.maxSweepToShiftBars
-            } ?: continue
-
-            // AnalyzeMarketStructure confirms a swing only after its right-hand bars.
-            // Its default lookback is 5, so this is the first bar the shift can be used.
-            val shiftConfirmationIndex = shift.breakIndex + STRUCTURE_RIGHT_BARS
-            if (shiftConfirmationIndex > last) continue
-
-            val alignedDisplacement = displacement?.takeIf {
-                it.direction == direction &&
-                    it.atrMultiple >= rules.displacementAtr &&
-                    it.startIndex in shift.breakIndex..minOf(
-                        shiftConfirmationIndex,
-                        shift.breakIndex + MAX_DISPLACEMENT_GAP_BARS,
-                    )
-            } ?: continue
-
-            val poi = selectPoi(direction, sweepIndex, shiftConfirmationIndex, orderBlocks, fvgs) ?: continue
-            val retestStart = maxOf(shiftConfirmationIndex + 1, poi.availableIndex + 1)
-            if (retestStart > last) {
-                return LitAnalysis(symbol, timeframe, LitStage.RETEST_READY, null, "LIT: shift confirmed; waiting for the first POI retest.")
-            }
-            val retestIndex = (retestStart..last).firstOrNull { idx -> overlaps(candles[idx], poi) } ?: continue
-            if (retestIndex - shiftConfirmationIndex > rules.maxShiftToRetestBars) continue
-
-            // One-shot signal: only the first confirmed retest may fire. Re-running
-            // on later candles therefore cannot duplicate/repaint this setup.
-            if (retestIndex != last) {
-                return LitAnalysis(symbol, timeframe, LitStage.RETEST_READY, null, "LIT setup already retested; waiting for a fresh sequence.")
-            }
-
-            val entry = candles[retestIndex].close
-            val stop = when (direction) {
-                Direction.BULLISH -> poi.low - avgRange * STOP_BUFFER_RANGE
-                Direction.BEARISH -> poi.high + avgRange * STOP_BUFFER_RANGE
-            }
-            val risk = abs(entry - stop)
-            if (risk <= 0.0 || !risk.isFinite()) continue
-            val structuralTarget = when (direction) {
-                Direction.BULLISH -> candles.takeLast(TARGET_LOOKBACK).maxOf { it.high }
-                Direction.BEARISH -> candles.takeLast(TARGET_LOOKBACK).minOf { it.low }
-            }
-            val reward = when (direction) {
-                Direction.BULLISH -> structuralTarget - entry
-                Direction.BEARISH -> entry - structuralTarget
-            }
-            if (reward <= 0.0 || !reward.isFinite()) continue
-            val rr = reward / risk
-            if (rr < rules.minRr) continue
-
-            val directionalZone = when (direction) {
-                Direction.BULLISH -> zone?.currentZone == PriceZoneKind.DISCOUNT
-                Direction.BEARISH -> zone?.currentZone == PriceZoneKind.PREMIUM
-            }
-            if (cfg.requireDirectionalZone && zone != null && !directionalZone) continue
-
-            val score = score(
-                reclaimQuality = reclaimQuality(candles[sweepIndex], sweep.price, direction, avgRange),
-                displacementQuality = ((alignedDisplacement.atrMultiple / 2.0) * 100.0).roundToInt().coerceIn(45, 100),
-                poiQuality = poi.quality,
-                zoneAligned = directionalZone,
-                rr = rr,
-                shiftType = shift.type,
-                speedBars = retestIndex - sweepIndex,
+        // One-shot/non-repaint contract. If the first retest is already behind
+        // the newest confirmed candle, the setup has been consumed and cannot
+        // print a duplicate arrow on later bars.
+        if (retestIndex != candles.lastIndex) {
+            return result(
+                symbol,
+                timeframe,
+                LitStage.RETEST_READY,
+                context,
+                "LiT Pro: first POI retest already occurred; waiting for a fresh structural sequence.",
             )
-            if (score < cfg.minConfidence) continue
-
-            val confirmations = buildList {
-                add("LIQUIDITY_SWEEP")
-                add(if (shift.type == StructureBreakType.MSS) "MSS" else "CHOCH")
-                add("DISPLACEMENT")
-                add(poi.label.uppercase().replace(' ', '_'))
-                add("POI_RETEST")
-                if (directionalZone) add("PREMIUM_DISCOUNT")
-                add("RR_${"%.2f".format(rr)}")
-            }
-            val signal = LitSignal(
-                symbol = symbol,
-                timeframe = timeframe,
-                direction = direction,
-                entry = entry,
-                stopLoss = stop,
-                takeProfit = structuralTarget,
-                confidence = score,
-                sweepIndex = sweepIndex,
-                shiftIndex = shift.breakIndex,
-                confirmationIndex = retestIndex,
-                timestamp = candles[retestIndex].timestamp,
-                confirmations = confirmations,
-                rationale = "LIT ${direction.name.lowercase()}: reclaiming liquidity sweep → ${shift.type.name} → displacement → ${poi.label} retest.",
-            )
-            return LitAnalysis(symbol, timeframe, LitStage.VALIDATED, signal, signal.rationale)
         }
 
-        val latestSweep = recentSweeps.firstOrNull()
+        val scob = context.scob?.takeIf {
+            it.direction == choch.direction && it.confirmationIndex == retestIndex
+        }
+        if (cfg.requireScob && scob == null) {
+            return result(
+                symbol,
+                timeframe,
+                LitStage.POI_READY,
+                context,
+                "LiT Pro: POI retested; waiting for SCOB rejection confirmation.",
+            )
+        }
+
+        val entry = candles[retestIndex].close
+        val stop = stopPrice(choch.direction, poi, scob, volatility, cfg.stopAtrBuffer)
+        if (!entry.isFinite() || entry <= 0.0 || !stop.isFinite() || stop <= 0.0) {
+            return result(symbol, timeframe, LitStage.RETEST_READY, context, "LiT Pro: invalid entry/risk geometry.")
+        }
+        val risk = abs(entry - stop)
+        if (!risk.isFinite() || risk <= MIN_PRICE_EPSILON) {
+            return result(symbol, timeframe, LitStage.RETEST_READY, context, "LiT Pro: risk distance is too small.")
+        }
+
+        val structure = analyzeStructure(
+            candles = candles.subList(0, retestIndex + 1),
+            leftBars = cfg.swingLeftBars,
+            rightBars = cfg.swingRightBars,
+        )
+        val target = structuralTarget(choch.direction, entry, structure, candles, choch.confirmationIndex)
+            ?: return result(symbol, timeframe, LitStage.RETEST_READY, context, "LiT Pro: no valid opposing liquidity target.")
+        val reward = when (choch.direction) {
+            Direction.BULLISH -> target - entry
+            Direction.BEARISH -> entry - target
+        }
+        if (!reward.isFinite() || reward <= 0.0) {
+            return result(symbol, timeframe, LitStage.RETEST_READY, context, "LiT Pro: structural target is on the wrong side.")
+        }
+        val rr = reward / risk
+        if (rr < cfg.minRiskReward) {
+            return result(
+                symbol,
+                timeframe,
+                LitStage.RETEST_READY,
+                context,
+                "LiT Pro: setup rejected by minimum R:R (${format2(rr)} < ${format2(cfg.minRiskReward)}).",
+            )
+        }
+
+        // Premium/discount is evaluated with bars available at the entry. It is
+        // never recalculated from bars that occur after the signal timestamp.
+        val zone = premiumDiscount.calculate(candles.subList(0, retestIndex + 1))
+        val directionalZone = when (choch.direction) {
+            Direction.BULLISH -> zone?.currentZone == PriceZoneKind.DISCOUNT
+            Direction.BEARISH -> zone?.currentZone == PriceZoneKind.PREMIUM
+        }
+        if (cfg.requireDirectionalZone && zone != null && !directionalZone) {
+            return result(
+                symbol,
+                timeframe,
+                LitStage.RETEST_READY,
+                context,
+                "LiT Pro: POI retest is outside the required premium/discount side.",
+            )
+        }
+
+        val score = score(
+            idm = idm,
+            bos = bos,
+            choch = choch,
+            poi = poi,
+            scob = scob,
+            displacementAtr = displacement!!.atrMultiple,
+            zoneAligned = directionalZone,
+            rr = rr,
+        )
+        if (score < cfg.minConfidence) {
+            return result(
+                symbol,
+                timeframe,
+                LitStage.RETEST_READY,
+                context,
+                "LiT Pro: setup quality $score is below minimum ${cfg.minConfidence}.",
+            )
+        }
+
+        val confirmations = buildList {
+            if (context.pullback != null) add("PULLBACK")
+            add("IDM")
+            add("BOS")
+            add("CHOCH")
+            add("DISPLACEMENT")
+            add("POI_${poi.kind.name}")
+            if (scob != null) add("SCOB")
+            if (directionalZone) add("PREMIUM_DISCOUNT")
+            add("RR_${format2(rr)}")
+            add("NON_REPAINT")
+        }
+        val rationale = "LiT Pro ${choch.direction.name.lowercase()}: pullback/IDM -> opposite BOS -> " +
+            "CHOCH + displacement -> ${poi.kind.name.lowercase()} POI" +
+            (if (scob != null) " -> SCOB" else "") + " -> first retest."
+        val signal = LitSignal(
+            symbol = symbol,
+            timeframe = timeframe,
+            direction = choch.direction,
+            entry = entry,
+            stopLoss = stop,
+            takeProfit = target,
+            confidence = score,
+            sweepIndex = idm.confirmationIndex,
+            shiftIndex = choch.confirmationIndex,
+            confirmationIndex = retestIndex,
+            timestamp = candles[retestIndex].timestamp,
+            confirmations = confirmations,
+            rationale = rationale,
+        )
         return LitAnalysis(
             symbol = symbol,
             timeframe = timeframe,
-            stage = if (latestSweep != null) LitStage.SWEEP_CONFIRMED else LitStage.LIQUIDITY_READY,
-            signal = null,
-            narrative = "LIT: a sweep exists, but the ordered shift/displacement/POI sequence is not fully confirmed.",
+            stage = LitStage.VALIDATED,
+            signal = signal,
+            narrative = rationale,
+            context = context,
         )
     }
 
-    private fun isReclaimingSweep(
-        candles: List<Candle>, index: Int, level: Double, direction: Direction, avgRange: Double,
-    ): Boolean {
-        val c = candles.getOrNull(index) ?: return false
-        val minimumPenetration = avgRange * MIN_SWEEP_PENETRATION_RANGE
+    private fun stageFor(context: LitProContext): LitStage = when {
+        context.scob != null -> LitStage.SCOB_READY
+        context.poi != null -> LitStage.POI_READY
+        context.choch != null -> LitStage.CHOCH_CONFIRMED
+        context.bos != null -> LitStage.BOS_CONFIRMED
+        context.inducement != null -> LitStage.IDM_CONFIRMED
+        context.pullback != null -> LitStage.PULLBACK_READY
+        else -> LitStage.SCANNING
+    }
+
+    private fun narrativeFor(stage: LitStage, context: LitProContext): String = when (stage) {
+        LitStage.PULLBACK_READY -> "LiT Pro: pullback mapped; waiting for inducement and structural confirmation."
+        LitStage.IDM_CONFIRMED -> "LiT Pro: IDM sweep/reclaim confirmed; waiting for BOS/CHOCH sequence."
+        LitStage.BOS_CONFIRMED -> "LiT Pro: BOS confirmed; waiting for opposite CHOCH."
+        LitStage.CHOCH_CONFIRMED -> "LiT Pro: CHOCH confirmed; mapping execution POI."
+        LitStage.POI_READY -> "LiT Pro: ${context.poi?.kind?.name ?: "POI"} ready; waiting for first retest."
+        LitStage.SCOB_READY -> "LiT Pro: SCOB context confirmed; waiting for execution-quality retest."
+        LitStage.RETEST_READY -> "LiT Pro: retest context mapped."
+        LitStage.VALIDATED -> "LiT Pro: setup validated."
+        LitStage.SCANNING,
+        LitStage.LIQUIDITY_READY,
+        LitStage.SWEEP_CONFIRMED,
+        LitStage.SHIFT_CONFIRMED -> context.notes.lastOrNull() ?: "LiT Pro: scanning confirmed structure."
+    }
+
+    private fun result(
+        symbol: String,
+        timeframe: Timeframe,
+        stage: LitStage,
+        context: LitProContext,
+        narrative: String,
+    ) = LitAnalysis(symbol, timeframe, stage, null, narrative, context)
+
+    private fun stopPrice(
+        direction: Direction,
+        poi: LitPoiZone,
+        scob: LitScob?,
+        volatility: Double,
+        atrBuffer: Double,
+    ): Double {
+        val buffer = volatility * atrBuffer
         return when (direction) {
-            Direction.BULLISH -> c.low < level - minimumPenetration && c.close > level
-            Direction.BEARISH -> c.high > level + minimumPenetration && c.close < level
+            Direction.BULLISH -> minOf(poi.low, scob?.low ?: poi.low) - buffer
+            Direction.BEARISH -> maxOf(poi.high, scob?.high ?: poi.high) + buffer
         }
     }
 
-    private fun reclaimQuality(c: Candle, level: Double, direction: Direction, avgRange: Double): Int {
-        val penetration = when (direction) {
-            Direction.BULLISH -> level - c.low
-            Direction.BEARISH -> c.high - level
-        }.coerceAtLeast(0.0)
-        val wick = when (direction) {
-            Direction.BULLISH -> minOf(c.open, c.close) - c.low
-            Direction.BEARISH -> c.high - maxOf(c.open, c.close)
-        }.coerceAtLeast(0.0)
-        val penetrationScore = (penetration / avgRange * 55.0).roundToInt().coerceIn(0, 55)
-        val wickScore = (wick / c.range.coerceAtLeast(1e-9) * 45.0).roundToInt().coerceIn(0, 45)
-        return (penetrationScore + wickScore).coerceIn(35, 100)
-    }
-
-    private fun selectPoi(
+    private fun structuralTarget(
         direction: Direction,
-        sweepIndex: Int,
-        shiftConfirmationIndex: Int,
-        orderBlocks: List<com.foxtrader.app.domain.model.OrderBlock>,
-        fvgs: List<com.foxtrader.app.domain.model.FairValueGap>,
-    ): Poi? {
-        val obType = if (direction == Direction.BULLISH) OrderBlockType.BULLISH else OrderBlockType.BEARISH
-        orderBlocks.asSequence()
-            .filter { !it.mitigated && it.type == obType }
-            .filter { it.startIndex in sweepIndex..shiftConfirmationIndex }
-            .maxByOrNull { it.startIndex }
-            ?.let { return Poi(it.lowPrice, it.highPrice, it.startIndex, it.endIndex, 88, "Order block") }
+        entry: Double,
+        structure: com.foxtrader.app.domain.model.MarketStructure,
+        candles: List<Candle>,
+        shiftIndex: Int,
+    ): Double? {
+        val swingTarget = when (direction) {
+            Direction.BULLISH -> structure.swingHighs
+                .asReversed()
+                .firstOrNull { it.price > entry && it.index <= shiftIndex }
+                ?.price
+            Direction.BEARISH -> structure.swingLows
+                .asReversed()
+                .firstOrNull { it.price < entry && it.index <= shiftIndex }
+                ?.price
+        }
+        if (swingTarget != null && swingTarget.isFinite() && swingTarget > 0.0) return swingTarget
 
-        val fvgType = if (direction == Direction.BULLISH) FvgType.BULLISH else FvgType.BEARISH
-        fvgs.asSequence()
-            .filter { !it.filled && it.type == fvgType }
-            .filter { it.index in sweepIndex..shiftConfirmationIndex }
-            .maxByOrNull { it.index }
-            ?.let { return Poi(it.lowPrice, it.highPrice, it.index, it.index + 1, 78, "Fair value gap") }
-        return null
+        val start = (shiftIndex - TARGET_LOOKBACK).coerceAtLeast(0)
+        val end = shiftIndex.coerceIn(start, candles.lastIndex)
+        if (start > end) return null
+        return when (direction) {
+            Direction.BULLISH -> (start..end).maxOfOrNull { candles[it].high }?.takeIf { it > entry }
+            Direction.BEARISH -> (start..end).minOfOrNull { candles[it].low }?.takeIf { it < entry }
+        }
     }
-
-    private fun overlaps(candle: Candle, poi: Poi): Boolean = candle.low <= poi.high && candle.high >= poi.low
 
     private fun score(
-        reclaimQuality: Int,
-        displacementQuality: Int,
-        poiQuality: Int,
+        idm: LitLevel,
+        bos: LitLevel,
+        choch: LitLevel,
+        poi: LitPoiZone,
+        scob: LitScob?,
+        displacementAtr: Double,
         zoneAligned: Boolean,
         rr: Double,
-        shiftType: StructureBreakType,
-        speedBars: Int,
     ): Int {
-        val structure = if (shiftType == StructureBreakType.MSS) 96 else 82
-        val zone = if (zoneAligned) 92 else 55
-        val rrScore = (rr / 3.0 * 100.0).roundToInt().coerceIn(35, 100)
-        val speed = (100 - speedBars * 4).coerceIn(45, 100)
-        val weighted = reclaimQuality * 0.18 + structure * 0.18 + displacementQuality * 0.18 +
-            poiQuality * 0.15 + zone * 0.10 + rrScore * 0.13 + speed * 0.08
+        val chronologyBars = choch.confirmationIndex - idm.confirmationIndex
+        val chronologyScore = (100 - chronologyBars * 3).coerceIn(50, 100)
+        val bosChochBars = choch.confirmationIndex - bos.confirmationIndex
+        val transitionScore = (100 - bosChochBars * 4).coerceIn(45, 100)
+        val displacementScore = ((displacementAtr / 2.0) * 100.0).roundToInt().coerceIn(45, 100)
+        val scobScore = scob?.quality ?: 60
+        val zoneScore = if (zoneAligned) 92 else 58
+        val rrScore = ((rr / 3.0) * 100.0).roundToInt().coerceIn(40, 100)
+        val weighted = chronologyScore * 0.13 + transitionScore * 0.13 + displacementScore * 0.18 +
+            poi.quality * 0.18 + scobScore * 0.12 + zoneScore * 0.10 + rrScore * 0.16
         return weighted.roundToInt().coerceIn(0, 100)
     }
 
-    private fun rules(profile: SignalProfile): ProfileRules = when (profile) {
-        SignalProfile.SCALPING -> ProfileRules(28, 7, 7, 1.8, 1.15)
-        SignalProfile.INTRADAY -> ProfileRules(40, 10, 12, 2.0, 1.25)
-        SignalProfile.SWING -> ProfileRules(70, 16, 20, 2.3, 1.35)
+    private fun averageRange(candles: List<Candle>, endIndex: Int): Double? {
+        val start = (endIndex - ATR_WINDOW + 1).coerceAtLeast(0)
+        val end = endIndex.coerceAtMost(candles.lastIndex)
+        if (start > end) return null
+        val values = (start..end).map { candles[it].range }.filter { it.isFinite() && it > 0.0 }
+        if (values.isEmpty()) return null
+        return values.average().takeIf { it.isFinite() && it > 0.0 }
     }
+
+    private fun overlaps(candle: Candle, poi: LitPoiZone): Boolean =
+        poi.low.isFinite() && poi.high.isFinite() && poi.high > poi.low &&
+            candle.low <= poi.high && candle.high >= poi.low
+
+    private fun format2(value: Double): String = String.format(java.util.Locale.US, "%.2f", value)
 
     private companion object {
         const val MIN_BARS = 60
         const val ATR_WINDOW = 14
-        const val TARGET_LOOKBACK = 60
-        const val STRUCTURE_RIGHT_BARS = 5
-        const val MAX_DISPLACEMENT_GAP_BARS = 6
-        const val STOP_BUFFER_RANGE = 0.20
-        const val MIN_SWEEP_PENETRATION_RANGE = 0.03
+        const val TARGET_LOOKBACK = 80
+        const val DISPLACEMENT_LOOKBACK = 8
+        const val MAX_DISPLACEMENT_LEAD_BARS = 3
+        const val MIN_PRICE_EPSILON = 1e-9
     }
 }
