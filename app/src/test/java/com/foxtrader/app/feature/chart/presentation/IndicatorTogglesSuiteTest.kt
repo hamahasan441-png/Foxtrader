@@ -1,5 +1,7 @@
 package com.foxtrader.app.feature.chart.presentation
 
+import com.foxtrader.app.domain.model.SmcVisualMode
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -57,7 +59,18 @@ class IndicatorTogglesSuiteTest {
     }
 
     @Test
-    fun `strategy history projects on chart by default`() {
-        assertTrue(ChartUiState().showSignalHistory)
+    fun `signal history starts hidden for a clean chart`() {
+        // PR #132 (phase18) intentionally starts the chart clean: the history
+        // lane is opt-in so newly opened charts lead with price action and
+        // arrows instead of a wall of past markers.
+        assertFalse(ChartUiState().showSignalHistory)
+    }
+
+    @Test
+    fun `SMC visuals start minimal until the user upgrades the density`() {
+        // The matching phase18 default in [IndicatorToggles]: decorative SMC
+        // density is reduced out of the box; structure stays available via the
+        // semantic-study toggles above.
+        assertEquals(SmcVisualMode.MINIMAL, IndicatorToggles().smcVisualMode)
     }
 }
