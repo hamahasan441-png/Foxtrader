@@ -32,6 +32,14 @@ import javax.inject.Singleton
 @Retention(AnnotationRetention.BINARY)
 annotation class PublicMarketDataClient
 
+/**
+ * Dedicated Deriv client. Deliberately has NO logging interceptor because the
+ * authenticated WebSocket OTP is embedded in the URL query string.
+ */
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class DerivApiClient
+
 /** Qualifier for the Binance-specific Retrofit instance. */
 @Qualifier
 @Retention(AnnotationRetention.BINARY)
@@ -85,12 +93,19 @@ object NetworkModule {
      * configured, preventing accidental cleartext traffic in production.
      */
     private val BASE_URL: String get() {
-        val url = BuildConfig.FOXTRADER_BASE_URL.takeIf { it.isNotBlank() }
-            ?: "http://10.0.2.2:8000/"
+        val configured = BuildConfig.FOXTRADER_BASE_URL.trim().takeIf { it.isNotBlank() }
+        val url = configured ?: run {
+            check(BuildConfig.DEBUG) {
+                "Release build is missing mandatory FOXTRADER_BASE_URL"
+            }
+            "http://10.0.2.2:8000/"
+        }
         check(BuildConfig.DEBUG || url.startsWith("https://")) {
             "Release builds require HTTPS for FOXTRADER_BASE_URL. Got: $url"
         }
-        return url
+        // Retrofit requires base URLs to end with '/'. Normalize operator input
+        // rather than crashing for an otherwise-valid HTTPS origin.
+        return if (url.endsWith('/')) url else "$url/"
     }
 
     /** Binance public API base URL. */
@@ -131,7 +146,9 @@ object NetworkModule {
         val logging = HttpLoggingInterceptor().apply {
             // In release builds, log nothing; tokens must never appear in logs.
             level = if (BuildConfig.DEBUG) {
-                HttpLoggingInterceptor.Level.BODY
+                // Never log request/response bodies: auth payloads can contain
+                // passwords, refresh tokens, broker metadata, or strategy data.
+                HttpLoggingInterceptor.Level.BASIC
             } else {
                 HttpLoggingInterceptor.Level.NONE
             }
@@ -219,6 +236,19 @@ object NetworkModule {
             .retryOnConnectionFailure(false)
             .build()
     }
+
+    @Provides
+    @Singleton
+    @DerivApiClient
+    fun provideDerivApiClient(): OkHttpClient = OkHttpClient.Builder()
+        // NEVER attach FoxTrader auth and NEVER log request URLs/headers.
+        // Deriv OTP-authenticated WebSocket URLs contain a short-lived secret.
+        .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
+        .readTimeout(READ_TIMEOUT, TimeUnit.SECONDS)
+        .writeTimeout(WRITE_TIMEOUT, TimeUnit.SECONDS)
+        .callTimeout(CALL_TIMEOUT, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(false)
+        .build()
 
     @Provides
     @Singleton
@@ -364,12 +394,10 @@ object NetworkModule {
     @Singleton
     @AlphaVantageRetrofit
     fun provideAlphaVantageRetrofit(json: Json): Retrofit {
-        val logging = HttpLoggingInterceptor().apply {
-            level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC
-            else HttpLoggingInterceptor.Level.NONE
-        }
+        // Alpha Vantage puts the API key in the URL query string. Never attach
+        // an HTTP logging interceptor, even at BASIC level, because BASIC logs
+        // the full request URL and would expose the credential in debug logcat.
         val client = OkHttpClient.Builder()
-            .addInterceptor(logging)
             .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
             .readTimeout(READ_TIMEOUT, TimeUnit.SECONDS)
             .writeTimeout(WRITE_TIMEOUT, TimeUnit.SECONDS)
@@ -397,12 +425,8 @@ object NetworkModule {
     @Singleton
     @TwelveDataRetrofit
     fun provideTwelveDataRetrofit(json: Json): Retrofit {
-        val logging = HttpLoggingInterceptor().apply {
-            level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC
-            else HttpLoggingInterceptor.Level.NONE
-        }
+        // Twelve Data also authenticates via ?apikey=...; zero URL logging.
         val client = OkHttpClient.Builder()
-            .addInterceptor(logging)
             .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
             .readTimeout(READ_TIMEOUT, TimeUnit.SECONDS)
             .writeTimeout(WRITE_TIMEOUT, TimeUnit.SECONDS)

@@ -100,7 +100,15 @@ def get_candles(
         limit=safe_limit,
         before_ms=before_ms,
     )
-    response = build_candles_response(symbol, timeframe_label, candles)
+    provider_name = getattr(provider, "name", "unknown")
+    source = "synthetic" if provider_name.lower() == "sample" else "live"
+    response = build_candles_response(
+        symbol,
+        timeframe_label,
+        candles,
+        provider=provider_name,
+        source=source,
+    )
 
     # Store in cache
     with _cache_lock:

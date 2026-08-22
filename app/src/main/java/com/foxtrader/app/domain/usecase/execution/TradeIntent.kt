@@ -24,15 +24,27 @@ data class TradeIntent(
     val maxSlippagePoints: Double? = null,
     /** Wall-clock time the user confirmed this exact intent (epoch millis). */
     val confirmationTimestamp: Long = System.currentTimeMillis(),
-    /** SHA-256 idempotency key derived from the normalized intent. */
+    /**
+     * Opaque execution-account scope. Live callers should bind this to the
+     * broker account so identical intents on different accounts do not collide.
+     * Empty preserves the legacy v9 idempotency calculation for old audit rows.
+     */
+    val executionScope: String = "",
+    /** Operation discriminator; OPEN preserves legacy key semantics. */
+    val operationTag: String = "OPEN",
+    /** SHA-256 idempotency key derived from normalized intent + scope + operation. */
     val idempotencyKey: String = computeIdempotencyKey(
-        symbol, direction, volume, entryPrice, stopLoss, takeProfit,
+        symbol, direction, volume, entryPrice, stopLoss, takeProfit, executionScope, operationTag,
     ),
 ) {
     init {
         require(symbol.isNotBlank()) { "Symbol must not be blank" }
-        require(volume > 0.0) { "Volume must be positive" }
-        require(entryPrice > 0.0) { "Entry price must be positive" }
+        require(volume.isFinite() && volume > 0.0) { "Volume must be a positive finite number" }
+        require(entryPrice.isFinite() && entryPrice > 0.0) { "Entry price must be a positive finite number" }
+        require(stopLoss == null || (stopLoss.isFinite() && stopLoss > 0.0)) { "Stop-loss must be a positive finite price" }
+        require(takeProfit == null || (takeProfit.isFinite() && takeProfit > 0.0)) { "Take-profit must be a positive finite price" }
+        require(maxSlippagePoints == null || maxSlippagePoints.isFinite()) { "Max slippage must be finite" }
+        require(operationTag.isNotBlank()) { "Operation tag must not be blank" }
         require(idempotencyKey.isNotBlank()) { "Idempotency key must not be blank" }
     }
 
@@ -44,8 +56,18 @@ data class TradeIntent(
             entryPrice: Double,
             stopLoss: Double?,
             takeProfit: Double?,
+            executionScope: String = "",
+            operationTag: String = "OPEN",
         ): String {
             val normalized = buildString {
+                if (executionScope.isNotBlank()) {
+                    append(executionScope.trim())
+                    append('|')
+                }
+                if (!operationTag.equals("OPEN", ignoreCase = true)) {
+                    append(operationTag.trim().uppercase())
+                    append('|')
+                }
                 append(symbol.trim().uppercase())
                 append('|')
                 append(direction.name)
@@ -62,6 +84,24 @@ data class TradeIntent(
                 .digest(normalized.toByteArray(StandardCharsets.UTF_8))
             return digest.joinToString("") { "%02x".format(it) }
         }
+
+        fun computeLegacyIdempotencyKey(
+            symbol: String,
+            direction: Direction,
+            volume: Double,
+            entryPrice: Double,
+            stopLoss: Double?,
+            takeProfit: Double?,
+        ): String = computeIdempotencyKey(
+            symbol = symbol,
+            direction = direction,
+            volume = volume,
+            entryPrice = entryPrice,
+            stopLoss = stopLoss,
+            takeProfit = takeProfit,
+            executionScope = "",
+            operationTag = "OPEN",
+        )
 
         private fun format(v: Double): String {
             // Stable, locale-independent decimal representation.

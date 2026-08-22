@@ -4,6 +4,11 @@ import com.foxtrader.app.domain.model.BacktestConfig
 import com.foxtrader.app.domain.model.BacktestMetrics
 import com.foxtrader.app.domain.model.BacktestResult
 import com.foxtrader.app.domain.model.BacktestTrade
+import com.foxtrader.app.domain.model.BinaryBacktestConfig
+import com.foxtrader.app.domain.model.BinaryBacktestMetrics
+import com.foxtrader.app.domain.model.BinaryBacktestResult
+import com.foxtrader.app.domain.model.BinaryBacktestTrade
+import com.foxtrader.app.domain.model.BinaryOutcome
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.EquityPoint
 import com.foxtrader.app.domain.model.ExitReason
@@ -28,6 +33,21 @@ class BacktestAnalyticsEngineTest {
         assertTrue(stabilityScore in 0..100)
         assertEquals(50, report.monteCarlo?.runs ?: -1)
         assertTrue(report.recommendations.isNotEmpty())
+    }
+
+    @Test
+    fun `binary analysis creates deterministic walk forward and monte carlo validation`() {
+        val result = binaryBacktestResult()
+
+        val first = engine.analyzeBinary(result, monteCarloRuns = 50, seed = 17)
+        val second = engine.analyzeBinary(result, monteCarloRuns = 50, seed = 17)
+
+        assertNotNull(first.walkForward)
+        assertNotNull(first.monteCarlo)
+        assertEquals(50, first.monteCarlo?.runs ?: -1)
+        assertEquals(first.monteCarlo, second.monteCarlo)
+        assertTrue(first.walkForward?.outOfSample?.totalTrades ?: 0 > 0)
+        assertTrue(first.recommendations.isNotEmpty())
     }
 
     @Test
@@ -68,6 +88,64 @@ class BacktestAnalyticsEngineTest {
         balanceAfter = 100_000.0 + pnl,
         holdingBars = 5,
     )
+
+    private fun binaryBacktestResult(): BinaryBacktestResult {
+        val config = BinaryBacktestConfig(initialBalance = 10_000.0, riskPercent = 1.0, payoutRatio = 0.85)
+        val pnlValues = listOf(85.0, -100.0, 85.0, 85.0, -100.0, 85.0, -100.0, 85.0)
+        var balance = config.initialBalance
+        val trades = pnlValues.mapIndexed { index, pnl ->
+            balance += pnl
+            val bullish = index % 2 == 0
+            BinaryBacktestTrade(
+                id = index + 1,
+                direction = if (bullish) Direction.BULLISH else Direction.BEARISH,
+                signalIndex = 60 + index * 4,
+                signalTime = (60 + index * 4) * 60_000L,
+                entryIndex = 61 + index * 4,
+                entryTime = (61 + index * 4) * 60_000L,
+                entryPrice = 100.0,
+                expiryIndex = 63 + index * 4,
+                expiryTime = (64 + index * 4) * 60_000L,
+                expiryPrice = if (pnl > 0.0) { if (bullish) 101.0 else 99.0 } else { if (bullish) 99.0 else 101.0 },
+                outcome = if (pnl > 0.0) BinaryOutcome.WIN else BinaryOutcome.LOSS,
+                stake = 100.0,
+                pnl = pnl,
+                balanceAfter = balance,
+                confidence = 80,
+                setupType = "TEST",
+            )
+        }
+        val wins = trades.count { it.outcome == BinaryOutcome.WIN }
+        val losses = trades.count { it.outcome == BinaryOutcome.LOSS }
+        val net = trades.sumOf { it.pnl }
+        return BinaryBacktestResult(
+            config = config,
+            symbol = "R_100",
+            timeframe = Timeframe.M1,
+            trades = trades,
+            metrics = BinaryBacktestMetrics(
+                totalTrades = trades.size,
+                wins = wins,
+                losses = losses,
+                ties = 0,
+                winRate = wins.toDouble() / trades.size * 100.0,
+                breakEvenWinRate = 100.0 / (1.0 + config.payoutRatio),
+                edgeVsBreakEven = wins.toDouble() / trades.size * 100.0 - 100.0 / (1.0 + config.payoutRatio),
+                netProfit = net,
+                returnPercent = net / config.initialBalance * 100.0,
+                expectancyPerTrade = net / trades.size,
+                profitFactor = trades.filter { it.pnl > 0 }.sumOf { it.pnl } / kotlin.math.abs(trades.filter { it.pnl < 0 }.sumOf { it.pnl }),
+                maxDrawdown = 100.0,
+                maxDrawdownPercent = 1.0,
+                maxConsecutiveWins = 2,
+                maxConsecutiveLosses = 1,
+                finalBalance = config.initialBalance + net,
+            ),
+            equityCurve = trades.mapIndexed { index, trade -> EquityPoint(index, trade.entryTime, trade.balanceAfter, 0.0, 0.0) },
+            startDate = trades.first().signalTime,
+            endDate = trades.last().expiryTime,
+        )
+    }
 
     private fun backtestResult(trades: List<BacktestTrade>): BacktestResult = BacktestResult(
         config = BacktestConfig(initialBalance = 100_000.0),

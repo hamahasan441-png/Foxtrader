@@ -16,7 +16,7 @@ import javax.inject.Singleton
  * It deliberately never logs the raw broker payload or any credentials. It maps
  * the receipt outcome conservatively:
  *  - a broker confirmation with a real order id => [ExecutionReceipt.Accepted]
- *  - a definitive broker rejection (non-zero code / no id) => [ExecutionReceipt.Rejected]
+ *  - a explicit definitive broker rejection code => [ExecutionReceipt.Rejected]
  *  - anything ambiguous (exception mid-flight) => [ExecutionReceipt.Unknown]
  *
  * An [ExecutionReceipt.Unknown] must be reconciled against the broker's order
@@ -64,10 +64,10 @@ class MetaApiTradeTransport @Inject constructor(
             }
         } catch (cancel: CancellationException) {
             throw cancel
-        } catch (e: IllegalStateException) {
-            // The data source throws IllegalStateException specifically when the
-            // broker returned a definitive rejection (non-zero return code). This
-            // is safe to surface as rejected.
+        } catch (e: MetaApiTradeRejectedException) {
+            // Only an explicit broker return-code rejection is definitive. Any
+            // other post-request parsing/state failure is ambiguous and must
+            // remain UNKNOWN to prevent a duplicate retry.
             ExecutionReceipt.Rejected(
                 intent = intent,
                 reasons = listOf(e.message ?: "Broker rejected the order"),

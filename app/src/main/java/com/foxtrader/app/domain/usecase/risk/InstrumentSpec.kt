@@ -30,15 +30,25 @@ data class InstrumentSpec(
     val baseCurrency: String? = null,
     /** True when this spec fell back to estimated defaults because broker fetch failed. */
     val isEstimated: Boolean = false,
+    /** Minimum broker stop/pending distance in points. */
+    val stopsLevelPoints: Double = 0.0,
+    /** Broker freeze distance for pending-order modification in points. */
+    val freezeLevelPoints: Double = 0.0,
+    /** Broker-reported MetaApi order action names; empty means unspecified. */
+    val allowedOrderTypes: Set<String> = emptySet(),
+    /** Broker-reported expiration modes; empty means unspecified. */
+    val allowedExpirationModes: Set<String> = emptySet(),
 ) {
     init {
-        require(contractSize > 0.0) { "Contract size must be positive" }
-        require(tickSize > 0.0) { "Tick size must be positive" }
-        require(point > 0.0) { "Point must be positive" }
-        require(minVolume >= 0.0) { "Min volume must not be negative" }
-        require(maxVolume >= minVolume) { "Max volume must be >= min volume" }
-        require(volumeStep > 0.0) { "Volume step must be positive" }
+        require(contractSize.isFinite() && contractSize > 0.0) { "Contract size must be positive and finite" }
+        require(tickSize.isFinite() && tickSize > 0.0) { "Tick size must be positive and finite" }
+        require(point.isFinite() && point > 0.0) { "Point must be positive and finite" }
+        require(minVolume.isFinite() && minVolume >= 0.0) { "Min volume must be finite and non-negative" }
+        require(maxVolume.isFinite() && maxVolume >= minVolume) { "Max volume must be finite and >= min volume" }
+        require(volumeStep.isFinite() && volumeStep > 0.0) { "Volume step must be positive and finite" }
         require(quoteCurrency.isNotBlank()) { "Quote currency must not be blank" }
+        require(stopsLevelPoints.isFinite() && stopsLevelPoints >= 0.0) { "Stops level must be finite and non-negative" }
+        require(freezeLevelPoints.isFinite() && freezeLevelPoints >= 0.0) { "Freeze level must be finite and non-negative" }
     }
 
     /**

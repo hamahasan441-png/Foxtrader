@@ -1,0 +1,34 @@
+FOX Trader Phase 11 — Validation Results
+========================================
+
+Scope note:
+- Gradle/full Android build deliberately excluded by owner request.
+- No real broker credentials or real-money execution used.
+
+PASS  Backend pytest suite (100%)
+PASS  scripts/verify_room_migrations.py — Room SQL migration v1 -> v10
+PASS  scripts/phase9_deriv_preflight.sh
+PASS  scripts/phase10_deriv_switcher_preflight.sh
+PASS  scripts/phase11_audit_preflight.sh
+PASS  Targeted execution-domain Kotlin compile
+PASS  Execution safety behavior smoke (price drift / executable SL validation / account key separation)
+PASS  Execution coordinator behavior smoke (duplicate blocking / cross-account separation / DB reservation fail-closed)
+PASS  Targeted MetaApi service/data-source Kotlin compile
+PASS  MetaApi regional resolver smoke (legacy mapping / safe multi-region label / hostile host rejection)
+PASS  AndroidManifest XML parse
+PASS  Shell preflight syntax
+PASS  Python syntax compile for changed backend/audit scripts
+PASS  No Android production TODO()/NotImplementedError
+PASS  No Kotlin production GlobalScope
+PASS  No Kotlin production non-null assertion pattern found in static scan
+PASS  No merge-conflict markers
+PASS  No hardcoded Bearer-like credential strings found in source scan
+
+NOT CLAIMED  Full Gradle/Android assemble/lint/instrumentation — intentionally excluded
+NOT RUN      Authenticated Deriv/MetaApi Demo-to-REAL E2E with user credentials
+NOT GENERATED Official Room exported schema JSON (requires Android/Room compiler pipeline)
+
+Safe residuals:
+- MetaApi quotes use 1-second protocol-correct REST polling, not Socket.IO low-latency streaming.
+- MT4/MT5 pending orders are fail-fast disabled until explicit open-price flow exists.
+- Native Deriv REAL execution remains manual-confirmation/session-bound; wallet money movement remains absent.

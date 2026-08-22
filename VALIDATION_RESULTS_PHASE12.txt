@@ -1,0 +1,82 @@
+FOXTRADER PHASE 12 — NON-GRADLE VALIDATION RESULTS
+==================================================
+Scope: Professional Execution & Real-Time Trading
+Acceptance boundary: Gradle/APK build deliberately excluded per project-owner instruction.
+Real broker credentials / real-money E2E: NOT USED / NOT CLAIMED.
+
+FINAL RESULT: PASS within the stated non-Gradle source-level acceptance boundary.
+
+Regression / persistence
+------------------------
+PASS  Backend test suite: 85/85 tests
+PASS  Phase 9 Deriv native API preflight
+PASS  Phase 10 Deriv API/account switcher preflight
+PASS  Phase 11 full-audit preflight
+PASS  Phase 12 professional-execution preflight
+PASS  Room migration verifier v1 -> v10
+      - legacy candle-cache v4 behavior
+      - journal/drawing/watchlist persistence
+      - watchlist FK cascade
+      - execution audit v8 -> v10 preservation/defaults/index
+
+Independent Kotlin checks
+-------------------------
+PASS  Phase 12 journal/domain behavior smoke
+PASS  Phase 12 reviewed broker-state snapshot behavior smoke
+PASS  ExecutionSafetyLayer behavior smoke
+PASS  ExecutionCoordinator durable reservation/account-idempotency smoke
+PASS  MetaApi DataSource + service compile against isolated Retrofit/serialization API-shape stubs
+PASS  MetaApi regional resolver behavior smoke
+PASS  MetaApi Socket.IO streaming client compile against isolated dependency API-shape stubs
+PASS  MT4 quote-stream watchdog/fallback compile against isolated dependency API-shape stubs
+PASS  MT4 ViewModel parser red-flag scan (standalone dependencies intentionally unresolved)
+
+Phase 12 safety / behavior guards
+---------------------------------
+PASS  Socket.IO is primary MetaApi quote stream; REST is watchdog/fallback
+PASS  Socket callbacks are account/generation bound
+PASS  Quote-buffer overflow fails/reconnects instead of silently losing authoritative stream state
+PASS  Stream rebuild watchdog exists after bounded reconnect exhaustion
+PASS  Pending orders require explicit openPrice and never fall through market submit
+PASS  GTC / DAY / SPECIFIED / SPECIFIED_DAY expiration modes
+PASS  Broker allowed order types / expiration modes / stopsLevel / freezeLevel gates
+PASS  Position SL/TP/trailing, break-even and partial close management
+PASS  Partial close validates broker volume and remaining volume
+PASS  Durable UNKNOWN write-ahead reservation before management broker calls
+PASS  UNKNOWN management outcome blocks blind retry
+PASS  Account/state-bound management idempotency
+PASS  UNKNOWN reconciliation for pending create/cancel/modify, position modify, break-even and partial close
+PASS  Trailing-stop ambiguous result remains UNKNOWN when broker snapshot cannot prove active trailing state
+PASS  Reviewed pending/position broker state is bound to management action; stale external changes fail closed
+PASS  New order zero SL/TP normalization does not create invalid TradeIntent values
+PASS  Chart -> broker hand-off is draft-only; no direct chart order submit
+PASS  Journal closure waits for authoritative history; missing exits/P&L are not fabricated
+PASS  Journal isOpen derives from exitPrice and cannot remain stale after data-class copy
+PASS  CSV export protects against spreadsheet-formula injection
+
+Static / package checks
+-----------------------
+PASS  Shell script syntax
+PASS  Python syntax: 42 files checked
+PASS  Android XML parse: 12 XML files checked
+PASS  No TODO()/NotImplementedError in Android production Kotlin
+PASS  No GlobalScope in Android production Kotlin
+PASS  No merge-conflict markers in production source/backend/scripts
+PASS  No legacy raw-WebSocket MetaApi quote transport in Phase 12 stream path
+
+Important limitations / deliberate fail-closed behavior
+-------------------------------------------------------
+- No Gradle/APK/AAB result is claimed; Gradle is outside this requested phase scope.
+- No credentialed MetaApi/Deriv Demo/REAL end-to-end broker acceptance was performed.
+- An ambiguous trailing-stop modification is not auto-promoted to ACCEPTED because the current position snapshot does not expose enough active trailing configuration to prove it. It remains UNKNOWN for reconciliation/operator review.
+- No unattended REAL Deriv auto-execution or wallet money-movement path was added.
+
+Primary reproducible project checks
+-----------------------------------
+  bash scripts/phase9_deriv_preflight.sh
+  bash scripts/phase10_deriv_switcher_preflight.sh
+  bash scripts/phase11_audit_preflight.sh
+  bash scripts/phase12_professional_execution_preflight.sh
+  python3 scripts/verify_room_migrations.py
+  (cd backend && pytest -q)
+

@@ -1,0 +1,15 @@
+FOX Trader Phase 8 validation
+=============================
+PASS  release_preflight.sh syntax
+PASS  release_preflight.sh static production checks
+PASS  ReleaseReadinessEvaluator pure Kotlin compile
+PASS  SensitiveDataRedactor pure Kotlin compile
+PASS  release-readiness behavior smoke
+PASS  secret-redaction behavior smoke
+PASS  MoreAction -> navigation route mapping
+PASS  Phase 8 destination registration
+PASS  AndroidManifest XML parse
+PASS  Phase 8 BuildConfig signing-ready contract static check
+BLOCKED Full Android Gradle build: Gradle 8.9 distribution not cached; services.gradle.org DNS unavailable
+
+Important: BLOCKED means environmental validation could not be performed. It is not reported as PASS.

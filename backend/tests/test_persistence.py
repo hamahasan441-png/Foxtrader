@@ -97,3 +97,77 @@ def test_create_app_rejects_unknown_store_backend(monkeypatch):
 
     with _pytest.raises(ValueError):
         create_app(Settings(provider="sample", store_backend="postgres"))
+
+
+def test_sqlite_does_not_persist_raw_bearer_tokens(tmp_path):
+    """Opaque client tokens are never stored verbatim in the durable DB."""
+    import sqlite3
+
+    db_path = str(tmp_path / "token-hash.db")
+    service = AuthService(SqliteStore(db_path))
+    user = service.register("tokenhash@example.com", "Password123!", "Token Hash")
+    tokens = service.issue_tokens(user.id)
+
+    with sqlite3.connect(db_path) as conn:
+        access_keys = {row[0] for row in conn.execute("SELECT access_token FROM access_tokens")}
+        refresh_keys = {row[0] for row in conn.execute("SELECT refresh_token FROM refresh_tokens")}
+
+    assert tokens["access_token"] not in access_keys
+    assert tokens["refresh_token"] not in refresh_keys
+    assert len(next(iter(access_keys))) == 64
+    assert len(next(iter(refresh_keys))) == 64
+    assert service.authenticate_access(tokens["access_token"]).id == user.id
+
+
+def test_sqlite_refresh_token_is_consumed_atomically(tmp_path):
+    """Two concurrent rotations of one refresh token cannot both succeed."""
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from app.core.auth import InvalidTokenError
+
+    db_path = str(tmp_path / "refresh-race.db")
+    service = AuthService(SqliteStore(db_path))
+    user = service.register("race@example.com", "Password123!", "Race")
+    tokens = service.issue_tokens(user.id)
+    refresh = tokens["refresh_token"]
+    barrier = Barrier(2)
+
+    def rotate_once() -> str:
+        barrier.wait()
+        try:
+            service.refresh(refresh)
+            return "ok"
+        except InvalidTokenError:
+            return "rejected"
+
+    # Submit both before waiting so neither call can consume the token before
+    # the other reaches the barrier.
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(rotate_once) for _ in range(2)]
+        outcomes = sorted(f.result() for f in futures)
+
+    assert outcomes == ["ok", "rejected"]
+
+
+def test_sqlite_concurrent_registration_returns_one_duplicate(tmp_path):
+    """Unique-email races are translated to a domain duplicate, never a DB 500."""
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from app.core.auth import DuplicateEmailError
+
+    service = AuthService(SqliteStore(str(tmp_path / "register-race.db")))
+    barrier = Barrier(2)
+
+    def register_once() -> str:
+        barrier.wait()
+        try:
+            service.register("same@example.com", "Password123!", "Same")
+            return "ok"
+        except DuplicateEmailError:
+            return "duplicate"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(register_once) for _ in range(2)]
+        outcomes = sorted(f.result() for f in futures)
+
+    assert outcomes == ["duplicate", "ok"]

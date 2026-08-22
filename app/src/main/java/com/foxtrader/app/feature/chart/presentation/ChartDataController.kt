@@ -3,6 +3,7 @@ package com.foxtrader.app.feature.chart.presentation
 import com.foxtrader.app.data.remote.websocket.MarketWebSocket
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.CandleSource
+import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.SourcedCandles
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.repository.MarketRepository
@@ -29,7 +30,7 @@ internal class ChartDataController(
     private val webSocket: MarketWebSocket,
     private val scope: CoroutineScope,
     private val onMergedCandlesChanged: suspend (CandleSource, Boolean) -> Unit,
-    private val onUpsertTick: suspend (String, Timeframe, Candle) -> Unit,
+    private val onUpsertTick: suspend (String, Timeframe, Candle, DataProvider?) -> Unit,
 ) {
 
     val symbolFlow = MutableStateFlow("EURUSD")
@@ -52,6 +53,8 @@ internal class ChartDataController(
         private set
     var loadError: String? = null
         private set
+    /** Invalidates in-flight history pages when symbol/timeframe/provider context resets. */
+    private var historyContextGeneration: Long = 0L
 
     /**
      * Cheap value-type change key for Room emissions.
@@ -119,7 +122,7 @@ internal class ChartDataController(
                         // Same containment rationale as observeMarket: a transient
                         // DB write failure on one tick must not crash the app.
                         try {
-                            onUpsertTick(tick.symbol, tick.timeframe, tick.candle)
+                            onUpsertTick(tick.symbol, tick.timeframe, tick.candle, tick.provider)
                         } catch (e: CancellationException) {
                             throw e
                         } catch (_: Exception) {
@@ -152,6 +155,7 @@ internal class ChartDataController(
     }
 
     fun clearPrependedHistory() {
+        historyContextGeneration += 1L
         prependedHistory.clear()
         prependedHistorySnapshot = emptyList()
         prependedHistorySource = CandleSource.CACHED
@@ -162,21 +166,35 @@ internal class ChartDataController(
     }
 
     fun loadOlderHistory(onStateChanged: (Boolean, Boolean, String?) -> Unit) {
+        // Synthetic pages are independently generated random walks. Prepending
+        // another page can introduce a discontinuous second-looking price track
+        // when the chart is zoomed out. Synthetic mode is a UI fallback only, so
+        // keep it to one bounded page and never fabricate deeper history.
+        if (currentObservedCandles.source == CandleSource.SYNTHETIC) {
+            historyEndReached = true
+            onStateChanged(false, true, null)
+            return
+        }
+
         val beforeTimestamp = prependedHistory.firstOrNull()?.timestamp
             ?: currentObservedCandles.candles.firstOrNull()?.timestamp
             ?: return
         if (isLoadingOlder || historyEndReached) return
+        val requestSymbol = symbolFlow.value
+        val requestTimeframe = timeframeFlow.value
+        val requestGeneration = historyContextGeneration
 
         scope.launch {
             isLoadingOlder = true
             loadError = null
             onStateChanged(true, false, null)
             repository.loadOlderCandles(
-                symbol = symbolFlow.value,
-                timeframe = timeframeFlow.value,
+                symbol = requestSymbol,
+                timeframe = requestTimeframe,
                 beforeTimestamp = beforeTimestamp,
                 limit = HISTORY_PAGE_SIZE,
             ).onSuccess { page ->
+                if (!historyContextMatches(requestSymbol, requestTimeframe, requestGeneration)) return@onSuccess
                 val existingTimestamps = HashSet<Long>(prependedHistory.size + currentObservedCandles.candles.size).apply {
                     prependedHistory.forEach { add(it.timestamp) }
                     currentObservedCandles.candles.forEach { add(it.timestamp) }
@@ -209,10 +227,143 @@ internal class ChartDataController(
                     )
                 }
             }.onFailure { error ->
+                if (!historyContextMatches(requestSymbol, requestTimeframe, requestGeneration)) return@onFailure
                 isLoadingOlder = false
                 loadError = error.message ?: "Failed to load older history"
                 onStateChanged(false, false, loadError)
             }
+        }
+    }
+
+    /**
+     * Prefetches older *real* history into the chart's in-memory prepend buffer
+     * until [targetStartTimestamp] is reached or [maxTotalBars] is hit.
+     *
+     * This is used by the on-chart backtester so the candles that are measured
+     * are the same candles the user can pan back to and visually audit. Pages
+     * are never persisted into the bounded Room hot cache and synthetic pages
+     * are rejected rather than mixed into a research run.
+     */
+    suspend fun preloadHistoryBackTo(
+        targetStartTimestamp: Long,
+        maxTotalBars: Int = MAX_BACKTEST_VISIBLE_BARS,
+        onStateChanged: (Boolean, Boolean, String?) -> Unit = { _, _, _ -> },
+    ): Result<HistoryPrefetchResult> {
+        if (currentObservedCandles.source == CandleSource.SYNTHETIC) {
+            return Result.failure(IllegalStateException("Real market data is required for backtest history."))
+        }
+        if (isLoadingOlder) {
+            return Result.failure(IllegalStateException("History is already loading."))
+        }
+
+        val requestSymbol = symbolFlow.value
+        val requestTimeframe = timeframeFlow.value
+        val requestGeneration = historyContextGeneration
+        isLoadingOlder = true
+        loadError = null
+        onStateChanged(true, historyEndReached, null)
+
+        return try {
+            var reachedTarget = false
+            var providerExhausted = false
+            val seen = HashSet<Long>(prependedHistory.size + currentObservedCandles.candles.size).apply {
+                prependedHistory.forEach { add(it.timestamp) }
+                currentObservedCandles.candles.forEach { add(it.timestamp) }
+            }
+
+            while (seen.size < maxTotalBars) {
+                ensureHistoryContext(requestSymbol, requestTimeframe, requestGeneration)
+                val oldestTimestamp = prependedHistory.firstOrNull()?.timestamp
+                    ?: currentObservedCandles.candles.firstOrNull()?.timestamp
+                    ?: break
+                if (oldestTimestamp <= targetStartTimestamp) {
+                    reachedTarget = true
+                    break
+                }
+
+                val remaining = (maxTotalBars - seen.size).coerceAtLeast(1)
+                val pageLimit = minOf(HISTORY_PAGE_SIZE, remaining)
+                val page = repository.loadOlderCandles(
+                    symbol = requestSymbol,
+                    timeframe = requestTimeframe,
+                    beforeTimestamp = oldestTimestamp,
+                    limit = pageLimit,
+                ).getOrThrow()
+                // The user can switch symbol/timeframe while a provider request is
+                // in flight. Never merge that completed page into the new chart.
+                ensureHistoryContext(requestSymbol, requestTimeframe, requestGeneration)
+
+                if (page.source == CandleSource.SYNTHETIC) {
+                    throw IllegalStateException("Provider returned simulated history; backtest prefetch stopped.")
+                }
+
+                val newCandles = page.candles
+                    .asSequence()
+                    .filter { it.timestamp < oldestTimestamp }
+                    .filter { seen.add(it.timestamp) }
+                    .sortedBy { it.timestamp }
+                    .toList()
+
+                if (newCandles.isEmpty()) {
+                    providerExhausted = true
+                    break
+                }
+
+                prependedHistory.addAll(0, newCandles)
+                prependedHistorySource = CandleSource.worstOf(listOf(prependedHistorySource, page.source))
+            }
+
+            prependedHistorySnapshot = prependedHistory.toList()
+            rebuildMergedVisibleCandles()
+
+            val oldest = mergedVisibleCandles.firstOrNull()?.timestamp
+            reachedTarget = reachedTarget || (oldest != null && oldest <= targetStartTimestamp)
+            historyEndReached = providerExhausted
+            isLoadingOlder = false
+            onStateChanged(false, historyEndReached, null)
+
+            if (mergedVisibleCandles.isNotEmpty()) {
+                onMergedCandlesChanged(
+                    CandleSource.worstOf(
+                        buildList {
+                            add(currentObservedCandles.source)
+                            if (prependedHistorySnapshot.isNotEmpty()) add(prependedHistorySource)
+                        }
+                    ),
+                    false,
+                )
+            }
+
+            Result.success(
+                HistoryPrefetchResult(
+                    totalVisibleBars = mergedVisibleCandles.size,
+                    oldestTimestamp = oldest ?: 0L,
+                    reachedTarget = reachedTarget,
+                    providerExhausted = providerExhausted,
+                )
+            )
+        } catch (cancel: CancellationException) {
+            if (historyContextMatches(requestSymbol, requestTimeframe, requestGeneration)) {
+                isLoadingOlder = false
+                onStateChanged(false, historyEndReached, null)
+            }
+            throw cancel
+        } catch (error: Exception) {
+            if (historyContextMatches(requestSymbol, requestTimeframe, requestGeneration)) {
+                isLoadingOlder = false
+                loadError = error.message ?: "Failed to preload backtest history"
+                onStateChanged(false, historyEndReached, loadError)
+            }
+            Result.failure(error)
+        }
+    }
+
+    private fun historyContextMatches(symbol: String, timeframe: Timeframe, generation: Long): Boolean =
+        historyContextGeneration == generation && symbolFlow.value == symbol && timeframeFlow.value == timeframe
+
+    private fun ensureHistoryContext(symbol: String, timeframe: Timeframe, generation: Long) {
+        if (!historyContextMatches(symbol, timeframe, generation)) {
+            throw IllegalStateException("Chart/provider context changed while backtest history was loading.")
         }
     }
 
@@ -261,8 +412,16 @@ internal class ChartDataController(
         }
     }
 
+    data class HistoryPrefetchResult(
+        val totalVisibleBars: Int,
+        val oldestTimestamp: Long,
+        val reachedTarget: Boolean,
+        val providerExhausted: Boolean,
+    )
+
     companion object {
         const val HISTORY_PAGE_SIZE = 500
+        const val MAX_BACKTEST_VISIBLE_BARS = 20_000
     }
 }
 

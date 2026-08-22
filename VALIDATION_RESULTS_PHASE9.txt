@@ -1,0 +1,62 @@
+FOX Trader Phase 9 — Validation Results
+Date: 2026-08-21
+
+STATUS LEGEND
+PASS    = executed successfully in this environment
+BLOCKED = could not execute because of environment/toolchain availability
+PENDING = requires external Deriv credentials/broker execution and was not simulated as a pass
+
+[PASS] Phase 9 domain/UI-state Kotlin compile smoke
+  - Compiled actual DerivModels.kt + DerivUiState.kt with a small deterministic smoke runner.
+  - REAL authorization requires confirmation.
+  - REAL confirmation freshness window enforced.
+  - DEMO does not use the hard REAL-money confirmation gate.
+  - Invalid proposal inputs fail fast.
+  - Wallet/UI defaults initialize safely.
+
+[PASS] Deriv request-builder Kotlin compile smoke
+  - Compiled actual DerivRequestBuilder.kt + DerivModels.kt against minimal local serialization stubs.
+  - Proposal uses underlying_symbol and omits legacy loginid.
+  - contracts_list request shape checked.
+  - profit_table limit/offset bounds checked.
+  - statement limit/offset/action_type shape checked.
+
+[PASS] Phase 9 security/API preflight
+  Script: scripts/phase9_deriv_preflight.sh
+  PASS New Deriv REST + public WebSocket hosts
+  PASS No legacy Deriv transport host in native layer
+  PASS New proposal/account-context field rules
+  PASS Dedicated zero-log Deriv client injected
+  PASS Deriv client has no HTTP logger (OTP URL protected)
+  PASS Deriv bearer token encrypted at rest
+  PASS REAL execution freshness/account-switch gate
+  PASS Phase 9 navigation route
+  PASS Health + demo lifecycle REST endpoints
+  PASS Position management: history/sell/update
+  PASS Authenticated account history: profit table + statement
+  PASS Read-only wallet visibility + transaction history
+  PASS Wallet cursor pagination constrained to Deriv origin
+  PASS Create-demo schema pinned to production OpenAPI
+  PASS OTP WebSocket URL exact host/path validation
+  PASS No wallet transfer / bulk REAL / unattended auto-start path
+
+[PASS] Targeted Kotlin source parser scan
+  - No Kotlin parse/syntax error was reported for the changed REST client, repository implementation, ViewModel or Phase 9 Compose screen.
+  - This is not a substitute for the Android Gradle compiler/type checker.
+
+[BLOCKED] Full Android Gradle unit-test/build invocation
+  Command attempted:
+    ./gradlew :app:testDebugUnitTest --tests 'com.foxtrader.app.domain.usecase.deriv.*' --no-daemon
+  Result:
+    Gradle wrapper attempted to download Gradle 8.9 from services.gradle.org.
+    Environment failed DNS resolution with java.net.UnknownHostException: services.gradle.org.
+  Interpretation:
+    Full Android compilation/test success is NOT claimed.
+
+[PENDING] Live Deriv end-to-end broker/API verification
+  - No user PAT/OAuth credential was used.
+  - No demo or REAL contract was purchased by this implementation session.
+  - Must be run in an authorized release/test environment, demo first.
+
+FINAL SOURCE-LEVEL VERDICT
+  Phase 9 native Deriv integration is implemented and passes the available domain, request-shape, security-preflight and parser checks. Android Gradle build and authenticated Deriv end-to-end execution remain explicit release-environment acceptance gates.

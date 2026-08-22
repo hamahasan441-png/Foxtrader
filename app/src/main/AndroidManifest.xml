@@ -15,7 +15,7 @@
 
     <application
         android:name=".FoxTraderApp"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:fullBackupContent="@xml/backup_rules"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
@@ -24,6 +24,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.FoxTrader"
         android:hardwareAccelerated="true"
+        android:usesCleartextTraffic="false"
         tools:targetApi="34"
         xmlns:tools="http://schemas.android.com/tools">
 

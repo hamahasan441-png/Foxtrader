@@ -5,10 +5,10 @@ import com.foxtrader.app.domain.usecase.risk.InstrumentSpec
 
 /**
  * Live market/account snapshot used by the execution safety layer to decide
- * whether an intent may be submitted. Missing fields disable the gates that
- * depend on them, but the caller is expected to supply whatever is available;
- * the safety layer treats an absent *conversion* as a hard failure (see
- * [ExecutionSafetyLayer]).
+ * whether an intent may be submitted. Live execution is intentionally
+ * fail-closed: when a policy gate is enabled, the data required by that gate
+ * must be present and valid. Broker instrument metadata is also required for
+ * live order validation; estimated fallback specs are rejected.
  */
 data class ExecutionContext(
     /** Latest quote for the intent's symbol, if known. */

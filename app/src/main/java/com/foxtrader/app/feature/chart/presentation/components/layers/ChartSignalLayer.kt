@@ -3,7 +3,6 @@ package com.foxtrader.app.feature.chart.presentation.components.layers
 import android.graphics.Paint
 import android.graphics.Typeface
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -11,11 +10,15 @@ import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import com.foxtrader.app.domain.model.ChartSignal
+import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.BacktestChartMarker
+import com.foxtrader.app.domain.model.BacktestOutcome
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.LitXAnalysis
 import com.foxtrader.app.domain.model.SignalSource
 import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
 import com.foxtrader.app.feature.chart.presentation.components.ChartViewport
+import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxBearish
 import com.foxtrader.app.ui.theme.FoxBullish
 
@@ -38,6 +41,14 @@ private val HistorySignalLabelPaint = Paint().apply {
     isAntiAlias = true
     textAlign = Paint.Align.CENTER
     alpha = (0.3f * 255).toInt()
+}
+
+private val BacktestOutcomeLabelPaint = Paint().apply {
+    color = android.graphics.Color.WHITE
+    textSize = 15f
+    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+    isAntiAlias = true
+    textAlign = Paint.Align.CENTER
 }
 
 /**
@@ -196,12 +207,14 @@ internal fun DrawScope.drawSmtDivergences(
 }
 
 /**
- * Draws unified signal markers on the chart for both live and history signals.
+ * Draws unified strategy/engine signals as directional arrows.
  *
- * - Live signals: filled circle at full opacity (alpha=0.9)
- * - History signals: hollow circle at faded opacity (alpha=0.3)
- * - Color based on direction (FoxBullish/FoxBearish)
- * - Source letter drawn inside: L (LITX), T (TRADEPRO), S (SMT)
+ * - Bullish = green up-arrow below the entry.
+ * - Bearish = amber/yellow down-arrow above the entry.
+ * - Live/confirmed-now signals are filled and carry a confirmation dot.
+ * - Historical signals are outlined/faded so they cannot be mistaken for a
+ *   current actionable setup.
+ * - The source letter stays visible beside the arrow (L/T/S/X).
  */
 internal fun DrawScope.drawSignalMarkers(
     signals: List<ChartSignal>,
@@ -216,98 +229,167 @@ internal fun DrawScope.drawSignalMarkers(
 
     for (signal in signals) {
         if (signal.barIndex < 0 || !signal.entry.isDrawablePrice()) continue
-        // Viewport culling: skip signals outside the visible range
         if (signal.barIndex < startIdx || signal.barIndex > endIdx) continue
 
-        val color = if (signal.direction == Direction.BULLISH) FoxBullish else FoxBearish
-        val alpha = if (signal.isLive) 0.9f else 0.3f
-        val radius = 10f
-
+        val color = if (signal.direction == Direction.BULLISH) FoxBullish else FoxAmber50
+        val alpha = if (signal.isLive) 0.95f else 0.34f
         val x = viewport.xForIndex(signal.barIndex + 0.5f, cw)
-        val y = viewport.yForPrice(signal.entry, ch)
-        val center = Offset(x, y)
+        val entryY = viewport.yForPrice(signal.entry, ch)
+        val arrow = signalArrowPath(x, entryY, signal.direction)
 
+        drawPath(
+            path = arrow,
+            color = color.copy(alpha = alpha),
+            style = if (signal.isLive) Fill else Stroke(width = 2f),
+        )
+
+        // Confirmation dot anchors the signal to its actual entry price. It is
+        // intentionally tiny so multiple strategies on one bar remain legible.
         if (signal.isLive) {
-            // Filled circle for live signals
             drawCircle(
-                color = color.copy(alpha = alpha),
-                radius = radius,
-                center = center,
-                style = Fill,
-            )
-        } else {
-            // Hollow circle for history signals
-            drawCircle(
-                color = color.copy(alpha = alpha),
-                radius = radius,
-                center = center,
-                style = Stroke(width = 2f),
+                color = color.copy(alpha = 0.95f),
+                radius = 3.5f,
+                center = Offset(x, entryY),
             )
         }
 
-        // Draw source letter inside the marker
         val letter = when (signal.source) {
-            SignalSource.LITX -> "L"
+            SignalSource.LITX -> "LX"
+            SignalSource.LIT -> "L"
+            SignalSource.SMS -> "M"
             SignalSource.TRADEPRO -> "T"
             SignalSource.SMT -> "S"
+            SignalSource.BINARY3M -> "B3"
             SignalSource.STRATEGY -> "X"
         }
         val labelPaint = if (signal.isLive) LiveSignalLabelPaint else HistorySignalLabelPaint
-        drawContext.canvas.nativeCanvas.drawText(
-            letter,
-            x,
-            y + labelPaint.textSize / 3f,
-            labelPaint,
-        )
-
-        // For the live signal, project the actual trade levels to the right of
-        // the marker.
-        if (signal.isLive && signal.sl != 0.0 && signal.tp != 0.0) {
-            drawSignalLevels(signal, viewport, x, cw, ch, color)
-        }
+        val labelY = if (signal.direction == Direction.BULLISH) entryY + 30f else entryY - 22f
+        drawContext.canvas.nativeCanvas.drawText(letter, x, labelY, labelPaint)
     }
 }
 
 /**
- * Draws the entry / stop / target rays for a live signal, starting at the
- * signal bar and extending to the right edge, plus tinted risk and reward
- * zones so the R:R is readable at a glance.
+ * Draws completed backtest trades directly on the price chart. Entry arrows use
+ * the same green/amber directional language as live signals; exits receive a
+ * compact W/L/B badge so a trader can visually audit which historical signals
+ * won, lost, or broke even without leaving the chart.
  */
-private fun DrawScope.drawSignalLevels(
-    signal: ChartSignal,
+internal fun DrawScope.drawBacktestMarkers(
+    markers: List<BacktestChartMarker>,
+    candles: List<Candle>,
     viewport: ChartViewport,
-    markerX: Float,
     cw: Float,
     ch: Float,
-    dirColor: androidx.compose.ui.graphics.Color,
 ) {
-    if (
-        !signal.entry.isDrawablePrice() ||
-        !signal.sl.isDrawablePrice() ||
-        !signal.tp.isDrawablePrice()
-    ) return
-    val entryY = viewport.yForPrice(signal.entry, ch)
-    val slY = viewport.yForPrice(signal.sl, ch)
-    val tpY = viewport.yForPrice(signal.tp, ch)
-    val left = markerX.coerceIn(0f, cw)
-    val width = (cw - left).coerceAtLeast(0f)
-    if (width <= 0f) return
+    if (markers.isEmpty()) return
 
-    // Reward zone (entry → target) and risk zone (entry → stop).
-    drawRect(
-        color = FoxBullish.copy(alpha = 0.10f),
-        topLeft = Offset(left, minOf(entryY, tpY)),
-        size = Size(width, kotlin.math.abs(tpY - entryY)),
-    )
-    drawRect(
-        color = FoxBearish.copy(alpha = 0.10f),
-        topLeft = Offset(left, minOf(entryY, slY)),
-        size = Size(width, kotlin.math.abs(slY - entryY)),
-    )
+    val startIdx = viewport.startIndex.toInt().coerceAtLeast(0)
+    val endIdx = (viewport.startIndex + viewport.visibleBars).toInt() + 1
 
-    drawLine(dirColor.copy(alpha = 0.95f), Offset(left, entryY), Offset(cw, entryY), strokeWidth = 2f)
-    drawLine(FoxBearish.copy(alpha = 0.85f), Offset(left, slY), Offset(cw, slY), strokeWidth = 1.4f, pathEffect = SignalDash)
-    drawLine(FoxBullish.copy(alpha = 0.85f), Offset(left, tpY), Offset(cw, tpY), strokeWidth = 1.4f, pathEffect = SignalDash)
+    for (marker in markers) {
+        if (!marker.entryPrice.isDrawablePrice() || !marker.exitPrice.isDrawablePrice()) continue
+        val entryIndex = marker.resolveIndex(candles, isEntry = true)
+        val exitIndex = marker.resolveIndex(candles, isEntry = false)
+        if (entryIndex < 0 || exitIndex < entryIndex) continue
+        if (exitIndex < startIdx || entryIndex > endIdx) continue
+
+        val entryX = viewport.xForIndex(entryIndex + 0.5f, cw)
+        val entryY = viewport.yForPrice(marker.entryPrice, ch)
+        val exitX = viewport.xForIndex(exitIndex + 0.5f, cw)
+        val exitY = viewport.yForPrice(marker.exitPrice, ch)
+        val entryColor = if (marker.direction == Direction.BULLISH) FoxBullish else FoxAmber50
+        val outcomeColor = when (marker.outcome) {
+            BacktestOutcome.WIN -> FoxBullish
+            BacktestOutcome.LOSS -> FoxBearish
+            BacktestOutcome.BREAKEVEN -> FoxAmber50
+        }
+
+        // Thin dashed connector makes holding duration and exit location obvious
+        // while staying subordinate to price action.
+        drawLine(
+            color = outcomeColor.copy(alpha = 0.30f),
+            start = Offset(entryX, entryY),
+            end = Offset(exitX, exitY),
+            strokeWidth = 1.25f,
+            pathEffect = SignalDash,
+        )
+
+        drawPath(
+            path = signalArrowPath(entryX, entryY, marker.direction),
+            color = entryColor.copy(alpha = 0.85f),
+            style = Fill,
+        )
+
+        drawCircle(
+            color = outcomeColor.copy(alpha = 0.92f),
+            radius = 8f,
+            center = Offset(exitX, exitY),
+        )
+        val label = when (marker.outcome) {
+            BacktestOutcome.WIN -> "W"
+            BacktestOutcome.LOSS -> "L"
+            BacktestOutcome.BREAKEVEN -> "B"
+        }
+        drawContext.canvas.nativeCanvas.drawText(
+            label,
+            exitX,
+            exitY + 5f,
+            BacktestOutcomeLabelPaint,
+        )
+    }
+}
+
+private fun signalArrowPath(x: Float, entryY: Float, direction: Direction): Path {
+    val path = Path()
+    val halfHead = 7f
+    val stemHalf = 2.5f
+    val stemLength = 9f
+    val gap = 4f
+
+    if (direction == Direction.BULLISH) {
+        val tipY = entryY + gap
+        val headBaseY = tipY + 10f
+        val stemBottomY = headBaseY + stemLength
+        path.moveTo(x, tipY)
+        path.lineTo(x - halfHead, headBaseY)
+        path.lineTo(x - stemHalf, headBaseY)
+        path.lineTo(x - stemHalf, stemBottomY)
+        path.lineTo(x + stemHalf, stemBottomY)
+        path.lineTo(x + stemHalf, headBaseY)
+        path.lineTo(x + halfHead, headBaseY)
+    } else {
+        val tipY = entryY - gap
+        val headBaseY = tipY - 10f
+        val stemTopY = headBaseY - stemLength
+        path.moveTo(x, tipY)
+        path.lineTo(x - halfHead, headBaseY)
+        path.lineTo(x - stemHalf, headBaseY)
+        path.lineTo(x - stemHalf, stemTopY)
+        path.lineTo(x + stemHalf, stemTopY)
+        path.lineTo(x + stemHalf, headBaseY)
+        path.lineTo(x + halfHead, headBaseY)
+    }
+    path.close()
+    return path
+}
+
+private fun BacktestChartMarker.resolveIndex(candles: List<Candle>, isEntry: Boolean): Int {
+    val hintedIndex = if (isEntry) entryIndex else exitIndex
+    val timestamp = if (isEntry) entryTime else exitTime
+    if (hintedIndex in candles.indices && candles[hintedIndex].timestamp == timestamp) return hintedIndex
+
+    var low = 0
+    var high = candles.lastIndex
+    while (low <= high) {
+        val mid = (low + high).ushr(1)
+        val midTs = candles[mid].timestamp
+        when {
+            midTs < timestamp -> low = mid + 1
+            midTs > timestamp -> high = mid - 1
+            else -> return mid
+        }
+    }
+    return -1
 }
 
 private fun Double.isDrawablePrice(): Boolean = isFinite() && this > 0.0

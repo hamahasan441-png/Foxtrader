@@ -6,12 +6,18 @@ import com.foxtrader.app.data.remote.websocket.MarketWebSocket
 import com.foxtrader.app.data.alerts.AlertDispatcher
 import com.foxtrader.app.di.DefaultDispatcher
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.BacktestConfig
 import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.model.ChartBarMode
 import com.foxtrader.app.domain.model.ConnectionState
+import com.foxtrader.app.domain.model.DataProvider
+import com.foxtrader.app.domain.model.Direction
+import com.foxtrader.app.domain.model.MarketDataFreshness
+import com.foxtrader.app.domain.model.MarketDataFreshnessResolver
 import com.foxtrader.app.domain.model.DrawingToolType
 import com.foxtrader.app.domain.model.ReplayState
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.model.BrokerTradeDraft
 import com.foxtrader.app.domain.repository.DrawingRepository
 import com.foxtrader.app.domain.repository.AlertRepository
 import com.foxtrader.app.domain.repository.MarketRepository
@@ -29,17 +35,29 @@ import com.foxtrader.app.domain.usecase.chart.HeikinAshiTransformer
 import com.foxtrader.app.domain.usecase.chart.CandleRenkoBuilder
 import com.foxtrader.app.domain.usecase.chart.MultiChartManager
 import com.foxtrader.app.domain.usecase.chart.SignalComputer
+import com.foxtrader.app.domain.usecase.backtest.BacktestEngine
+import com.foxtrader.app.domain.usecase.binary.DerivBinary3mSignalEngine
+import com.foxtrader.app.domain.usecase.calculator.InstrumentTypeResolver
 import com.foxtrader.app.domain.usecase.drawing.DrawingEngine
 import com.foxtrader.app.domain.usecase.mtf.ConfluenceEngine
+import com.foxtrader.app.domain.usecase.marketdata.MarketProviderRouter
 import com.foxtrader.app.domain.usecase.orders.PaperTradingSession
 import com.foxtrader.app.domain.usecase.performance.AdaptiveQualityController
 import com.foxtrader.app.domain.usecase.performance.PerformanceProfiler
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.domain.usecase.replay.ReplayEngine
 import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
+import com.foxtrader.app.domain.usecase.execution.BrokerTradeDraftStore
 import com.foxtrader.app.domain.usecase.litx.LitXEngine
+import com.foxtrader.app.domain.usecase.signalintel.ConfirmedBarPolicy
+import com.foxtrader.app.domain.usecase.signalintel.LitEngine
+import com.foxtrader.app.domain.usecase.signalintel.SmsEngine
+import com.foxtrader.app.domain.usecase.signalintel.SignalFusionEngine
 import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
 import com.foxtrader.app.domain.usecase.strategies.LiveStrategyEngine
+import com.foxtrader.app.domain.usecase.strategies.StrategyLibrary
+import com.foxtrader.app.domain.model.ChartSignal
+import com.foxtrader.app.domain.model.SignalSource
 import com.foxtrader.app.domain.model.StrategyType
 import com.foxtrader.app.domain.model.StrategyBlueprint
 import com.foxtrader.app.domain.sdk.script.ScriptEngine
@@ -49,6 +67,9 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -61,6 +82,7 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 
@@ -87,15 +109,24 @@ class ChartViewModel @Inject constructor(
     private val watchlistRepository: WatchlistRepository,
     private val drawingRepository: DrawingRepository,
     private val appPreferences: AppPreferences,
+    private val providerRouter: MarketProviderRouter,
     private val tradeProEngine: TradeProSignalEngine,
     private val litXEngine: LitXEngine,
+    private val litEngine: LitEngine,
+    private val smsEngine: SmsEngine,
+    private val signalFusionEngine: SignalFusionEngine,
     private val smtDivergenceDetector: SmtDivergenceDetector,
     private val heikinAshiTransformer: HeikinAshiTransformer,
     private val candleRenkoBuilder: CandleRenkoBuilder,
     private val signalComputer: SignalComputer,
     private val liveStrategyEngine: LiveStrategyEngine,
+    private val strategyLibrary: StrategyLibrary,
+    private val backtestEngine: BacktestEngine,
+    private val derivBinary3mSignalEngine: DerivBinary3mSignalEngine,
+    private val instrumentTypeResolver: InstrumentTypeResolver,
     private val scriptEngine: ScriptEngine,
     private val paperTradingSession: PaperTradingSession,
+    private val brokerTradeDraftStore: BrokerTradeDraftStore,
     profiler: PerformanceProfiler,
     qualityController: AdaptiveQualityController,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
@@ -103,8 +134,19 @@ class ChartViewModel @Inject constructor(
 
     val performanceMonitor = ChartPerformanceMonitor(profiler, qualityController)
 
+    /**
+     * Independent, bounded cleanup scope. viewModelScope is already cancelled
+     * by the time onCleared() runs; blocking the main thread to wait for a
+     * websocket mutex can cause an ANR. This scope performs only final teardown
+     * and cancels itself immediately afterwards.
+     */
+    private val lifecycleCleanupScope = CoroutineScope(SupervisorJob() + defaultDispatcher)
+
     private val _uiState = MutableStateFlow(
-        ChartUiState(timeframe = appPreferences.defaultTimeframe.value)
+        ChartUiState(
+            dataProvider = appPreferences.dataProvider.value,
+            timeframe = appPreferences.defaultTimeframe.value,
+        )
     )
     val uiState: StateFlow<ChartUiState> = _uiState.asStateFlow()
 
@@ -151,6 +193,9 @@ class ChartViewModel @Inject constructor(
      */
     private val computationGeneration = AtomicLong(0L)
 
+    /** Preserve an explicit user choice to keep streaming off across symbol changes. */
+    private var liveUserOverrideOff = false
+
     // --- Controllers (plain classes, NOT @Inject) ---
     private val dataController = ChartDataController(
         repository = repository,
@@ -159,8 +204,15 @@ class ChartViewModel @Inject constructor(
         onMergedCandlesChanged = { source, preferIncremental ->
             processCandles(source, preferIncremental)
         },
-        onUpsertTick = { symbol, timeframe, candle ->
-            repository.upsertCandle(symbol, timeframe, candle)
+        onUpsertTick = { symbol, timeframe, candle, tickProvider ->
+            // ProviderMarketWebSocket stamps every routed tick. A tick that was
+            // already queued when the user changed provider must never enter
+            // the provider-agnostic Room cache under the new source identity.
+            if (tickProvider == _uiState.value.dataProvider &&
+                tickProvider == appPreferences.dataProvider.value
+            ) {
+                repository.upsertCandle(symbol, timeframe, candle)
+            }
         },
     )
 
@@ -226,21 +278,70 @@ class ChartViewModel @Inject constructor(
         multiChartController.observePersistedMultiChartPreferences()
         multiChartController.syncMultiChartPanelsToPrimary()
         webSocket.connectionState
-            .onEach { cs -> _uiState.value = _uiState.value.copy(connectionState = cs) }
+            .onEach { cs ->
+                val current = _uiState.value
+                val now = System.currentTimeMillis()
+                val latestTimestamp = current.candles.lastOrNull()?.timestamp
+                _uiState.value = current.copy(
+                    connectionState = cs,
+                    dataFreshness = MarketDataFreshnessResolver.resolve(
+                        source = current.dataSource,
+                        connectionState = cs,
+                        timeframe = current.timeframe,
+                        latestBarTimestamp = latestTimestamp,
+                        nowMillis = now,
+                    ),
+                    dataAgeMs = latestTimestamp?.let { (now - it).coerceAtLeast(0L) },
+                )
+            }
             .launchIn(viewModelScope)
-        // Do not let the chart claim LIVE when the selected provider is
-        // historical-only or its required credential has not been entered.
-        combine(appPreferences.dataProvider, appPreferences.apiKeys) { _, _ ->
-            appPreferences.canGoLive()
+        // Keep this back-stack ViewModel synchronized when the provider is
+        // changed from Settings. Navigation can keep ChartViewModel alive even
+        // while ChartScreen is not composed, so relying on re-creation would
+        // leave the provider badge/history context stale. Settings clears the
+        // provider-agnostic candle cache before emitting this preference.
+        appPreferences.dataProvider
+            .distinctUntilChanged()
+            .onEach { provider ->
+                val current = _uiState.value
+                if (current.dataProvider != provider) {
+                    if (current.liveEnabled) dataController.disconnectLive()
+                    _uiState.value = current.copy(
+                        dataProvider = provider,
+                        liveEnabled = false,
+                        connectionState = ConnectionState.DISCONNECTED,
+                        isLoading = true,
+                        error = null,
+                    )
+                    resetChartContext()
+                    refresh()
+                }
+            }
+            .launchIn(viewModelScope)
+
+        // Live availability is strict to the selected provider. Never continue
+        // one provider's historical series with another provider's live ticks.
+        combine(
+            appPreferences.dataProvider,
+            appPreferences.apiKeys,
+            appPreferences.metaApiToken,
+            appPreferences.metaApiAccountId,
+            dataController.symbolFlow,
+        ) { provider, _, _, _, symbol ->
+            providerRouter.canGoLive(symbol, provider)
         }
             .distinctUntilChanged()
             .onEach { available ->
-                val wasLive = _uiState.value.liveEnabled
-                _uiState.value = _uiState.value.copy(
+                val current = _uiState.value
+                val shouldEnable = available && !liveUserOverrideOff
+                _uiState.value = current.copy(
                     liveAvailable = available,
-                    liveEnabled = if (available) _uiState.value.liveEnabled else false,
+                    liveEnabled = shouldEnable,
                 )
-                if (wasLive && !available) dataController.disconnectLive()
+                when {
+                    shouldEnable && !current.liveEnabled -> dataController.connectLive()
+                    !available && current.liveEnabled -> dataController.disconnectLive()
+                }
             }
             .launchIn(viewModelScope)
         // Apply the user's chart performance mode (quality ceiling), live.
@@ -255,6 +356,27 @@ class ChartViewModel @Inject constructor(
                 }
             }
             .launchIn(viewModelScope)
+        // Phase 13 settings are live. Changing LiTX/LiT/SMT/SMS must
+        // recompute a paused chart too; otherwise the UI would persist a value
+        // that has no visible effect until the next market tick.
+        combine(
+            appPreferences.litXConfig,
+            appPreferences.litConfig,
+            appPreferences.smtConfig,
+            appPreferences.smsConfig,
+        ) { litx, lit, smt, sms -> listOf(litx, lit, smt, sms) }
+            .distinctUntilChanged()
+            .onEach {
+                try {
+                    dataController.processMergedCandles(preferIncremental = false)
+                } catch (cancel: CancellationException) {
+                    throw cancel
+                } catch (_: Exception) {
+                    // No candle set yet (startup) or a transient provider state;
+                    // the next data emission retries with the persisted config.
+                }
+            }
+            .launchIn(viewModelScope)
         appPreferences.strategyBlueprints
             .onEach { blueprints ->
                 val previousState = _uiState.value
@@ -264,6 +386,15 @@ class ChartViewModel @Inject constructor(
                 }
                 val nextActive = activeId?.let { id -> blueprints.firstOrNull { it.id == id } }
                 val activeStillExists = activeId == null || blueprints.any { it.id == activeId }
+                val backtestBlueprintId = previousState.chartBacktest.selectedBlueprintId
+                val previousBacktestBlueprint = backtestBlueprintId?.let { id ->
+                    previousState.strategyBlueprints.firstOrNull { it.id == id }
+                }
+                val nextBacktestBlueprint = backtestBlueprintId?.let { id ->
+                    blueprints.firstOrNull { it.id == id }
+                }
+                val backtestBlueprintChanged = backtestBlueprintId != null &&
+                    previousBacktestBlueprint != nextBacktestBlueprint
                 val cachedBlueprint = compiledBlueprintCache?.first
                 if (cachedBlueprint != null && cachedBlueprint !in blueprints) compiledBlueprintCache = null
                 _uiState.value = previousState.copy(
@@ -272,6 +403,16 @@ class ChartViewModel @Inject constructor(
                         previousState.indicators
                     } else {
                         previousState.indicators.copy(activeBlueprintId = null)
+                    },
+                    chartBacktest = if (backtestBlueprintChanged) {
+                        ChartBacktestState(
+                            selectedStrategy = previousState.chartBacktest.selectedStrategy,
+                            selectedRange = previousState.chartBacktest.selectedRange,
+                            selectedBlueprintId = nextBacktestBlueprint?.id,
+                            showMarkers = previousState.chartBacktest.showMarkers,
+                        )
+                    } else {
+                        previousState.chartBacktest
                     },
                 )
                 // Editing or deleting the blueprint currently drawn on a paused
@@ -376,49 +517,88 @@ class ChartViewModel @Inject constructor(
             return
         }
 
-        // Refresh once per primary bar only while TRADEPRO needs HTF context.
-        // This avoids per-tick DB work without freezing bias for the whole app
-        // session after the first fetch.
-        val htfKey = "$symbol|$timeframe|${displayCandles.last().timestamp}"
-        if (ind.tradePro && htfKey != htfContextKey) {
-            // MtfContextProvider already degrades to empty maps on repository
-            // errors, so no extra containment is needed around these calls.
+        // Phase 13 signal engines never inspect an in-progress candle. The
+        // visual chart may still render it, but LiTX/LiT/SMS/SMT/TradePro and
+        // strategy arrows operate on the closed-bar prefix only.
+        val signalNow = System.currentTimeMillis()
+        val latestConfirmedIndex = ConfirmedBarPolicy.latestConfirmedIndex(displayCandles, timeframe, signalNow)
+        val signalCandles = if (latestConfirmedIndex >= 0) {
+            displayCandles.subList(0, latestConfirmedIndex + 1)
+        } else {
+            emptyList()
+        }
+
+        val litXConfig = appPreferences.litXConfig.value
+        val needLitX = litXConfig.enabled && (ind.litX || ind.tradePro)
+        val needLit = ind.lit || ind.tradePro
+        val needSms = ind.sms || ind.tradePro
+        val needSmt = (ind.smt || ind.tradePro) && barMode.preservesTimeAxis
+
+        // Refresh HTF context only on a newly confirmed primary bar. HTF bars
+        // are independently trimmed to their own confirmed prefixes.
+        val confirmedStamp = signalCandles.lastOrNull()?.timestamp
+        val htfKey = confirmedStamp?.let { "$symbol|$timeframe|$it" }
+        if (ind.tradePro && htfKey != null && htfKey != htfContextKey) {
             htfContextCache = mtfContextProvider.getHtfContext(symbol, timeframe)
             htfContextKey = htfKey
         }
+        val confirmedHtfContext = htfContextCache.mapValues { (tf, series) ->
+            ConfirmedBarPolicy.confirmedPrefix(series, tf, signalNow)
+        }.filterValues { it.isNotEmpty() }
 
-        // TradePro analysis is only computed while its overlay is enabled. It is
-        // comparatively expensive, so running it on every frame for a hidden
-        // overlay would waste the frame budget. All three engines below run on
-        // the default dispatcher: they previously executed on the caller's
-        // (main) context, where a heavy analysis on an indicator toggle froze
-        // the UI — the "touching indicators crashes/hangs the app" report.
-        val tradeProAnalysis = if (ind.tradePro) {
+        val tradeProBase = if (ind.tradePro && signalCandles.isNotEmpty()) {
             withContext(defaultDispatcher) {
                 containedOrNull {
                     tradeProEngine.analyze(
-                        symbol, displayCandles, appPreferences.tradeProConfig.value, htfContextCache,
+                        symbol, signalCandles, appPreferences.tradeProConfig.value, confirmedHtfContext,
                     )
                 }
             }
         } else null
 
-        val litXAnalysis = if (ind.litX) {
+        val litXAnalysis = if (needLitX && signalCandles.isNotEmpty()) {
             withContext(defaultDispatcher) {
                 containedOrNull {
-                    litXEngine.analyze(symbol, timeframe, displayCandles, appPreferences.litXConfig.value)
+                    litXEngine.analyze(symbol, timeframe, signalCandles, litXConfig)
                 }
             }
         } else null
 
-        val smtDivergences = if (ind.smt && barMode.preservesTimeAxis) {
-            val peerCandles = getSmtContext(symbol, timeframe, displayCandles.last().timestamp)
+        val litAnalysis = if (needLit && signalCandles.isNotEmpty()) {
+            withContext(defaultDispatcher) {
+                containedOrNull { litEngine.analyze(symbol, timeframe, signalCandles, appPreferences.litConfig.value) }
+            }
+        } else null
+
+        val smsAnalysis = if (needSms && signalCandles.isNotEmpty()) {
+            withContext(defaultDispatcher) {
+                containedOrNull { smsEngine.analyze(symbol, timeframe, signalCandles, appPreferences.smsConfig.value) }
+            }
+        } else null
+
+        val smtDivergencesForFusion = if (needSmt && signalCandles.isNotEmpty()) {
+            val rawPeers = getSmtContext(symbol, timeframe, signalCandles.last().timestamp)
+            val confirmedPeers = rawPeers.mapValues { (_, series) ->
+                ConfirmedBarPolicy.confirmedPrefix(series, timeframe, signalNow)
+            }.filterValues { it.isNotEmpty() }
             withContext(defaultDispatcher) {
                 containedOrDefault(emptyList()) {
-                    smtDivergenceDetector.detect(symbol, displayCandles, peerCandles)
+                    smtDivergenceDetector.detect(symbol, signalCandles, confirmedPeers, config = appPreferences.smtConfig.value)
                 }
             }
         } else emptyList()
+
+        val fused = signalFusionEngine.fuse(
+            tradePro = tradeProBase,
+            litX = litXAnalysis,
+            lit = litAnalysis,
+            sms = smsAnalysis,
+            smt = smtDivergencesForFusion,
+            latestConfirmedIndex = signalCandles.lastIndex,
+        )
+        val tradeProAnalysis = fused.tradePro
+        val signalFusion = fused.fusion
+        val smtDivergences = if (ind.smt) smtDivergencesForFusion else emptyList()
 
         // Evaluate the selected strategy (or all strategies) over the visible
         // series. This is the same StrategyFunction the Backtest Lab measures,
@@ -429,11 +609,22 @@ class ChartViewModel @Inject constructor(
         val activeStrategy = ind.activeStrategy
         val strategySignals = when {
             ind.allStrategies -> withContext(defaultDispatcher) {
-                containedOrDefault(emptyList()) { liveStrategyEngine.evaluateAll(displayCandles) }
+                containedOrDefault(emptyList()) {
+                    liveStrategyEngine.evaluateAll(
+                        candles = signalCandles,
+                        symbol = symbol,
+                        timeframe = timeframe,
+                    )
+                }
             }
             activeStrategy != null -> withContext(defaultDispatcher) {
                 containedOrDefault(emptyList()) {
-                    liveStrategyEngine.evaluate(activeStrategy, displayCandles)
+                    liveStrategyEngine.evaluate(
+                        type = activeStrategy,
+                        candles = signalCandles,
+                        symbol = symbol,
+                        timeframe = timeframe,
+                    )
                 }
             }
             ind.activeBlueprintId != null -> {
@@ -455,7 +646,7 @@ class ChartViewModel @Inject constructor(
                                 strategyName = compiled.name,
                                 minimumBars = compiled.minBars,
                                 function = { series, index -> scriptEngine.evaluate(compiled, series, index) },
-                                candles = displayCandles,
+                                candles = signalCandles,
                             )
                         }
                     }
@@ -464,28 +655,91 @@ class ChartViewModel @Inject constructor(
             else -> emptyList()
         }
 
+        // Deriv 3m uses the exact same closed-M1 engine as BinaryBacktestEngine.
+        // The marker belongs to the CONFIRMATION bar; the trade model enters at
+        // the next M1 open and expires after three minutes. Keeping the marker on
+        // the signal bar makes that distinction explicit and avoids pretending a
+        // future entry price was known at confirmation time. Synthetic/Heikin/Renko
+        // bars are not eligible because fixed-expiry timing must use raw M1 candles.
+        val binary3mSignals: List<ChartSignal> = if (
+            ind.binary3m &&
+            _uiState.value.dataProvider == DataProvider.DERIV &&
+            timeframe == Timeframe.M1 &&
+            barMode == ChartBarMode.TIME &&
+            signalCandles.isNotEmpty()
+        ) {
+            withContext(defaultDispatcher) {
+                containedOrDefault(emptyList()) {
+                    derivBinary3mSignalEngine
+                        .evaluateAll(signalCandles, DerivBinary3mSignalEngine.DEFAULT_MIN_CONFIDENCE)
+                        .takeLast(BINARY3M_MAX_CHART_SIGNALS)
+                        .mapNotNull { binary ->
+                            val candle = signalCandles.getOrNull(binary.signalIndex) ?: return@mapNotNull null
+                            ChartSignal(
+                                id = "binary3m_${symbol}_${binary.timestamp}_${binary.direction.name}",
+                                source = SignalSource.BINARY3M,
+                                direction = binary.direction,
+                                entry = candle.close,
+                                sl = 0.0,
+                                tp = 0.0,
+                                barIndex = binary.signalIndex,
+                                timestamp = binary.timestamp,
+                                confidence = binary.confidence.toDouble(),
+                                isLive = binary.signalIndex == signalCandles.lastIndex,
+                                label = "Deriv 3m ${if (binary.direction == Direction.BULLISH) "CALL" else "PUT"} · enter next M1 · ${binary.confidence}%",
+                            )
+                        }
+                }
+            }
+        } else {
+            emptyList()
+        }
+
+        val chartStrategySignals = if (binary3mSignals.isEmpty()) {
+            strategySignals
+        } else {
+            strategySignals + binary3mSignals
+        }
+
         // Drop stale frames: a newer computation (e.g. from a rapid indicator
         // toggle) has already started, so publishing this older result would
         // clobber the newer UI state.
         if (gen != computationGeneration.get()) return
 
-        _uiState.value = _uiState.value.withComputation(
+        val now = System.currentTimeMillis()
+        val mappedState = _uiState.value.withComputation(
             candles = displayCandles,
             source = source,
             computation = c,
             toggles = ind,
             tradeProAnalysis = tradeProAnalysis,
-            litXAnalysis = litXAnalysis,
+            litXAnalysis = litXAnalysis.takeIf { ind.litX },
+            litAnalysis = litAnalysis.takeIf { ind.lit },
+            smsAnalysis = smsAnalysis.takeIf { ind.sms },
+            signalFusion = signalFusion.takeIf { ind.tradePro || ind.litX || ind.lit || ind.sms || ind.smt },
             smtDivergences = smtDivergences,
             barMode = barMode,
-        ).copy(
+        )
+        _uiState.value = mappedState.copy(
             signals = signalComputer.computeSignals(
-                litXAnalysis = litXAnalysis,
+                litXAnalysis = litXAnalysis.takeIf { ind.litX },
                 tradeProAnalysis = tradeProAnalysis,
                 smtDivergences = smtDivergences,
                 candles = displayCandles,
-                strategySignals = strategySignals,
+                strategySignals = chartStrategySignals,
+                litAnalysis = litAnalysis.takeIf { ind.lit },
+                smsAnalysis = smsAnalysis.takeIf { ind.sms },
+                latestConfirmedIndex = latestConfirmedIndex,
+                fusion = signalFusion,
             ),
+            dataFreshness = MarketDataFreshnessResolver.resolve(
+                source = source,
+                connectionState = mappedState.connectionState,
+                timeframe = timeframe,
+                latestBarTimestamp = displayCandles.last().timestamp,
+                nowMillis = now,
+            ),
+            dataAgeMs = (now - displayCandles.last().timestamp).coerceAtLeast(0L),
         )
 
         aiCoordinator.runAiDecision(
@@ -574,6 +828,305 @@ class ChartViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(showSignalHistory = !_uiState.value.showSignalHistory)
     }
 
+    /** Selects the built-in strategy used by the on-chart backtest. */
+    fun selectChartBacktestStrategy(type: StrategyType) {
+        val current = _uiState.value.chartBacktest
+        if (current.selectedStrategy == type && current.error == null) return
+        _uiState.value = _uiState.value.copy(
+            chartBacktest = ChartBacktestState(
+                selectedStrategy = type,
+                selectedRange = current.selectedRange,
+                selectedBlueprintId = null,
+                showMarkers = current.showMarkers,
+            ),
+        )
+    }
+
+    /** Selects how much history the on-chart backtest should preload and test. */
+    fun selectChartBacktestRange(range: ChartBacktestRange) {
+        val current = _uiState.value.chartBacktest
+        if (current.selectedRange == range && current.error == null) return
+        _uiState.value = _uiState.value.copy(
+            chartBacktest = ChartBacktestState(
+                selectedStrategy = current.selectedStrategy,
+                selectedRange = range,
+                selectedBlueprintId = current.selectedBlueprintId,
+                showMarkers = current.showMarkers,
+            ),
+        )
+    }
+
+    /** Selects a saved visual-builder strategy for the on-chart backtest. */
+    fun selectChartBacktestBlueprint(blueprintId: String) {
+        val current = _uiState.value.chartBacktest
+        if (current.selectedBlueprintId == blueprintId && current.error == null) return
+        if (_uiState.value.strategyBlueprints.none { it.id == blueprintId }) return
+        _uiState.value = _uiState.value.copy(
+            chartBacktest = ChartBacktestState(
+                selectedStrategy = current.selectedStrategy,
+                selectedRange = current.selectedRange,
+                selectedBlueprintId = blueprintId,
+                showMarkers = current.showMarkers,
+            ),
+        )
+    }
+
+    /** Shows/hides completed backtest entries and W/L exit badges on the price chart. */
+    fun toggleChartBacktestMarkers() {
+        val backtest = _uiState.value.chartBacktest
+        _uiState.value = _uiState.value.copy(
+            chartBacktest = backtest.copy(showMarkers = !backtest.showMarkers),
+        )
+    }
+
+    /** Clears only the chart backtest projection; live strategy signals are unaffected. */
+    fun clearChartBacktest() {
+        val current = _uiState.value.chartBacktest
+        _uiState.value = _uiState.value.copy(
+            chartBacktest = ChartBacktestState(
+                selectedStrategy = current.selectedStrategy,
+                selectedRange = current.selectedRange,
+                selectedBlueprintId = current.selectedBlueprintId,
+                showMarkers = current.showMarkers,
+            ),
+        )
+    }
+
+    /**
+     * Runs the exact [StrategyLibrary] function used by the live chart through
+     * [BacktestEngine] on the currently loaded real candle series. Results are
+     * projected back to candle indices so entries/exits stay attached to their
+     * historical bars. Synthetic data is deliberately rejected.
+     */
+    fun runChartBacktest() {
+        if (_uiState.value.chartBacktest.isRunning) return
+        viewModelScope.launch {
+            val initialSnapshot = _uiState.value
+            val previous = initialSnapshot.chartBacktest
+            val runningState = previous.copy(
+                isRunning = true,
+                error = null,
+                strategyName = null,
+                totalSignals = 0,
+                winningSignals = 0,
+                losingSignals = 0,
+                breakevenSignals = 0,
+                winRate = 0.0,
+                netPnL = 0.0,
+                profitFactor = 0.0,
+                returnPercent = 0.0,
+                maxDrawdownPercent = 0.0,
+                expectancy = 0.0,
+                averageR = 0.0,
+                markers = kotlinx.collections.immutable.persistentListOf(),
+                equityCurve = kotlinx.collections.immutable.persistentListOf(),
+                testedBars = 0,
+                testedFromTimestamp = 0L,
+                testedThroughTimestamp = 0L,
+                rangeCoverageComplete = true,
+                historyNotice = null,
+                sourceBarsAtRun = 0,
+                sourceNewestTimestampAtRun = 0L,
+            )
+            _uiState.value = initialSnapshot.copy(chartBacktest = runningState)
+
+            if (initialSnapshot.isSyntheticData) {
+                val current = _uiState.value
+                _uiState.value = current.copy(
+                    chartBacktest = current.chartBacktest.copy(
+                        isRunning = false,
+                        error = "Backtest disabled for simulated data. Connect a real market-data provider first.",
+                    ),
+                )
+                return@launch
+            }
+            if (initialSnapshot.barMode != ChartBarMode.TIME) {
+                val current = _uiState.value
+                _uiState.value = current.copy(
+                    chartBacktest = current.chartBacktest.copy(
+                        isRunning = false,
+                        error = "Backtest uses executable market prices. Switch chart bar mode to Time first.",
+                    ),
+                )
+                return@launch
+            }
+
+            val now = System.currentTimeMillis()
+            val targetStartTimestamp = previous.selectedRange.days?.let { days ->
+                now - days.toLong() * MILLIS_PER_DAY
+            }
+            var rangeCoverageComplete = true
+            var historyNotice: String? = null
+
+            if (targetStartTimestamp != null) {
+                val prefetch = dataController.preloadHistoryBackTo(
+                    targetStartTimestamp = targetStartTimestamp,
+                    maxTotalBars = CHART_BACKTEST_MAX_VISIBLE_BARS,
+                ) { loading, endReached, error ->
+                    val current = _uiState.value
+                    _uiState.value = current.copy(
+                        isLoadingOlder = loading,
+                        historyEndReached = endReached,
+                        error = error,
+                    )
+                }
+                val prefetchResult = prefetch.getOrElse { error ->
+                    val current = _uiState.value
+                    _uiState.value = current.copy(
+                        chartBacktest = current.chartBacktest.copy(
+                            isRunning = false,
+                            error = error.message ?: "Failed to preload backtest history.",
+                        ),
+                    )
+                    return@launch
+                }
+                rangeCoverageComplete = prefetchResult.reachedTarget
+                if (!rangeCoverageComplete) {
+                    historyNotice = when {
+                        prefetchResult.providerExhausted ->
+                            "Provider history ended before the full ${previous.selectedRange.label} range was available."
+                        prefetchResult.totalVisibleBars >= CHART_BACKTEST_MAX_VISIBLE_BARS ->
+                            "Chart history reached the ${CHART_BACKTEST_MAX_VISIBLE_BARS} bar safety cap before the full ${previous.selectedRange.label} range."
+                        else -> "Only the available portion of the requested ${previous.selectedRange.label} range was tested."
+                    }
+                }
+            }
+
+            val runSnapshot = _uiState.value
+            if (
+                runSnapshot.symbol != initialSnapshot.symbol ||
+                runSnapshot.timeframe != initialSnapshot.timeframe
+            ) return@launch
+            if (runSnapshot.isSyntheticData) {
+                val current = _uiState.value
+                _uiState.value = current.copy(
+                    chartBacktest = current.chartBacktest.copy(
+                        isRunning = false,
+                        error = "Backtest history became simulated while loading; run cancelled.",
+                    ),
+                )
+                return@launch
+            }
+
+            val allSourceCandles = runSnapshot.candles.toList()
+            val rangedSourceCandles = if (targetStartTimestamp == null) {
+                allSourceCandles
+            } else {
+                allSourceCandles.filter { it.timestamp >= targetStartTimestamp }
+            }
+            val timeframeMillis = runSnapshot.timeframe.minutes.toLong() * 60_000L
+            val lastIsClosed = rangedSourceCandles.lastOrNull()?.let { candle ->
+                candle.timestamp + timeframeMillis <= now
+            } ?: false
+            val candles = if (lastIsClosed) rangedSourceCandles else rangedSourceCandles.dropLast(1)
+
+            val resolved = try {
+                val blueprint = previous.selectedBlueprintId?.let { id ->
+                    runSnapshot.strategyBlueprints.firstOrNull { it.id == id }
+                }
+                if (blueprint != null) {
+                    val compiled = withContext(defaultDispatcher) { compileBlueprint(blueprint) }
+                    ChartBacktestStrategy(
+                        name = compiled.name,
+                        minimumBars = compiled.minBars,
+                        function = { series, index -> scriptEngine.evaluate(compiled, series, index) },
+                    )
+                } else {
+                    val definition = strategyLibrary.get(
+                        previous.selectedStrategy,
+                        runSnapshot.symbol,
+                        runSnapshot.timeframe,
+                    )
+                    ChartBacktestStrategy(
+                        name = definition.name,
+                        minimumBars = definition.minimumBars,
+                        function = definition.function,
+                    )
+                }
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (e: Exception) {
+                val current = _uiState.value
+                _uiState.value = current.copy(
+                    chartBacktest = current.chartBacktest.copy(
+                        isRunning = false,
+                        error = e.message ?: "Strategy unavailable.",
+                    ),
+                )
+                return@launch
+            }
+
+            if (candles.size < resolved.minimumBars.coerceAtLeast(CHART_BACKTEST_MIN_BARS)) {
+                val current = _uiState.value
+                _uiState.value = current.copy(
+                    chartBacktest = current.chartBacktest.copy(
+                        isRunning = false,
+                        error = "Need at least ${resolved.minimumBars.coerceAtLeast(CHART_BACKTEST_MIN_BARS)} real closed candles. Loaded ${candles.size}.",
+                    ),
+                )
+                return@launch
+            }
+
+            val currentBeforeRun = _uiState.value
+            _uiState.value = currentBeforeRun.copy(
+                chartBacktest = currentBeforeRun.chartBacktest.copy(
+                    isRunning = true,
+                    error = null,
+                    strategyName = resolved.name,
+                    historyNotice = historyNotice,
+                    rangeCoverageComplete = rangeCoverageComplete,
+                ),
+            )
+
+            try {
+                val result = withContext(defaultDispatcher) {
+                    backtestEngine.updateConfig(
+                        BacktestConfig(
+                            initialBalance = CHART_BACKTEST_INITIAL_BALANCE,
+                            riskPercent = CHART_BACKTEST_RISK_PERCENT,
+                            contractSize = instrumentTypeResolver.resolve(runSnapshot.symbol).contractSize.toInt(),
+                        ),
+                    )
+                    backtestEngine(
+                        candles = candles,
+                        strategy = resolved.function,
+                        symbol = runSnapshot.symbol,
+                        timeframe = runSnapshot.timeframe,
+                    )
+                }
+
+                // Ignore a completed run if the user changed symbol/timeframe while it was computing.
+                val current = _uiState.value
+                if (current.symbol != runSnapshot.symbol || current.timeframe != runSnapshot.timeframe) return@launch
+                _uiState.value = current.copy(
+                    chartBacktest = ChartBacktestMapper.map(
+                        result = result,
+                        strategyName = resolved.name,
+                        previous = current.chartBacktest.copy(
+                            selectedStrategy = previous.selectedStrategy,
+                            selectedRange = previous.selectedRange,
+                            selectedBlueprintId = previous.selectedBlueprintId,
+                        ),
+                        sourceBarCount = allSourceCandles.size,
+                        sourceNewestTimestamp = allSourceCandles.lastOrNull()?.timestamp ?: 0L,
+                        rangeCoverageComplete = rangeCoverageComplete,
+                        historyNotice = historyNotice,
+                    ),
+                )
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (e: Exception) {
+                val current = _uiState.value
+                _uiState.value = current.copy(
+                    chartBacktest = current.chartBacktest.copy(
+                        isRunning = false,
+                        error = e.message ?: "Chart backtest failed.",
+                    ),
+                )
+            }
+        }
+    }
+
     /**
      * Select the strategy plotted on the chart, or pass null to clear it.
      * Selecting the already-active strategy toggles it off, which matches how
@@ -657,6 +1210,44 @@ class ChartViewModel @Inject constructor(
         if (_uiState.value.liveEnabled) dataController.resubscribeLive()
     }
 
+    /**
+     * Switch the primary chart to an explicit provider without mixing the old
+     * provider's live route/history buffer into the new feed. The persisted
+     * preference is still shared with Scanner/Markets, while the chart state
+     * surfaces the active source so Deriv, MetaTrader and other feeds are
+     * visibly distinct.
+     */
+    fun onDataProviderChange(provider: DataProvider) {
+        val current = _uiState.value
+        if (current.dataProvider == provider) return
+
+        // Stop the old transport first. ProviderMarketWebSocket also observes
+        // the preference, but explicit teardown prevents an old-provider tick
+        // from racing into Room during the switch.
+        if (current.liveEnabled) dataController.disconnectLive()
+        _uiState.value = current.copy(
+            dataProvider = provider,
+            liveEnabled = false,
+            connectionState = ConnectionState.DISCONNECTED,
+            isLoading = true,
+            error = null,
+        )
+        viewModelScope.launch {
+            // CandleEntity is provider-agnostic. Purge the global hot cache
+            // before committing the new provider or requesting its history,
+            // otherwise old exchange/broker bars could survive at timestamps
+            // the new source did not return and contaminate signals/backtests.
+            repository.clearMarketDataCache()
+            appPreferences.setDataProvider(provider)
+            // Drain any old-route tick that raced the preference observer. Once
+            // the preference flips, ProviderMarketWebSocket drops old-socket
+            // events by route identity, so this second purge closes the window.
+            repository.clearMarketDataCache()
+            resetChartContext()
+            refresh()
+        }
+    }
+
     private fun resetChartContext(
         symbol: String = dataController.symbolFlow.value,
         timeframe: Timeframe = dataController.timeframeFlow.value,
@@ -671,8 +1262,15 @@ class ChartViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(
             symbol = symbol, timeframe = timeframe,
             candles = CandleSeries.EMPTY, dataSource = CandleSource.CACHED,
+            dataFreshness = MarketDataFreshness.CACHED, dataAgeMs = null,
             showSymbolPicker = if (clearSymbolPicker) false else _uiState.value.showSymbolPicker,
             aiDecision = null, confluence = null,
+            chartBacktest = ChartBacktestState(
+                selectedStrategy = _uiState.value.chartBacktest.selectedStrategy,
+                selectedRange = _uiState.value.chartBacktest.selectedRange,
+                selectedBlueprintId = _uiState.value.chartBacktest.selectedBlueprintId,
+                showMarkers = _uiState.value.chartBacktest.showMarkers,
+            ),
             isLoading = true, isLoadingOlder = false, historyEndReached = false,
         )
     }
@@ -732,12 +1330,23 @@ class ChartViewModel @Inject constructor(
         val current = _uiState.value
         if (!current.liveAvailable && !current.liveEnabled) return
         val enabled = !current.liveEnabled
+        liveUserOverrideOff = !enabled
         _uiState.value = current.copy(liveEnabled = enabled)
         dataController.toggleLive(!enabled)
     }
 
     fun onBarModeChange(barMode: ChartBarMode) {
-        _uiState.value = _uiState.value.copy(barMode = barMode)
+        val current = _uiState.value
+        val backtest = current.chartBacktest
+        _uiState.value = current.copy(
+            barMode = barMode,
+            chartBacktest = ChartBacktestState(
+                selectedStrategy = backtest.selectedStrategy,
+                selectedRange = backtest.selectedRange,
+                selectedBlueprintId = backtest.selectedBlueprintId,
+                showMarkers = backtest.showMarkers,
+            ),
+        )
         viewModelScope.launch {
             try {
                 dataController.processMergedCandles(preferIncremental = false)
@@ -828,20 +1437,63 @@ class ChartViewModel @Inject constructor(
     // ========================================================================
     // LIFECYCLE
     // ========================================================================
-    override fun onCleared() {
-        super.onCleared()
-        multiChartController.cancelAllPanelJobs()
-        // BUGFIX: viewModelScope is already cancelled when onCleared() runs,
-        // so launching into it would never execute. Use runBlocking for the
-        // short, non-blocking disconnect call to prevent the websocket from
-        // leaking the Service context (SystemJobService leak in crash report).
-        kotlinx.coroutines.runBlocking {
-            try { webSocket.disconnectAll() } catch (_: Exception) { }
-        }
-        replayEngine.stop()
+
+    /**
+     * Stages the currently executable TRADEPRO setup for the broker screen.
+     * This never submits an order; it is a short-lived, one-shot draft and the
+     * broker UI still requires its normal review/confirmation/safety gates.
+     */
+    fun stageExecutableBrokerTrade(): Boolean {
+        val setup = _uiState.value.tradeProAnalysis?.setup ?: return false
+        if (!setup.isExecutable || setup.entry <= 0.0 || !setup.entry.isFinite()) return false
+        val sl = setup.stopLoss.takeIf { it.isFinite() && it > 0.0 }
+        val tp = setup.target2.takeIf { it.isFinite() && it > 0.0 }
+        brokerTradeDraftStore.stage(
+            BrokerTradeDraft(
+                symbol = setup.symbol,
+                direction = setup.direction,
+                referenceEntryPrice = setup.entry,
+                stopLoss = sl,
+                takeProfit = tp,
+                source = "TRADEPRO:${setup.stage.name}",
+                confidence = setup.confidence.coerceIn(0, 100),
+            )
+        )
+        return true
     }
 
+    override fun onCleared() {
+        multiChartController.cancelAllPanelJobs()
+        replayEngine.stop()
+        // viewModelScope is already cancelled here. Never block the main thread
+        // on websocket teardown; perform a bounded best-effort disconnect on an
+        // independent dispatcher and then dispose that cleanup scope.
+        lifecycleCleanupScope.launch {
+            try {
+                withTimeoutOrNull(WEBSOCKET_CLEANUP_TIMEOUT_MS) {
+                    webSocket.disconnectAll()
+                }
+            } finally {
+                lifecycleCleanupScope.cancel()
+            }
+        }
+        super.onCleared()
+    }
+
+    private data class ChartBacktestStrategy(
+        val name: String,
+        val minimumBars: Int,
+        val function: com.foxtrader.app.domain.usecase.backtest.StrategyFunction,
+    )
+
     private companion object {
+        const val BINARY3M_MAX_CHART_SIGNALS = 24
+        const val CHART_BACKTEST_MIN_BARS = 80
+        const val CHART_BACKTEST_INITIAL_BALANCE = 100_000.0
+        const val CHART_BACKTEST_RISK_PERCENT = 1.0
+        const val CHART_BACKTEST_MAX_VISIBLE_BARS = 20_000
+        const val MILLIS_PER_DAY = 86_400_000L
+        const val WEBSOCKET_CLEANUP_TIMEOUT_MS = 2_000L
         /** Bars sampled when deriving an automatic Renko brick from volatility. */
         const val RENKO_AUTO_ATR_WINDOW = 100
 

@@ -6,6 +6,8 @@ import com.foxtrader.app.domain.model.tradepro.OptimizationObjective
 import com.foxtrader.app.domain.model.tradepro.TradeProConfig
 import com.foxtrader.app.domain.model.tradepro.TradeProOptimizationCandidate
 import com.foxtrader.app.domain.model.tradepro.TradeProOptimizationReport
+import com.foxtrader.app.domain.model.tradepro.TradeProRobustnessReport
+import com.foxtrader.app.domain.model.tradepro.TradeProWalkForwardFold
 import com.foxtrader.app.domain.model.tradepro.TradeProParameterGrid
 import java.util.Locale
 import javax.inject.Inject
@@ -91,6 +93,17 @@ class TradeProOptimizer @Inject constructor(
                 )
             }
 
+        val robustness = buildRobustnessReport(
+            symbol = symbol,
+            candles = candles,
+            objective = objective,
+            configs = configs,
+            hasQualifiedCandidate = candidates.any { it.qualified },
+            baseTimeframe = baseTimeframe,
+            minTrades = minTrades,
+            multiTimeframe = multiTimeframe,
+        )
+
         return TradeProOptimizationReport(
             symbol = symbol,
             objective = objective,
@@ -100,8 +113,157 @@ class TradeProOptimizer @Inject constructor(
             inSampleBars = inSample.size,
             outOfSampleBars = outOfSample.size,
             evaluated = configs.size,
-            narrative = narrative(objective, configs.size, inSample.size, outOfSample.size, best, bestOutOfSample),
+            narrative = narrative(
+                objective, configs.size, inSample.size, outOfSample.size,
+                best, bestOutOfSample, robustness,
+            ),
+            robustness = robustness,
         )
+    }
+
+    /**
+     * Anchored walk-forward robustness validation.
+     *
+     * The initial sweep answers "what won on this training split?". Phase 4 adds the harder
+     * question: "does the parameter grid keep finding an edge as time advances?" Each fold expands
+     * the training history chronologically, re-ranks a deterministic bounded sample of the grid,
+     * and validates that fold winner on the immediately following unseen block. The pool itself is
+     * data-independent, so neither validation bars nor later rankings can leak into an earlier fold.
+     */
+    private fun buildRobustnessReport(
+        symbol: String,
+        candles: List<Candle>,
+        objective: OptimizationObjective,
+        configs: List<TradeProConfig>,
+        hasQualifiedCandidate: Boolean,
+        baseTimeframe: Timeframe,
+        minTrades: Int,
+        multiTimeframe: Boolean,
+    ): TradeProRobustnessReport? {
+        if (candles.size < MIN_ROBUSTNESS_BARS || configs.isEmpty()) return null
+
+        // IMPORTANT: this pool is chosen deterministically from the parameter grid, NOT from
+        // candidates ranked on later data. Using later-ranked candidates inside an earlier fold
+        // would leak future information into the walk-forward selection step. The default grid
+        // has 27 configs, so it is evaluated in full; oversized custom grids are evenly sampled
+        // without looking at any backtest result.
+        val pool = deterministicRobustnessPool(configs)
+        if (pool.isEmpty()) return null
+
+        val validationBars = (candles.size / (ROBUSTNESS_FOLDS + 2))
+            .coerceAtLeast(MIN_VALIDATION_BARS)
+        val initialTrainBars = candles.size - validationBars * ROBUSTNESS_FOLDS
+        if (initialTrainBars <= TradeProSignalEngine.MIN_BARS) return null
+
+        val folds = buildList {
+            for (foldIndex in 0 until ROBUSTNESS_FOLDS) {
+                val trainEnd = initialTrainBars + foldIndex * validationBars
+                val validationEnd = minOf(trainEnd + validationBars, candles.size)
+                if (trainEnd <= TradeProSignalEngine.MIN_BARS || validationEnd <= trainEnd) continue
+
+                val train = candles.subList(0, trainEnd)
+                val validation = candles.subList(trainEnd, validationEnd)
+                if (validation.size <= TradeProSignalEngine.MIN_BARS) continue
+
+                val foldWinner = pool
+                    .map { config ->
+                        val result = backtestEngine.run(
+                            symbol = symbol,
+                            candles = train,
+                            config = config,
+                            baseTimeframe = baseTimeframe,
+                            multiTimeframe = multiTimeframe,
+                        )
+                        Triple(config, result, objective.score(result))
+                    }
+                    .sortedWith(
+                        compareByDescending<Triple<TradeProConfig, com.foxtrader.app.domain.model.tradepro.TradeProBacktestResult, Double>> {
+                            it.second.totalTrades >= minTrades
+                        }.thenByDescending { it.third },
+                    )
+                    .firstOrNull() ?: continue
+
+                val validationResult = backtestEngine.run(
+                    symbol = symbol,
+                    candles = validation,
+                    config = foldWinner.first,
+                    baseTimeframe = baseTimeframe,
+                    multiTimeframe = multiTimeframe,
+                )
+                val validationScore = objective.score(validationResult)
+                val passed = validationResult.totalTrades >= MIN_VALIDATION_TRADES &&
+                    validationResult.expectancy > 0.0 &&
+                    validationResult.systemQualityNumber > 0.0 &&
+                    validationResult.profitFactor >= 1.0
+
+                add(
+                    TradeProWalkForwardFold(
+                        index = foldIndex + 1,
+                        trainBars = train.size,
+                        validationBars = validation.size,
+                        winnerLabel = label(foldWinner.first),
+                        trainingScore = foldWinner.third,
+                        validationScore = validationScore,
+                        validationTrades = validationResult.totalTrades,
+                        validationExpectancy = validationResult.expectancy,
+                        validationProfitFactor = validationResult.profitFactor,
+                        passed = passed,
+                    ),
+                )
+            }
+        }
+        if (folds.size < MIN_ROBUSTNESS_FOLDS) return null
+
+        val passed = folds.count { it.passed }
+        val passRate = passed.toDouble() / folds.size
+        val mostCommonWinner = folds.groupingBy { it.winnerLabel }.eachCount().maxOfOrNull { it.value } ?: 0
+        val winnerStability = mostCommonWinner.toDouble() / folds.size
+        val positiveValidationRate = folds.count { it.validationScore > 0.0 }.toDouble() / folds.size
+        val avgScore = folds.map { it.validationScore }.average()
+        val worstScore = folds.minOf { it.validationScore }
+        val avgExpectancy = folds.map { it.validationExpectancy }.average()
+        val robustnessScore = (
+            passRate * 60.0 +
+                winnerStability * 20.0 +
+                positiveValidationRate * 20.0
+            ).coerceIn(0.0, 100.0)
+        val grade = when {
+            robustnessScore >= 85.0 && passRate >= 0.75 -> "A"
+            robustnessScore >= 70.0 && passRate >= 0.50 -> "B"
+            robustnessScore >= 55.0 -> "C"
+            else -> "D"
+        }
+        val recommended = hasQualifiedCandidate &&
+            grade in setOf("A", "B") &&
+            avgExpectancy > 0.0 &&
+            worstScore.isFinite()
+
+        return TradeProRobustnessReport(
+            folds = folds,
+            passedFolds = passed,
+            passRate = passRate,
+            winnerStability = winnerStability,
+            positiveValidationRate = positiveValidationRate,
+            averageValidationScore = avgScore,
+            worstValidationScore = worstScore,
+            averageValidationExpectancy = avgExpectancy,
+            robustnessScore = robustnessScore,
+            grade = grade,
+            recommended = recommended,
+        )
+    }
+
+    private fun deterministicRobustnessPool(configs: List<TradeProConfig>): List<TradeProConfig> {
+        if (configs.size <= MAX_ROBUSTNESS_CANDIDATES) return configs
+        if (MAX_ROBUSTNESS_CANDIDATES <= 1) return listOf(configs.first())
+        return (0 until MAX_ROBUSTNESS_CANDIDATES)
+            .map { i ->
+                val index = ((i.toDouble() / (MAX_ROBUSTNESS_CANDIDATES - 1)) * configs.lastIndex)
+                    .toInt()
+                    .coerceIn(0, configs.lastIndex)
+                configs[index]
+            }
+            .distinct()
     }
 
     private fun label(config: TradeProConfig): String = String.format(
@@ -119,6 +281,7 @@ class TradeProOptimizer @Inject constructor(
         outOfSampleBars: Int,
         best: TradeProOptimizationCandidate?,
         bestOutOfSample: com.foxtrader.app.domain.model.tradepro.TradeProBacktestResult?,
+        robustness: TradeProRobustnessReport?,
     ): String = buildString {
         if (best == null) {
             append("No parameter sets could be evaluated.")
@@ -153,8 +316,23 @@ class TradeProOptimizer @Inject constructor(
                     "The edge weakened out-of-sample — likely curve-fit; validate before trading."
                 },
             )
+            append(" ")
         } else {
-            append("Not enough out-of-sample data to validate — treat as in-sample only.")
+            append("Not enough out-of-sample data to validate — treat as in-sample only. ")
+        }
+        if (robustness != null) {
+            append(
+                String.format(
+                    Locale.US,
+                    "Walk-forward grade %s (%.0f/100): %d/%d unseen folds passed; winner stability %.0f%%. ",
+                    robustness.grade,
+                    robustness.robustnessScore,
+                    robustness.passedFolds,
+                    robustness.folds.size,
+                    robustness.winnerStability * 100.0,
+                ),
+            )
+            append(if (robustness.recommended) "Robust enough for guarded apply." else "Do not auto-apply; robustness gate failed.")
         }
     }
 
@@ -164,5 +342,13 @@ class TradeProOptimizer @Inject constructor(
 
         /** A candidate must produce at least this many in-sample trades to be trusted as the winner. */
         const val MIN_QUALIFYING_TRADES = 5
+
+        /** Phase 4 anchored walk-forward settings; bounded to keep mobile sweeps predictable. */
+        const val ROBUSTNESS_FOLDS = 4
+        const val MAX_ROBUSTNESS_CANDIDATES = 32
+        const val MIN_ROBUSTNESS_BARS = 320
+        const val MIN_ROBUSTNESS_FOLDS = 2
+        const val MIN_VALIDATION_BARS = 60
+        const val MIN_VALIDATION_TRADES = 2
     }
 }

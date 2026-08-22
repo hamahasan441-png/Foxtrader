@@ -27,6 +27,10 @@ import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.model.WorkspaceProfile
 import com.foxtrader.app.domain.model.tradepro.AlertRule
 import com.foxtrader.app.domain.model.LitXConfig
+import com.foxtrader.app.domain.model.LitConfig
+import com.foxtrader.app.domain.model.SmtConfig
+import com.foxtrader.app.domain.model.SmsConfig
+import com.foxtrader.app.domain.model.Mt4AccountProfile
 import com.foxtrader.app.domain.model.tradepro.TradeProConfig
 import com.foxtrader.app.domain.usecase.chart.ChartLayout
 import com.foxtrader.app.domain.usecase.performance.PerformanceMode
@@ -62,7 +66,7 @@ class AppPreferences @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + io)
     private val securePrefs: SharedPreferences by lazy { createSecurePrefs() }
 
-    private val _dataProvider = MutableStateFlow(DataProvider.SAMPLE)
+    private val _dataProvider = MutableStateFlow(DataProvider.DUKASCOPY)
     val dataProvider: StateFlow<DataProvider> = _dataProvider.asStateFlow()
 
     private val _defaultTimeframe = MutableStateFlow(Timeframe.M15)
@@ -159,6 +163,15 @@ class AppPreferences @Inject constructor(
     private val _litXConfig = MutableStateFlow(LitXConfig())
     val litXConfig: StateFlow<LitXConfig> = _litXConfig.asStateFlow()
 
+    private val _litConfig = MutableStateFlow(LitConfig())
+    val litConfig: StateFlow<LitConfig> = _litConfig.asStateFlow()
+
+    private val _smtConfig = MutableStateFlow(SmtConfig())
+    val smtConfig: StateFlow<SmtConfig> = _smtConfig.asStateFlow()
+
+    private val _smsConfig = MutableStateFlow(SmsConfig())
+    val smsConfig: StateFlow<SmsConfig> = _smsConfig.asStateFlow()
+
     private val _tradeProAlertRules = MutableStateFlow<List<AlertRule>>(emptyList())
     val tradeProAlertRules: StateFlow<List<AlertRule>> = _tradeProAlertRules.asStateFlow()
 
@@ -168,7 +181,7 @@ class AppPreferences @Inject constructor(
     private val _metaApiAccountId = MutableStateFlow<String?>(null)
     val metaApiAccountId: StateFlow<String?> = _metaApiAccountId.asStateFlow()
 
-    private val _metaApiLastLogin = MutableStateFlow<Int?>(null)
+    private val _metaApiLastLogin = MutableStateFlow<Long?>(null)
     private val _metaApiLastServer = MutableStateFlow<String?>(null)
     private val _metaApiAccountName = MutableStateFlow<String?>(null)
 
@@ -231,8 +244,10 @@ class AppPreferences @Inject constructor(
                         ?: DEFAULT_AI_ALERT_COOLDOWN_MINUTES
                     ).coerceIn(MIN_AI_ALERT_COOLDOWN_MINUTES, MAX_AI_ALERT_COOLDOWN_MINUTES)
                 _dataProvider.value = prefs[KEY_PROVIDER]?.let { name ->
-                    runCatching { DataProvider.valueOf(name) }.getOrDefault(DataProvider.SAMPLE)
-                } ?: DataProvider.SAMPLE
+                    runCatching { DataProvider.valueOf(name) }.getOrNull()
+                        ?.takeIf { it.implemented }
+                        ?: DataProvider.DUKASCOPY
+                } ?: DataProvider.DUKASCOPY
                 _defaultTimeframe.value = prefs[KEY_DEFAULT_TIMEFRAME]?.let { label ->
                     Timeframe.fromLabel(label)
                 } ?: Timeframe.M15
@@ -275,7 +290,16 @@ class AppPreferences @Inject constructor(
                 } ?: TradeProConfig()
                 _litXConfig.value = prefs[KEY_LITX_CONFIG]?.let { raw ->
                     runCatching { json.decodeFromString<LitXConfig>(raw) }.getOrDefault(LitXConfig())
-                } ?: LitXConfig()
+                }?.sanitized() ?: LitXConfig()
+                _litConfig.value = prefs[KEY_LIT_CONFIG]?.let { raw ->
+                    runCatching { json.decodeFromString<LitConfig>(raw) }.getOrDefault(LitConfig())
+                }?.sanitized() ?: LitConfig()
+                _smtConfig.value = prefs[KEY_SMT_CONFIG]?.let { raw ->
+                    runCatching { json.decodeFromString<SmtConfig>(raw) }.getOrDefault(SmtConfig())
+                }?.sanitized() ?: SmtConfig()
+                _smsConfig.value = prefs[KEY_SMS_CONFIG]?.let { raw ->
+                    runCatching { json.decodeFromString<SmsConfig>(raw) }.getOrDefault(SmsConfig())
+                }?.sanitized() ?: SmsConfig()
                 _tradeProAlertRules.value = prefs[KEY_TRADEPRO_ALERT_RULES]?.let { raw ->
                     runCatching { json.decodeFromString<List<AlertRule>>(raw) }.getOrDefault(emptyList())
                 } ?: emptyList()
@@ -285,7 +309,7 @@ class AppPreferences @Inject constructor(
                 _metaApiAccountId.value = securePrefs.getString(SECURE_KEY_META_API_ACCOUNT_ID, null)
                     ?.trim()
                     ?.takeIf { it.isNotBlank() }
-                _metaApiLastLogin.value = securePrefs.getInt(SECURE_KEY_META_API_LAST_LOGIN, -1).takeIf { it > 0 }
+                _metaApiLastLogin.value = readMetaApiLastLoginCompat()
                 _metaApiLastServer.value = securePrefs.getString(SECURE_KEY_META_API_LAST_SERVER, null)
                     ?.trim()
                     ?.takeIf { it.isNotBlank() }
@@ -369,14 +393,76 @@ class AppPreferences @Inject constructor(
     }
 
     fun setLitXConfig(config: LitXConfig) {
-        _litXConfig.value = config
-        scope.launch { context.dataStore.edit { it[KEY_LITX_CONFIG] = json.encodeToString(config) } }
+        val safe = config.sanitized()
+        _litXConfig.value = safe
+        scope.launch { context.dataStore.edit { it[KEY_LITX_CONFIG] = json.encodeToString(safe) } }
+    }
+
+    fun setLitConfig(config: LitConfig) {
+        val safe = config.sanitized()
+        _litConfig.value = safe
+        scope.launch { context.dataStore.edit { it[KEY_LIT_CONFIG] = json.encodeToString(safe) } }
+    }
+
+    fun setSmtConfig(config: SmtConfig) {
+        val safe = config.sanitized()
+        _smtConfig.value = safe
+        scope.launch { context.dataStore.edit { it[KEY_SMT_CONFIG] = json.encodeToString(safe) } }
+    }
+
+    fun setSmsConfig(config: SmsConfig) {
+        val safe = config.sanitized()
+        _smsConfig.value = safe
+        scope.launch { context.dataStore.edit { it[KEY_SMS_CONFIG] = json.encodeToString(safe) } }
     }
 
     fun setTradeProAlertRules(rules: List<AlertRule>) {
         _tradeProAlertRules.value = rules
         scope.launch { context.dataStore.edit { it[KEY_TRADEPRO_ALERT_RULES] = json.encodeToString(rules) } }
     }
+
+    /** Phase 6 password-free account selector profiles, stored encrypted. */
+    fun getSavedBrokerAccounts(): List<Mt4AccountProfile> {
+        val raw = securePrefs.getString(SECURE_KEY_META_API_SAVED_ACCOUNTS, null) ?: return emptyList()
+        return runCatching {
+            json.decodeFromString<List<PersistedBrokerAccount>>(raw).map {
+                Mt4AccountProfile(
+                    login = it.login,
+                    server = it.server,
+                    platform = it.platform,
+                    displayName = it.displayName,
+                    metaApiAccountId = it.metaApiAccountId,
+                )
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    fun upsertSavedBrokerAccount(profile: Mt4AccountProfile) {
+        val next = (getSavedBrokerAccounts().filterNot {
+            it.login == profile.login && it.server.equals(profile.server, ignoreCase = true) &&
+                it.platform.equals(profile.platform, ignoreCase = true)
+        } + profile).takeLast(8)
+        val persisted = next.map { PersistedBrokerAccount(it.login, it.server, it.platform, it.displayName, it.metaApiAccountId) }
+        securePrefs.edit().putString(SECURE_KEY_META_API_SAVED_ACCOUNTS, json.encodeToString(persisted)).apply()
+    }
+
+    fun removeSavedBrokerAccount(profile: Mt4AccountProfile) {
+        val next = getSavedBrokerAccounts().filterNot {
+            it.login == profile.login && it.server.equals(profile.server, ignoreCase = true) &&
+                it.platform.equals(profile.platform, ignoreCase = true)
+        }
+        val persisted = next.map { PersistedBrokerAccount(it.login, it.server, it.platform, it.displayName, it.metaApiAccountId) }
+        securePrefs.edit().putString(SECURE_KEY_META_API_SAVED_ACCOUNTS, json.encodeToString(persisted)).apply()
+    }
+
+    fun setMetaApiLastPlatform(platform: String) {
+        val normalized = platform.trim().lowercase(Locale.ROOT).takeIf { it == "mt4" || it == "mt5" } ?: "mt4"
+        securePrefs.edit().putString(SECURE_KEY_META_API_LAST_PLATFORM, normalized).apply()
+    }
+
+    fun getMetaApiLastPlatform(): String =
+        securePrefs.getString(SECURE_KEY_META_API_LAST_PLATFORM, "mt4")?.lowercase(Locale.ROOT)
+            ?.takeIf { it == "mt4" || it == "mt5" } ?: "mt4"
 
     /**
      * Persist the MetaApi auth token to encrypted shared preferences.
@@ -422,20 +508,38 @@ class AppPreferences @Inject constructor(
     fun getMetaApiAccountId(): String? =
         securePrefs.getString(SECURE_KEY_META_API_ACCOUNT_ID, null)?.trim()?.takeIf { it.isNotBlank() }
 
-    /** Persist the last connected MT4 login for prefilling the login form. */
-    fun setMetaApiLastLogin(login: Int?) {
-        val normalized = login?.takeIf { it > 0 }
+    /** Persist the last connected MT4/MT5 login for prefilling the login form. */
+    fun setMetaApiLastLogin(login: Long?) {
+        val normalized = login?.takeIf { it > 0L }
         _metaApiLastLogin.value = normalized
         if (normalized == null) {
             securePrefs.edit().remove(SECURE_KEY_META_API_LAST_LOGIN).apply()
         } else {
-            securePrefs.edit().putInt(SECURE_KEY_META_API_LAST_LOGIN, normalized).apply()
+            securePrefs.edit().putLong(SECURE_KEY_META_API_LAST_LOGIN, normalized).apply()
         }
     }
 
-    /** The MT4 login used for the most recent connection, or null. */
-    fun getMetaApiLastLogin(): Int? =
-        securePrefs.getInt(SECURE_KEY_META_API_LAST_LOGIN, -1).takeIf { it > 0 }
+    /** The MT4/MT5 login used for the most recent connection, or null. */
+    fun getMetaApiLastLogin(): Long? = readMetaApiLastLoginCompat()
+
+    /**
+     * Phase 6 originally persisted this field as Int. Read/migrate that legacy
+     * representation without crashing SharedPreferences with a type mismatch.
+     */
+    private fun readMetaApiLastLoginCompat(): Long? {
+        return try {
+            securePrefs.getLong(SECURE_KEY_META_API_LAST_LOGIN, -1L).takeIf { it > 0L }
+        } catch (_: ClassCastException) {
+            val legacy = runCatching { securePrefs.getInt(SECURE_KEY_META_API_LAST_LOGIN, -1) }
+                .getOrDefault(-1)
+                .takeIf { it > 0 }
+                ?.toLong()
+            if (legacy != null) {
+                securePrefs.edit().remove(SECURE_KEY_META_API_LAST_LOGIN).putLong(SECURE_KEY_META_API_LAST_LOGIN, legacy).apply()
+            }
+            legacy
+        }
+    }
 
     /** Persist the last connected MT4 server for prefilling the login form. */
     fun setMetaApiLastServer(server: String?) {
@@ -645,6 +749,11 @@ class AppPreferences @Inject constructor(
         if (!provider.requiresApiKey) return
 
         val normalizedKey = key.trim()
+        // Settings exposes MT4 through the generic provider credential field,
+        // while the broker subsystem uses a dedicated MetaApi-token key. Keep
+        // both views synchronized so selecting/testing MT4 cannot succeed in
+        // one screen yet appear credential-missing to the chart router.
+        if (provider == DataProvider.MT4) setMetaApiToken(normalizedKey)
         val updatedKeys = _apiKeys.value.toMutableMap()
 
         if (normalizedKey.isBlank()) {
@@ -677,8 +786,12 @@ class AppPreferences @Inject constructor(
 
     fun canGoLive(): Boolean {
         val p = _dataProvider.value
-        if (!p.supportsLive) return false
-        if (p.requiresApiKey && _apiKeys.value[p].isNullOrBlank()) return false
+        if (!p.supportsLive || !p.implemented) return false
+        if (p == DataProvider.MT4) {
+            val token = getMetaApiToken() ?: getApiKey(DataProvider.MT4)
+            return !token.isNullOrBlank() && !getMetaApiAccountId().isNullOrBlank()
+        }
+        if (p.requiresApiKey && getApiKey(p).isNullOrBlank()) return false
         return true
     }
 
@@ -773,6 +886,8 @@ class AppPreferences @Inject constructor(
         const val SECURE_KEY_META_API_LAST_LOGIN = "meta_api_last_login"
         const val SECURE_KEY_META_API_LAST_SERVER = "meta_api_last_server"
         const val SECURE_KEY_META_API_ACCOUNT_NAME = "meta_api_account_name"
+        const val SECURE_KEY_META_API_LAST_PLATFORM = "meta_api_last_platform"
+        const val SECURE_KEY_META_API_SAVED_ACCOUNTS = "meta_api_saved_accounts"
         const val MIN_BACKGROUND_SCAN_INTERVAL_MINUTES = 15
         const val MAX_BACKGROUND_SCAN_INTERVAL_MINUTES = 240
         const val DEFAULT_BACKGROUND_SCAN_INTERVAL_MINUTES = 15
@@ -826,6 +941,9 @@ class AppPreferences @Inject constructor(
         const val DEFAULT_TRIAL_DURATION_MS = 14L * 24L * 60L * 60L * 1000L
         val KEY_TRADEPRO_CONFIG = stringPreferencesKey("tradepro_config")
         val KEY_LITX_CONFIG = stringPreferencesKey("litx_config")
+        val KEY_LIT_CONFIG = stringPreferencesKey("lit_phase13_config")
+        val KEY_SMT_CONFIG = stringPreferencesKey("smt_phase13_config")
+        val KEY_SMS_CONFIG = stringPreferencesKey("sms_phase13_config")
         val KEY_TRADEPRO_ALERT_RULES = stringPreferencesKey("tradepro_alert_rules")
         val KEY_MT4_LIVE_MODE = booleanPreferencesKey("mt4_live_mode")
         val KEY_MT4_KILL_SWITCH = booleanPreferencesKey("mt4_kill_switch")
@@ -869,3 +987,13 @@ data class PersistedMultiChartState(
 ) {
     fun panelSeeds(): List<ChartPanelSeed> = panels.map { ChartPanelSeed(it.symbol, it.timeframe) }
 }
+
+
+@Serializable
+private data class PersistedBrokerAccount(
+    val login: Long,
+    val server: String,
+    val platform: String,
+    val displayName: String,
+    val metaApiAccountId: String? = null,
+)

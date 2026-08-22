@@ -62,6 +62,7 @@ enum class MoreAction {
     ALERTS,
     STRATEGIES,
     STRATEGY_BUILDER,
+    PRO_STUDIO,
     AI,
     WATCHLIST,
     PAPER,
@@ -71,6 +72,11 @@ enum class MoreAction {
     SETTINGS,
     SUBSCRIPTION,
     MT4,
+    LIVE_TRADING,
+    AUTOMATION,
+    RELEASE_READINESS,
+    DERIV_NATIVE,
+    JOURNAL,
 }
 
 @HiltViewModel
@@ -96,12 +102,14 @@ fun MoreScreen(
 
     val research = listOf(
         MoreDestination("Strategies", "Ranked setups across the watchlist", Icons.Outlined.TrendingUp, MoreAction.STRATEGIES),
+        MoreDestination("Pro Studio", "Phase 5 strategy, indicator & signal workspace", Icons.Outlined.Tune, MoreAction.PRO_STUDIO, pro = true),
         MoreDestination("Strategy builder", "IF / AND / OR research templates", Icons.Outlined.Tune, MoreAction.STRATEGY_BUILDER),
         MoreDestination("AI workspace", "Explainable research, not predictions", Icons.Outlined.AutoAwesome, MoreAction.AI),
         MoreDestination("Watchlist", "Lists, symbols, order", Icons.Outlined.Star, MoreAction.WATCHLIST),
     )
     val desk = listOf(
         MoreDestination("Portfolio", "Exposure, concentration, P&L", Icons.Outlined.AccountBalanceWallet, MoreAction.PORTFOLIO),
+        MoreDestination("Professional journal", "Broker-synced entries, analytics & CSV export", Icons.Outlined.Insights, MoreAction.JOURNAL),
         MoreDestination("Alerts", "Inbox, priority, history", Icons.Outlined.Notifications, MoreAction.ALERTS),
         MoreDestination("Daily plan", "Pre-market briefing", Icons.Outlined.Insights, MoreAction.DAILY_PLAN),
         MoreDestination("Paper trading", "Simulated execution", Icons.Outlined.ShowChart, MoreAction.PAPER),
@@ -109,7 +117,10 @@ fun MoreScreen(
         MoreDestination("Correlation", "Concentration clusters", Icons.Outlined.Hub, MoreAction.CORRELATION, pro = true),
     )
     val liveTrading = listOf(
-        MoreDestination("MT4 account", "Connect your MT4 broker via MetaApi", Icons.Outlined.ShowChart, MoreAction.MT4),
+        MoreDestination("Live trading", "Phase 6 · Paper, demo, MT4/MT5 & Deriv", Icons.Outlined.ShowChart, MoreAction.LIVE_TRADING),
+        MoreDestination("Automation cockpit", "Phase 7 · Signal review and execution routing", Icons.Outlined.Hub, MoreAction.AUTOMATION, pro = true),
+        MoreDestination("Release readiness", "Phase 8 · Production gates, security & QA", Icons.Outlined.Settings, MoreAction.RELEASE_READINESS, pro = true),
+        MoreDestination("Native Deriv", "Phase 9 · Direct REST + OTP WebSocket", Icons.Outlined.AccountBalanceWallet, MoreAction.DERIV_NATIVE, pro = true),
     )
     val account = listOf(
         MoreDestination("Settings", "Risk, data, privacy, providers", Icons.Outlined.Settings, MoreAction.SETTINGS),

@@ -11,328 +11,378 @@ import org.junit.Test
 class MetaApiDataSourceTest {
 
     @Test
-    fun `deployAccount sends correct request and returns account ID`() = runBlocking {
+    fun `deployAccount sends current provisioning shape transaction id and resolves region`() = runBlocking {
         val api = FakeMetaApiService(
-            deployResponse = MetaApiDeployResponse(
-                id = "acc-12345",
-                state = "DEPLOYED",
-                name = "FoxTrader-123456",
-                server = "ICMarkets-Demo",
-                platform = "mt4",
-            )
+            deployResponse = MetaApiDeployResponse(id = "acc-12345", state = "DEPLOYED"),
+            provisioned = MetaApiProvisionedAccountResponse(id = "acc-12345", region = "new-york"),
         )
         val dataSource = MetaApiDataSource(api)
-
-        val credentials = Mt4Credentials(
-            login = 123456,
-            password = "pass123",
-            server = "ICMarkets-Demo",
+        val accountId = dataSource.deployAccount(
+            "test-token",
+            Mt4Credentials(login = 123456, password = "pass123", server = "ICMarkets-Demo"),
         )
-        val accountId = dataSource.deployAccount("test-token", credentials)
 
         assertEquals("acc-12345", accountId)
         assertEquals("test-token", api.lastAuthToken)
-        assertEquals(123456, api.lastDeployRequest?.login)
+        assertEquals("123456", api.lastDeployRequest?.login)
         assertEquals("pass123", api.lastDeployRequest?.password)
-        assertEquals("ICMarkets-Demo", api.lastDeployRequest?.server)
-        assertEquals("mt4", api.lastDeployRequest?.platform)
+        assertEquals("cloud-g2", api.lastDeployRequest?.type)
+        assertTrue(api.lastTransactionId?.matches(Regex("[0-9a-f]{32}")) == true)
     }
 
     @Test
-    fun `getAccountInfo maps response DTO to domain model correctly`() = runBlocking {
+    fun `getAccountInfo routes to regional client host and maps response`() = runBlocking {
         val api = FakeMetaApiService(
+            provisioned = MetaApiProvisionedAccountResponse(id = "acc-999", region = "london"),
             accountInfoResponse = MetaApiAccountInfoResponse(
-                login = 789012,
-                balance = 10000.50,
-                equity = 10250.75,
-                margin = 500.0,
-                freeMargin = 9750.75,
-                leverage = 100,
-                currency = "USD",
-                name = "John Doe",
-                server = "FXCM-Demo",
-            )
+                login = 789012, balance = 10000.50, equity = 10250.75,
+                margin = 500.0, freeMargin = 9750.75, leverage = 100,
+                currency = "USD", name = "John Doe", server = "FXCM-Demo",
+            ),
         )
-        val dataSource = MetaApiDataSource(api)
+        val accountInfo = MetaApiDataSource(api).getAccountInfo("my-token", "acc-999")
 
-        val accountInfo = dataSource.getAccountInfo("my-token", "acc-999")
-
-        assertEquals(789012, accountInfo.login)
-        assertEquals(10000.50, accountInfo.balance, 0.001)
-        assertEquals(10250.75, accountInfo.equity, 0.001)
-        assertEquals(500.0, accountInfo.margin, 0.001)
+        assertEquals(789012L, accountInfo.login)
         assertEquals(9750.75, accountInfo.freeMargin, 0.001)
-        assertEquals(100, accountInfo.leverage)
-        assertEquals("USD", accountInfo.currency)
-        assertEquals("John Doe", accountInfo.name)
-        assertEquals("FXCM-Demo", accountInfo.server)
-        assertEquals("my-token", api.lastAuthToken)
-        assertEquals("acc-999", api.lastAccountId)
+        assertTrue(api.lastUrl?.startsWith("https://mt-client-api-v1.london.agiliumtrade.ai/") == true)
+        assertTrue(api.lastUrl?.endsWith("/acc-999/account-information") == true)
     }
 
     @Test
-    fun `getPositions maps response DTOs to domain models with correct order types`() = runBlocking {
+    fun `legacy vint-hill region maps to new-york public endpoint`() = runBlocking {
         val api = FakeMetaApiService(
+            provisioned = MetaApiProvisionedAccountResponse(id = "acc", region = "vint-hill"),
+            accountInfoResponse = MetaApiAccountInfoResponse(login = 1),
+        )
+        MetaApiDataSource(api).getAccountInfo("t", "acc")
+        assertTrue(api.lastUrl?.contains("mt-client-api-v1.new-york.agiliumtrade.ai") == true)
+    }
+
+    @Test
+    fun `safe custom MetaApi region is routed under fixed vendor domain`() = runBlocking {
+        val api = FakeMetaApiService(
+            provisioned = MetaApiProvisionedAccountResponse(id = "acc", region = "custom-region-2"),
+            accountInfoResponse = MetaApiAccountInfoResponse(login = 1),
+        )
+        MetaApiDataSource(api).getAccountInfo("t", "acc")
+        assertTrue(api.lastUrl?.startsWith("https://mt-client-api-v1.custom-region-2.agiliumtrade.ai/") == true)
+    }
+
+    @Test
+    fun `hostile MetaApi region fails closed`() = runBlocking {
+        val api = FakeMetaApiService(
+            provisioned = MetaApiProvisionedAccountResponse(id = "acc", region = "evil.example.com"),
+        )
+        val error = runCatching { MetaApiDataSource(api).getAccountInfo("t", "acc") }.exceptionOrNull()
+        assertTrue(error is IllegalArgumentException)
+        assertTrue(error?.message?.contains("Invalid MetaApi deployment region") == true)
+    }
+
+    @Test
+    fun `positions map string ids ISO time and filter malformed rows`() = runBlocking {
+        val api = FakeMetaApiService(
+            provisioned = MetaApiProvisionedAccountResponse(id = "acc-1", region = "new-york"),
             positionsResponse = listOf(
                 MetaApiPositionResponse(
-                    id = 100001,
-                    symbol = "EURUSD",
-                    type = "POSITION_TYPE_BUY",
-                    volume = 0.1,
-                    openPrice = 1.08500,
-                    time = 1700000000000L,
-                    stopLoss = 1.08000,
-                    takeProfit = 1.09000,
-                    profit = 25.50,
-                    swap = -1.20,
-                    commission = -3.00,
+                    id = "100001", symbol = "EURUSD", type = "POSITION_TYPE_BUY",
+                    volume = 0.1, openPrice = 1.085, time = "2023-11-14T22:13:20Z",
+                    stopLoss = 1.08, takeProfit = 1.09, profit = 25.5, swap = -1.2, commission = -3.0,
                 ),
-                MetaApiPositionResponse(
-                    id = 100002,
-                    symbol = "GBPUSD",
-                    type = "POSITION_TYPE_SELL",
-                    volume = 0.5,
-                    openPrice = 1.26000,
-                    time = 1700001000000L,
-                    stopLoss = 1.26500,
-                    takeProfit = 1.25000,
-                    profit = -10.00,
-                    swap = 0.50,
-                    commission = -7.50,
-                ),
-            )
+                MetaApiPositionResponse(id = "not-numeric", symbol = "GBPUSD", type = "POSITION_TYPE_SELL", volume = 1.0, openPrice = 1.2),
+            ),
         )
-        val dataSource = MetaApiDataSource(api)
-
-        val positions = dataSource.getPositions("tok", "acc-1")
-
-        assertEquals(2, positions.size)
-
-        val first = positions[0]
-        assertEquals(100001L, first.ticket)
-        assertEquals("EURUSD", first.symbol)
-        assertEquals(Mt4OrderType.BUY, first.type)
-        assertEquals(0.1, first.lots, 0.001)
-        assertEquals(1.08500, first.openPrice, 0.00001)
-        assertEquals(1700000000000L, first.openTime)
-        assertEquals(1.08000, first.sl, 0.00001)
-        assertEquals(1.09000, first.tp, 0.00001)
-        assertEquals(25.50, first.profit, 0.001)
-        assertEquals(-1.20, first.swap, 0.001)
-        assertEquals(-3.00, first.commission, 0.001)
-
-        val second = positions[1]
-        assertEquals(100002L, second.ticket)
-        assertEquals("GBPUSD", second.symbol)
-        assertEquals(Mt4OrderType.SELL, second.type)
-        assertEquals(0.5, second.lots, 0.001)
-        assertEquals(1.26000, second.openPrice, 0.00001)
-        assertEquals(-10.00, second.profit, 0.001)
+        val positions = MetaApiDataSource(api).getPositions("tok", "acc-1")
+        assertEquals(1, positions.size)
+        assertEquals(100001L, positions.single().ticket)
+        assertEquals(Mt4OrderType.BUY, positions.single().type)
+        assertTrue(positions.single().openTime > 0L)
     }
 
     @Test
-    fun `historical candles drop non finite and invalid rows`() = runBlocking {
+    fun `historical candles use market-data host correct timeframe and drop invalid rows`() = runBlocking {
         val api = FakeMetaApiService(
-            candlesResponse = MetaApiCandlesResponse(
-                candles = listOf(
-                    MetaApiCandleResponse(time = 1L, open = 1.0, high = 1.1, low = 0.9, close = 1.05, tickVolume = 5.0),
-                    MetaApiCandleResponse(time = 2L, open = Double.NaN, high = 1.1, low = 0.9, close = 1.05),
-                    MetaApiCandleResponse(time = 3L, open = 1.0, high = 0.8, low = 0.9, close = 1.05), // high < low
-                    MetaApiCandleResponse(time = 4L, open = -1.0, high = 1.1, low = 0.9, close = 1.05),
-                )
-            )
+            provisioned = MetaApiProvisionedAccountResponse(id = "acc", region = "new-york"),
+            candlesResponse = listOf(
+                MetaApiCandleResponse(time = "2026-08-21T10:00:00Z", open = 1.0, high = 1.1, low = 0.9, close = 1.05, tickVolume = 5.0),
+                MetaApiCandleResponse(time = "2026-08-21T11:00:00Z", open = Double.NaN, high = 1.1, low = 0.9, close = 1.05),
+                MetaApiCandleResponse(time = "2026-08-21T12:00:00Z", open = 1.0, high = 1.01, low = 0.9, close = 1.05), // high < close
+            ),
         )
-        val dataSource = MetaApiDataSource(api)
-
-        val candles = dataSource.getHistoricalCandles("token", "acc", "EURUSD", Timeframe.H1, 10)
-
+        val candles = MetaApiDataSource(api).getHistoricalCandles("token", "acc", "EURUSD", Timeframe.H1, 10)
         assertEquals(1, candles.size)
-        assertEquals(1L, candles.single().timestamp)
+        assertTrue(api.lastUrl?.contains("mt-market-data-client-api-v1.new-york.agiliumtrade.ai") == true)
+        assertTrue(api.lastUrl?.contains("/timeframes/1h/candles") == true)
     }
 
     @Test
-    fun `executeTrade sends correct action type and returns order ID`() = runBlocking {
+    fun `current price maps ISO time and validates spread`() = runBlocking {
         val api = FakeMetaApiService(
+            provisioned = MetaApiProvisionedAccountResponse(id = "acc", region = "new-york"),
+            currentPriceResponse = MetaApiCurrentPriceResponse(
+                symbol = "EURUSD", bid = 1.1, ask = 1.1002, time = "2026-08-21T10:00:00Z"
+            ),
+        )
+        val quote = MetaApiDataSource(api).getCurrentPrice("t", "acc", "eurusd")
+        assertEquals("EURUSD", quote.symbol)
+        assertEquals(1.1, quote.bid, 1e-9)
+        assertTrue(quote.timestamp > 0L)
+    }
+
+    @Test
+    fun `executeTrade sends market action and parses string order id`() = runBlocking {
+        val api = FakeMetaApiService(
+            provisioned = MetaApiProvisionedAccountResponse(id = "acc-trade", region = "new-york"),
             tradeResponse = MetaApiTradeResponse(
-                numericCode = 0,
-                stringCode = "TRADE_RETCODE_DONE",
-                orderId = 200001,
-                message = "Request completed",
-            )
+                numericCode = 10009, stringCode = "TRADE_RETCODE_DONE", orderId = "200001", message = "Request completed"
+            ),
         )
-        val dataSource = MetaApiDataSource(api)
-
-        val orderId = dataSource.executeTrade(
-            token = "trade-token",
-            accountId = "acc-trade",
-            symbol = "USDJPY",
-            type = Mt4OrderType.BUY_LIMIT,
-            lots = 0.25,
-            sl = 148.500,
-            tp = 150.000,
+        val orderId = MetaApiDataSource(api).executeTrade(
+            token = "trade-token", accountId = "acc-trade", symbol = "USDJPY",
+            type = Mt4OrderType.BUY, lots = 0.25, sl = 148.5, tp = 150.0,
         )
-
         assertEquals(200001L, orderId)
-        assertEquals("trade-token", api.lastAuthToken)
-        assertEquals("acc-trade", api.lastAccountId)
-        assertEquals("ORDER_TYPE_BUY_LIMIT", api.lastTradeRequest?.actionType)
+        assertEquals("ORDER_TYPE_BUY", api.lastTradeRequest?.actionType)
         assertEquals("USDJPY", api.lastTradeRequest?.symbol)
-        assertEquals(0.25, api.lastTradeRequest?.volume ?: 0.0, 0.001)
-        assertEquals(148.500, api.lastTradeRequest?.stopLoss ?: 0.0, 0.001)
-        assertEquals(150.000, api.lastTradeRequest?.takeProfit ?: 0.0, 0.001)
+        assertTrue(api.lastUrl?.endsWith("/acc-trade/trade") == true)
     }
 
     @Test
-    fun `deployAccount throws when response ID is blank`() = runBlocking {
+    fun `executeTrade rejects pending order without explicit open price`() = runBlocking {
         val api = FakeMetaApiService(
-            deployResponse = MetaApiDeployResponse(id = "", state = "FAILED")
+            provisioned = MetaApiProvisionedAccountResponse(id = "acc-trade", region = "new-york"),
         )
-        val dataSource = MetaApiDataSource(api)
-
-        val error = try {
-            dataSource.deployAccount(
-                "token",
-                Mt4Credentials(login = 1, password = "p", server = "s"),
+        val error = runCatching {
+            MetaApiDataSource(api).executeTrade(
+                token = "trade-token", accountId = "acc-trade", symbol = "USDJPY",
+                type = Mt4OrderType.BUY_LIMIT, lots = 0.25, sl = 148.5, tp = 150.0,
             )
-            null
-        } catch (e: IllegalStateException) {
-            e
-        }
+        }.exceptionOrNull()
+        assertTrue(error is IllegalArgumentException)
+        assertTrue(error?.message?.contains("Pending orders require") == true)
+        assertEquals(null, api.lastTradeRequest)
+    }
 
-        assertTrue(error != null)
-        assertTrue(error?.message?.contains("empty ID") == true)
+
+    @Test
+    fun `explicit broker rejection uses dedicated rejected exception`() = runBlocking {
+        val api = FakeMetaApiService(
+            provisioned = MetaApiProvisionedAccountResponse(id = "acc-trade", region = "new-york"),
+            tradeResponse = MetaApiTradeResponse(
+                numericCode = 10013, stringCode = "TRADE_RETCODE_INVALID", orderId = "", message = "Invalid request"
+            ),
+        )
+        val error = runCatching {
+            MetaApiDataSource(api).executeTrade(
+                token = "trade-token", accountId = "acc-trade", symbol = "EURUSD",
+                type = Mt4OrderType.BUY, lots = 0.10, sl = null, tp = null,
+            )
+        }.exceptionOrNull()
+        assertTrue(error is MetaApiTradeRejectedException)
     }
 
     @Test
-    fun `getSymbolSpecification returns valid spec and filters invalid`() = runBlocking {
-        val validSpec = MetaApiSymbolSpecResponse(
-            symbol = "EURUSD",
-            tickSize = 0.00001,
-            minVolume = 0.01,
-            maxVolume = 100.0,
-            volumeStep = 0.01,
-            contractSize = 100000.0,
-            digits = 5,
+    fun `documented partial completion response is accepted`() = runBlocking {
+        val api = FakeMetaApiService(
+            provisioned = MetaApiProvisionedAccountResponse(id = "acc", region = "new-york"),
+            tradeResponse = MetaApiTradeResponse(
+                numericCode = 10010, stringCode = "TRADE_RETCODE_DONE_PARTIAL",
+                orderId = "123", message = "Partially completed"
+            ),
         )
-        val api = FakeMetaApiService(symbolSpecResponse = validSpec)
+        assertEquals(123L, MetaApiDataSource(api).executeTrade(
+            token = "t", accountId = "acc", symbol = "EURUSD",
+            type = Mt4OrderType.BUY, lots = 0.1, sl = null, tp = null,
+        ))
+    }
+
+    @Test
+    fun `delivered then disconnected trade remains unknown not retryable rejection`() = runBlocking {
+        val api = FakeMetaApiService(
+            provisioned = MetaApiProvisionedAccountResponse(id = "acc", region = "new-york"),
+            tradeResponse = MetaApiTradeResponse(
+                numericCode = -11, stringCode = "TRADE_RETCODE_DISCONNECTED_DURING_TRADE",
+                message = "Connection lost after delivery"
+            ),
+        )
+        val error = runCatching {
+            MetaApiDataSource(api).executeTrade(
+                token = "t", accountId = "acc", symbol = "EURUSD",
+                type = Mt4OrderType.BUY, lots = 0.1, sl = null, tp = null,
+            )
+        }.exceptionOrNull()
+        assertTrue(error is MetaApiTradeOutcomeUnknownException)
+        assertTrue(error !is MetaApiTradeRejectedException)
+    }
+
+    @Test
+    fun `realized profit waits for exit deal then sums profit commission and swap`() = runBlocking {
+        val noExitApi = FakeMetaApiService(
+            provisioned = MetaApiProvisionedAccountResponse(id = "acc", region = "new-york"),
+            dealsResponse = listOf(
+                MetaApiDealResponse(id = "1", entryType = "DEAL_ENTRY_IN", profit = 0.0, commission = -2.0, swap = 0.0, positionId = "77"),
+            ),
+        )
+        assertEquals(null, MetaApiDataSource(noExitApi).getPositionRealizedProfit("t", "acc", 77L))
+
+        val api = FakeMetaApiService(
+            provisioned = MetaApiProvisionedAccountResponse(id = "acc", region = "new-york"),
+            dealsResponse = listOf(
+                MetaApiDealResponse(id = "1", entryType = "DEAL_ENTRY_IN", profit = 0.0, commission = -2.0, swap = 0.0, positionId = "77"),
+                MetaApiDealResponse(id = "2", entryType = "DEAL_ENTRY_OUT", profit = 25.0, commission = -2.0, swap = -1.0, positionId = "77"),
+            ),
+        )
+        val realized = MetaApiDataSource(api).getPositionRealizedProfit("t", "acc", 77L)
+        assertEquals(20.0, realized ?: Double.NaN, 1e-9)
+        assertTrue(api.lastUrl?.endsWith("/acc/history-deals/position/77") == true)
+    }
+
+
+    @Test
+    fun `pending orders map broker state and explicit create includes open price`() = runBlocking {
+        val api = FakeMetaApiService(
+            provisioned = MetaApiProvisionedAccountResponse(id = "acc", region = "new-york"),
+            ordersResponse = listOf(
+                MetaApiOrderResponse(
+                    id = "9001", type = "ORDER_TYPE_BUY_LIMIT", state = "ORDER_STATE_PLACED",
+                    symbol = "EURUSD", time = "2026-08-21T10:00:00Z", openPrice = 1.08,
+                    currentPrice = 1.09, stopLoss = 1.07, takeProfit = 1.10,
+                    volume = 0.2, currentVolume = 0.2, expirationType = "ORDER_TIME_GTC",
+                )
+            ),
+            tradeResponse = MetaApiTradeResponse(
+                numericCode = 10008, stringCode = "TRADE_RETCODE_PLACED", orderId = "9002"
+            ),
+        )
         val dataSource = MetaApiDataSource(api)
-
-        val result = dataSource.getSymbolSpecification("tok", "acc", "EURUSD")
-        assertTrue(result != null)
-        assertEquals(0.01, result!!.minVolume, 1e-9)
-        assertEquals(100.0, result.maxVolume, 1e-9)
-        assertEquals(0.01, result.volumeStep, 1e-9)
-
-        // Non-finite should be filtered to null
-        val badSpec = validSpec.copy(minVolume = Double.NaN)
-        val apiBad = FakeMetaApiService(symbolSpecResponse = badSpec)
-        val dsBad = MetaApiDataSource(apiBad)
-        val badResult = dsBad.getSymbolSpecification("tok", "acc", "EURUSD")
-        assertTrue(badResult == null)
+        val pending = dataSource.getPendingOrders("t", "acc")
+        assertEquals(1, pending.size)
+        assertEquals(9001L, pending.single().ticket)
+        assertEquals(Mt4OrderType.BUY_LIMIT, pending.single().type)
+        val id = dataSource.placePendingOrder(
+            "t", "acc",
+            com.foxtrader.app.domain.model.Mt4PendingOrderRequest(
+                symbol = "EURUSD", type = Mt4OrderType.BUY_LIMIT, lots = 0.2, openPrice = 1.08,
+                stopLoss = 1.07, takeProfit = 1.10,
+            )
+        )
+        assertEquals(9002L, id)
+        assertEquals("ORDER_TYPE_BUY_LIMIT", api.lastTradeRequest?.actionType)
+        assertEquals(1.08, api.lastTradeRequest?.openPrice ?: Double.NaN, 1e-9)
     }
 
     @Test
-    fun `getSymbolSpecification filters invalid volume relationships`() = runBlocking {
-        // max < min should be invalid
-        val invalid = MetaApiSymbolSpecResponse(
-            symbol = "EURUSD",
-            tickSize = 0.00001,
-            minVolume = 1.0,
-            maxVolume = 0.5,
-            volumeStep = 0.01,
-            contractSize = 100000.0,
+    fun `position management maps trailing partial and pending cancel actions`() = runBlocking {
+        val api = FakeMetaApiService(
+            provisioned = MetaApiProvisionedAccountResponse(id = "acc", region = "new-york"),
+            tradeResponse = MetaApiTradeResponse(numericCode = 10009, stringCode = "TRADE_RETCODE_DONE", orderId = "1"),
         )
-        val api = FakeMetaApiService(symbolSpecResponse = invalid)
-        val ds = MetaApiDataSource(api)
-        assertTrue(ds.getSymbolSpecification("tok", "acc", "EURUSD") == null)
+        val dataSource = MetaApiDataSource(api)
+        dataSource.modifyPositionProtection(
+            "t", "acc", 77L,
+            com.foxtrader.app.domain.model.Mt4PositionProtection(stopLoss = 1.0, takeProfit = 2.0, trailingDistancePoints = 50.0),
+        )
+        assertEquals("POSITION_MODIFY", api.lastTradeRequest?.actionType)
+        assertEquals(50.0, api.lastTradeRequest?.trailingStopLoss?.distance?.distance ?: Double.NaN, 1e-9)
+        dataSource.partialClosePosition("t", "acc", 77L, 0.05)
+        assertEquals("POSITION_PARTIAL", api.lastTradeRequest?.actionType)
+        dataSource.cancelPendingOrder("t", "acc", 9001L)
+        assertEquals("ORDER_CANCEL", api.lastTradeRequest?.actionType)
     }
 
-    // ========================================================================
-    // FAKE IMPLEMENTATION
-    // ========================================================================
+    @Test
+    fun `getSymbolSpecification validates broker bounds and symbol`() = runBlocking {
+        val valid = MetaApiSymbolSpecResponse(
+            symbol = "EURUSD", tickSize = 0.00001, point = 0.00001, minVolume = 0.01,
+            maxVolume = 100.0, volumeStep = 0.01, contractSize = 100000.0,
+            baseCurrency = "EUR", profitCurrency = "USD",
+        )
+        val api = FakeMetaApiService(
+            provisioned = MetaApiProvisionedAccountResponse(id = "acc", region = "new-york"),
+            symbolSpecResponse = valid,
+        )
+        assertTrue(MetaApiDataSource(api).getSymbolSpecification("tok", "acc", "EURUSD") != null)
+
+        val badApi = FakeMetaApiService(
+            provisioned = MetaApiProvisionedAccountResponse(id = "acc", region = "new-york"),
+            symbolSpecResponse = valid.copy(maxVolume = 0.001),
+        )
+        assertTrue(MetaApiDataSource(badApi).getSymbolSpecification("tok", "acc", "EURUSD") == null)
+    }
+
+    @Test
+    fun `broker symbol is encoded as a single URL path segment`() = runBlocking {
+        val api = FakeMetaApiService(
+            provisioned = MetaApiProvisionedAccountResponse(id = "acc", region = "new-york"),
+            currentPriceResponse = MetaApiCurrentPriceResponse(
+                symbol = "XAU/USD#", bid = 2500.0, ask = 2500.5, time = "2026-08-21T10:00:00Z"
+            ),
+        )
+        MetaApiDataSource(api).getCurrentPrice("t", "acc", "XAU/USD#")
+        assertTrue(api.lastUrl?.contains("/symbols/XAU%2FUSD%23/current-price") == true)
+    }
 
     private class FakeMetaApiService(
-        private val deployResponse: MetaApiDeployResponse = MetaApiDeployResponse(id = "default-id"),
-        private val accountInfoResponse: MetaApiAccountInfoResponse = MetaApiAccountInfoResponse(),
+        private val deployResponse: MetaApiDeployResponse = MetaApiDeployResponse(id = "default-id", state = "DEPLOYED"),
+        private val provisioned: MetaApiProvisionedAccountResponse = MetaApiProvisionedAccountResponse(id = "default-id", region = "new-york"),
+        private val accountInfoResponse: MetaApiAccountInfoResponse = MetaApiAccountInfoResponse(login = 1),
         private val positionsResponse: List<MetaApiPositionResponse> = emptyList(),
-        private val tradeResponse: MetaApiTradeResponse = MetaApiTradeResponse(orderId = 1),
-        private val candlesResponse: MetaApiCandlesResponse = MetaApiCandlesResponse(),
-        private val symbolSpecResponse: MetaApiSymbolSpecResponse = MetaApiSymbolSpecResponse(
-            symbol = "EURUSD",
-            tickSize = 0.00001,
-            minVolume = 0.01,
-            maxVolume = 100.0,
-            volumeStep = 0.01,
-            contractSize = 100000.0,
-        ),
+        private val ordersResponse: List<MetaApiOrderResponse> = emptyList(),
+        private val tradeResponse: MetaApiTradeResponse = MetaApiTradeResponse(numericCode = 10009, stringCode = "TRADE_RETCODE_DONE", orderId = "1"),
+        private val currentPriceResponse: MetaApiCurrentPriceResponse = MetaApiCurrentPriceResponse(symbol = "EURUSD", bid = 1.0, ask = 1.1, time = "2026-08-21T10:00:00Z"),
+        private val candlesResponse: List<MetaApiCandleResponse> = emptyList(),
+        private val symbolSpecResponse: MetaApiSymbolSpecResponse = MetaApiSymbolSpecResponse(symbol = "EURUSD", tickSize = 0.00001, minVolume = 0.01, maxVolume = 100.0, volumeStep = 0.01, contractSize = 100000.0),
+        private val dealsResponse: List<MetaApiDealResponse> = emptyList(),
     ) : MetaApiService {
-
         var lastAuthToken: String? = null
-        var lastAccountId: String? = null
+        var lastTransactionId: String? = null
         var lastDeployRequest: MetaApiDeployRequest? = null
         var lastTradeRequest: MetaApiTradeRequest? = null
-        var lastSpecSymbol: String? = null
+        var lastUrl: String? = null
 
-        override suspend fun deployAccount(
-            authToken: String,
-            request: MetaApiDeployRequest,
-        ): MetaApiDeployResponse {
-            lastAuthToken = authToken
-            lastDeployRequest = request
+        override suspend fun deployAccount(authToken: String, transactionId: String, request: MetaApiDeployRequest): MetaApiDeployResponse {
+            lastAuthToken = authToken; lastTransactionId = transactionId; lastDeployRequest = request
             return deployResponse
         }
 
-        override suspend fun getAccountInformation(
-            authToken: String,
-            accountId: String,
-        ): MetaApiAccountInfoResponse {
+        override suspend fun getProvisionedAccount(authToken: String, accountId: String): MetaApiProvisionedAccountResponse {
             lastAuthToken = authToken
-            lastAccountId = accountId
-            return accountInfoResponse
+            return if (provisioned.id == "default-id") provisioned.copy(id = accountId) else provisioned
         }
 
-        override suspend fun getPositions(
-            authToken: String,
-            accountId: String,
-        ): List<MetaApiPositionResponse> {
+        override suspend fun deployProvisionedAccount(authToken: String, accountId: String, executeForAllReplicas: Boolean) {
             lastAuthToken = authToken
-            lastAccountId = accountId
-            return positionsResponse
         }
 
-        override suspend fun executeTrade(
-            authToken: String,
-            accountId: String,
-            request: MetaApiTradeRequest,
-        ): MetaApiTradeResponse {
-            lastAuthToken = authToken
-            lastAccountId = accountId
-            lastTradeRequest = request
-            return tradeResponse
+        override suspend fun getAccountInformation(url: String, authToken: String, refreshTerminalState: Boolean): MetaApiAccountInfoResponse {
+            lastUrl = url; lastAuthToken = authToken; return accountInfoResponse
         }
 
-        override suspend fun getHistoricalCandles(
-            authToken: String,
-            accountId: String,
-            symbol: String,
-            timeframe: String,
-            startTime: Long?,
-            limit: Int?,
-        ): MetaApiCandlesResponse {
-            lastAuthToken = authToken
-            lastAccountId = accountId
-            return candlesResponse
+        override suspend fun getPositions(url: String, authToken: String, refreshTerminalState: Boolean): List<MetaApiPositionResponse> {
+            lastUrl = url; lastAuthToken = authToken; return positionsResponse
         }
 
-        override suspend fun getSymbolSpecification(
-            authToken: String,
-            accountId: String,
-            symbol: String,
-        ): MetaApiSymbolSpecResponse {
-            lastAuthToken = authToken
-            lastAccountId = accountId
-            lastSpecSymbol = symbol
-            return symbolSpecResponse
+        override suspend fun getOrders(url: String, authToken: String, refreshTerminalState: Boolean): List<MetaApiOrderResponse> {
+            lastUrl = url; lastAuthToken = authToken; return ordersResponse
+        }
+
+        override suspend fun executeTrade(url: String, authToken: String, request: MetaApiTradeRequest): MetaApiTradeResponse {
+            lastUrl = url; lastAuthToken = authToken; lastTradeRequest = request; return tradeResponse
+        }
+
+        override suspend fun getCurrentPrice(url: String, authToken: String, keepSubscription: Boolean): MetaApiCurrentPriceResponse {
+            lastUrl = url; lastAuthToken = authToken; return currentPriceResponse
+        }
+
+        override suspend fun getHistoricalCandles(url: String, authToken: String, startTime: String?, limit: Int?): List<MetaApiCandleResponse> {
+            lastUrl = url; lastAuthToken = authToken; return candlesResponse
+        }
+
+        override suspend fun getSymbolSpecification(url: String, authToken: String): MetaApiSymbolSpecResponse {
+            lastUrl = url; lastAuthToken = authToken; return symbolSpecResponse
+        }
+
+        override suspend fun getDealsByPosition(url: String, authToken: String): List<MetaApiDealResponse> {
+            lastUrl = url; lastAuthToken = authToken; return dealsResponse
         }
     }
 }

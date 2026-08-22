@@ -46,6 +46,16 @@ data class ScreenerResult(
     val changePercent: Double,
     val riskLevel: ScannerRiskLevel = ScannerRiskLevel.MODERATE,
     val rationale: String = "",
+    /** Fraction of available higher timeframes aligned with [direction] (0..1). */
+    val mtfAlignment: Double = 0.0,
+    /** Latest confirmed SMT divergence agrees with [direction]. */
+    val smtConfirmed: Boolean = false,
+    /** Peer that supplied the latest SMT confirmation, when present. */
+    val smtPeer: String? = null,
+    /** Phase 4 gate: score + MTF + risk conditions are strong enough to act on. */
+    val actionable: Boolean = false,
+    /** Suggested multiplier for the configured per-trade risk, never above 1.0. */
+    val riskMultiplier: Double = 1.0,
 )
 
 /** Aggregate screener output. */

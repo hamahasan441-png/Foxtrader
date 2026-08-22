@@ -31,7 +31,7 @@ class NoOpCrashBackend @Inject constructor() : RemoteCrashBackend {
     }
 
     override fun addBreadcrumb(message: String, category: String) {
-        Log.d(TAG, "addBreadcrumb(category=$category, message=$message)")
+        Log.d(TAG, "addBreadcrumb(category=$category, messageLength=${message.length})")
     }
 
     private companion object {

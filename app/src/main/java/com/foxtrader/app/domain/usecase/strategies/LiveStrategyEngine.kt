@@ -6,6 +6,7 @@ import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.SignalSource
 import com.foxtrader.app.domain.model.StrategySignal
 import com.foxtrader.app.domain.model.StrategyType
+import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.backtest.StrategyFunction
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -65,9 +66,11 @@ class LiveStrategyEngine @Inject constructor(
         candles: List<Candle>,
         scanWindow: Int = DEFAULT_SCAN_WINDOW,
         maxSignals: Int = DEFAULT_MAX_SIGNALS,
+        symbol: String = "",
+        timeframe: Timeframe = Timeframe.H1,
     ): List<ChartSignal> {
         val definition = try {
-            library.get(type)
+            library.get(type, symbol, timeframe)
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (_: Exception) {
@@ -184,12 +187,21 @@ class LiveStrategyEngine @Inject constructor(
         candles: List<Candle>,
         scanWindow: Int = ALL_STRATEGY_SCAN_WINDOW,
         maxSignalsPerStrategy: Int = ALL_STRATEGY_MAX_SIGNALS_PER_STRATEGY,
+        symbol: String = "",
+        timeframe: Timeframe = Timeframe.H1,
     ): List<ChartSignal> {
-        val definitions = library.all()
+        val definitions = library.all(symbol, timeframe)
         val merged = ArrayList<ChartSignal>(maxSignalsPerStrategy.coerceAtLeast(0) * definitions.size)
         for ((type, _) in definitions) {
             val signals = try {
-                evaluate(type, candles, scanWindow, maxSignalsPerStrategy)
+                evaluate(
+                    type = type,
+                    candles = candles,
+                    scanWindow = scanWindow,
+                    maxSignals = maxSignalsPerStrategy,
+                    symbol = symbol,
+                    timeframe = timeframe,
+                )
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (_: Exception) {

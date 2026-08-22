@@ -3,15 +3,18 @@ package com.foxtrader.app.data.remote.dukascopy
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Tick
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.di.PublicMarketDataClient
 import com.foxtrader.app.domain.usecase.tick.TickAggregator
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.time.Instant
 import java.time.ZoneOffset
-import java.time.ZonedDateTime
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -38,7 +41,7 @@ import kotlin.math.max
  */
 @Singleton
 class DukascopyDataSource @Inject constructor(
-    private val httpClient: OkHttpClient,
+    @PublicMarketDataClient private val httpClient: OkHttpClient,
     private val tickDecoder: DukascopyTickDecoder,
     private val lzmaDecompressor: LzmaDecompressor,
     private val tickAggregator: TickAggregator,
@@ -78,37 +81,55 @@ class DukascopyDataSource @Inject constructor(
         var hoursWalked = 0
         var emptyConsecutiveHours = 0
 
-        while (hoursWalked < maxHourWalk && emptyConsecutiveHours < 72) {
-            val hourZdt = Instant.ofEpochMilli(currentHourEpochMs).atZone(ZoneOffset.UTC)
-            val year = hourZdt.year
-            val month0 = hourZdt.monthValue - 1 // Dukascopy uses 0-indexed months (00 = Jan)
-            val day = hourZdt.dayOfMonth
-            val hour = hourZdt.hour
-
-            val ticksForHour = fetchHourTicks(
-                symbol = normSymbol,
-                year = year,
-                month0 = month0,
-                day = day,
-                hour = hour,
-                hourStartMs = currentHourEpochMs,
-                pointValue = pointValue,
-            )
-
-            if (ticksForHour.isNotEmpty()) {
-                allTicks.addAll(ticksForHour)
-                emptyConsecutiveHours = 0
-
-                val aggregated = tickAggregator.aggregate(allTicks, timeframe)
-                if (aggregated.size >= safeLimit + 1) {
-                    break
-                }
-            } else {
-                emptyConsecutiveHours++
+        // The old implementation fetched one .bi5 hour at a time. Loading 500
+        // M15 bars therefore required ~125 serial HTTPS round-trips and could
+        // easily hit the app/network timeout, which then caused the chart to
+        // fall back to SIMULATED DATA. Fetch small bounded batches in parallel
+        // while preserving chronological aggregation after each batch.
+        val batchHours = if (safeLimit <= LIVE_POLL_LIMIT_THRESHOLD) {
+            LIVE_POLL_BATCH_HOURS
+        } else {
+            FETCH_BATCH_HOURS
+        }
+        while (hoursWalked < maxHourWalk && emptyConsecutiveHours < MAX_EMPTY_HOURS) {
+            val batchSize = minOf(batchHours, maxHourWalk - hoursWalked)
+            val hourStarts = List(batchSize) { offset ->
+                currentHourEpochMs - (offset * ONE_HOUR_MS)
+            }
+            val batchTicks = coroutineScope {
+                hourStarts.map { hourStart ->
+                    async {
+                        val zdt = Instant.ofEpochMilli(hourStart).atZone(ZoneOffset.UTC)
+                        fetchHourTicks(
+                            symbol = normSymbol,
+                            year = zdt.year,
+                            month0 = zdt.monthValue - 1,
+                            day = zdt.dayOfMonth,
+                            hour = zdt.hour,
+                            hourStartMs = hourStart,
+                            pointValue = pointValue,
+                        )
+                    }
+                }.awaitAll()
             }
 
-            currentHourEpochMs -= ONE_HOUR_MS
-            hoursWalked++
+            // Batches are requested newest -> oldest. TickAggregator sorts its
+            // input, but sorting once here keeps every downstream consumer on a
+            // deterministic ascending stream and avoids duplicate hour seams.
+            val nonEmpty = batchTicks.filter { it.isNotEmpty() }
+            if (nonEmpty.isEmpty()) {
+                emptyConsecutiveHours += batchSize
+            } else {
+                emptyConsecutiveHours = 0
+                nonEmpty.forEach(allTicks::addAll)
+                allTicks.sortBy { it.timestamp }
+
+                val aggregated = tickAggregator.aggregate(allTicks, timeframe)
+                if (aggregated.size >= safeLimit + 1) break
+            }
+
+            hoursWalked += batchSize
+            currentHourEpochMs -= batchSize * ONE_HOUR_MS
         }
 
         val candles = tickAggregator.aggregate(allTicks, timeframe)
@@ -219,5 +240,9 @@ class DukascopyDataSource @Inject constructor(
     companion object {
         const val BASE_DATAFEED_URL = "https://datafeed.dukascopy.com/datafeed"
         const val ONE_HOUR_MS = 3_600_000L
+        private const val FETCH_BATCH_HOURS = 8
+        private const val LIVE_POLL_BATCH_HOURS = 2
+        private const val LIVE_POLL_LIMIT_THRESHOLD = 5
+        private const val MAX_EMPTY_HOURS = 72
     }
 }

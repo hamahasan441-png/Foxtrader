@@ -6,13 +6,15 @@ import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.usecase.execution.ExecutionAuditLog
 import com.foxtrader.app.domain.usecase.execution.ExecutionReceipt
 import com.foxtrader.app.domain.usecase.execution.TradeIntent
+import java.time.LocalDate
+import java.time.ZoneId
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
  * Production, Room-backed [ExecutionAuditLog].
  *
- * Append-only per order idempotency key. The intent's identifying fields are
+ * Latest-state-per-order idempotency key. The intent's identifying fields are
  * persisted so [findByIdempotencyKey] can block duplicate submissions and
  * reconciliation can correlate an order with the broker's position history.
  * No credentials or raw broker payloads are stored.
@@ -31,54 +33,97 @@ class RoomExecutionAuditLog @Inject constructor(
 
     override suspend fun all(): List<ExecutionReceipt> = dao.all().map { it.toReceipt() }
 
-    /** Returns all unresolved (UNKNOWN) receipts for reconciliation. */
-    suspend fun unknown(): List<ExecutionReceipt> =
-        dao.byStatus(ExecutionAuditLogEntity.STATUS_UNKNOWN).map { it.toReceipt() }
+    /** Returns unresolved (UNKNOWN) receipts for one broker-account scope. */
+    suspend fun unknown(executionScope: String): List<ExecutionReceipt> {
+        require(executionScope.isNotBlank()) { "Execution scope is required for reconciliation" }
+        return dao.byStatusAndScope(ExecutionAuditLogEntity.STATUS_UNKNOWN, executionScope).map { it.toReceipt() }
+    }
+
+    /** Accepted close receipts whose broker history P/L has not synchronized yet. */
+    suspend fun acceptedClosesWithUnknownProfit(executionScope: String): List<ExecutionReceipt.Accepted> {
+        require(executionScope.isNotBlank()) { "Execution scope is required for reconciliation" }
+        return dao.acceptedClosesWithUnknownProfit(
+            ExecutionAuditLogEntity.STATUS_ACCEPTED, executionScope
+        ).mapNotNull { it.toReceipt() as? ExecutionReceipt.Accepted }
+    }
 
     // ========================================================================
     // MAPPING
     // ========================================================================
 
-    /** Returns today's realized gross loss (sum of absolute negative P&L for today). */
-    suspend fun getTodayRealizedLoss(): Double {
-        val dayStart = (System.currentTimeMillis() / 86_400_000L) * 86_400_000L
-        val entities = dao.all()
+    /**
+     * Returns today's realized gross loss for one broker account.
+     *
+     * A nullable result is deliberate: if the database contains a realized P&L
+     * row from the pre-v10 unscoped schema for today, the value cannot be
+     * attributed safely to this account/currency. Returning null makes an
+     * enabled live daily-loss gate fail closed instead of mixing accounts.
+     */
+    suspend fun getTodayRealizedLoss(executionScope: String): Double? {
+        require(executionScope.isNotBlank()) { "Execution scope is required for daily-loss calculation" }
+        val dayStart = localDayStartMillis()
+        if (dao.countLegacyRealizedSince(ExecutionAuditLogEntity.STATUS_ACCEPTED, dayStart) > 0) {
+            return null
+        }
+        if (dao.countAcceptedClosesWithUnknownProfitSince(
+                ExecutionAuditLogEntity.STATUS_ACCEPTED, executionScope, dayStart
+            ) > 0
+        ) {
+            return null
+        }
+        val entities = dao.byStatusAndScopeSince(
+            ExecutionAuditLogEntity.STATUS_ACCEPTED,
+            executionScope,
+            dayStart,
+        )
         var grossLoss = 0.0
-        var netProfit = 0.0
         for (e in entities) {
-            if (e.status != ExecutionAuditLogEntity.STATUS_ACCEPTED) continue
-            if (e.timestamp < dayStart) continue
             val p = e.realizedProfit ?: continue
-            if (!p.isFinite()) continue
-            netProfit += p
+            if (!p.isFinite()) return null
             if (p < 0.0) grossLoss += -p
         }
-        // Prefer net loss when we have mixed data? For safety we expose gross,
-        // but also consider net: if net is negative, its abs is at least part of
-        // gross, but gross is stricter. Use gross for fail-closed behavior.
-        // Documented in buildExecutionContext: gross loss of trades closed via app today.
-        return grossLoss
+        return grossLoss.takeIf { it.isFinite() }
+    }
+
+    /** Net-loss variant for diagnostics/product experimentation; currently unused. */
+    @Suppress("unused")
+    suspend fun getTodayNetLoss(executionScope: String): Double? {
+        require(executionScope.isNotBlank()) { "Execution scope is required for daily-loss calculation" }
+        val dayStart = localDayStartMillis()
+        if (dao.countLegacyRealizedSince(ExecutionAuditLogEntity.STATUS_ACCEPTED, dayStart) > 0) {
+            return null
+        }
+        if (dao.countAcceptedClosesWithUnknownProfitSince(
+                ExecutionAuditLogEntity.STATUS_ACCEPTED, executionScope, dayStart
+            ) > 0
+        ) {
+            return null
+        }
+        val entities = dao.byStatusAndScopeSince(
+            ExecutionAuditLogEntity.STATUS_ACCEPTED,
+            executionScope,
+            dayStart,
+        )
+        var net = 0.0
+        for (e in entities) {
+            val p = e.realizedProfit ?: continue
+            if (!p.isFinite()) return null
+            net += p
+        }
+        if (!net.isFinite()) return null
+        return if (net < 0.0) -net else 0.0
     }
 
     /**
-     * Variant that returns net loss (positive when net P&L today is negative),
-     * keeping 0 when net is positive. Useful for less strict gating if product
-     * later wants net instead of gross. Currently not used by default.
+     * Start of the user's local calendar day. The risk dashboard groups trades
+     * by the device-local date as well; using UTC here made the safety gate and
+     * the UI disagree for users outside UTC (especially around midnight/DST).
      */
-    @Suppress("unused")
-    suspend fun getTodayNetLoss(): Double {
-        val dayStart = (System.currentTimeMillis() / 86_400_000L) * 86_400_000L
-        val entities = dao.all()
-        var net = 0.0
-        for (e in entities) {
-            if (e.status != ExecutionAuditLogEntity.STATUS_ACCEPTED) continue
-            if (e.timestamp < dayStart) continue
-            val p = e.realizedProfit ?: continue
-            if (!p.isFinite()) continue
-            net += p
-        }
-        return if (net < 0) -net else 0.0
-    }
+    private fun localDayStartMillis(): Long =
+        LocalDate.now(ZoneId.systemDefault())
+            .atStartOfDay(ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli()
 
     // ========================================================================
     // MAPPING
@@ -88,6 +133,8 @@ class RoomExecutionAuditLog @Inject constructor(
         val intent = intent
         return ExecutionAuditLogEntity(
             idempotencyKey = intent.idempotencyKey,
+            executionScope = intent.executionScope,
+            operationTag = intent.operationTag,
             status = when (this) {
                 is ExecutionReceipt.Accepted -> ExecutionAuditLogEntity.STATUS_ACCEPTED
                 is ExecutionReceipt.Rejected -> ExecutionAuditLogEntity.STATUS_REJECTED
@@ -109,12 +156,16 @@ class RoomExecutionAuditLog @Inject constructor(
     private fun ExecutionAuditLogEntity.toReceipt(): ExecutionReceipt {
         val intent = TradeIntent(
             symbol = symbol,
-            direction = runCatching { Direction.valueOf(direction) }.getOrDefault(Direction.BULLISH),
+            direction = runCatching { Direction.valueOf(direction) }.getOrElse {
+                throw IllegalStateException("Corrupt execution audit direction: $direction", it)
+            },
             volume = volume,
             entryPrice = entryPrice,
             stopLoss = stopLoss,
             takeProfit = takeProfit,
             confirmationTimestamp = timestamp,
+            executionScope = executionScope,
+            operationTag = operationTag,
             idempotencyKey = idempotencyKey,
         )
         return when (status) {

@@ -6,7 +6,8 @@ package com.foxtrader.app.domain.model
  * SAMPLE       — built-in offline sample data (no network)
  * BINANCE      — Binance spot WebSocket + REST (crypto)
  * BYBIT        — Bybit spot REST + WebSocket (crypto)
- * DUKASCOPY    — forex / CFD tick history
+ * DUKASCOPY    — forex / CFD tick history + near-real-time polling
+ * DERIV        — Deriv public Options market-data WebSocket (history + live ticks)
  * ALPHA_VANTAGE — stocks / forex REST
  * POLYGON      — stocks / forex / crypto
  * OANDA        — forex / CFDs
@@ -33,8 +34,14 @@ enum class DataProvider(
     BYBIT("Bybit", supportsLive = true, requiresApiKey = false, implemented = true),
     OKX("OKX", supportsLive = false, requiresApiKey = false, implemented = true),
     KUCOIN("KuCoin", supportsLive = false, requiresApiKey = false, implemented = true),
-    // Dukascopy forex/CFD tick history pipeline.
-    DUKASCOPY("Dukascopy", supportsLive = false, requiresApiKey = false, implemented = true),
+    // Dukascopy forex/CFD tick history + near-real-time polling transport.
+    // Freshness is surfaced independently, so a stale polling feed is never
+    // presented as current just because the provider is selected.
+    DUKASCOPY("Dukascopy", supportsLive = true, requiresApiKey = false, implemented = true),
+    // Public Deriv market data does not require account authentication. Keep this
+    // separate from the authenticated native Deriv trading session so chart
+    // subscriptions can never replace or downgrade a live trading WebSocket.
+    DERIV("Deriv", supportsLive = true, requiresApiKey = false, implemented = true),
     ALPHA_VANTAGE(
         "Alpha Vantage",
         supportsLive = false,
@@ -64,7 +71,9 @@ enum class DataProvider(
     ),
     TWELVE_DATA(
         "Twelve Data",
-        supportsLive = true,
+        // REST candles are implemented, but no Twelve Data streaming socket is
+        // wired into ProviderMarketWebSocket yet. Do not advertise live mode.
+        supportsLive = false,
         requiresApiKey = true,
         apiKeyLabel = "Twelve Data API Key",
         implemented = true,

@@ -40,69 +40,124 @@ class ExecutionSafetyLayer {
             reasons += "Emergency kill switch is engaged"
         }
 
+        // ---- Policy sanity -------------------------------------------------
+        if (policy.requireFreshConfirmation && policy.confirmationMaxAgeMs <= 0L) {
+            reasons += "Invalid confirmation timeout policy"
+        }
+        if (policy.staleQuoteMaxAgeMs <= 0L) {
+            reasons += "Invalid stale-quote timeout policy"
+        }
+        if (!policy.maxDailyLossInAccountCurrency.isFinite() || policy.maxDailyLossInAccountCurrency < 0.0) {
+            reasons += "Invalid max-daily-loss policy"
+        }
+        if (!policy.minFreeMarginInAccountCurrency.isFinite() || policy.minFreeMarginInAccountCurrency < 0.0) {
+            reasons += "Invalid minimum-free-margin policy"
+        }
+
         // ---- Explicit fresh confirmation ----------------------------------
         if (policy.requireFreshConfirmation) {
+            val age = now - intent.confirmationTimestamp
             if (intent.confirmationTimestamp <= 0L) {
                 reasons += "No explicit trade confirmation provided"
-            } else if (now - intent.confirmationTimestamp > policy.confirmationMaxAgeMs) {
-                reasons += "Trade confirmation is stale; confirm again"
+            } else if (age < 0L || age > policy.confirmationMaxAgeMs) {
+                reasons += "Trade confirmation is stale or has an invalid clock; confirm again"
             }
         }
 
-        // ---- Stale quote gate ----------------------------------------------
-        context.quote?.let { quote ->
+        // ---- Fresh quote gate (required for live market execution) ---------
+        val quote = context.quote
+        if (quote == null) {
+            reasons += "Reference quote is unavailable"
+        } else {
             val quoteAge = now - quote.timestamp
+            if (!quote.bid.isFinite() || !quote.ask.isFinite() || quote.bid <= 0.0 || quote.ask <= 0.0 || quote.ask < quote.bid) {
+                reasons += "Reference quote is invalid"
+            }
+            if (!quote.symbol.equals(intent.symbol, ignoreCase = true)) {
+                reasons += "Reference quote symbol does not match trade intent"
+            }
             if (quoteAge > policy.staleQuoteMaxAgeMs || quoteAge < 0L) {
                 reasons += "Reference quote is stale (${quoteAge}ms old)"
             }
         }
 
         // ---- Max daily loss gate -------------------------------------------
-        context.dailyLossInAccountCurrency?.let { dailyLoss ->
-            if (policy.maxDailyLossInAccountCurrency > 0.0 && dailyLoss >= policy.maxDailyLossInAccountCurrency) {
+        if (policy.maxDailyLossInAccountCurrency > 0.0) {
+            val dailyLoss = context.dailyLossInAccountCurrency
+            if (dailyLoss == null || !dailyLoss.isFinite() || dailyLoss < 0.0) {
+                reasons += "Daily-loss data is unavailable or invalid"
+            } else if (dailyLoss >= policy.maxDailyLossInAccountCurrency) {
                 reasons += "Max daily loss reached (${dailyLoss} vs ${policy.maxDailyLossInAccountCurrency})"
             }
         }
 
         // ---- Free margin gate -----------------------------------------------
-        context.freeMargin?.let { freeMargin ->
-            if (policy.minFreeMarginInAccountCurrency > 0.0 && freeMargin < policy.minFreeMarginInAccountCurrency) {
+        if (policy.minFreeMarginInAccountCurrency > 0.0) {
+            val freeMargin = context.freeMargin
+            if (freeMargin == null || !freeMargin.isFinite() || freeMargin < 0.0) {
+                reasons += "Free-margin data is unavailable or invalid"
+            } else if (freeMargin < policy.minFreeMarginInAccountCurrency) {
                 reasons += "Insufficient free margin (${freeMargin} < ${policy.minFreeMarginInAccountCurrency})"
             }
         }
 
         // ---- Broker volume constraints --------------------------------------
-        context.spec?.let { spec ->
+        val spec = context.spec
+        if (spec == null) {
+            reasons += "Broker instrument specification is unavailable"
+        } else {
+            if (spec.isEstimated) {
+                reasons += "Broker instrument specification is estimated; live execution requires authoritative metadata"
+            }
+            if (!spec.symbol.equals(intent.symbol, ignoreCase = true)) {
+                reasons += "Broker instrument specification does not match trade intent"
+            }
             if (!spec.isValidVolume(intent.volume)) {
                 reasons += "Volume ${intent.volume} outside broker bounds " +
                     "[min=${spec.minVolume}, max=${spec.maxVolume}, step=${spec.volumeStep}]"
             }
         }
 
+        // Use the side that a market order actually executes against. This
+        // protects SL/TP validation from a widened spread between review and
+        // submission. Fall back to the reviewed entry only when the quote is
+        // already invalid/missing (which is independently rejected above).
+        val executableEntry = quote?.let { q ->
+            if (intent.direction == Direction.BULLISH) q.ask else q.bid
+        }?.takeIf { it.isFinite() && it > 0.0 } ?: intent.entryPrice
+
         // ---- Stop-loss direction ----------------------------------------------
         intent.stopLoss?.let { sl ->
-            if (intent.direction == Direction.BULLISH && sl >= intent.entryPrice) {
-                reasons += "Bullish stop-loss must be below entry"
+            if (intent.direction == Direction.BULLISH && sl >= executableEntry) {
+                reasons += "Bullish stop-loss must be below executable entry"
             }
-            if (intent.direction == Direction.BEARISH && sl <= intent.entryPrice) {
-                reasons += "Bearish stop-loss must be above entry"
+            if (intent.direction == Direction.BEARISH && sl <= executableEntry) {
+                reasons += "Bearish stop-loss must be above executable entry"
             }
         }
 
         // ---- Take-profit direction ---------------------------------------------
         intent.takeProfit?.let { tp ->
-            if (intent.direction == Direction.BULLISH && tp <= intent.entryPrice) {
-                reasons += "Bullish take-profit must be above entry"
+            if (intent.direction == Direction.BULLISH && tp <= executableEntry) {
+                reasons += "Bullish take-profit must be above executable entry"
             }
-            if (intent.direction == Direction.BEARISH && tp >= intent.entryPrice) {
-                reasons += "Bearish take-profit must be below entry"
+            if (intent.direction == Direction.BEARISH && tp >= executableEntry) {
+                reasons += "Bearish take-profit must be below executable entry"
             }
         }
 
-        // ---- Slippage validation -----------------------------------------------
+        // ---- Review-to-submit price drift / slippage validation ----------------
         intent.maxSlippagePoints?.let { slippage ->
             if (!slippage.isFinite() || slippage <= 0.0) {
                 reasons += "Max slippage must be a positive finite number"
+            } else if (spec != null && spec.point.isFinite() && spec.point > 0.0 &&
+                executableEntry.isFinite() && intent.entryPrice.isFinite()
+            ) {
+                val driftPoints = kotlin.math.abs(executableEntry - intent.entryPrice) / spec.point
+                if (!driftPoints.isFinite() || driftPoints > slippage + 1e-9) {
+                    reasons += "Price moved %.1f points since review (max %.1f); review the order again"
+                        .format(java.util.Locale.US, driftPoints, slippage)
+                }
             }
         }
 

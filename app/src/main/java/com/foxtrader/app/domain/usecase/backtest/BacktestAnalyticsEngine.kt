@@ -1,7 +1,7 @@
 package com.foxtrader.app.domain.usecase.backtest
 
 import com.foxtrader.app.domain.model.BacktestResult
-import com.foxtrader.app.domain.model.BacktestTrade
+import com.foxtrader.app.domain.model.BinaryBacktestResult
 import javax.inject.Inject
 import kotlin.math.abs
 import kotlin.math.max
@@ -25,16 +25,56 @@ class BacktestAnalyticsEngine @Inject constructor() {
         walkForwardSplit: Double = DEFAULT_WALK_FORWARD_SPLIT,
         monteCarloRuns: Int = DEFAULT_MONTE_CARLO_RUNS,
         seed: Int = DEFAULT_RANDOM_SEED,
+    ): BacktestAnalyticsReport = analyzeTrades(
+        trades = result.trades.sortedBy { it.entryTime }.map {
+            AnalyticsTrade(time = it.entryTime, pnl = it.netPnL, rMultiple = it.rMultiple)
+        },
+        initialBalance = result.config.initialBalance,
+        walkForwardSplit = walkForwardSplit,
+        monteCarloRuns = monteCarloRuns,
+        seed = seed,
+    )
+
+    /**
+     * Apply the same chronological walk-forward and Monte Carlo validation to
+     * fixed-expiry binary contracts. A win's R multiple is the configured net
+     * payout (pnl/stake), a loss is -1R, and a tie is 0R.
+     */
+    fun analyzeBinary(
+        result: BinaryBacktestResult,
+        walkForwardSplit: Double = DEFAULT_WALK_FORWARD_SPLIT,
+        monteCarloRuns: Int = DEFAULT_MONTE_CARLO_RUNS,
+        seed: Int = DEFAULT_RANDOM_SEED,
+    ): BacktestAnalyticsReport = analyzeTrades(
+        trades = result.trades.sortedBy { it.entryTime }.map {
+            AnalyticsTrade(
+                time = it.entryTime,
+                pnl = it.pnl,
+                rMultiple = if (it.stake > 0.0) it.pnl / it.stake else 0.0,
+            )
+        },
+        initialBalance = result.config.initialBalance,
+        walkForwardSplit = walkForwardSplit,
+        monteCarloRuns = monteCarloRuns,
+        seed = seed,
+    )
+
+    private fun analyzeTrades(
+        trades: List<AnalyticsTrade>,
+        initialBalance: Double,
+        walkForwardSplit: Double,
+        monteCarloRuns: Int,
+        seed: Int,
     ): BacktestAnalyticsReport {
-        val trades = result.trades.sortedBy { it.entryTime }
+        val ordered = trades.sortedBy { it.time }
         val walkForward = buildWalkForward(
-            trades = trades,
-            initialBalance = result.config.initialBalance,
+            trades = ordered,
+            initialBalance = initialBalance,
             split = walkForwardSplit,
         )
         val monteCarlo = buildMonteCarlo(
-            trades = trades,
-            initialBalance = result.config.initialBalance,
+            trades = ordered,
+            initialBalance = initialBalance,
             runs = monteCarloRuns,
             seed = seed,
         )
@@ -46,7 +86,7 @@ class BacktestAnalyticsEngine @Inject constructor() {
     }
 
     private fun buildWalkForward(
-        trades: List<BacktestTrade>,
+        trades: List<AnalyticsTrade>,
         initialBalance: Double,
         split: Double,
     ): WalkForwardAnalysis? {
@@ -54,7 +94,7 @@ class BacktestAnalyticsEngine @Inject constructor() {
         val splitIndex = (trades.size * split.coerceIn(0.2, 0.8)).roundToInt()
             .coerceIn(1, trades.lastIndex)
         val inSample = performanceSlice(trades.take(splitIndex), initialBalance)
-        val outSampleStart = initialBalance + trades.take(splitIndex).sumOf { it.netPnL }
+        val outSampleStart = initialBalance + trades.take(splitIndex).sumOf { it.pnl }
         val outOfSample = performanceSlice(trades.drop(splitIndex), outSampleStart)
         val efficiency = if (inSample.netProfit > 0.0) {
             (outOfSample.netProfit / inSample.netProfit).coerceIn(-2.0, 2.0)
@@ -77,13 +117,13 @@ class BacktestAnalyticsEngine @Inject constructor() {
     }
 
     private fun buildMonteCarlo(
-        trades: List<BacktestTrade>,
+        trades: List<AnalyticsTrade>,
         initialBalance: Double,
         runs: Int,
         seed: Int,
     ): MonteCarloSimulation? {
         if (trades.size < MIN_TRADES_FOR_MONTE_CARLO) return null
-        val pnl = trades.map { it.netPnL }
+        val pnl = trades.map { it.pnl }
         val finals = mutableListOf<Double>()
         val drawdowns = mutableListOf<Double>()
         var ruinCount = 0
@@ -117,23 +157,29 @@ class BacktestAnalyticsEngine @Inject constructor() {
         )
     }
 
-    private fun performanceSlice(trades: List<BacktestTrade>, startingBalance: Double): PerformanceSlice {
+    private fun performanceSlice(trades: List<AnalyticsTrade>, startingBalance: Double): PerformanceSlice {
         if (trades.isEmpty()) return PerformanceSlice.EMPTY
-        val wins = trades.filter { it.netPnL > 0.0 }
-        val losses = trades.filter { it.netPnL < 0.0 }
-        val grossProfit = wins.sumOf { it.netPnL }
-        val grossLoss = abs(losses.sumOf { it.netPnL })
+        val wins = trades.filter { it.pnl > 0.0 }
+        val losses = trades.filter { it.pnl < 0.0 }
+        val grossProfit = wins.sumOf { it.pnl }
+        val grossLoss = abs(losses.sumOf { it.pnl })
         val netProfit = grossProfit - grossLoss
-        val winRate = (wins.size.toDouble() / trades.size) * 100.0
+        // Zero-PnL trades (for example a refunded fixed-expiry TIE) are not
+        // losses. Report directional win rate over decided outcomes, while
+        // expectancy keeps the neutral-trade probability in the denominator.
+        val decided = wins.size + losses.size
+        val winRate = if (decided > 0) (wins.size.toDouble() / decided) * 100.0 else 0.0
         val averageWin = if (wins.isNotEmpty()) grossProfit / wins.size else 0.0
         val averageLoss = if (losses.isNotEmpty()) grossLoss / losses.size else 0.0
-        val expectancy = (winRate / 100.0) * averageWin - ((100.0 - winRate) / 100.0) * averageLoss
+        val winProbability = wins.size.toDouble() / trades.size
+        val lossProbability = losses.size.toDouble() / trades.size
+        val expectancy = winProbability * averageWin - lossProbability * averageLoss
         val profitFactor = if (grossLoss > 0.0) grossProfit / grossLoss else if (grossProfit > 0.0) Double.MAX_VALUE else 0.0
         var equity = startingBalance
         var peak = startingBalance
         var maxDrawdown = 0.0
         for (trade in trades) {
-            equity += trade.netPnL
+            equity += trade.pnl
             peak = max(peak, equity)
             maxDrawdown = max(maxDrawdown, peak - equity)
         }
@@ -199,6 +245,12 @@ class BacktestAnalyticsEngine @Inject constructor() {
     private fun List<Double>.averageOrZero(): Double = average().takeIf { !it.isNaN() } ?: 0.0
 
     private fun Double.formatMoney(): String = "$" + "%,.0f".format(this)
+
+    private data class AnalyticsTrade(
+        val time: Long,
+        val pnl: Double,
+        val rMultiple: Double,
+    )
 
     private companion object {
         const val DEFAULT_WALK_FORWARD_SPLIT = 0.70

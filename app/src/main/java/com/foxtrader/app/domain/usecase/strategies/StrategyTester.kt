@@ -38,7 +38,7 @@ class StrategyTester @Inject constructor(
         timeframe: Timeframe = Timeframe.H1,
         config: BacktestConfig? = null,
     ): StrategyTestResult {
-        val definition = library.get(type)
+        val definition = library.get(type, symbol, timeframe)
         val effectiveConfig = config ?: defaultConfig(symbol)
         backtestEngine.updateConfig(effectiveConfig)
         val result = backtestEngine(candles, definition.function, symbol, timeframe)
@@ -60,7 +60,7 @@ class StrategyTester @Inject constructor(
         backtestEngine.updateConfig(effectiveConfig)
         val results = mutableListOf<StrategyTestResult>()
 
-        for ((type, definition) in library.all()) {
+        for ((type, definition) in library.all(symbol, timeframe)) {
             if (candles.size < definition.minimumBars) continue
             val backtest = backtestEngine(candles, definition.function, symbol, timeframe)
             results += StrategyTestResult(definition = definition, backtest = backtest)

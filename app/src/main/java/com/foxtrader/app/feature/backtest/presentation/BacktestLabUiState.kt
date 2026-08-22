@@ -2,6 +2,8 @@ package com.foxtrader.app.feature.backtest.presentation
 
 import androidx.compose.runtime.Immutable
 import com.foxtrader.app.domain.model.BacktestResult
+import com.foxtrader.app.domain.model.BinaryBacktestResult
+import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.StrategyBlueprint
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.backtest.BacktestAnalyticsReport
@@ -34,6 +36,10 @@ enum class BacktestStrategyTemplate(
         displayName = "LIT X Institutional",
         description = "Sweep → market shift (CHOCH/MSS) → POI retest, gated by an 11-factor score.",
     ),
+    DERIV_BINARY_3M(
+        displayName = "Deriv Binary 3m Precision",
+        description = "M1 closed-bar EMA/ADX pullback-reclaim setup; enters next bar and settles after 3 minutes. Non-repainting and fixed-expiry backtestable.",
+    ),
 }
 
 /** Immutable UI state for the Backtesting Lab screen. */
@@ -41,6 +47,7 @@ enum class BacktestStrategyTemplate(
 data class BacktestLabUiState(
     val symbol: String = "EURUSD",
     val timeframe: Timeframe = Timeframe.H1,
+    val dataProvider: DataProvider = DataProvider.DUKASCOPY,
     val strategy: BacktestStrategyTemplate = BacktestStrategyTemplate.RSI_MEAN_REVERSION,
     /** Non-null when a saved visual-builder strategy is selected. */
     val selectedBlueprintId: String? = null,
@@ -48,14 +55,18 @@ data class BacktestLabUiState(
     val initialBalance: Double = 100_000.0,
     val riskPercent: Double = 1.0,
     val aiScoringEnabled: Boolean = true,
+    val binaryPayoutRatio: Double = 0.85,
+    val binaryMinConfidence: Int = 72,
     val availableSymbols: ImmutableList<String> = DEFAULT_SYMBOLS,
     val isRunning: Boolean = false,
     val error: String? = null,
     val result: BacktestResult? = null,
+    val binaryResult: BinaryBacktestResult? = null,
     val analyticsReport: BacktestAnalyticsReport? = null,
     val lastRunTime: Long = 0L,
 ) {
-    val hasResult: Boolean get() = result != null
+    val hasResult: Boolean get() = result != null || binaryResult != null
+    val isBinary3m: Boolean get() = selectedBlueprintId == null && strategy == BacktestStrategyTemplate.DERIV_BINARY_3M
     val selectedBlueprint: StrategyBlueprint?
         get() = selectedBlueprintId?.let { id -> strategyBlueprints.firstOrNull { it.id == id } }
 
@@ -69,6 +80,11 @@ data class BacktestLabUiState(
         val DEFAULT_SYMBOLS = persistentListOf(
             "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "XAUUSD",
             "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "NAS100", "US500",
+            "R_10", "R_25", "R_50", "R_75", "R_100",
+        )
+        val DERIV_BINARY_SYMBOLS = persistentListOf(
+            "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD",
+            "R_10", "R_25", "R_50", "R_75", "R_100",
         )
     }
 }

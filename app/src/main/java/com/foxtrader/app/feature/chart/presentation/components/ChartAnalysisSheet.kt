@@ -37,6 +37,8 @@ import androidx.compose.ui.unit.dp
 import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.model.DecisionResult
+import com.foxtrader.app.domain.model.Direction
+import com.foxtrader.app.domain.model.SignalFusionResult
 import com.foxtrader.app.domain.model.tradepro.TradeProAnalysis
 import com.foxtrader.app.domain.usecase.ai.MarketExplanation
 import com.foxtrader.app.domain.usecase.mtf.ConfluenceEngine
@@ -68,10 +70,11 @@ fun ChartAnalysisSheet(
     explanation: MarketExplanation?,
     confluence: ConfluenceEngine.ConfluenceResult?,
     tradeProAnalysis: TradeProAnalysis?,
+    phase13Fusion: SignalFusionResult? = null,
     modifier: Modifier = Modifier,
 ) {
     val hasContent = decision != null || explanation != null ||
-        confluence != null || tradeProAnalysis != null
+        confluence != null || tradeProAnalysis != null || phase13Fusion != null
     if (!hasContent) return
 
     val toggleLabel = stringResource(
@@ -110,6 +113,14 @@ fun ChartAnalysisSheet(
                 color = MaterialTheme.colorScheme.onSurface,
             )
             SummaryBiasChip(bias)
+            phase13Fusion?.takeIf { it.components.isNotEmpty() }?.let { fusion ->
+                Text(
+                    text = "P13 ${fusion.score}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (fusion.conflict) FoxBearishText else if (fusion.strong) FoxBullishText else FoxAmber50,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
             decision?.let { d ->
                 Text(
                     text = stringResource(R.string.chart_analysis_ai_short, d.confidence.toInt()),
@@ -145,6 +156,7 @@ fun ChartAnalysisSheet(
                 AiDecisionPanel(decision = decision, modifier = Modifier.fillMaxWidth())
                 ConfluenceRibbon(result = confluence, modifier = Modifier.fillMaxWidth())
                 MarketContextPanel(explanation = explanation, modifier = Modifier.fillMaxWidth())
+                Phase13FusionCard(fusion = phase13Fusion, modifier = Modifier.fillMaxWidth())
                 TradeProSetupCard(analysis = tradeProAnalysis, modifier = Modifier.fillMaxWidth())
             }
         }
@@ -168,4 +180,71 @@ private fun SummaryBiasChip(bias: Bias) {
             .background(FoxNeutral20.copy(alpha = 0.6f))
             .padding(horizontal = 6.dp, vertical = 2.dp),
     )
+}
+
+
+@Composable
+private fun Phase13FusionCard(
+    fusion: SignalFusionResult?,
+    modifier: Modifier = Modifier,
+) {
+    if (fusion == null || fusion.components.isEmpty()) return
+    val directionLabel = when (fusion.direction) {
+        Direction.BULLISH -> "BULLISH"
+        Direction.BEARISH -> "BEARISH"
+        null -> "MIXED"
+    }
+    val stateLabel = when {
+        fusion.conflict -> "BLOCKED"
+        fusion.strong -> "STRONG"
+        else -> "CONFIRMING"
+    }
+    val stateColor = when {
+        fusion.conflict -> FoxBearishText
+        fusion.strong -> FoxBullishText
+        else -> FoxAmber50
+    }
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(FoxNeutral20.copy(alpha = 0.55f))
+            .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "Phase 13 · $directionLabel",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = "$stateLabel ${fusion.score}/100",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = stateColor,
+            )
+        }
+        Text(
+            text = fusion.components.joinToString("  ·  ") { component ->
+                val arrow = when (component.direction) {
+                    Direction.BULLISH -> "↑"
+                    Direction.BEARISH -> "↓"
+                    null -> "·"
+                }
+                "${component.name} ${component.score}$arrow"
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = FoxNeutral60,
+        )
+        Text(
+            text = fusion.narrative,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }

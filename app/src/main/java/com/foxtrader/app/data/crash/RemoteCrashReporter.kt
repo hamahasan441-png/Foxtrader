@@ -4,6 +4,7 @@ import android.os.Handler
 import android.os.Looper
 import com.foxtrader.app.BuildConfig
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
+import com.foxtrader.app.security.SensitiveDataRedactor
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -73,7 +74,17 @@ class RemoteCrashReporter @Inject constructor(
 
     override fun recordBreadcrumb(message: String, category: String) {
         if (!appPreferences.crashReportingEnabled.value) return
-        backend.addBreadcrumb(message, category)
+        // Breadcrumb text is caller-controlled and can accidentally contain a
+        // symbol, account id, URL, user note, or other runtime value. Remote
+        // telemetry receives only a bounded event shape, never the raw text.
+        val safeCategory = category
+            .take(MAX_BREADCRUMB_CATEGORY_LENGTH)
+            .filter { it.isLetterOrDigit() || it == '_' || it == '-' || it == '.' }
+            .ifBlank { "app" }
+        backend.addBreadcrumb(
+            message = "event_length=${message.length.coerceAtMost(MAX_BREADCRUMB_REPORTED_LENGTH)}",
+            category = safeCategory,
+        )
     }
 
     private fun startAnrWatchdog() {
@@ -103,10 +114,20 @@ class RemoteCrashReporter @Inject constructor(
             ?.takeIf { depth < MAX_CAUSE_DEPTH }
             ?.let { sanitize(it, emptyMap(), depth + 1) }
 
+        val safeContext = context.entries
+            .take(MAX_CONTEXT_ENTRIES)
+            .associate { (key, value) ->
+                val safeKey = key
+                    .take(MAX_CONTEXT_KEY_LENGTH)
+                    .filter { it.isLetterOrDigit() || it == '_' || it == '-' || it == '.' }
+                    .ifBlank { "context" }
+                safeKey to SensitiveDataRedactor.redact(value.take(MAX_CONTEXT_VALUE_LENGTH))
+            }
+
         return SanitizedException(
             type = throwable.javaClass.name,
             frames = frames,
-            context = context,
+            context = safeContext,
             causedBy = causedBy,
         )
     }
@@ -114,5 +135,10 @@ class RemoteCrashReporter @Inject constructor(
     private companion object {
         const val MAX_FRAMES = 40
         const val MAX_CAUSE_DEPTH = 5
+        const val MAX_BREADCRUMB_CATEGORY_LENGTH = 32
+        const val MAX_BREADCRUMB_REPORTED_LENGTH = 9_999
+        const val MAX_CONTEXT_ENTRIES = 16
+        const val MAX_CONTEXT_KEY_LENGTH = 48
+        const val MAX_CONTEXT_VALUE_LENGTH = 256
     }
 }

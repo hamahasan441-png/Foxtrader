@@ -45,7 +45,11 @@
     <string name="chart_live_connecting">CONNECTING</string>
     <string name="chart_live_off">OFF</string>
     <string name="chart_live_unavailable">UNAVAILABLE</string>
+    <string name="chart_data_delayed">DELAYED</string>
+    <string name="chart_data_cached">CACHED</string>
     <string name="chart_live_unavailable_state">Live feed unavailable for this provider. Add credentials or select a live provider.</string>
+    <string name="chart_data_delayed_state">Real market data is available but the newest bar is delayed.</string>
+    <string name="chart_data_cached_state">Showing the latest real bars stored on this device.</string>
     <string name="chart_zoom_in">Zoom in</string>
     <string name="chart_zoom_out">Zoom out</string>
     <string name="chart_reset_to_latest">Reset chart to latest bars</string>
@@ -173,7 +177,7 @@
     <string name="settings_educational_disclaimer">FoxTrader is an educational analysis tool, not financial advice. It does not place trades. Markets carry risk; you are solely responsible for your decisions.</string>
     <string name="settings_background_scan_note">WorkManager runs the watchlist AI gate in the background with Android battery constraints. Risk and psychology vetoes always remain authoritative.</string>
     <string name="settings_coming_soon">Coming soon: %1$s. These are not connected yet, so they are not selectable.</string>
-    <string name="settings_live_routing_active">Live chart routing is active for %1$s crypto symbols.</string>
+    <string name="settings_live_routing_active">Live chart transport is available from %1$s when the selected instrument and required credentials are valid.</string>
     <string name="settings_api_key_saved_note">Saved only on this device for the selected chart/data provider.</string>
     <string name="settings_backend_url_label">FoxTrader backend URL</string>
     <string name="settings_backend_url_placeholder">https://your-backend.example.com</string>

@@ -54,6 +54,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.BacktestResult
 import com.foxtrader.app.domain.model.BacktestTrade
+import com.foxtrader.app.domain.model.BinaryBacktestResult
+import com.foxtrader.app.domain.model.BinaryOutcome
+import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.EquityPoint
 import com.foxtrader.app.domain.model.Timeframe
@@ -141,6 +144,8 @@ fun BacktestLabScreen(
                     )
                 }
 
+                state.binaryResult != null -> BinaryResultContent(state.binaryResult, state.analyticsReport)
+
                 result != null -> ResultContent(result = result, analytics = state.analyticsReport)
 
                 else -> LabCard {
@@ -166,9 +171,18 @@ private fun ConfigurationCard(
         SectionTitle("Configuration")
         Spacer(Modifier.height(10.dp))
 
+        Text("Data Provider", fontSize = 12.sp, color = FoxNeutral60)
+        ChipRow(
+            items = if (state.isBinary3m) listOf(DataProvider.DERIV) else DataProvider.implemented(),
+            selected = state.dataProvider,
+            label = { it.displayName },
+            onSelect = viewModel::setDataProvider,
+        )
+
+        Spacer(Modifier.height(12.dp))
         Text("Symbol", fontSize = 12.sp, color = FoxNeutral60)
         ChipRow(
-            items = state.availableSymbols,
+            items = if (state.isBinary3m) BacktestLabUiState.DERIV_BINARY_SYMBOLS else state.availableSymbols,
             selected = state.symbol,
             label = { it },
             onSelect = viewModel::setSymbol,
@@ -177,7 +191,7 @@ private fun ConfigurationCard(
         Spacer(Modifier.height(12.dp))
         Text("Timeframe", fontSize = 12.sp, color = FoxNeutral60)
         ChipRow(
-            items = listOf(Timeframe.M15, Timeframe.H1, Timeframe.H4, Timeframe.D1),
+            items = if (state.isBinary3m) listOf(Timeframe.M1) else listOf(Timeframe.M1, Timeframe.M5, Timeframe.M15, Timeframe.H1, Timeframe.H4, Timeframe.D1),
             selected = state.timeframe,
             label = { it.label },
             onSelect = viewModel::setTimeframe,
@@ -211,25 +225,122 @@ private fun ConfigurationCard(
         Spacer(Modifier.height(14.dp))
         RiskSlider(state.riskPercent, viewModel::setRiskPercent)
 
-        Spacer(Modifier.height(12.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("AI Master Decision scoring", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
-                Text(
-                    text = stringResource(R.string.backtest_ai_scoring_description),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = FoxNeutral60,
+        if (state.isBinary3m) {
+            Spacer(Modifier.height(12.dp))
+            BinaryPayoutSlider(state.binaryPayoutRatio, viewModel::setBinaryPayoutRatio)
+            Spacer(Modifier.height(12.dp))
+            BinaryConfidenceSlider(state.binaryMinConfidence, viewModel::setBinaryMinConfidence)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "Fixed model: signal after a closed M1 candle → entry at next M1 open → expiry after 3 minutes. No overlapping contracts and no Martingale.",
+                style = MaterialTheme.typography.bodySmall,
+                color = FoxNeutral60,
+            )
+        } else {
+            Spacer(Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("AI Master Decision scoring", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Text(
+                        text = stringResource(R.string.backtest_ai_scoring_description),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = FoxNeutral60,
+                    )
+                }
+                Switch(
+                    checked = state.aiScoringEnabled,
+                    onCheckedChange = viewModel::setAiScoringEnabled,
+                    colors = SwitchDefaults.colors(checkedTrackColor = FoxAmber50),
                 )
             }
-            Switch(
-                checked = state.aiScoringEnabled,
-                onCheckedChange = viewModel::setAiScoringEnabled,
-                colors = SwitchDefaults.colors(checkedTrackColor = FoxAmber50),
-            )
+        }
+    }
+}
+
+@Composable
+private fun BinaryResultContent(result: BinaryBacktestResult, analytics: BacktestAnalyticsReport?) {
+    val metrics = result.metrics
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            MetricTile("Net P&L", money(metrics.netProfit), pnlColor(metrics.netProfit), Modifier.weight(1f))
+            MetricTile("Return", percent(metrics.returnPercent), pnlColor(metrics.returnPercent), Modifier.weight(1f))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            MetricTile("Win Rate", percent(metrics.winRate), FoxAmber50, Modifier.weight(1f))
+            MetricTile("Break-even", percent(metrics.breakEvenWinRate), FoxNeutral60, Modifier.weight(1f))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            MetricTile("Edge vs BE", signedPercent(metrics.edgeVsBreakEven), pnlColor(metrics.edgeVsBreakEven), Modifier.weight(1f))
+            MetricTile("Profit Factor", ratio(metrics.profitFactor), FoxAmber50, Modifier.weight(1f))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            MetricTile("Contracts", metrics.totalTrades.toString(), MaterialTheme.colorScheme.onSurface, Modifier.weight(1f))
+            MetricTile("Max DD", percent(metrics.maxDrawdownPercent), FoxBearishText, Modifier.weight(1f))
+        }
+    }
+
+    EquityCurveCard(result.equityCurve)
+    AnalyticsCard(analytics)
+
+    LabCard {
+        SectionTitle("3-Minute Contract Model")
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = "Payout ${percent(result.config.payoutRatio * 100.0)} • stake risk ${percent(result.config.riskPercent)} • confidence ≥ ${result.config.minConfidence}%",
+            color = FoxNeutral60,
+            fontSize = 12.sp,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = "Wins ${metrics.wins} • Losses ${metrics.losses} • Ties ${metrics.ties} • expectancy ${money2(metrics.expectancyPerTrade)} / contract",
+            color = FoxNeutral60,
+            fontSize = 12.sp,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = "Max streak: ${metrics.maxConsecutiveWins} wins / ${metrics.maxConsecutiveLosses} losses. A positive historical edge does not guarantee future returns.",
+            color = FoxNeutral60,
+            fontSize = 11.sp,
+        )
+    }
+
+    LabCard {
+        SectionTitle("Recent 3m Contracts")
+        Spacer(Modifier.height(8.dp))
+        if (result.trades.isEmpty()) {
+            Text("No setup passed the selected confidence threshold.", color = FoxNeutral60, fontSize = 12.sp)
+        } else {
+            result.trades.takeLast(8).asReversed().forEach { trade ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val dirColor = if (trade.direction == Direction.BULLISH) FoxBullishText else FoxBearishText
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "#${trade.id} ${if (trade.direction == Direction.BULLISH) "CALL" else "PUT"} • ${trade.outcome}",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp,
+                            color = when (trade.outcome) {
+                                BinaryOutcome.WIN -> FoxBullishText
+                                BinaryOutcome.LOSS -> FoxBearishText
+                                BinaryOutcome.TIE -> FoxNeutral60
+                            },
+                        )
+                        Text(
+                            text = "${trade.confidence}% • entry ${price(trade.entryPrice)} → expiry ${price(trade.expiryPrice)}",
+                            fontSize = 11.sp,
+                            color = dirColor,
+                        )
+                    }
+                    Text(money2(trade.pnl), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = pnlColor(trade.pnl))
+                }
+            }
         }
     }
 }
@@ -495,6 +606,39 @@ private fun RiskSlider(value: Double, onChange: (Double) -> Unit) {
     }
 }
 
+@Composable
+private fun BinaryPayoutSlider(value: Double, onChange: (Double) -> Unit) {
+    Column {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("Binary payout", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+            Text(percent(value * 100.0), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = FoxAmber50)
+        }
+        Slider(
+            value = value.toFloat(),
+            onValueChange = { onChange(it.toDouble()) },
+            valueRange = 0.50f..1.20f,
+            colors = SliderDefaults.colors(thumbColor = FoxAmber50, activeTrackColor = FoxAmber50),
+        )
+    }
+}
+
+@Composable
+private fun BinaryConfidenceSlider(value: Int, onChange: (Int) -> Unit) {
+    Column {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("Minimum confidence", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+            Text("$value%", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = FoxAmber50)
+        }
+        Slider(
+            value = value.toFloat(),
+            onValueChange = { onChange(it.toInt()) },
+            valueRange = 60f..90f,
+            steps = 29,
+            colors = SliderDefaults.colors(thumbColor = FoxAmber50, activeTrackColor = FoxAmber50),
+        )
+    }
+}
+
 private fun aiTradeLabel(trade: BacktestTrade): String {
     val status = trade.aiApproved?.let { if (it) "AI ✓" else "AI ✕" } ?: return "AI —"
     val grade = trade.aiGrade?.let { " $it" }.orEmpty()
@@ -512,4 +656,7 @@ private fun pnlColor(value: Double): Color = when {
 private fun money(value: Double): String = String.format(Locale.US, "\$%,.0f", value)
 private fun percent(value: Double?): String = value?.let { String.format(Locale.US, "%.1f%%", it) } ?: "—"
 private fun ratio(value: Double?): String = value?.takeIf { it.isFinite() }?.let { String.format(Locale.US, "%.2f", it) } ?: "—"
+private fun signedPercent(value: Double): String = String.format(Locale.US, "%+.1f%%", value)
+private fun money2(value: Double): String = String.format(Locale.US, "$%,.2f", value)
+private fun price(value: Double): String = String.format(Locale.US, "%.5f", value)
 private fun format(value: Double): String = String.format(Locale.US, "%.1f", value)

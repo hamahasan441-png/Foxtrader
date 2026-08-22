@@ -12,6 +12,7 @@ import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.ai.MtfContextProvider
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.domain.usecase.scanner.ScannerUseCase
+import com.foxtrader.app.domain.usecase.signalintel.ConfirmedBarPolicy
 import com.foxtrader.app.domain.usecase.tradepro.DailyPlanEngine
 import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -65,9 +66,17 @@ class DailyPlanViewModel @Inject constructor(
                 val watchlist = scannerUseCase.getWatchlist().filter { it.enabled }.take(MAX_SYMBOLS)
                 val analyses = ArrayList<TradeProAnalysis>(watchlist.size)
                 for (symbol in watchlist) {
-                    val candles = repository.getSourcedCandles(symbol.symbol, timeframe).candles
+                    val now = System.currentTimeMillis()
+                    val candles = ConfirmedBarPolicy.confirmedPrefix(
+                        repository.getSourcedCandles(symbol.symbol, timeframe).candles,
+                        timeframe,
+                        now,
+                    )
                     if (candles.size < MIN_BARS) continue
-                    val htf = mtfContextProvider.getHtfContext(symbol.symbol, timeframe)
+                    val htf = ConfirmedBarPolicy.confirmedMap(
+                        mtfContextProvider.getHtfContext(symbol.symbol, timeframe),
+                        now,
+                    )
                     val analysis = withContext(defaultDispatcher) {
                         signalEngine.analyze(symbol.symbol, candles, config, htf)
                     }

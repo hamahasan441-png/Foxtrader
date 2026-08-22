@@ -42,8 +42,13 @@ data class ChartSignal(
 
 enum class SignalSource {
     LITX,
+    LIT,
+    SMS,
     TRADEPRO,
     SMT,
+
+    /** Deriv 3-minute fixed-expiry CALL/PUT setup confirmed on a closed M1 bar. */
+    BINARY3M,
 
     /** A rule from the backtestable [com.foxtrader.app.domain.usecase.strategies.StrategyLibrary]. */
     STRATEGY,

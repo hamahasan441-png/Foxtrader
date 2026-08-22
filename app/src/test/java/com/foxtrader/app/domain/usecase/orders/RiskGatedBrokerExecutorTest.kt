@@ -80,6 +80,54 @@ class RiskGatedBrokerExecutorTest {
     }
 
     @Test
+    fun `phase4 risk multiplier can only reduce position size`() = runBlocking {
+        val full = executor.placeMarketOrder(
+            adapter = broker,
+            symbol = "EURUSD",
+            direction = Direction.BULLISH,
+            entryPrice = 1.1000,
+            stopLoss = 1.0950,
+            riskMultiplier = 1.0,
+            executionAuthorized = true,
+        )
+        val fullVolume = full.sizing?.volume ?: error("missing full sizing")
+
+        val reduced = executor.placeMarketOrder(
+            adapter = broker,
+            symbol = "EURUSD",
+            direction = Direction.BULLISH,
+            entryPrice = 1.1000,
+            stopLoss = 1.0950,
+            riskMultiplier = 0.5,
+            executionAuthorized = true,
+        )
+        val reducedVolume = reduced.sizing?.volume ?: error("missing reduced sizing")
+
+        assertTrue(reduced.accepted)
+        assertTrue(reducedVolume <= fullVolume)
+        assertTrue(reduced.sizing?.riskAmount ?: Double.MAX_VALUE <= (full.sizing?.riskAmount ?: 0.0))
+        assertTrue(reduced.sizing?.warnings?.any { it.contains("adaptive risk") } == true)
+    }
+
+    @Test
+    fun `phase4 risk multiplier above one is rejected before broker call`() = runBlocking {
+        val before = broker.placeOrderCalls
+        val result = executor.placeMarketOrder(
+            adapter = broker,
+            symbol = "EURUSD",
+            direction = Direction.BULLISH,
+            entryPrice = 1.1000,
+            stopLoss = 1.0950,
+            riskMultiplier = 1.25,
+            executionAuthorized = true,
+        )
+
+        assertFalse(result.accepted)
+        assertTrue(result.rejectionReasons.any { it.contains("multiplier") })
+        assertEquals(before, broker.placeOrderCalls)
+    }
+
+    @Test
     fun `halted risk engine blocks broker call`() = runBlocking {
         riskEngine.haltTrading("manual halt")
 

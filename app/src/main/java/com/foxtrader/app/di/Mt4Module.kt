@@ -22,16 +22,10 @@ import javax.inject.Singleton
 @Retention(AnnotationRetention.BINARY)
 annotation class MetaApiRetrofit
 
-/**
- * Qualifier for the OkHttpClient used exclusively for the MetaApi streaming
- * WebSocket. This client must NEVER install any HTTP logging interceptor, in
- * debug or release: the stream authenticates by embedding the MetaApi token in
- * the WebSocket URL query string, so any request/response logging of that
- * client would leak the live credential to logcat.
- */
+/** Zero-log transport used by MetaApi Socket.IO. */
 @Qualifier
 @Retention(AnnotationRetention.BINARY)
-annotation class MetaApiWebSocketClient
+annotation class MetaApiSocketClient
 
 /**
  * Hilt module providing MetaApi networking components and binding the
@@ -74,30 +68,26 @@ object Mt4NetworkModule {
             .build()
     }
 
-    /**
-     * Dedicated WebSocket client for the MetaApi quote stream. Deliberately has
-     * NO logging interceptor and no auth header injection: the stream embeds
-     * the token in the URL query, and this client's requests are the only ones
-     * that carry it. See [MetaApiWebSocketClient].
-     */
-    @Provides
-    @Singleton
-    @MetaApiWebSocketClient
-    fun provideMetaApiWebSocketClient(): OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
-        .readTimeout(READ_TIMEOUT, TimeUnit.SECONDS)
-        .writeTimeout(WRITE_TIMEOUT, TimeUnit.SECONDS)
-        .callTimeout(CALL_TIMEOUT, TimeUnit.SECONDS)
-        .retryOnConnectionFailure(false)
-        .pingInterval(MT4_PING_INTERVAL_MS, TimeUnit.MILLISECONDS)
-        .build()
-
     @Provides
     @Singleton
     fun provideMetaApiService(@MetaApiRetrofit retrofit: Retrofit): MetaApiService =
         retrofit.create(MetaApiService::class.java)
 
-    private const val MT4_PING_INTERVAL_MS = 15_000L
+    /**
+     * Dedicated zero-log WebSocket transport. The MetaApi auth token is carried
+     * in the Socket.IO handshake query, therefore no network logging interceptor
+     * may ever be attached to this client.
+     */
+    @Provides
+    @Singleton
+    @MetaApiSocketClient
+    fun provideMetaApiSocketClient(): OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
+        .readTimeout(0, TimeUnit.SECONDS)
+        .writeTimeout(WRITE_TIMEOUT, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
+        .build()
+
 }
 
 @Module

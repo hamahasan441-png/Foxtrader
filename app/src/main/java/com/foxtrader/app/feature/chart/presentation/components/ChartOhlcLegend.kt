@@ -17,7 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.Candle
-import com.foxtrader.app.domain.model.CandleSource
+import com.foxtrader.app.domain.model.MarketDataFreshness
 import com.foxtrader.app.ui.theme.FoxBearishText
 import com.foxtrader.app.ui.theme.FoxBullishText
 import com.foxtrader.app.ui.theme.FoxNeutral10
@@ -39,7 +39,7 @@ import kotlin.math.abs
 internal fun ChartOhlcLegend(
     candle: Candle?,
     previousCandle: Candle?,
-    source: CandleSource,
+    freshness: MarketDataFreshness,
     modifier: Modifier = Modifier,
 ) {
     if (candle == null) return
@@ -50,10 +50,11 @@ internal fun ChartOhlcLegend(
         0.0
     }
     val trendColor = if (candle.isBullish) FoxBullishText else FoxBearishText
-    val sourceText = when (source) {
-        CandleSource.LIVE -> stringResource(R.string.chart_legend_source_live)
-        CandleSource.CACHED -> stringResource(R.string.chart_legend_source_cached)
-        CandleSource.SYNTHETIC -> stringResource(R.string.chart_legend_source_simulated)
+    val sourceText = when (freshness) {
+        MarketDataFreshness.LIVE -> stringResource(R.string.chart_legend_source_live)
+        MarketDataFreshness.DELAYED -> stringResource(R.string.chart_data_delayed)
+        MarketDataFreshness.CACHED -> stringResource(R.string.chart_legend_source_cached)
+        MarketDataFreshness.SIMULATED -> stringResource(R.string.chart_legend_source_simulated)
     }
     val description = stringResource(
         R.string.chart_legend_description,
@@ -87,7 +88,7 @@ internal fun ChartOhlcLegend(
         Value("V", formatVolume(candle.volume), FoxNeutral80)
         Text(
             text = sourceText,
-            color = if (source == CandleSource.SYNTHETIC) FoxBearishText else FoxNeutral60,
+            color = if (freshness == MarketDataFreshness.SIMULATED) FoxBearishText else FoxNeutral60,
             fontWeight = FontWeight.Bold,
             style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
         )

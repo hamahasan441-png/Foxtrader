@@ -35,6 +35,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.ChartSignal
+import com.foxtrader.app.domain.model.BacktestChartMarker
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.LitXAnalysis
 import com.foxtrader.app.domain.model.StructureBreak
@@ -78,6 +79,7 @@ import com.foxtrader.app.feature.chart.presentation.components.layers.drawTimeAx
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawLitXSignals
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawSmtDivergences
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawSignalMarkers
+import com.foxtrader.app.feature.chart.presentation.components.layers.drawBacktestMarkers
 import com.foxtrader.app.ui.theme.FoxNeutral0
 import kotlin.math.max
 
@@ -153,6 +155,7 @@ fun CandleChart(
     litXAnalysis: LitXAnalysis? = null,
     smtDivergences: List<SmtDivergenceDetector.SmtDivergence> = emptyList(),
     signals: List<ChartSignal> = emptyList(),
+    backtestMarkers: List<BacktestChartMarker> = emptyList(),
     indicators: IndicatorToggles = IndicatorToggles(),
     sessions: ImmutableList<com.foxtrader.app.domain.model.SessionRange> = persistentListOf(),
     drawings: ImmutableList<com.foxtrader.app.domain.model.ChartDrawing> = persistentListOf(),
@@ -683,6 +686,15 @@ fun CandleChart(
         if (signals.isNotEmpty()) {
             clipRect(right = cw, bottom = ch) {
                 drawSignalMarkers(signals, viewport, cw, ch)
+            }
+        }
+
+        // ====================================================================
+        // LAYER 1.4.4: Completed on-chart backtest entries/exits
+        // ====================================================================
+        if (backtestMarkers.isNotEmpty()) {
+            clipRect(right = cw, bottom = ch) {
+                drawBacktestMarkers(backtestMarkers, candles, viewport, cw, ch)
             }
         }
 

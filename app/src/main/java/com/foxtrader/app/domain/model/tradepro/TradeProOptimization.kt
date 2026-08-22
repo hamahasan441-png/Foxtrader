@@ -83,6 +83,38 @@ data class TradeProOptimizationCandidate(
  * in-sample (training) slice; the winner is then re-run on held-out [bestOutOfSample] data so the
  * reader can judge whether the tuned edge survives on bars it was never optimised against.
  */
+/** One anchored walk-forward validation fold used by the Phase 4 robustness gate. */
+data class TradeProWalkForwardFold(
+    val index: Int,
+    val trainBars: Int,
+    val validationBars: Int,
+    val winnerLabel: String,
+    val trainingScore: Double,
+    val validationScore: Double,
+    val validationTrades: Int,
+    val validationExpectancy: Double,
+    val validationProfitFactor: Double,
+    val passed: Boolean,
+)
+
+/**
+ * Phase 4 anti-curve-fit summary. A configuration is only recommended for one-click application
+ * when it repeatedly survives unseen chronological folds, not merely one lucky hold-out slice.
+ */
+data class TradeProRobustnessReport(
+    val folds: List<TradeProWalkForwardFold>,
+    val passedFolds: Int,
+    val passRate: Double,
+    val winnerStability: Double,
+    val positiveValidationRate: Double,
+    val averageValidationScore: Double,
+    val worstValidationScore: Double,
+    val averageValidationExpectancy: Double,
+    val robustnessScore: Double,
+    val grade: String,
+    val recommended: Boolean,
+)
+
 data class TradeProOptimizationReport(
     val symbol: String,
     val objective: OptimizationObjective,
@@ -95,6 +127,8 @@ data class TradeProOptimizationReport(
     val outOfSampleBars: Int,
     val evaluated: Int,
     val narrative: String,
+    /** Rolling/anchored walk-forward robustness validation added in Phase 4. */
+    val robustness: TradeProRobustnessReport? = null,
 ) {
     companion object {
         fun empty(symbol: String, reason: String): TradeProOptimizationReport = TradeProOptimizationReport(

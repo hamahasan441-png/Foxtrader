@@ -14,6 +14,9 @@ SECURITY NOTES:
 - Passwords are hashed with PBKDF2-HMAC-SHA256 and a per-user random salt.
 - Access tokens are short-lived (15 min); refresh tokens last 7 days and are
   rotated on every refresh.
+- Only SHA-256 token lookup keys are persisted. The bearer/refresh token value
+  returned to a client is never stored verbatim by new code. Legacy raw-token
+  rows are accepted once and migrated/deleted on use for upgrade compatibility.
 """
 
 from __future__ import annotations
@@ -34,6 +37,11 @@ REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60
 _PBKDF2_ITERATIONS = 100_000
 _ACCESS_TOKEN_BYTES = 32
 _REFRESH_TOKEN_BYTES = 48
+
+
+def _token_key(token: str) -> str:
+    """One-way database lookup key for an opaque bearer/refresh token."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 class AuthError(Exception):
@@ -136,7 +144,8 @@ class AuthService:
             display_name=display_name.strip(),
             created_at=_now_ms(),
         )
-        self._store.save_user(_to_stored_user(user))
+        if not self._store.save_user(_to_stored_user(user)):
+            raise DuplicateEmailError(email)
         return user
 
     def login(self, email: str, password: str) -> User:
@@ -158,8 +167,8 @@ class AuthService:
         now = _now_ms()
         access_exp = now + ACCESS_TOKEN_TTL_SECONDS * 1000
         refresh_exp = now + REFRESH_TOKEN_TTL_SECONDS * 1000
-        self._store.save_access(access, user_id, access_exp)
-        self._store.save_refresh(refresh, user_id, refresh_exp)
+        self._store.save_access(_token_key(access), user_id, access_exp)
+        self._store.save_refresh(_token_key(refresh), user_id, refresh_exp)
         return {
             "access_token": access,
             "refresh_token": refresh,
@@ -172,14 +181,18 @@ class AuthService:
 
         Returns (user, new token dict). The consumed refresh token is revoked.
         """
-        entry = self._store.refresh_entry(refresh_token)
+        hashed_key = _token_key(refresh_token)
+        entry = self._store.consume_refresh(hashed_key)
+        if entry is None:
+            # One-release compatibility for databases created before token
+            # hashing. Legacy rows are also atomically consumed, then every new
+            # replacement is stored only under its one-way lookup key.
+            entry = self._store.consume_refresh(refresh_token)
         if entry is None:
             raise InvalidTokenError("Invalid or expired refresh token")
         user_id, expires_at = entry
         if expires_at <= _now_ms():
-            self._store.delete_refresh(refresh_token)
             raise InvalidTokenError("Refresh token has expired")
-        self._store.delete_refresh(refresh_token)
 
         stored = self._store.user_by_id(user_id)
         if stored is None:
@@ -188,20 +201,35 @@ class AuthService:
 
     def authenticate_access(self, access_token: str) -> User | None:
         """Resolve an access token to a user, or None if invalid/expired."""
-        entry = self._store.access_entry(access_token)
+        hashed_key = _token_key(access_token)
+        storage_key = hashed_key
+        entry = self._store.access_entry(hashed_key)
+        legacy = False
+        if entry is None:
+            # Upgrade compatibility for pre-hash rows. Migrate a still-valid
+            # legacy access token on first successful use.
+            storage_key = access_token
+            entry = self._store.access_entry(storage_key)
+            legacy = entry is not None
         if entry is None:
             return None
         user_id, expires_at = entry
         if expires_at <= _now_ms():
-            self._store.delete_access(access_token)
+            self._store.delete_access(storage_key)
             return None
+        if legacy:
+            self._store.save_access(hashed_key, user_id, expires_at)
+            self._store.delete_access(storage_key)
         stored = self._store.user_by_id(user_id)
         return _to_domain_user(stored) if stored else None
 
     def revoke_access(self, access_token: str) -> None:
+        # Delete both formats so logout also revokes pre-upgrade sessions.
+        self._store.delete_access(_token_key(access_token))
         self._store.delete_access(access_token)
 
     def revoke_refresh(self, refresh_token: str) -> None:
+        self._store.delete_refresh(_token_key(refresh_token))
         self._store.delete_refresh(refresh_token)
 
 

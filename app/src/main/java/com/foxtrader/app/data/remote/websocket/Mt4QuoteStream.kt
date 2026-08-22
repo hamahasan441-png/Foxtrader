@@ -1,10 +1,12 @@
 package com.foxtrader.app.data.remote.websocket
 
-import com.foxtrader.app.di.MetaApiWebSocketClient
+import com.foxtrader.app.data.remote.api.MetaApiDataSource
 import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.Mt4Quote
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -13,51 +15,43 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.double
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.long
-import okhttp3.Response
-import okhttp3.WebSocket
-import okhttp3.WebSocketListener
+import retrofit2.HttpException
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * WebSocket connection to MetaApi's streaming endpoint for real-time MT4 quotes.
+ * Reliable Android market-price stream for a MetaApi MT4/MT5 account.
  *
- * Subscribes/unsubscribes for individual symbols; emits [Mt4Quote] updates via
- * a shared [Flow].
+ * MetaApi's low-latency streaming API is Socket.IO, not a raw RFC-6455 JSON
+ * socket. A previous implementation connected raw OkHttp WebSocket traffic and
+ * expected a non-MetaApi `type=quotes` payload, which could never be relied on.
+ * Phase 12 wires the documented Socket.IO price channel and retains MetaApi's
+ * current-price REST endpoint only as a bounded watchdog/fallback. Trading does
+ * not depend on a best-effort UI stream: the repository still re-reads the
+ * executable quote immediately before a broker submission.
  *
- * Hardening guarantees:
- *  - Uses [Mt4WebSocketRequest] so the auth token is only ever in the wire URL,
- *    never in logs (the dedicated [MetaApiWebSocketClient] has no logging).
- *  - OkHttp client pings every 15s; a missing heartbeat for > 45s marks the
- *    stream [ConnectionState.STALE] and forces a fresh connection.
- *  - Credential rejection (HTTP 401/403) transitions to [ConnectionState.AUTH_FAILED]
- *    and stops reconnecting — no point hammering an unauthorized endpoint.
- *  - A reconnect budget of 8 attempts leads to [ConnectionState.FATAL].
- *  - Duplicate and out-of-order quotes are suppressed per symbol.
- *  - Disconnect clears the in-memory token/account so they cannot linger in RAM.
+ * Safety properties:
+ *  - credentials are never logged;
+ *  - account switches cancel the old generation and clear every cached quote;
+ *  - stale/old polling results cannot cross a session boundary;
+ *  - malformed/non-finite/out-of-order quotes are dropped;
+ *  - 401/403 is terminal AUTH_FAILED; transient errors back off and reconnect;
+ *  - no price is retained after disconnect, so execution cannot consume a
+ *    quote from a previous broker account.
  */
 @Singleton
 class Mt4QuoteStream @Inject constructor(
-    @MetaApiWebSocketClient private val okHttpClient: okhttp3.OkHttpClient,
+    private val dataSource: MetaApiDataSource,
+    private val streamingClient: MetaApiStreamingClient,
 ) {
 
-    /**
-     * Returns the most recent [Mt4Quote] for [symbol], or null if none has been
-     * received yet. Used to build a fresh execution context for live orders.
-     */
-    fun latestQuote(symbol: String): Mt4Quote? = latestQuotes[symbol.uppercase()]
+    fun latestQuote(symbol: String): Mt4Quote? = latestQuotes[symbol.trim().uppercase()]
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val json = Json { ignoreUnknownKeys = true }
-
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
@@ -65,268 +59,316 @@ class Mt4QuoteStream @Inject constructor(
     val quotes: Flow<Mt4Quote> = _quotes.asSharedFlow()
 
     private val lock = Any()
-    private val subscribedSymbols = mutableSetOf<String>()
-    private var webSocket: WebSocket? = null
-    private var reconnectAttempt = 0
-    private var shouldReconnect = true
-    private var generation = 0
-    private var authToken: String = ""
-    private var accountId: String = ""
-
-    // Monotonic last-received timestamp per symbol (in millis). Used to drop
-    // duplicate and out-of-order quotes for the same symbol/timestamp.
+    private val subscribedSymbols = linkedSetOf<String>()
+    private val latestQuotes = ConcurrentHashMap<String, Mt4Quote>()
     private val lastQuoteTimeBySymbol = mutableMapOf<String, Long>()
 
-    // Latest quote per symbol, for callers (e.g. the execution safety layer)
-    // that need a fresh reference price without holding the subscription flow.
-    private val latestQuotes = ConcurrentHashMap<String, Mt4Quote>()
+    private var authToken: String = ""
+    private var accountId: String = ""
+    private var generation: Long = 0L
+    private var pollJob: Job? = null
+    private var streamConnectJob: Job? = null
 
-    // Last message wall-clock time, used by the stale watchdog.
-    @Volatile private var lastMessageAt: Long = 0L
-    private var watchdogStarted = false
+    init {
+        scope.launch {
+            streamingClient.quotes.collect { quote ->
+                val snapshot = synchronized(lock) {
+                    if (authToken.isBlank() || accountId.isBlank()) null
+                    else Triple(generation, authToken, accountId)
+                } ?: return@collect
+                acceptQuote(snapshot.first, snapshot.second, snapshot.third, quote)
+            }
+        }
+        scope.launch {
+            streamingClient.state.collect { streamState ->
+                synchronized(lock) {
+                    if (authToken.isBlank() || accountId.isBlank()) return@synchronized
+                    when (streamState) {
+                        ConnectionState.CONNECTED -> _connectionState.value = ConnectionState.CONNECTED
+                        ConnectionState.AUTH_FAILED -> {
+                            latestQuotes.clear()
+                            lastQuoteTimeBySymbol.clear()
+                            _connectionState.value = ConnectionState.AUTH_FAILED
+                        }
+                        ConnectionState.CONNECTING, ConnectionState.RECONNECTING -> {
+                            if (_connectionState.value != ConnectionState.CONNECTED) {
+                                _connectionState.value = streamState
+                            }
+                        }
+                        ConnectionState.STALE, ConnectionState.ERROR, ConnectionState.FATAL -> {
+                            if (_connectionState.value != ConnectionState.AUTH_FAILED) {
+                                _connectionState.value = ConnectionState.RECONNECTING
+                            }
+                        }
+                        ConnectionState.DISCONNECTED -> Unit
+                    }
+                }
+            }
+        }
+    }
 
     companion object {
-        private const val STALE_TIMEOUT_MS = 45_000L
-        private const val WATCHDOG_INTERVAL_MS = 5_000L
-        private const val MAX_RECONNECT_ATTEMPTS = 8
-        private const val MAX_RECONNECT_DELAY_MS = 30_000L
-        private const val INITIAL_RECONNECT_DELAY_MS = 1_000L
+        private const val POLL_INTERVAL_MS = 1_000L
+        private const val INITIAL_BACKOFF_MS = 1_000L
+        private const val MAX_BACKOFF_MS = 30_000L
+        private const val MAX_CONSECUTIVE_FAILURES = 8
+        private const val STREAM_RESTART_INTERVAL_MS = 30_000L
     }
 
-    // ========================================================================
-    // PUBLIC API
-    // ========================================================================
-
-    /**
-     * Establish the streaming WebSocket connection using MetaApi credentials.
-     *
-     * @param token MetaApi auth token.
-     * @param metaApiAccountId The provisioned account ID.
-     */
     fun connect(token: String, metaApiAccountId: String) {
-        synchronized(lock) {
-            // Idempotent: if we are already connected/connecting with the same
-            // credentials, do not spin up a second socket (both the login flow
-            // and the chart bridge can call connect for the same session).
-            val alreadyLive = (webSocket != null) &&
-                (authToken == token && accountId == metaApiAccountId) &&
-                (_connectionState.value == ConnectionState.CONNECTED ||
-                    _connectionState.value == ConnectionState.CONNECTING ||
-                    _connectionState.value == ConnectionState.RECONNECTING)
-            if (alreadyLive) return
-
-            authToken = token
-            accountId = metaApiAccountId
-            shouldReconnect = true
-            reconnectAttempt = 0
-            lastQuoteTimeBySymbol.clear()
-            connectLocked()
-        }
-    }
-
-    /**
-     * Subscribe to real-time quotes for a symbol.
-     */
-    fun subscribe(symbol: String) {
-        synchronized(lock) {
-            subscribedSymbols.add(symbol.uppercase())
-            sendSubscription(symbol.uppercase())
-        }
-    }
-
-    /**
-     * Unsubscribe from real-time quotes for a symbol.
-     */
-    fun unsubscribe(symbol: String) {
-        synchronized(lock) {
-            subscribedSymbols.remove(symbol.uppercase())
-            if (subscribedSymbols.isEmpty()) {
-                disconnectLocked()
-            }
-        }
-    }
-
-    /**
-     * Disconnect the WebSocket, clear all subscriptions, and wipe the in-memory
-     * token/account credentials.
-     */
-    fun disconnect() {
-        synchronized(lock) { disconnectLocked() }
-    }
-
-    // ========================================================================
-    // CONNECTION MANAGEMENT (callers hold [lock])
-    // ========================================================================
-
-    private fun disconnectLocked() {
-        shouldReconnect = false
-        generation++
-        subscribedSymbols.clear()
-        lastQuoteTimeBySymbol.clear()
-        webSocket?.close(1000, "Client disconnect")
-        webSocket = null
-        // Wipe in-memory credentials so a live token does not linger in RAM.
-        authToken = ""
-        accountId = ""
-        _connectionState.value = ConnectionState.DISCONNECTED
-    }
-
-    private fun connectLocked() {
-        val wsRequest = Mt4WebSocketRequest.create(authToken, accountId)
-        if (wsRequest == null) {
-            _connectionState.value = ConnectionState.AUTH_FAILED
-            return
-        }
-
-        _connectionState.value = ConnectionState.CONNECTING
-        generation++
-        val myGeneration = generation
-        startWatchdogLocked()
-
-        // Note: wsRequest.request carries the token in its URL query string. It
-        // is only ever passed to newWebSocket for the wire; it is never logged
-        // (redacted() exists for diagnostics) and the dedicated client has no
-        // logging interceptor.
-        webSocket = okHttpClient.newWebSocket(wsRequest.request, object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) {
-                synchronized(lock) {
-                    if (generation != myGeneration) return
-                    _connectionState.value = ConnectionState.CONNECTED
-                    lastMessageAt = System.currentTimeMillis()
-                    reconnectAttempt = 0
-                    resubscribeAllLocked()
-                }
-            }
-
-            override fun onMessage(webSocket: WebSocket, text: String) {
-                lastMessageAt = System.currentTimeMillis()
-                parseAndEmit(text)
-            }
-
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                synchronized(lock) {
-                    if (generation != myGeneration) return
-                    val code = response?.code
-                    if (code == 401 || code == 403) {
-                        // Credential rejection — terminal; do not reconnect.
-                        shouldReconnect = false
-                        _connectionState.value = ConnectionState.AUTH_FAILED
-                        webSocket.close(1000, "Auth failed")
-                        return
-                    }
-                    _connectionState.value = ConnectionState.ERROR
-                    scheduleReconnectLocked()
-                }
-            }
-
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                synchronized(lock) {
-                    if (generation != myGeneration) return
-                    _connectionState.value = ConnectionState.DISCONNECTED
-                    if (shouldReconnect && subscribedSymbols.isNotEmpty()) {
-                        scheduleReconnectLocked()
-                    }
-                }
-            }
-        })
-    }
-
-    private fun scheduleReconnectLocked() {
-        if (!shouldReconnect) return
-        if (reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
-            _connectionState.value = ConnectionState.FATAL
-            shouldReconnect = false
-            return
-        }
-
-        _connectionState.value = ConnectionState.RECONNECTING
-
-        val delayMs = minOf(
-            INITIAL_RECONNECT_DELAY_MS * (1L shl reconnectAttempt.coerceAtMost(5)),
-            MAX_RECONNECT_DELAY_MS,
-        )
-        reconnectAttempt++
-        val myGeneration = generation
-
-        scope.launch {
-            delay(delayMs)
+        val normalizedToken = token.trim()
+        val normalizedId = metaApiAccountId.trim()
+        if (normalizedToken.isBlank() || normalizedId.isBlank()) {
             synchronized(lock) {
-                if (shouldReconnect && generation == myGeneration) {
-                    connectLocked()
-                }
+                disconnectLocked(clearSubscriptions = false)
+                _connectionState.value = ConnectionState.AUTH_FAILED
             }
+            return
         }
-    }
 
-    private fun resubscribeAllLocked() {
-        subscribedSymbols.forEach { symbol -> sendSubscription(symbol) }
-    }
+        synchronized(lock) {
+            val sameSession = authToken == normalizedToken && accountId == normalizedId && pollJob?.isActive == true
+            if (sameSession) return
 
-    private fun sendSubscription(symbol: String) {
-        val ws = webSocket ?: return
-        val subscribeMsg = """{"type":"subscribe","subscriptions":[{"type":"quotes","symbol":"$symbol"}]}"""
-        ws.send(subscribeMsg)
-    }
+            // Session replacement is a hard boundary. Do not let any prior
+            // account quote survive for even one polling interval.
+            generation++
+            pollJob?.cancel()
+            pollJob = null
+            streamConnectJob?.cancel()
+            streamConnectJob = null
+            streamingClient.disconnect(clearSubscriptions = false)
+            latestQuotes.clear()
+            lastQuoteTimeBySymbol.clear()
+            dataSource.invalidateAccountRouting(accountId.takeIf { it.isNotBlank() })
 
-    /**
-     * Starts a single watchdog that tears down the connection whenever the
-     * stream has been silent for longer than [STALE_TIMEOUT_MS]. The watchdog
-     * is intentionally started under [lock] and guarded by a flag so only one
-     * instance ever runs.
-     */
-    private fun startWatchdogLocked() {
-        if (watchdogStarted) return
-        watchdogStarted = true
-        scope.launch {
-            while (isActive) {
-                delay(WATCHDOG_INTERVAL_MS)
-                val silentFor = System.currentTimeMillis() - lastMessageAt
-                if (silentFor > STALE_TIMEOUT_MS) {
+            authToken = normalizedToken
+            accountId = normalizedId
+            _connectionState.value = ConnectionState.CONNECTING
+            val myGeneration = generation
+            streamingClient.replaceSubscriptions(subscribedSymbols)
+            streamConnectJob = scope.launch {
+                try {
+                    val region = dataSource.getAccountRegion(normalizedToken, normalizedId)
+                    val stillCurrent = synchronized(lock) {
+                        generation == myGeneration && authToken == normalizedToken && accountId == normalizedId
+                    }
+                    if (stillCurrent) {
+                        streamingClient.connect(normalizedToken, normalizedId, region)
+                        streamingClient.replaceSubscriptions(synchronized(lock) { subscribedSymbols.toList() })
+                    }
+                } catch (cancel: CancellationException) {
+                    throw cancel
+                } catch (_: Exception) {
+                    // REST watchdog below remains the protocol-correct fallback.
                     synchronized(lock) {
-                        if (shouldReconnect && _connectionState.value == ConnectionState.CONNECTED) {
-                            _connectionState.value = ConnectionState.STALE
-                            webSocket?.close(1000, "Stale heartbeat")
-                            webSocket = null
-                            if (shouldReconnect && subscribedSymbols.isNotEmpty()) {
-                                scheduleReconnectLocked()
-                            }
+                        if (generation == myGeneration && _connectionState.value != ConnectionState.AUTH_FAILED) {
+                            _connectionState.value = ConnectionState.RECONNECTING
                         }
                     }
                 }
             }
+            startPollingLocked(myGeneration, normalizedToken, normalizedId)
         }
     }
 
-    // ========================================================================
-    // MESSAGE PARSING
-    // ========================================================================
+    fun replaceSubscriptions(symbols: List<String>) {
+        val normalized = symbols.mapNotNull { normalizeSymbolOrNull(it) }.toSet()
+        synchronized(lock) {
+            subscribedSymbols.clear()
+            subscribedSymbols.addAll(normalized)
+            latestQuotes.keys.retainAll(normalized)
+            lastQuoteTimeBySymbol.keys.retainAll(normalized)
+            streamingClient.replaceSubscriptions(normalized)
+        }
+    }
 
-    private fun parseAndEmit(text: String) {
-        try {
-            val root = json.parseToJsonElement(text).jsonObject
-            val type = root["type"]?.jsonPrimitive?.content ?: return
-            if (type != "quotes") return
+    fun subscribe(symbol: String) {
+        val normalized = normalizeSymbolOrNull(symbol) ?: return
+        synchronized(lock) {
+            subscribedSymbols.add(normalized)
+            streamingClient.replaceSubscriptions(subscribedSymbols)
+        }
+    }
 
-            val symbol = root["symbol"]?.jsonPrimitive?.content ?: return
-            val bid = root["bid"]?.jsonPrimitive?.double ?: return
-            val ask = root["ask"]?.jsonPrimitive?.double ?: return
-            val timestamp = root["time"]?.jsonPrimitive?.long ?: System.currentTimeMillis()
+    fun unsubscribe(symbol: String) {
+        val normalized = normalizeSymbolOrNull(symbol) ?: return
+        synchronized(lock) {
+            subscribedSymbols.remove(normalized)
+            latestQuotes.remove(normalized)
+            lastQuoteTimeBySymbol.remove(normalized)
+            streamingClient.replaceSubscriptions(subscribedSymbols)
+        }
+    }
 
-            // Suppress duplicate and out-of-order quotes per symbol.
+    fun disconnect() {
+        synchronized(lock) { disconnectLocked(clearSubscriptions = true) }
+    }
+
+    private fun disconnectLocked(clearSubscriptions: Boolean) {
+        generation++
+        pollJob?.cancel()
+        pollJob = null
+        streamConnectJob?.cancel()
+        streamConnectJob = null
+        streamingClient.disconnect(clearSubscriptions = clearSubscriptions)
+        latestQuotes.clear()
+        lastQuoteTimeBySymbol.clear()
+        dataSource.invalidateAccountRouting(accountId.takeIf { it.isNotBlank() })
+        authToken = ""
+        accountId = ""
+        if (clearSubscriptions) subscribedSymbols.clear()
+        _connectionState.value = ConnectionState.DISCONNECTED
+    }
+
+    private fun startPollingLocked(myGeneration: Long, token: String, id: String) {
+        pollJob = scope.launch {
+            var consecutiveFailures = 0
+            var backoffMs = INITIAL_BACKOFF_MS
+            var lastStreamRestartAttempt = 0L
+
+            while (isActive) {
+                val symbols = synchronized(lock) {
+                    if (generation != myGeneration || authToken != token || accountId != id) return@launch
+                    subscribedSymbols.toList()
+                }
+
+                if (symbols.isEmpty()) {
+                    // Credentials are valid but there is no active market-data
+                    // request yet. Keep session ready without making network calls.
+                    synchronized(lock) {
+                        if (generation == myGeneration && _connectionState.value != ConnectionState.AUTH_FAILED) {
+                            _connectionState.value = ConnectionState.CONNECTED
+                        }
+                    }
+                    delay(POLL_INTERVAL_MS)
+                    continue
+                }
+
+                // Socket.IO is primary. REST polling is a watchdog/fallback
+                // only; it stops consuming REST quota while streaming is healthy.
+                if (streamingClient.state.value == ConnectionState.CONNECTED) {
+                    synchronized(lock) {
+                        if (generation == myGeneration) _connectionState.value = ConnectionState.CONNECTED
+                    }
+                    delay(POLL_INTERVAL_MS)
+                    continue
+                }
+                if (streamingClient.state.value == ConnectionState.AUTH_FAILED) {
+                    synchronized(lock) {
+                        if (generation == myGeneration) _connectionState.value = ConnectionState.AUTH_FAILED
+                    }
+                    return@launch
+                }
+
+                // Socket.IO's Java client performs its own bounded reconnects.
+                // If those retries are exhausted (or a local overflow forced the
+                // socket generation closed), periodically rebuild the streaming
+                // session while REST remains an independent watchdog/fallback.
+                val now = System.currentTimeMillis()
+                if (now - lastStreamRestartAttempt >= STREAM_RESTART_INTERVAL_MS) {
+                    lastStreamRestartAttempt = now
+                    try {
+                        val region = dataSource.getAccountRegion(token, id)
+                        val stillCurrent = synchronized(lock) {
+                            generation == myGeneration && authToken == token && accountId == id
+                        }
+                        if (stillCurrent) {
+                            streamingClient.connect(token, id, region)
+                            streamingClient.replaceSubscriptions(symbols)
+                        }
+                    } catch (cancel: CancellationException) {
+                        throw cancel
+                    } catch (_: Exception) {
+                        // REST fallback below is deliberately independent of
+                        // streaming recovery and remains available here.
+                    }
+                }
+
+                var requestSuccessCount = 0
+                var terminalAuthFailure = false
+                for (symbol in symbols) {
+                    if (!isActive) break
+                    try {
+                        val quote = dataSource.getCurrentPrice(token, id, symbol)
+                        // A valid HTTP/MetaApi response proves connectivity even
+                        // when the market has not produced a newer tick. Keep
+                        // quote freshness separate: acceptQuote still refuses to
+                        // refresh the cached timestamp on duplicate/old ticks.
+                        requestSuccessCount++
+                        acceptQuote(myGeneration, token, id, quote)
+                    } catch (cancel: CancellationException) {
+                        throw cancel
+                    } catch (http: HttpException) {
+                        if (http.code() == 401 || http.code() == 403) {
+                            terminalAuthFailure = true
+                            break
+                        }
+                    } catch (_: Exception) {
+                        // Transient network/terminal synchronization failure.
+                        // State/backoff is handled once per polling cycle below.
+                    }
+                }
+
+                if (terminalAuthFailure) {
+                    synchronized(lock) {
+                        if (generation == myGeneration) {
+                            latestQuotes.clear()
+                            lastQuoteTimeBySymbol.clear()
+                            _connectionState.value = ConnectionState.AUTH_FAILED
+                        }
+                    }
+                    return@launch
+                }
+
+                if (requestSuccessCount > 0) {
+                    consecutiveFailures = 0
+                    backoffMs = INITIAL_BACKOFF_MS
+                    synchronized(lock) {
+                        if (generation == myGeneration) _connectionState.value = ConnectionState.CONNECTED
+                    }
+                    delay(POLL_INTERVAL_MS)
+                } else {
+                    consecutiveFailures++
+                    synchronized(lock) {
+                        if (generation == myGeneration) {
+                            _connectionState.value = if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                                ConnectionState.STALE
+                            } else {
+                                ConnectionState.RECONNECTING
+                            }
+                        }
+                    }
+                    delay(backoffMs)
+                    backoffMs = (backoffMs * 2).coerceAtMost(MAX_BACKOFF_MS)
+                }
+            }
+        }
+    }
+
+    private fun acceptQuote(
+        myGeneration: Long,
+        token: String,
+        id: String,
+        quote: Mt4Quote,
+    ): Boolean {
+        if (!quote.bid.isFinite() || !quote.ask.isFinite() || quote.bid <= 0.0 || quote.ask < quote.bid || quote.timestamp <= 0L) {
+            return false
+        }
+        val symbol = normalizeSymbolOrNull(quote.symbol) ?: return false
+        synchronized(lock) {
+            if (generation != myGeneration || authToken != token || accountId != id) return false
+            if (symbol !in subscribedSymbols) return false
             val last = lastQuoteTimeBySymbol[symbol] ?: Long.MIN_VALUE
-            if (timestamp <= last) return
-            lastQuoteTimeBySymbol[symbol] = timestamp
-
-            val quote = Mt4Quote(
-                symbol = symbol,
-                bid = bid,
-                ask = ask,
-                timestamp = timestamp,
-            )
-            latestQuotes[symbol] = quote
-            _quotes.tryEmit(quote)
-        } catch (_: Exception) {
-            // Silently drop malformed messages; never crash the feed.
+            if (quote.timestamp <= last) return false
+            lastQuoteTimeBySymbol[symbol] = quote.timestamp
+            val normalized = if (quote.symbol == symbol) quote else quote.copy(symbol = symbol)
+            latestQuotes[symbol] = normalized
+            _quotes.tryEmit(normalized)
+            return true
         }
     }
+
+    private fun normalizeSymbolOrNull(symbol: String): String? = symbol.trim().uppercase()
+        .takeIf { it.isNotEmpty() && it.length <= 64 && it.none(Char::isISOControl) }
 }

@@ -37,6 +37,12 @@ class Mt4BrokerDirectoryTest {
     }
 
     @Test
+    fun `deriv profile is discoverable for mt5 onboarding`() {
+        val results = directory.search("Deriv")
+        assertTrue(results.any { it.name.equals("Deriv", ignoreCase = true) })
+    }
+
+    @Test
     fun `no match returns empty`() {
         assertTrue(directory.search("zzz-no-such-broker-12345").isEmpty())
     }

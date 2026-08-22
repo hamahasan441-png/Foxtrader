@@ -114,7 +114,12 @@ fun TradeProOptimizerScreen(
                     Text(state.error ?: "Optimization failed.", color = FoxBearishText)
                 }
 
-                report != null && report.best != null -> ReportContent(report, state.applied, viewModel)
+                report != null && report.best != null -> ReportContent(
+                    report = report,
+                    applied = state.applied,
+                    canApply = state.canApplyBest,
+                    viewModel = viewModel,
+                )
 
                 report != null -> LabCard {
                     Text(report.narrative, color = FoxNeutral60, fontSize = 12.sp)
@@ -160,10 +165,12 @@ private fun RunButton(state: TradeProOptimizerUiState, viewModel: TradeProOptimi
 private fun ReportContent(
     report: TradeProOptimizationReport,
     applied: Boolean,
+    canApply: Boolean,
     viewModel: TradeProOptimizerViewModel,
 ) {
     NarrativeCard(report)
-    BestCandidateCard(report, applied, viewModel)
+    RobustnessCard(report)
+    BestCandidateCard(report, applied, canApply, viewModel)
     OutOfSampleCard(report)
     CandidatesTable(report)
 }
@@ -184,9 +191,68 @@ private fun NarrativeCard(report: TradeProOptimizationReport) {
 }
 
 @Composable
+private fun RobustnessCard(report: TradeProOptimizationReport) {
+    val robustness = report.robustness ?: run {
+        LabCard {
+            SectionTitle("Phase 4 Robustness")
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Not enough chronological history for anchored walk-forward validation. " +
+                    "The optimizer will not auto-apply a tuned config without this check.",
+                fontSize = 11.sp,
+                color = FoxNeutral60,
+            )
+        }
+        return
+    }
+    val gradeColor = when (robustness.grade) {
+        "A", "B" -> FoxBullishText
+        "C" -> FoxAmber50
+        else -> FoxBearishText
+    }
+    LabCard {
+        SectionTitle("Phase 4 Walk-Forward Robustness")
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            MetricTile("Grade", robustness.grade, gradeColor, Modifier.weight(1f))
+            MetricTile("Score", "${robustness.robustnessScore.toInt()}/100", gradeColor, Modifier.weight(1f))
+            MetricTile(
+                "Folds",
+                "${robustness.passedFolds}/${robustness.folds.size}",
+                if (robustness.passRate >= 0.75) FoxBullishText else FoxAmber50,
+                Modifier.weight(1f),
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            MetricTile("Pass Rate", pct(robustness.passRate), FoxAmber50, Modifier.weight(1f))
+            MetricTile("Stability", pct(robustness.winnerStability), FoxAmber50, Modifier.weight(1f))
+            MetricTile(
+                "Avg OOS Exp.",
+                fmtPts(robustness.averageValidationExpectancy),
+                pnlColor(robustness.averageValidationExpectancy),
+                Modifier.weight(1f),
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            if (robustness.recommended) {
+                "PASS — repeated unseen folds support guarded application of the tuned configuration."
+            } else {
+                "BLOCKED — parameter sweep did not survive enough unseen chronological folds."
+            },
+            color = if (robustness.recommended) FoxBullishText else FoxBearishText,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+@Composable
 private fun BestCandidateCard(
     report: TradeProOptimizationReport,
     applied: Boolean,
+    canApply: Boolean,
     viewModel: TradeProOptimizerViewModel,
 ) {
     val best = report.best ?: return
@@ -209,7 +275,7 @@ private fun BestCandidateCard(
         Spacer(Modifier.height(12.dp))
         Button(
             onClick = viewModel::applyBestConfig,
-            enabled = !applied,
+            enabled = !applied && canApply,
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(
                 containerColor = if (applied) FoxBullishText else FoxAmber50,
@@ -220,7 +286,10 @@ private fun BestCandidateCard(
                 Spacer(Modifier.padding(4.dp))
                 Text("Applied", fontWeight = FontWeight.Bold)
             } else {
-                Text("Apply Best Config", fontWeight = FontWeight.Bold)
+                Text(
+                    if (canApply) "Apply Robust Best Config" else "Robustness Gate Required",
+                    fontWeight = FontWeight.Bold,
+                )
             }
         }
     }

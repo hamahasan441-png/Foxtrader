@@ -4,7 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.foxtrader.app.di.DefaultDispatcher
 import com.foxtrader.app.domain.model.BacktestConfig
+import com.foxtrader.app.domain.model.BinaryBacktestConfig
+import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.StrategySignal
 import com.foxtrader.app.domain.model.StrategyType
@@ -15,6 +18,7 @@ import com.foxtrader.app.domain.usecase.backtest.AiScoredBacktestEngine
 import com.foxtrader.app.domain.usecase.backtest.BacktestAnalyticsEngine
 import com.foxtrader.app.domain.usecase.backtest.BacktestEngine
 import com.foxtrader.app.domain.usecase.backtest.StrategyFunction
+import com.foxtrader.app.domain.usecase.binary.BinaryBacktestEngine
 import com.foxtrader.app.domain.usecase.calculator.InstrumentTypeResolver
 import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
@@ -44,6 +48,7 @@ import javax.inject.Inject
 class BacktestLabViewModel @Inject constructor(
     private val repository: MarketRepository,
     private val backtestEngine: BacktestEngine,
+    private val binaryBacktestEngine: BinaryBacktestEngine,
     private val aiScoredBacktestEngine: AiScoredBacktestEngine,
     private val analyticsEngine: BacktestAnalyticsEngine,
     private val instrumentTypeResolver: InstrumentTypeResolver,
@@ -57,6 +62,7 @@ class BacktestLabViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(
         BacktestLabUiState(
             selectedBlueprintId = appPreferences.consumeRequestedBacktestBlueprintId(),
+            dataProvider = appPreferences.dataProvider.value,
         ),
     )
     val uiState: StateFlow<BacktestLabUiState> = _uiState.asStateFlow()
@@ -88,19 +94,44 @@ class BacktestLabViewModel @Inject constructor(
     }
 
     fun setSymbol(symbol: String) {
-        _uiState.update { it.copy(symbol = symbol, result = null, analyticsReport = null, error = null) }
+        _uiState.update { it.copy(symbol = symbol, result = null, binaryResult = null, analyticsReport = null, error = null) }
+    }
+
+    fun setDataProvider(provider: DataProvider) {
+        if (!provider.implemented) return
+        if (_uiState.value.isBinary3m && provider != DataProvider.DERIV) return
+        appPreferences.setDataProvider(provider)
+        _uiState.update {
+            it.copy(
+                dataProvider = provider,
+                result = null,
+                binaryResult = null,
+                analyticsReport = null,
+                error = null,
+            )
+        }
     }
 
     fun setTimeframe(timeframe: Timeframe) {
-        _uiState.update { it.copy(timeframe = timeframe, result = null, analyticsReport = null, error = null) }
+        _uiState.update { state ->
+            val resolved = if (state.isBinary3m) Timeframe.M1 else timeframe
+            state.copy(timeframe = resolved, result = null, binaryResult = null, analyticsReport = null, error = null)
+        }
     }
 
     fun setStrategy(strategy: BacktestStrategyTemplate) {
+        val isBinary = strategy == BacktestStrategyTemplate.DERIV_BINARY_3M
+        if (isBinary) appPreferences.setDataProvider(DataProvider.DERIV)
         _uiState.update {
             it.copy(
                 strategy = strategy,
                 selectedBlueprintId = null,
+                timeframe = if (isBinary) Timeframe.M1 else it.timeframe,
+                dataProvider = if (isBinary) DataProvider.DERIV else it.dataProvider,
+                symbol = if (isBinary && it.symbol !in BacktestLabUiState.DERIV_BINARY_SYMBOLS) "EURUSD" else it.symbol,
+                aiScoringEnabled = if (isBinary) false else it.aiScoringEnabled,
                 result = null,
+                binaryResult = null,
                 analyticsReport = null,
                 error = null,
             )
@@ -114,6 +145,7 @@ class BacktestLabViewModel @Inject constructor(
                 selectedBlueprintId = id,
                 riskPercent = blueprint.action.riskPercent.coerceIn(0.1, 5.0),
                 result = null,
+                binaryResult = null,
                 analyticsReport = null,
                 error = null,
             )
@@ -121,11 +153,40 @@ class BacktestLabViewModel @Inject constructor(
     }
 
     fun setRiskPercent(value: Double) {
-        _uiState.update { it.copy(riskPercent = value.coerceIn(0.1, 5.0), result = null, analyticsReport = null) }
+        _uiState.update { it.copy(riskPercent = value.coerceIn(0.1, 5.0), result = null, binaryResult = null, analyticsReport = null) }
+    }
+
+    fun setBinaryPayoutRatio(value: Double) {
+        _uiState.update {
+            it.copy(
+                binaryPayoutRatio = value.coerceIn(0.50, 1.20),
+                binaryResult = null,
+                analyticsReport = null,
+                error = null,
+            )
+        }
+    }
+
+    fun setBinaryMinConfidence(value: Int) {
+        _uiState.update {
+            it.copy(
+                binaryMinConfidence = value.coerceIn(60, 90),
+                binaryResult = null,
+                analyticsReport = null,
+                error = null,
+            )
+        }
     }
 
     fun setAiScoringEnabled(enabled: Boolean) {
-        _uiState.update { it.copy(aiScoringEnabled = enabled, result = null, analyticsReport = null) }
+        _uiState.update { state ->
+            state.copy(
+                aiScoringEnabled = enabled && !state.isBinary3m,
+                result = null,
+                binaryResult = null,
+                analyticsReport = null,
+            )
+        }
     }
 
     fun runBacktest() {
@@ -133,12 +194,54 @@ class BacktestLabViewModel @Inject constructor(
             val state = _uiState.value
             _uiState.update { it.copy(isRunning = true, error = null) }
             try {
-                // Sourced: an AI-gated backtest over generated bars would
-                // report a fabricated edge, so provenance reaches the engine.
+                // Backtests must measure the provider currently selected in
+                // this screen, not an anonymous Room series left by a previous
+                // venue. CandleEntity intentionally has no provider dimension,
+                // so refresh is mandatory here and replaces the cached series
+                // before we read it. Live-provider tests fail closed if refresh
+                // degraded to the clearly-labelled synthetic seed.
+                val requestedBars = if (state.isBinary3m) BINARY_BACKTEST_REFRESH_BARS else BACKTEST_REFRESH_BARS
+                repository.refreshCandles(state.symbol, state.timeframe, requestedBars).getOrThrow()
                 val sourced = repository.getSourcedCandles(state.symbol, state.timeframe)
+                if (state.dataProvider != DataProvider.SAMPLE) {
+                    require(sourced.source == CandleSource.LIVE) {
+                        "Fresh ${state.dataProvider.displayName} data is required for this backtest; synthetic fallback is not allowed."
+                    }
+                }
                 val candles = sourced.candles
                 require(candles.size >= MIN_REQUIRED_BARS) {
                     "Need at least $MIN_REQUIRED_BARS candles for a reliable backtest. Got ${candles.size}."
+                }
+
+                if (state.isBinary3m) {
+                    require(state.timeframe == Timeframe.M1) { "Deriv Binary 3m requires the 1-minute timeframe." }
+                    require(state.dataProvider == DataProvider.DERIV) { "Select Deriv as the data provider for the Deriv Binary 3m backtest." }
+                    val (binary, analytics) = withContext(defaultDispatcher) {
+                        val result = binaryBacktestEngine(
+                            candles = candles,
+                            symbol = state.symbol,
+                            timeframe = state.timeframe,
+                            config = BinaryBacktestConfig(
+                                initialBalance = state.initialBalance,
+                                riskPercent = state.riskPercent,
+                                payoutRatio = state.binaryPayoutRatio,
+                                expiryBars = 3,
+                                minConfidence = state.binaryMinConfidence,
+                                allowOverlappingContracts = false,
+                            ),
+                        )
+                        result to analyticsEngine.analyzeBinary(result)
+                    }
+                    _uiState.update {
+                        it.copy(
+                            isRunning = false,
+                            result = null,
+                            binaryResult = binary,
+                            analyticsReport = analytics,
+                            lastRunTime = System.currentTimeMillis(),
+                        )
+                    }
+                    return@launch
                 }
 
                 val config = BacktestConfig(
@@ -179,6 +282,7 @@ class BacktestLabViewModel @Inject constructor(
                     it.copy(
                         isRunning = false,
                         result = result,
+                        binaryResult = null,
                         analyticsReport = analytics,
                         lastRunTime = System.currentTimeMillis(),
                     )
@@ -211,7 +315,12 @@ class BacktestLabViewModel @Inject constructor(
             BacktestStrategyTemplate.EMA_TREND_PULLBACK -> ::emaTrendPullback
             BacktestStrategyTemplate.ATR_BREAKOUT -> ::atrBreakout
             BacktestStrategyTemplate.TRADEPRO -> ::tradePro
-            BacktestStrategyTemplate.LITX -> strategyLibrary.get(StrategyType.LITX).function
+            BacktestStrategyTemplate.DERIV_BINARY_3M -> error("Binary 3m uses BinaryBacktestEngine, not the SL/TP backtester.")
+            BacktestStrategyTemplate.LITX -> strategyLibrary.get(
+                StrategyType.LITX,
+                state.symbol,
+                state.timeframe,
+            ).function
         }
     }
 
@@ -333,6 +442,8 @@ class BacktestLabViewModel @Inject constructor(
     }
 
     private companion object {
+        const val BACKTEST_REFRESH_BARS = 1_000
+        const val BINARY_BACKTEST_REFRESH_BARS = 5_000
         const val MIN_REQUIRED_BARS = 100
         const val BREAKOUT_LOOKBACK = 20
         const val TRADEPRO_MIN_BARS = 40

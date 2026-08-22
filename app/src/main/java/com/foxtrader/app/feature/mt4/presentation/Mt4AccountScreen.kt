@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -37,6 +39,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.Mt4AccountInfo
 import com.foxtrader.app.domain.model.Mt4Position
+import com.foxtrader.app.domain.model.Mt4PendingOrder
+import com.foxtrader.app.domain.model.Mt4PendingExpirationType
 import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxBearish
 import com.foxtrader.app.ui.theme.FoxBearishText
@@ -65,31 +69,63 @@ fun Mt4AccountScreen(
         is Mt4UiState.Connected -> {
             ConnectedContent(
                 accountInfo = current.accountInfo,
+                platform = current.platform,
+                executionMode = current.executionMode,
                 positions = current.positions,
+                pendingOrders = current.pendingOrders,
                 isRefreshing = current.isRefreshing,
                 liveModeEnabled = current.liveModeEnabled,
                 killSwitchEngaged = current.killSwitchEngaged,
                 quotePrice = current.lastPrice,
                 tradeSymbol = current.tradeSymbol,
                 tradeDirection = current.tradeDirection,
+                orderEntryKind = current.orderEntryKind,
+                pendingPriceInput = current.pendingPriceInput,
+                pendingExpirationType = current.pendingExpirationType,
+                pendingExpirationInput = current.pendingExpirationInput,
                 lotsInput = current.lotsInput,
                 slInput = current.slInput,
                 tpInput = current.tpInput,
                 isPlacing = current.isPlacing,
                 pendingOrder = current.pendingOrder,
+                pendingClose = current.pendingClose,
+                positionManager = current.positionManager,
+                pendingOrderManager = current.pendingOrderManager,
                 notice = current.notice,
                 onToggleLiveMode = viewModel::toggleLiveMode,
                 onEngageKillSwitch = viewModel::engageKillSwitch,
                 onDisengageKillSwitch = viewModel::disengageKillSwitch,
                 onTradeSymbolChange = viewModel::onTradeSymbolChange,
                 onDirectionChange = viewModel::onDirectionChange,
+                onOrderEntryKindChange = viewModel::onOrderEntryKindChange,
+                onPendingPriceChange = viewModel::onPendingPriceChange,
+                onPendingExpirationTypeChange = viewModel::onPendingExpirationTypeChange,
+                onPendingExpirationInputChange = viewModel::onPendingExpirationInputChange,
                 onLotsChange = viewModel::onLotsChange,
                 onSlChange = viewModel::onSlChange,
                 onTpChange = viewModel::onTpChange,
                 onRequestConfirmation = viewModel::requestOrderConfirmation,
                 onConfirmOrder = viewModel::confirmOrder,
                 onCancelOrder = viewModel::cancelOrder,
-                onClosePosition = viewModel::closePosition,
+                onRequestClosePosition = viewModel::requestClosePosition,
+                onConfirmClosePosition = viewModel::confirmClosePosition,
+                onCancelClosePosition = viewModel::cancelClosePosition,
+                onRequestManagePosition = viewModel::requestManagePosition,
+                onDismissPositionManager = viewModel::dismissPositionManager,
+                onPositionSlChange = viewModel::updatePositionManagerSl,
+                onPositionTpChange = viewModel::updatePositionManagerTp,
+                onPositionTrailingChange = viewModel::updatePositionManagerTrailing,
+                onPositionPartialChange = viewModel::updatePositionManagerPartial,
+                onApplyPositionProtection = viewModel::applyPositionProtection,
+                onMoveBreakEven = viewModel::moveManagedPositionToBreakEven,
+                onPartialClose = viewModel::partialCloseManagedPosition,
+                onRequestManagePendingOrder = viewModel::requestManagePendingOrder,
+                onDismissPendingOrderManager = viewModel::dismissPendingOrderManager,
+                onPendingManagerPriceChange = viewModel::updatePendingManagerPrice,
+                onPendingManagerSlChange = viewModel::updatePendingManagerSl,
+                onPendingManagerTpChange = viewModel::updatePendingManagerTp,
+                onApplyPendingModification = viewModel::applyPendingOrderModification,
+                onCancelManagedPendingOrder = viewModel::cancelManagedPendingOrder,
                 onDismissNotice = viewModel::dismissNotice,
                 onRefresh = viewModel::refreshPositions,
                 onOpenLiveChart = onOpenLiveChart,
@@ -141,31 +177,63 @@ fun Mt4AccountScreen(
 @Composable
 private fun ConnectedContent(
     accountInfo: Mt4AccountInfo,
+    platform: String,
+    executionMode: BrokerExecutionMode,
     positions: List<Mt4Position>,
+    pendingOrders: List<Mt4PendingOrder>,
     isRefreshing: Boolean,
     liveModeEnabled: Boolean,
     killSwitchEngaged: Boolean,
     quotePrice: Double?,
     tradeSymbol: String,
     tradeDirection: Direction,
+    orderEntryKind: BrokerOrderEntryKind,
+    pendingPriceInput: String,
+    pendingExpirationType: Mt4PendingExpirationType,
+    pendingExpirationInput: String,
     lotsInput: String,
     slInput: String,
     tpInput: String,
     isPlacing: Boolean,
     pendingOrder: Mt4UiState.PendingTrade?,
+    pendingClose: Mt4UiState.PendingClose?,
+    positionManager: Mt4UiState.PositionManagerDraft?,
+    pendingOrderManager: Mt4UiState.PendingOrderManagerDraft?,
     notice: String?,
     onToggleLiveMode: () -> Unit,
     onEngageKillSwitch: () -> Unit,
     onDisengageKillSwitch: () -> Unit,
     onTradeSymbolChange: (String) -> Unit,
     onDirectionChange: (Direction) -> Unit,
+    onOrderEntryKindChange: (BrokerOrderEntryKind) -> Unit,
+    onPendingPriceChange: (String) -> Unit,
+    onPendingExpirationTypeChange: (Mt4PendingExpirationType) -> Unit,
+    onPendingExpirationInputChange: (String) -> Unit,
     onLotsChange: (String) -> Unit,
     onSlChange: (String) -> Unit,
     onTpChange: (String) -> Unit,
     onRequestConfirmation: () -> Unit,
     onConfirmOrder: () -> Unit,
     onCancelOrder: () -> Unit,
-    onClosePosition: (Long) -> Unit,
+    onRequestClosePosition: (Long) -> Unit,
+    onConfirmClosePosition: () -> Unit,
+    onCancelClosePosition: () -> Unit,
+    onRequestManagePosition: (Long) -> Unit,
+    onDismissPositionManager: () -> Unit,
+    onPositionSlChange: (String) -> Unit,
+    onPositionTpChange: (String) -> Unit,
+    onPositionTrailingChange: (String) -> Unit,
+    onPositionPartialChange: (String) -> Unit,
+    onApplyPositionProtection: () -> Unit,
+    onMoveBreakEven: () -> Unit,
+    onPartialClose: () -> Unit,
+    onRequestManagePendingOrder: (Long) -> Unit,
+    onDismissPendingOrderManager: () -> Unit,
+    onPendingManagerPriceChange: (String) -> Unit,
+    onPendingManagerSlChange: (String) -> Unit,
+    onPendingManagerTpChange: (String) -> Unit,
+    onApplyPendingModification: () -> Unit,
+    onCancelManagedPendingOrder: () -> Unit,
     onDismissNotice: () -> Unit,
     onRefresh: () -> Unit,
     onOpenLiveChart: () -> Unit,
@@ -179,7 +247,7 @@ private fun ConnectedContent(
     ) {
         item {
             Text(
-                text = "MT4 Account",
+                text = "Trading Account",
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
                 color = FoxAmber50,
@@ -189,6 +257,16 @@ private fun ConnectedContent(
                 text = "${accountInfo.name} (${accountInfo.server})",
                 style = MaterialTheme.typography.bodyMedium,
                 color = FoxNeutral60,
+            )
+            Text(
+                text = if (executionMode == BrokerExecutionMode.UNKNOWN) {
+                    "${platform.uppercase()} · UNKNOWN account type — treat as LIVE"
+                } else {
+                    "${platform.uppercase()} · ${executionMode.name} account"
+                },
+                style = MaterialTheme.typography.labelMedium,
+                color = if (executionMode == BrokerExecutionMode.DEMO) FoxSuccess else FoxAmber50,
+                fontWeight = FontWeight.SemiBold,
             )
         }
 
@@ -210,6 +288,10 @@ private fun ConnectedContent(
             TradeEntryCard(
                 symbol = tradeSymbol,
                 direction = tradeDirection,
+                orderEntryKind = orderEntryKind,
+                pendingPrice = pendingPriceInput,
+                pendingExpirationType = pendingExpirationType,
+                pendingExpirationInput = pendingExpirationInput,
                 lots = lotsInput,
                 sl = slInput,
                 tp = tpInput,
@@ -219,6 +301,10 @@ private fun ConnectedContent(
                 killSwitchEngaged = killSwitchEngaged,
                 onSymbolChange = onTradeSymbolChange,
                 onDirectionChange = onDirectionChange,
+                onOrderEntryKindChange = onOrderEntryKindChange,
+                onPendingPriceChange = onPendingPriceChange,
+                onPendingExpirationTypeChange = onPendingExpirationTypeChange,
+                onPendingExpirationInputChange = onPendingExpirationInputChange,
                 onLotsChange = onLotsChange,
                 onSlChange = onSlChange,
                 onTpChange = onTpChange,
@@ -263,7 +349,28 @@ private fun ConnectedContent(
             }
         } else {
             items(positions, key = { it.ticket }) { position ->
-                PositionCard(position = position, isPlacing = isPlacing, onClose = onClosePosition)
+                PositionCard(
+                    position = position,
+                    isPlacing = isPlacing,
+                    onManage = onRequestManagePosition,
+                    onClose = onRequestClosePosition,
+                )
+            }
+        }
+
+        item {
+            Text(
+                text = "Pending Orders (${pendingOrders.size})",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+
+        if (pendingOrders.isEmpty()) {
+            item { Text("No pending orders", style = MaterialTheme.typography.bodyMedium, color = FoxNeutral60) }
+        } else {
+            items(pendingOrders, key = { "pending-${it.ticket}" }) { order ->
+                PendingOrderCard(order = order, isPlacing = isPlacing, onManage = onRequestManagePendingOrder)
             }
         }
 
@@ -302,11 +409,18 @@ private fun ConnectedContent(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     DetailRow("Symbol", order.symbol)
+                    DetailRow("Order type", order.orderType.name)
                     DetailRow("Direction", order.direction.name.uppercase())
                     DetailRow("Volume", order.lots.toString())
                     DetailRow("Entry", order.entryPrice.toString())
                     DetailRow("Stop loss", order.stopLoss?.toString() ?: "None")
                     DetailRow("Take profit", order.takeProfit?.toString() ?: "None")
+                    if (order.orderType !in setOf(com.foxtrader.app.domain.model.Mt4OrderType.BUY, com.foxtrader.app.domain.model.Mt4OrderType.SELL)) {
+                        DetailRow("Expiration", order.expirationType.name + (order.expirationTime?.let { " · ${java.time.Instant.ofEpochMilli(it)}" } ?: ""))
+                    }
+                    order.maxSlippagePoints?.let { points ->
+                        DetailRow("Review drift cap", "%.1f broker points".format(java.util.Locale.US, points))
+                    }
                     order.volumeBoundsNote?.let { note ->
                         HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
                         Text(
@@ -324,7 +438,11 @@ private fun ConnectedContent(
                     }
                     HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
                     Text(
-                        "Live orders place money at risk. Confirm to send this order to your MT4 broker.",
+                        when (executionMode) {
+                            BrokerExecutionMode.DEMO -> "Demo execution: confirm to send this simulated broker order."
+                            BrokerExecutionMode.LIVE -> "Live orders place money at risk. Confirm to send this order to your broker."
+                            BrokerExecutionMode.UNKNOWN -> "Broker account type could not be verified. Treat this as LIVE: confirm only if you intend to place a real-money order."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = FoxNeutral60,
                     )
@@ -345,12 +463,172 @@ private fun ConnectedContent(
                             strokeWidth = 2.dp,
                         )
                     } else {
-                        Text("Place order", color = MaterialTheme.colorScheme.onPrimary)
+                        Text(
+                            if (order.orderType == com.foxtrader.app.domain.model.Mt4OrderType.BUY ||
+                                order.orderType == com.foxtrader.app.domain.model.Mt4OrderType.SELL
+                            ) "Place market order" else "Place pending order",
+                            color = MaterialTheme.colorScheme.onPrimary,
+                        )
                     }
                 }
             },
             dismissButton = {
                 TextButton(onClick = onCancelOrder, enabled = !isPlacing) { Text("Cancel") }
+            },
+        )
+    }
+
+    pendingClose?.let { close ->
+        AlertDialog(
+            onDismissRequest = onCancelClosePosition,
+            title = { Text("Confirm position close") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    DetailRow("Ticket", close.ticket.toString())
+                    DetailRow("Symbol", close.symbol)
+                    DetailRow("Volume", close.lots.toString())
+                    DetailRow("Current P/L", close.profit.toString())
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+                    Text(
+                        when (executionMode) {
+                            BrokerExecutionMode.DEMO -> "Confirm to close this demo position."
+                            BrokerExecutionMode.LIVE -> "Live close is irreversible and affects real funds. Confirm only after reviewing this exact position."
+                            BrokerExecutionMode.UNKNOWN -> "Broker account type could not be verified. Treat this close as LIVE and confirm only after reviewing this exact position."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = FoxNeutral60,
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = onConfirmClosePosition,
+                    enabled = !isPlacing,
+                    colors = ButtonDefaults.buttonColors(containerColor = FoxBearishText),
+                ) { Text("Close position", color = MaterialTheme.colorScheme.onPrimary) }
+            },
+            dismissButton = {
+                TextButton(onClick = onCancelClosePosition, enabled = !isPlacing) { Text("Cancel") }
+            },
+        )
+    }
+
+    positionManager?.let { manager ->
+        AlertDialog(
+            onDismissRequest = onDismissPositionManager,
+            title = { Text("Position manager · #${manager.ticket}") },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    DetailRow("Symbol", manager.symbol)
+                    DetailRow("Side", manager.side.name)
+                    DetailRow("Open", manager.openPrice.toString())
+                    DetailRow("Volume", manager.lots.toString())
+                    OutlinedTextField(
+                        value = manager.stopLossInput,
+                        onValueChange = onPositionSlChange,
+                        label = { Text("Stop loss · 0 removes") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                    )
+                    OutlinedTextField(
+                        value = manager.takeProfitInput,
+                        onValueChange = onPositionTpChange,
+                        label = { Text("Take profit · 0 removes") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                    )
+                    OutlinedTextField(
+                        value = manager.trailingPointsInput,
+                        onValueChange = onPositionTrailingChange,
+                        label = { Text("Trailing distance (broker points, optional)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                    )
+                    HorizontalDivider()
+                    OutlinedTextField(
+                        value = manager.partialLotsInput,
+                        onValueChange = onPositionPartialChange,
+                        label = { Text("Partial close volume") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                    )
+                    Text(
+                        "Apply/BE/Partial are explicit broker actions. The repository rechecks the position, account, quote and broker constraints before submission.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = FoxNeutral60,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedButton(onClick = onMoveBreakEven, enabled = !isPlacing, modifier = Modifier.weight(1f)) {
+                            Text("Break-even", fontSize = 12.sp)
+                        }
+                        OutlinedButton(onClick = onPartialClose, enabled = !isPlacing, modifier = Modifier.weight(1f)) {
+                            Text("Partial close", fontSize = 12.sp)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = onApplyPositionProtection, enabled = !isPlacing) { Text("Apply protection") }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismissPositionManager, enabled = !isPlacing) { Text("Cancel") }
+            },
+        )
+    }
+
+    pendingOrderManager?.let { manager ->
+        AlertDialog(
+            onDismissRequest = onDismissPendingOrderManager,
+            title = { Text("Pending order · #${manager.ticket}") },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    DetailRow("Symbol", manager.symbol)
+                    DetailRow("Type", manager.type.name)
+                    DetailRow("Volume", manager.lots.toString())
+                    OutlinedTextField(
+                        value = manager.openPriceInput,
+                        onValueChange = onPendingManagerPriceChange,
+                        label = { Text("Open price") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                    )
+                    OutlinedTextField(
+                        value = manager.stopLossInput,
+                        onValueChange = onPendingManagerSlChange,
+                        label = { Text("Stop loss · 0 removes") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                    )
+                    OutlinedTextField(
+                        value = manager.takeProfitInput,
+                        onValueChange = onPendingManagerTpChange,
+                        label = { Text("Take profit · 0 removes") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                    )
+                    Text(
+                        "Modification is checked against current price, stop level and freeze level before broker submission.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = FoxNeutral60,
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = onApplyPendingModification, enabled = !isPlacing) { Text("Apply") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = onCancelManagedPendingOrder, enabled = !isPlacing) {
+                        Text("Cancel order", color = FoxBearishText)
+                    }
+                    TextButton(onClick = onDismissPendingOrderManager, enabled = !isPlacing) { Text("Close") }
+                }
             },
         )
     }
@@ -380,7 +658,7 @@ private fun LiveTradingControls(
                 Column {
                     Text("Live mode", style = MaterialTheme.typography.bodyLarge)
                     Text(
-                        "Must be ON to place real orders",
+                        "Must be ON before broker execution",
                         style = MaterialTheme.typography.bodySmall,
                         color = FoxNeutral60,
                     )
@@ -421,6 +699,10 @@ private fun LiveTradingControls(
 private fun TradeEntryCard(
     symbol: String,
     direction: Direction,
+    orderEntryKind: BrokerOrderEntryKind,
+    pendingPrice: String,
+    pendingExpirationType: Mt4PendingExpirationType,
+    pendingExpirationInput: String,
     lots: String,
     sl: String,
     tp: String,
@@ -430,6 +712,10 @@ private fun TradeEntryCard(
     killSwitchEngaged: Boolean,
     onSymbolChange: (String) -> Unit,
     onDirectionChange: (Direction) -> Unit,
+    onOrderEntryKindChange: (BrokerOrderEntryKind) -> Unit,
+    onPendingPriceChange: (String) -> Unit,
+    onPendingExpirationTypeChange: (Mt4PendingExpirationType) -> Unit,
+    onPendingExpirationInputChange: (String) -> Unit,
     onLotsChange: (String) -> Unit,
     onSlChange: (String) -> Unit,
     onTpChange: (String) -> Unit,
@@ -483,6 +769,76 @@ private fun TradeEntryCard(
                         containerColor = if (direction == Direction.BEARISH) FoxBearish else MaterialTheme.colorScheme.surface
                     ),
                 ) { Text("SELL", color = MaterialTheme.colorScheme.onPrimary) }
+            }
+            Spacer(Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                BrokerOrderEntryKind.entries.forEach { kind ->
+                    OutlinedButton(
+                        onClick = { onOrderEntryKindChange(kind) },
+                        enabled = !isPlacing,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = if (orderEntryKind == kind) FoxAmber50 else MaterialTheme.colorScheme.onSurface,
+                        ),
+                    ) { Text(kind.name.lowercase().replaceFirstChar { it.uppercase() }, fontSize = 12.sp) }
+                }
+            }
+            if (orderEntryKind != BrokerOrderEntryKind.MARKET) {
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = pendingPrice,
+                    onValueChange = onPendingPriceChange,
+                    label = { Text("Pending open price") },
+                    singleLine = true,
+                    enabled = !isPlacing,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    text = if (orderEntryKind == BrokerOrderEntryKind.LIMIT) {
+                        if (direction == Direction.BULLISH) "BUY LIMIT must be below ask" else "SELL LIMIT must be above bid"
+                    } else {
+                        if (direction == Direction.BULLISH) "BUY STOP must be above ask" else "SELL STOP must be below bid"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = FoxNeutral60,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text("Expiration", style = MaterialTheme.typography.labelMedium, color = FoxNeutral60)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Mt4PendingExpirationType.entries.forEach { expiration ->
+                        OutlinedButton(
+                            onClick = { onPendingExpirationTypeChange(expiration) },
+                            enabled = !isPlacing,
+                            modifier = Modifier.weight(1f),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 8.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = if (pendingExpirationType == expiration) FoxAmber50 else MaterialTheme.colorScheme.onSurface,
+                            ),
+                        ) { Text(expiration.name.replace("SPECIFIED_DAY", "SPEC DAY").replace("SPECIFIED", "SPEC"), fontSize = 10.sp) }
+                    }
+                }
+                if (pendingExpirationType == Mt4PendingExpirationType.SPECIFIED ||
+                    pendingExpirationType == Mt4PendingExpirationType.SPECIFIED_DAY
+                ) {
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = pendingExpirationInput,
+                        onValueChange = onPendingExpirationInputChange,
+                        label = { Text("Expiration local time") },
+                        supportingText = { Text("yyyy-MM-dd HH:mm") },
+                        singleLine = true,
+                        enabled = !isPlacing,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
             Spacer(Modifier.height(8.dp))
 
@@ -588,7 +944,12 @@ private fun AccountInfoCard(info: Mt4AccountInfo) {
 }
 
 @Composable
-private fun PositionCard(position: Mt4Position, isPlacing: Boolean, onClose: (Long) -> Unit) {
+private fun PositionCard(
+    position: Mt4Position,
+    isPlacing: Boolean,
+    onManage: (Long) -> Unit,
+    onClose: (Long) -> Unit,
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
@@ -618,12 +979,59 @@ private fun PositionCard(position: Mt4Position, isPlacing: Boolean, onClose: (Lo
             AccountRow("TP", if (position.tp > 0.0) position.tp.toString() else "None")
             AccountRow("Ticket", "#${position.ticket}")
             Spacer(Modifier.height(8.dp))
-            Button(
-                onClick = { onClose(position.ticket) },
-                enabled = !isPlacing,
-                colors = ButtonDefaults.buttonColors(containerColor = FoxBearish),
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Close position", color = MaterialTheme.colorScheme.onPrimary) }
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    onClick = { onManage(position.ticket) },
+                    enabled = !isPlacing,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Manage") }
+                Button(
+                    onClick = { onClose(position.ticket) },
+                    enabled = !isPlacing,
+                    colors = ButtonDefaults.buttonColors(containerColor = FoxBearish),
+                    modifier = Modifier.weight(1f),
+                ) { Text("Close", color = MaterialTheme.colorScheme.onPrimary) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PendingOrderCard(
+    order: Mt4PendingOrder,
+    isPlacing: Boolean,
+    onManage: (Long) -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(order.symbol, fontWeight = FontWeight.Bold)
+                Text(order.type.name, color = FoxAmber50, fontWeight = FontWeight.SemiBold)
+            }
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+            AccountRow("Volume", order.remainingLots.toString())
+            AccountRow("Open Price", order.openPrice.toString())
+            AccountRow("Current", order.currentPrice?.toString() ?: "—")
+            AccountRow("SL", if (order.sl > 0.0) order.sl.toString() else "None")
+            AccountRow("TP", if (order.tp > 0.0) order.tp.toString() else "None")
+            AccountRow("State", order.state)
+            AccountRow("Ticket", "#${order.ticket}")
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { onManage(order.ticket) },
+                enabled = !isPlacing,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Modify / Cancel") }
         }
     }
 }

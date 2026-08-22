@@ -12,6 +12,7 @@ import com.foxtrader.app.domain.usecase.ai.MtfContextProvider
 import com.foxtrader.app.domain.usecase.litx.LitXEngine
 import com.foxtrader.app.domain.usecase.mtf.ConfluenceEngine
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
+import com.foxtrader.app.domain.usecase.signalintel.ConfirmedBarPolicy
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -65,7 +66,8 @@ class LitXViewModel @Inject constructor(
         analyzeJob = viewModelScope.launch {
             try {
                 val sourced = marketRepository.getSourcedCandles(symbol, timeframe)
-                val candles = sourced.candles
+                val now = System.currentTimeMillis()
+                val candles = ConfirmedBarPolicy.confirmedPrefix(sourced.candles, timeframe, now)
                 val config = appPreferences.litXConfig.value
                 if (candles.size < MIN_BARS) {
                     _uiState.update {
@@ -79,7 +81,10 @@ class LitXViewModel @Inject constructor(
                     }
                     return@launch
                 }
-                val htfMap = mtfContextProvider.getHtfContext(symbol, timeframe)
+                val htfMap = ConfirmedBarPolicy.confirmedMap(
+                    mtfContextProvider.getHtfContext(symbol, timeframe),
+                    now,
+                )
                 val analysis = withContext(defaultDispatcher) {
                     val htfBias: Bias
                     val htfScore: Int

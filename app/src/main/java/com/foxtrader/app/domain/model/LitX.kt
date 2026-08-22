@@ -77,6 +77,7 @@ data class PremiumDiscountZone(
 // ============================================================================
 
 /** LIT X setup grade. Only [A_PLUS]/[A] are surfaced by default. */
+@Serializable
 enum class LitXGrade { A_PLUS, A, B, REJECT }
 
 /** A single scored factor contributing to the LIT X confidence total. */
@@ -128,6 +129,10 @@ data class LitXSignal(
     val zone: PremiumDiscountZone?,
     val rationale: String,
     val timestamp: Long,
+    /** First bar on which the complete setup is objectively confirmed. */
+    val confirmationIndex: Int = -1,
+    /** Explainable institutional conditions that passed. */
+    val confirmations: List<String> = emptyList(),
 )
 
 /**
@@ -225,4 +230,32 @@ data class LitXConfig(
     val requireHtfAlignment: Boolean = true,
     /** Impulse must be at least this many average-ranges to count as displacement. */
     val displacementAtrMultiple: Double = 1.2,
-)
+    /** Phase 13 execution profile. */
+    val profile: SignalProfile = SignalProfile.INTRADAY,
+    /** Accuracy-first mode: CHOCH must be corroborated by aligned displacement (MSS). */
+    val requireStrongMss: Boolean = true,
+    /** Longs should originate in discount and shorts in premium when range context exists. */
+    val requireDirectionalZone: Boolean = true,
+    /** Absolute score floor in addition to the grade filter. */
+    val minConfidenceScore: Int = 75,
+    /** Maximum bars allowed between liquidity sweep and structure shift. */
+    val maxSweepToShiftBars: Int = 12,
+    /** Maximum bars allowed between confirmed shift and first POI retest. */
+    val maxShiftToRetestBars: Int = 14,
+) {
+    fun sanitized(): LitXConfig = copy(
+        minRiskReward = minRiskReward.coerceIn(1.0, 5.0),
+        displacementAtrMultiple = displacementAtrMultiple.coerceIn(0.8, 3.0),
+        minConfidenceScore = minConfidenceScore.coerceIn(50, 95),
+        maxSweepToShiftBars = maxSweepToShiftBars.coerceIn(3, 30),
+        maxShiftToRetestBars = maxShiftToRetestBars.coerceIn(3, 40),
+    )
+
+    companion object {
+        fun preset(profile: SignalProfile, enabled: Boolean = true): LitXConfig = when (profile) {
+            SignalProfile.SCALPING -> LitXConfig(enabled, LitXGrade.A, 1.8, false, 1.10, profile, true, false, 70, 7, 8)
+            SignalProfile.INTRADAY -> LitXConfig(enabled, LitXGrade.A, 2.0, true, 1.20, profile, true, true, 75, 12, 14)
+            SignalProfile.SWING -> LitXConfig(enabled, LitXGrade.A_PLUS, 2.3, true, 1.35, profile, true, true, 80, 18, 22)
+        }
+    }
+}

@@ -8,7 +8,7 @@
     excluded so private trading data is never copied off-device in plaintext,
     whether to cloud backup or to a transferred device.
 
-    EncryptedSharedPreferences files (fox_auth_tokens.xml, fox_provider_keys.xml)
+    EncryptedSharedPreferences files (fox_auth_tokens.xml, fox_provider_keys.xml, fox_deriv_credentials.xml)
     are also excluded: the Keystore master key does not travel with a backup, so
     restoring undecryptable ciphertext would otherwise throw during prefs init.
     The app defensively recovers by wiping and recreating an empty store, but
@@ -21,6 +21,7 @@
         <exclude domain="database" path="foxtrader.db-shm" />
         <exclude domain="sharedpref" path="fox_auth_tokens.xml" />
         <exclude domain="sharedpref" path="fox_provider_keys.xml" />
+    <exclude domain="sharedpref" path="fox_deriv_credentials.xml" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="database" path="foxtrader.db" />
@@ -28,5 +29,6 @@
         <exclude domain="database" path="foxtrader.db-shm" />
         <exclude domain="sharedpref" path="fox_auth_tokens.xml" />
         <exclude domain="sharedpref" path="fox_provider_keys.xml" />
+    <exclude domain="sharedpref" path="fox_deriv_credentials.xml" />
     </device-transfer>
 </data-extraction-rules>

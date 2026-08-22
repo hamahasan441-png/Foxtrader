@@ -171,7 +171,7 @@ class SignalComputerTest {
         assertEquals(1.2700, signal.sl, 0.0001)
         assertEquals(1.2600, signal.tp, 0.0001)
         assertEquals(sampleCandles.lastIndex, signal.barIndex)
-        assertEquals(1700007000000L, signal.timestamp)
+        assertEquals(sampleCandles.last().timestamp, signal.timestamp)
         assertEquals(0.82, signal.confidence, 0.01)
         assertTrue(signal.isLive)
     }
@@ -240,16 +240,16 @@ class SignalComputerTest {
         // First (older) divergence should NOT be live
         val first = result[0]
         assertEquals(SignalSource.SMT, first.source)
-        assertEquals(3, first.barIndex)
-        assertEquals(1.0800, first.entry, 0.0001)
+        assertEquals(6, first.barIndex)
+        assertEquals(sampleCandles[6].close, first.entry, 0.0001)
         assertEquals(0.72, first.confidence, 0.01)
         assertFalse(first.isLive)
 
         // Second (latest) divergence should be live
         val second = result[1]
         assertEquals(SignalSource.SMT, second.source)
-        assertEquals(7, second.barIndex)
-        assertEquals(1.0820, second.entry, 0.0001)
+        assertEquals(sampleCandles.lastIndex, second.barIndex)
+        assertEquals(sampleCandles.last().close, second.entry, 0.0001)
         assertEquals(0.78, second.confidence, 0.01)
         assertTrue(second.isLive)
     }
@@ -358,6 +358,38 @@ class SignalComputerTest {
     // ========================================================================
     // CROSS-SOURCE CONFLUENCE
     // ========================================================================
+
+    @Test
+    fun `binary3m marker keeps fixed strategy confidence and does not boost other sources`() {
+        val binary = com.foxtrader.app.domain.model.ChartSignal(
+            id = "binary3m_test",
+            source = SignalSource.BINARY3M,
+            direction = Direction.BULLISH,
+            entry = sampleCandles.last().close,
+            sl = 0.0,
+            tp = 0.0,
+            barIndex = sampleCandles.lastIndex,
+            timestamp = sampleCandles.last().timestamp,
+            confidence = 82.0,
+            isLive = true,
+        )
+        val litX = buildLitXAnalysis(
+            direction = Direction.BULLISH,
+            entry = 1.0850, stopLoss = 1.0800, tp1 = 1.0900, tp2 = 1.0950,
+            score = 80, timestamp = 1700005000000L,
+        )
+
+        val result = computer.computeSignals(
+            litXAnalysis = litX,
+            tradeProAnalysis = null,
+            smtDivergences = emptyList(),
+            candles = sampleCandles,
+            strategySignals = listOf(binary),
+        )
+
+        assertEquals(0.82, result.first { it.source == SignalSource.BINARY3M }.confidence, 1e-4)
+        assertEquals(0.80, result.first { it.source == SignalSource.LITX }.confidence, 1e-4)
+    }
 
     @Test
     fun `boosts confidence when LitX and TradePro agree on direction`() {

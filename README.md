@@ -6,6 +6,24 @@ A native Android trading-analysis app built with **Kotlin 2.0, Jetpack Compose, 
 
 > **Disclaimer:** FoxTrader is an educational and analytical tool. It helps you analyze markets and evaluate strategies using historical and simulated data. It does **not** promise future results or guaranteed profit.
 
+## Phase 13 signal intelligence and indicator accuracy
+
+Phase 13 hardens LiTX, LiT, SMT, SMS (Smart Money Structure), and TradePro as a confirmed-bar, non-repainting signal stack. LiT is now a canonical first-class engine shared by chart/backtest/scanner/AI; SMS distinguishes BOS/CHOCH/MSS; SMT uses timestamp/swing synchronization and confirmation-bar output; LiTX adds accuracy-first profiles and causal setup gates; TradePro receives a non-inventing institutional fusion/veto layer. The chart exposes per-engine evidence and a Phase 13 fusion score. LiTX, LiT, SMT and SMS now have persistent SCALPING/INTRADAY/SWING presets plus editable advanced settings; changes force a chart recompute and LiTX enable/disable is enforced by the chart pipeline. Conservative outcome metrics measure win rate, average R and profit factor without same-bar optimistic hindsight. See `PHASE13_SIGNAL_INTELLIGENCE.md` and `VALIDATION_RESULTS_PHASE13.txt`.
+
+## Phase 12 professional execution
+
+Phase 12 adds the professional MT4/MT5 execution layer: MetaApi Socket.IO live quotes with REST watchdog fallback, explicit pending orders and expiration modes, pending modify/cancel, SL/TP/trailing/break-even/partial-close position management, stale-review broker-state binding, state-bound durable idempotency/reconciliation, chart-to-broker draft hand-off, and a broker-authoritative professional journal with analytics/CSV export. No chart signal can directly submit a broker order. Ambiguous broker outcomes remain UNKNOWN and are never blindly retried. See `PHASE12_PROFESSIONAL_EXECUTION.md` and `VALIDATION_RESULTS_PHASE12.txt`.
+
+## Phase 11 audit hardening
+
+Phase 11 is a deep stability/security audit on top of Phase 10. It hardens MetaApi/MT4/MT5 execution, Deriv session isolation, durable execution idempotency/reconciliation, Room v10 audit persistence, backend token storage/rotation, price-drift confirmation, account switching, and secret-safe networking. Gradle/full Android build validation is intentionally excluded from this phase per the project owner's instruction; independent Kotlin domain/MetaApi smoke compilation, migration verification, backend tests, and source preflights are provided instead. See `PHASE11_FULL_AUDIT.md` and `VALIDATION_RESULTS_PHASE11.txt`.
+
+## Current integration stage
+
+Phase 12 retains both broker paths: native Deriv Options (`api.derivws.com` REST + OTP-authenticated WebSocket) and MetaApi MT4/MT5. MetaApi now has Socket.IO quote streaming with REST fallback plus reviewed market/pending execution and professional position management. Native Deriv retains the in-app API/account switcher and strict REAL manual-confirmation boundary. Wallet transfer/withdrawal, bulk REAL purchase, and unattended native REAL auto-execution remain intentionally unimplemented.
+
+The repository is **source-hardened under the requested non-Gradle acceptance boundary**. It does not claim an Android release binary or credentialed broker end-to-end acceptance. See `PHASE12_PROFESSIONAL_EXECUTION.md`, `PHASE11_FULL_AUDIT.md`, and the phase validation reports.
+
 ---
 
 ## Screenshots

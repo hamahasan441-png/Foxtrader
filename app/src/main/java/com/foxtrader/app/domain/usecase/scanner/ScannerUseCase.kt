@@ -23,6 +23,8 @@ import com.foxtrader.app.domain.usecase.indicators.IchimokuCloud
 import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
 import com.foxtrader.app.domain.usecase.patterns.CandlePatternDetector
 import com.foxtrader.app.domain.usecase.smc.SmcDetector
+import com.foxtrader.app.domain.usecase.signalintel.ConfirmedBarPolicy
+import com.foxtrader.app.domain.usecase.signalintel.LitEngine
 import javax.inject.Inject
 import kotlin.math.abs
 import kotlin.math.max
@@ -45,6 +47,12 @@ class ScannerUseCase @Inject constructor(
     private val wyckoffDetector: WyckoffDetector,
     private val analyzeStructure: AnalyzeMarketStructureUseCase,
     private val litXEngine: com.foxtrader.app.domain.usecase.litx.LitXEngine,
+    private val litEngine: LitEngine = LitEngine(
+        smcDetector = SmcDetector(),
+        analyzeStructure = AnalyzeMarketStructureUseCase(),
+        displacementDetector = com.foxtrader.app.domain.usecase.litx.DisplacementDetector(),
+        premiumDiscount = com.foxtrader.app.domain.usecase.litx.PremiumDiscountCalculator(),
+    ),
 ) {
     private var watchlist: MutableList<ScreenerSymbol> = DEFAULT_WATCHLIST.toMutableList()
 
@@ -55,15 +63,17 @@ class ScannerUseCase @Inject constructor(
     operator fun invoke(
         dataMap: Map<String, List<Candle>>,
         strategy: StrategyType = StrategyType.CONFLUENCE,
+        timeframe: Timeframe = Timeframe.H1,
     ): ScreenerOutput {
         val results = mutableListOf<ScreenerResult>()
         val validatedLitXSignals = mutableListOf<LitXSignal>()
 
         for (ws in watchlist) {
             if (!ws.enabled) continue
-            val candles = dataMap[ws.symbol] ?: continue
+            val rawCandles = dataMap[ws.symbol] ?: continue
+            val candles = ConfirmedBarPolicy.confirmedPrefix(rawCandles, timeframe, System.currentTimeMillis())
             if (candles.size < 50) continue
-            analyzeSymbol(ws, candles, strategy)?.let { candidate ->
+            analyzeSymbol(ws, candles, strategy, timeframe)?.let { candidate ->
                 results += candidate.result
                 candidate.validatedLitXSignal?.let(validatedLitXSignals::add)
             }
@@ -115,6 +125,7 @@ class ScannerUseCase @Inject constructor(
         ws: ScreenerSymbol,
         candles: List<Candle>,
         strategy: StrategyType,
+        timeframe: Timeframe,
     ): AnalyzedCandidate? {
         val last = candles.lastIndex
         val price = candles[last].close
@@ -173,12 +184,13 @@ class ScannerUseCase @Inject constructor(
                 atr = atr[last],
             )
             StrategyType.LIT -> litSignal(
+                symbol = ws.symbol,
+                timeframe = timeframe,
                 candles = candles,
-                price = price,
-                atr = atr[last],
-            )
+            ) ?: return null
             StrategyType.LITX -> litXSignal(
                 symbol = ws.symbol,
+                timeframe = timeframe,
                 candles = candles,
             ) ?: return null
             StrategyType.ICHIMOKU -> ichimokuSignal(
@@ -469,47 +481,20 @@ class ScannerUseCase @Inject constructor(
     }
 
     private fun litSignal(
+        symbol: String,
+        timeframe: Timeframe,
         candles: List<Candle>,
-        price: Double,
-        atr: Double,
-    ): StrategySignalSnapshot {
-        val liquiditySweep = smcDetector.detectLiquidity(candles).lastOrNull { it.swept && it.sweepIndex != null }
-        val structureBreak = analyzeStructure(candles).breaks.lastOrNull { it.confirmed }
-        val activeOrderBlock = smcDetector.detectOrderBlocks(candles)
-            .lastOrNull { !it.mitigated }
-        val activeFvg = smcDetector.detectFairValueGaps(candles)
-            .lastOrNull { !it.filled }
-        val direction = when {
-            liquiditySweep?.type == LiquidityType.SELL_SIDE -> Direction.BULLISH
-            liquiditySweep?.type == LiquidityType.BUY_SIDE -> Direction.BEARISH
-            structureBreak != null -> structureBreak.direction
-            activeOrderBlock?.type == OrderBlockType.BULLISH -> Direction.BULLISH
-            else -> Direction.BEARISH
-        }
-        val sweepMatchesBreak = structureBreak != null && liquiditySweep != null &&
-            ((liquiditySweep.type == LiquidityType.SELL_SIDE && structureBreak.direction == Direction.BULLISH) ||
-                (liquiditySweep.type == LiquidityType.BUY_SIDE && structureBreak.direction == Direction.BEARISH))
-        val mitigationScore = listOfNotNull(
-            activeOrderBlock?.let { atrSafeDistance(price, (it.highPrice + it.lowPrice) / 2.0, atr) },
-            activeFvg?.let { atrSafeDistance(price, (it.highPrice + it.lowPrice) / 2.0, atr) },
-        ).maxOrNull() ?: 0.0
-        val score = (45 + (if (liquiditySweep != null) 18 else 0) +
-            (if (structureBreak != null) 18 else 0) +
-            (if (sweepMatchesBreak) 14 else 0) +
-            mitigationScore * 10).roundToInt().coerceIn(0, 100)
+    ): StrategySignalSnapshot? {
+        val analysis = litEngine.analyze(symbol, timeframe, candles)
+        val signal = analysis.signal ?: return null
         return StrategySignalSnapshot(
-            direction = direction,
-            score = score,
-            setupQuality = score.toDouble(),
-            tags = listOfNotNull(
-                if (liquiditySweep != null) "SWEEP" else null,
-                structureBreak?.type?.name,
-                if (activeOrderBlock != null) "MITIGATION_OB" else null,
-                if (activeFvg != null) "MITIGATION_FVG" else null,
-                if (sweepMatchesBreak) "ENTRY_SIGNAL" else null,
-            ),
+            direction = signal.direction,
+            score = signal.confidence.coerceIn(0, 100),
+            setupQuality = signal.confidence.toDouble(),
+            tags = signal.confirmations + listOf("LIT", "PHASE13", analysis.stage.name),
         )
     }
+
 
     /**
      * LIT X strategy — delegates to the institutional [LitXEngine] and maps its
@@ -519,9 +504,10 @@ class ScannerUseCase @Inject constructor(
      */
     private fun litXSignal(
         symbol: String,
+        timeframe: Timeframe,
         candles: List<Candle>,
     ): StrategySignalSnapshot? {
-        val analysis = litXEngine.analyze(symbol, Timeframe.H1, candles)
+        val analysis = litXEngine.analyze(symbol, timeframe, candles)
         val signal = analysis.signal ?: return null
         val score = maxOf(signal.confidence.score, analysis.stage.readinessScore()).coerceIn(0, 100)
         val tags = buildList {

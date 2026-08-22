@@ -85,4 +85,11 @@ interface MarketRepository {
      * request, or a failed [Result] if the backend is unreachable.
      */
     suspend fun testBackendConnection(): Result<Int>
+
+    /**
+     * Drop cached candle rows before changing the global market-data provider.
+     * The current Room schema does not encode provider identity in candle keys;
+     * clearing is therefore required to prevent cross-provider series mixing.
+     */
+    suspend fun clearMarketDataCache()
 }

@@ -5,7 +5,6 @@ import com.foxtrader.app.domain.model.Displacement
 import com.foxtrader.app.domain.model.StructureBreak
 import com.foxtrader.app.domain.model.StructureBreakType
 import javax.inject.Inject
-import kotlin.math.abs
 
 /**
  * Classifies the latest market shift from existing structure breaks (reuses
@@ -49,7 +48,7 @@ class MssClassifier @Inject constructor() {
         val strong = displacement != null &&
             displacement.direction == shift.direction &&
             displacement.atrMultiple >= displacementAtrMultiple &&
-            abs(displacement.startIndex - shift.breakIndex) <= maxDisplacementGapBars
+            displacement.startIndex in shift.breakIndex..(shift.breakIndex + maxDisplacementGapBars)
 
         return Result(
             present = true,

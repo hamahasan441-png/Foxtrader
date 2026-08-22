@@ -7,6 +7,9 @@ import com.foxtrader.app.domain.model.AuthState
 import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.PositionSizingMethod
 import com.foxtrader.app.domain.model.LitXConfig
+import com.foxtrader.app.domain.model.LitConfig
+import com.foxtrader.app.domain.model.SmtConfig
+import com.foxtrader.app.domain.model.SmsConfig
 import com.foxtrader.app.domain.model.RiskConfig
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.model.tradepro.TradeProConfig
@@ -71,6 +74,9 @@ data class SettingsUiState(
     // --- TRADEPRO ---
     val tradeProConfig: TradeProConfig = TradeProConfig(),
     val litXConfig: LitXConfig = LitXConfig(),
+    val litConfig: LitConfig = LitConfig(),
+    val smtConfig: SmtConfig = SmtConfig(),
+    val smsConfig: SmsConfig = SmsConfig(),
     // --- MT4 Live Trading (safety knobs) ---
     val mt4LiveModeEnabled: Boolean = false,
     val mt4KillSwitchEngaged: Boolean = false,

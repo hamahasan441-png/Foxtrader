@@ -72,8 +72,11 @@ class Mt4MarketWebSocket @Inject constructor(
         synchronized(lock) {
             if (subscriptions.add(pair)) {
                 quoteStream.subscribe(symbol)
-                ensureConnectedLocked()
             }
+            // Always re-evaluate connection readiness. The same chart
+            // subscription may have been created before the user completed
+            // MT4 login, or after an AUTH_FAILED/transient session.
+            ensureConnectedLocked()
         }
     }
 
@@ -82,6 +85,9 @@ class Mt4MarketWebSocket @Inject constructor(
         synchronized(lock) {
             subscriptions.remove(pair)
             buckets.remove(pair)
+            if (subscriptions.none { it.first.equals(pair.first, ignoreCase = true) }) {
+                quoteStream.unsubscribe(pair.first)
+            }
             if (subscriptions.isEmpty()) {
                 quoteStream.disconnect()
                 connectAttempted = false
@@ -116,7 +122,7 @@ class Mt4MarketWebSocket @Inject constructor(
             _connectionState.value = ConnectionState.DISCONNECTED
             return
         }
-        if (connectAttempted && _connectionState.value == ConnectionState.CONNECTED) return
+        if (connectAttempted && _connectionState.value in setOf(ConnectionState.CONNECTED, ConnectionState.CONNECTING)) return
         connectAttempted = true
         quoteStream.connect(token, accountId)
     }
