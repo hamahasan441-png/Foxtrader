@@ -1,5 +1,6 @@
 package com.foxtrader.app.feature.chart.presentation.components
 
+import android.os.SystemClock
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -20,6 +21,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,12 +49,12 @@ import com.foxtrader.app.ui.components.FoxChip
 import com.foxtrader.app.ui.theme.FoxTheme
 
 /**
- * Floating indicator command center.
+ * Floating, bounded indicator command center.
  *
- * The panel is hosted in a Popup so opening Indicators never participates in
- * the chart Column's measurement and therefore never shrinks the price canvas.
- * It still reads the live primary-chart bar count/mode and explains warm-up or
- * incompatible states rather than letting an enabled study look broken.
+ * It never participates in the price-chart layout, so opening Indicators cannot
+ * shrink the chart. Rapid chip taps are coalesced at the UI boundary: each tap
+ * may start several CPU-heavy institutional engines, and allowing dozens of
+ * recomputes inside one frame was a major source of jank/crash reports.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -104,14 +109,25 @@ private fun IndicatorCommandCenter(
     val readinessIssues = activeReadinessIssues(toggles, candleCount, barMode)
     val shape = RoundedCornerShape(FoxTheme.shapes.lg)
 
+    var lastToggleAt by remember { mutableLongStateOf(0L) }
+    val requestToggle: (((IndicatorToggles) -> IndicatorToggles) -> Unit) = remember(onToggle) {
+        { transform ->
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastToggleAt >= TOGGLE_DEBOUNCE_MS) {
+                lastToggleAt = now
+                onToggle(transform)
+            }
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth(0.96f)
             .widthIn(max = 720.dp)
-            .heightIn(max = 340.dp)
+            .heightIn(max = 330.dp)
             .padding(horizontal = FoxTheme.spacing.sm)
             .clip(shape)
-            .background(colors.surfaceElevated)
+            .background(colors.surfaceElevated.copy(alpha = 0.98f))
             .border(1.dp, colors.borderStrong, shape)
             .verticalScroll(rememberScrollState())
             .padding(FoxTheme.spacing.md),
@@ -124,18 +140,44 @@ private fun IndicatorCommandCenter(
             readinessIssues = readinessIssues,
         )
 
-        FlowGroup("Premium presets") {
+        FlowGroup("Quick setups") {
             Chip("Institutional", toggles.institutionalSuiteActive) {
-                onToggle { it.withInstitutionalSuite(!it.institutionalSuiteActive) }
+                requestToggle { current ->
+                    current.withInstitutionalSuite(!current.institutionalSuiteActive).let { next ->
+                        if (next.institutionalSuiteActive) next.copy(smcVisualMode = SmcVisualMode.MINIMAL) else next
+                    }
+                }
             }
-            Chip("SMC Pro", toggles.smcSuiteActive) {
-                onToggle { it.withSmcSuite(!it.smcSuiteActive) }
+            Chip("SMC", toggles.smcSuiteActive) {
+                requestToggle { current ->
+                    current.withSmcSuite(!current.smcSuiteActive).let { next ->
+                        if (next.smcSuiteActive) next.copy(smcVisualMode = SmcVisualMode.MINIMAL) else next
+                    }
+                }
             }
-            Chip("LiTX Pro", toggles.litX) { onToggle { it.withLitXSuite(!it.litX) } }
-            Chip("LiT Pro", toggles.lit) { onToggle { it.withLitSuite(!it.lit) } }
-            Chip("SMT Pro", toggles.smt) { onToggle { it.withSmtSuite(!it.smt) } }
-            Chip("Technical Pro", technicalSuiteActive(toggles)) {
-                onToggle { current ->
+            Chip("LiTX", toggles.litX) {
+                requestToggle { current ->
+                    current.withLitXSuite(!current.litX).let { next ->
+                        if (next.litX) next.copy(smcVisualMode = SmcVisualMode.MINIMAL) else next
+                    }
+                }
+            }
+            Chip("LiT", toggles.lit) {
+                requestToggle { current ->
+                    current.withLitSuite(!current.lit).let { next ->
+                        if (next.lit) next.copy(smcVisualMode = SmcVisualMode.MINIMAL) else next
+                    }
+                }
+            }
+            Chip("SMT", toggles.smt) {
+                requestToggle { current ->
+                    current.withSmtSuite(!current.smt).let { next ->
+                        if (next.smt) next.copy(smcVisualMode = SmcVisualMode.MINIMAL) else next
+                    }
+                }
+            }
+            Chip("Technical", technicalSuiteActive(toggles)) {
+                requestToggle { current ->
                     val enable = !technicalSuiteActive(current)
                     current.copy(
                         ema = enable,
@@ -148,58 +190,58 @@ private fun IndicatorCommandCenter(
                 }
             }
             if (toggles.anyActive) {
-                Chip("Clean chart", false) {
-                    onToggle { current -> IndicatorToggles(smcVisualMode = current.smcVisualMode) }
+                Chip("Clean", false) {
+                    requestToggle { current -> IndicatorToggles(smcVisualMode = current.smcVisualMode) }
                 }
             }
         }
 
         FlowGroup("Trend & momentum") {
-            StudyChip(stringResource(R.string.chart_indicator_ema), ChartStudyId.EMA, toggles.ema, candleCount, barMode) { onToggle { it.copy(ema = !it.ema) } }
-            StudyChip(stringResource(R.string.chart_indicator_supertrend), ChartStudyId.SUPER_TREND, toggles.superTrend, candleCount, barMode) { onToggle { it.copy(superTrend = !it.superTrend) } }
-            StudyChip(stringResource(R.string.chart_indicator_ichimoku), ChartStudyId.ICHIMOKU, toggles.ichimoku, candleCount, barMode) { onToggle { it.copy(ichimoku = !it.ichimoku) } }
-            StudyChip(stringResource(R.string.chart_indicator_psar), ChartStudyId.PARABOLIC_SAR, toggles.parabolicSar, candleCount, barMode) { onToggle { it.copy(parabolicSar = !it.parabolicSar) } }
-            StudyChip("RSI", ChartStudyId.RSI, toggles.rsi, candleCount, barMode) { onToggle { it.copy(rsi = !it.rsi) } }
-            StudyChip("MACD", ChartStudyId.MACD, toggles.macd, candleCount, barMode) { onToggle { it.copy(macd = !it.macd) } }
-            StudyChip("Stochastic", ChartStudyId.STOCHASTIC, toggles.stochastic, candleCount, barMode) { onToggle { it.copy(stochastic = !it.stochastic) } }
+            StudyChip(stringResource(R.string.chart_indicator_ema), ChartStudyId.EMA, toggles.ema, candleCount, barMode) { requestToggle { it.copy(ema = !it.ema) } }
+            StudyChip(stringResource(R.string.chart_indicator_supertrend), ChartStudyId.SUPER_TREND, toggles.superTrend, candleCount, barMode) { requestToggle { it.copy(superTrend = !it.superTrend) } }
+            StudyChip(stringResource(R.string.chart_indicator_ichimoku), ChartStudyId.ICHIMOKU, toggles.ichimoku, candleCount, barMode) { requestToggle { it.copy(ichimoku = !it.ichimoku) } }
+            StudyChip(stringResource(R.string.chart_indicator_psar), ChartStudyId.PARABOLIC_SAR, toggles.parabolicSar, candleCount, barMode) { requestToggle { it.copy(parabolicSar = !it.parabolicSar) } }
+            StudyChip("RSI", ChartStudyId.RSI, toggles.rsi, candleCount, barMode) { requestToggle { it.copy(rsi = !it.rsi) } }
+            StudyChip("MACD", ChartStudyId.MACD, toggles.macd, candleCount, barMode) { requestToggle { it.copy(macd = !it.macd) } }
+            StudyChip("Stoch", ChartStudyId.STOCHASTIC, toggles.stochastic, candleCount, barMode) { requestToggle { it.copy(stochastic = !it.stochastic) } }
         }
 
         FlowGroup("Volatility & volume") {
-            StudyChip(stringResource(R.string.chart_indicator_bollinger), ChartStudyId.BOLLINGER, toggles.bollinger, candleCount, barMode) { onToggle { it.copy(bollinger = !it.bollinger) } }
-            StudyChip("Keltner", ChartStudyId.KELTNER, toggles.keltner, candleCount, barMode) { onToggle { it.copy(keltner = !it.keltner) } }
-            StudyChip("Donchian", ChartStudyId.DONCHIAN, toggles.donchian, candleCount, barMode) { onToggle { it.copy(donchian = !it.donchian) } }
-            StudyChip(stringResource(R.string.chart_pane_volume_title), ChartStudyId.VOLUME, toggles.volume, candleCount, barMode) { onToggle { it.copy(volume = !it.volume) } }
-            StudyChip(stringResource(R.string.chart_indicator_vwap), ChartStudyId.VWAP, toggles.vwap, candleCount, barMode) { onToggle { it.copy(vwap = !it.vwap) } }
-            StudyChip("Anchored VWAP", ChartStudyId.ANCHORED_VWAP, toggles.anchoredVwap, candleCount, barMode) { onToggle { it.copy(anchoredVwap = !it.anchoredVwap) } }
-            StudyChip("OBV", ChartStudyId.OBV, toggles.obv, candleCount, barMode) { onToggle { it.copy(obv = !it.obv) } }
-            StudyChip("MFI", ChartStudyId.MFI, toggles.moneyFlowIndex, candleCount, barMode) { onToggle { it.copy(moneyFlowIndex = !it.moneyFlowIndex) } }
-            StudyChip(stringResource(R.string.chart_indicator_volume_profile), ChartStudyId.VOLUME_PROFILE, toggles.volumeProfile, candleCount, barMode) { onToggle { it.copy(volumeProfile = !it.volumeProfile) } }
-            StudyChip(stringResource(R.string.chart_indicator_market_profile), ChartStudyId.MARKET_PROFILE, toggles.marketProfile, candleCount, barMode) { onToggle { it.copy(marketProfile = !it.marketProfile) } }
+            StudyChip(stringResource(R.string.chart_indicator_bollinger), ChartStudyId.BOLLINGER, toggles.bollinger, candleCount, barMode) { requestToggle { it.copy(bollinger = !it.bollinger) } }
+            StudyChip("Keltner", ChartStudyId.KELTNER, toggles.keltner, candleCount, barMode) { requestToggle { it.copy(keltner = !it.keltner) } }
+            StudyChip("Donchian", ChartStudyId.DONCHIAN, toggles.donchian, candleCount, barMode) { requestToggle { it.copy(donchian = !it.donchian) } }
+            StudyChip(stringResource(R.string.chart_pane_volume_title), ChartStudyId.VOLUME, toggles.volume, candleCount, barMode) { requestToggle { it.copy(volume = !it.volume) } }
+            StudyChip(stringResource(R.string.chart_indicator_vwap), ChartStudyId.VWAP, toggles.vwap, candleCount, barMode) { requestToggle { it.copy(vwap = !it.vwap) } }
+            StudyChip("A-VWAP", ChartStudyId.ANCHORED_VWAP, toggles.anchoredVwap, candleCount, barMode) { requestToggle { it.copy(anchoredVwap = !it.anchoredVwap) } }
+            StudyChip("OBV", ChartStudyId.OBV, toggles.obv, candleCount, barMode) { requestToggle { it.copy(obv = !it.obv) } }
+            StudyChip("MFI", ChartStudyId.MFI, toggles.moneyFlowIndex, candleCount, barMode) { requestToggle { it.copy(moneyFlowIndex = !it.moneyFlowIndex) } }
+            StudyChip(stringResource(R.string.chart_indicator_volume_profile), ChartStudyId.VOLUME_PROFILE, toggles.volumeProfile, candleCount, barMode) { requestToggle { it.copy(volumeProfile = !it.volumeProfile) } }
+            StudyChip(stringResource(R.string.chart_indicator_market_profile), ChartStudyId.MARKET_PROFILE, toggles.marketProfile, candleCount, barMode) { requestToggle { it.copy(marketProfile = !it.marketProfile) } }
         }
 
-        FlowGroup("Market structure") {
-            StudyChip(stringResource(R.string.chart_indicator_structure), ChartStudyId.STRUCTURE, toggles.structure, candleCount, barMode) { onToggle { it.copy(structure = !it.structure) } }
-            StudyChip(stringResource(R.string.chart_indicator_support_resistance), ChartStudyId.SUPPORT_RESISTANCE, toggles.supportResistance, candleCount, barMode) { onToggle { it.copy(supportResistance = !it.supportResistance) } }
-            StudyChip(stringResource(R.string.chart_indicator_fibonacci), ChartStudyId.FIBONACCI, toggles.fibonacci, candleCount, barMode) { onToggle { it.copy(fibonacci = !it.fibonacci) } }
-            StudyChip(stringResource(R.string.chart_indicator_sessions), ChartStudyId.SESSIONS, toggles.sessions, candleCount, barMode) { onToggle { it.copy(sessions = !it.sessions) } }
-            StudyChip("Pivots", ChartStudyId.PIVOTS, toggles.pivotPoints, candleCount, barMode) { onToggle { it.copy(pivotPoints = !it.pivotPoints) } }
-            StudyChip(stringResource(R.string.chart_indicator_confluence), ChartStudyId.CONFLUENCE, toggles.confluence, candleCount, barMode) { onToggle { it.copy(confluence = !it.confluence) } }
+        FlowGroup("Structure") {
+            StudyChip(stringResource(R.string.chart_indicator_structure), ChartStudyId.STRUCTURE, toggles.structure, candleCount, barMode) { requestToggle { it.copy(structure = !it.structure) } }
+            StudyChip(stringResource(R.string.chart_indicator_support_resistance), ChartStudyId.SUPPORT_RESISTANCE, toggles.supportResistance, candleCount, barMode) { requestToggle { it.copy(supportResistance = !it.supportResistance) } }
+            StudyChip(stringResource(R.string.chart_indicator_fibonacci), ChartStudyId.FIBONACCI, toggles.fibonacci, candleCount, barMode) { requestToggle { it.copy(fibonacci = !it.fibonacci) } }
+            StudyChip(stringResource(R.string.chart_indicator_sessions), ChartStudyId.SESSIONS, toggles.sessions, candleCount, barMode) { requestToggle { it.copy(sessions = !it.sessions) } }
+            StudyChip("Pivots", ChartStudyId.PIVOTS, toggles.pivotPoints, candleCount, barMode) { requestToggle { it.copy(pivotPoints = !it.pivotPoints) } }
+            StudyChip(stringResource(R.string.chart_indicator_confluence), ChartStudyId.CONFLUENCE, toggles.confluence, candleCount, barMode) { requestToggle { it.copy(confluence = !it.confluence) } }
         }
 
-        FlowGroup("Smart money · institutional") {
-            StudyChip(stringResource(R.string.chart_indicator_order_blocks), ChartStudyId.ORDER_BLOCKS, toggles.orderBlocks, candleCount, barMode) { onToggle { it.copy(orderBlocks = !it.orderBlocks) } }
-            StudyChip(stringResource(R.string.chart_indicator_fvg), ChartStudyId.FAIR_VALUE_GAPS, toggles.fairValueGaps, candleCount, barMode) { onToggle { it.copy(fairValueGaps = !it.fairValueGaps) } }
-            StudyChip(stringResource(R.string.chart_indicator_liquidity), ChartStudyId.LIQUIDITY, toggles.liquidity, candleCount, barMode) { onToggle { it.copy(liquidity = !it.liquidity) } }
-            StudyChip("LiTX", ChartStudyId.LITX, toggles.litX, candleCount, barMode) { onToggle { it.withLitXSuite(!it.litX) } }
-            StudyChip("LiT", ChartStudyId.LIT, toggles.lit, candleCount, barMode) { onToggle { it.withLitSuite(!it.lit) } }
-            StudyChip("SMS", ChartStudyId.SMS, toggles.sms, candleCount, barMode) { onToggle { it.withSmsSuite(!it.sms) } }
-            StudyChip("SMT", ChartStudyId.SMT, toggles.smt, candleCount, barMode) { onToggle { it.withSmtSuite(!it.smt) } }
-            StudyChip("TradePro", ChartStudyId.TRADE_PRO, toggles.tradePro, candleCount, barMode) { onToggle { it.withTradeProSuite(!it.tradePro) } }
+        FlowGroup("Smart money") {
+            StudyChip(stringResource(R.string.chart_indicator_order_blocks), ChartStudyId.ORDER_BLOCKS, toggles.orderBlocks, candleCount, barMode) { requestToggle { it.copy(orderBlocks = !it.orderBlocks) } }
+            StudyChip(stringResource(R.string.chart_indicator_fvg), ChartStudyId.FAIR_VALUE_GAPS, toggles.fairValueGaps, candleCount, barMode) { requestToggle { it.copy(fairValueGaps = !it.fairValueGaps) } }
+            StudyChip(stringResource(R.string.chart_indicator_liquidity), ChartStudyId.LIQUIDITY, toggles.liquidity, candleCount, barMode) { requestToggle { it.copy(liquidity = !it.liquidity) } }
+            StudyChip("LiTX", ChartStudyId.LITX, toggles.litX, candleCount, barMode) { requestToggle { it.withLitXSuite(!it.litX) } }
+            StudyChip("LiT", ChartStudyId.LIT, toggles.lit, candleCount, barMode) { requestToggle { it.withLitSuite(!it.lit) } }
+            StudyChip("SMS", ChartStudyId.SMS, toggles.sms, candleCount, barMode) { requestToggle { it.withSmsSuite(!it.sms) } }
+            StudyChip("SMT", ChartStudyId.SMT, toggles.smt, candleCount, barMode) { requestToggle { it.withSmtSuite(!it.smt) } }
+            StudyChip("TradePro", ChartStudyId.TRADE_PRO, toggles.tradePro, candleCount, barMode) { requestToggle { it.withTradeProSuite(!it.tradePro) } }
         }
 
-        FlowGroup("Strategy signals") {
-            StudyChip("Deriv 3m (M1)", ChartStudyId.BINARY_3M, toggles.binary3m, candleCount, barMode) {
-                onToggle { current ->
+        FlowGroup("Signal engines") {
+            StudyChip("Deriv 3m", ChartStudyId.BINARY_3M, toggles.binary3m, candleCount, barMode) {
+                requestToggle { current ->
                     val enable = !current.binary3m
                     current.copy(
                         binary3m = enable,
@@ -210,14 +252,14 @@ private fun IndicatorCommandCenter(
                 }
             }
             Chip("Off", !toggles.binary3m && toggles.activeStrategy == null && toggles.activeBlueprintId == null && !toggles.allStrategies) {
-                onToggle { it.copy(binary3m = false, activeStrategy = null, activeBlueprintId = null, allStrategies = false) }
+                requestToggle { it.copy(binary3m = false, activeStrategy = null, activeBlueprintId = null, allStrategies = false) }
             }
-            Chip("All built-in", toggles.allStrategies) {
-                onToggle { it.copy(binary3m = false, allStrategies = !it.allStrategies, activeStrategy = null, activeBlueprintId = null) }
+            Chip("All strategies", toggles.allStrategies) {
+                requestToggle { it.copy(binary3m = false, allStrategies = !it.allStrategies, activeStrategy = null, activeBlueprintId = null) }
             }
             StrategyType.entries.forEach { type ->
                 Chip(type.label, toggles.activeStrategy == type) {
-                    onToggle { current ->
+                    requestToggle { current ->
                         current.copy(
                             binary3m = false,
                             activeStrategy = if (current.activeStrategy == type) null else type,
@@ -229,7 +271,7 @@ private fun IndicatorCommandCenter(
             }
             strategyBlueprints.forEach { blueprint ->
                 Chip("My · ${blueprint.name}", toggles.activeBlueprintId == blueprint.id) {
-                    onToggle { current ->
+                    requestToggle { current ->
                         current.copy(
                             binary3m = false,
                             activeStrategy = null,
@@ -241,9 +283,9 @@ private fun IndicatorCommandCenter(
             }
         }
 
-        FlowGroup("Visual density") {
+        FlowGroup("Density") {
             SmcVisualMode.entries.forEach { mode ->
-                Chip(mode.label, toggles.smcVisualMode == mode) { onToggle { it.copy(smcVisualMode = mode) } }
+                Chip(mode.label, toggles.smcVisualMode == mode) { requestToggle { it.copy(smcVisualMode = mode) } }
             }
         }
     }
@@ -263,21 +305,21 @@ private fun Header(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column {
-            Text("Indicator Command Center", style = FoxTheme.type.h3, color = colors.textPrimary, fontWeight = FontWeight.Bold)
+            Text("Indicators", style = FoxTheme.type.h3, color = colors.textPrimary, fontWeight = FontWeight.Bold)
             Text("$activeCount active · $candleCount bars · ${barMode.label}", style = FoxTheme.type.caption, color = colors.textMuted)
         }
         Text(
-            text = if (readinessIssues.isEmpty()) "READY" else "${readinessIssues.size} WAITING",
+            text = if (readinessIssues.isEmpty()) "READY" else "${readinessIssues.size} WAIT",
             style = MaterialTheme.typography.labelSmall,
             color = if (readinessIssues.isEmpty()) colors.success else colors.warning,
             fontWeight = FontWeight.Bold,
         )
     }
     if (readinessIssues.isNotEmpty()) {
-        Text(readinessIssues.take(4).joinToString("  ·  "), style = FoxTheme.type.caption, color = colors.warning)
+        Text(readinessIssues.take(3).joinToString("  ·  "), style = FoxTheme.type.caption, color = colors.warning)
     } else if (activeCount > 0) {
         Text(
-            "Requirements are satisfied. Empty SMC output means no valid non-repainting setup is present yet.",
+            "Studies are ready. Signals appear only after a confirmed setup; no look-ahead arrows are fabricated.",
             style = FoxTheme.type.caption,
             color = colors.textSecondary,
         )
@@ -375,3 +417,5 @@ private fun activeReadinessIssues(
         if (status.level == IndicatorReadinessLevel.READY) null else "${study.label}: ${status.label}"
     }
 }
+
+private const val TOGGLE_DEBOUNCE_MS = 90L
