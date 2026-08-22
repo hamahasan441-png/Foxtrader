@@ -9,6 +9,24 @@ import kotlinx.serialization.Serializable
 @Serializable
 enum class SignalProfile { SCALPING, INTRADAY, SWING }
 
+/**
+ * How LiT Pro confirms a structural level break.
+ *
+ * SHADOW accepts wick penetration, BODY requires the candle body to close through
+ * the level, and BODY_PLUS_SWEEP requires a wick through the level plus a body
+ * reclaim/close on the confirming side. BODY_PLUS_SWEEP is the production default
+ * because it rejects most single-tick liquidity noise without introducing lookahead.
+ */
+@Serializable
+enum class LitBreakMode { SHADOW, BODY, BODY_PLUS_SWEEP }
+
+/** Institutional point-of-interest classification exposed to chart/replay. */
+@Serializable
+enum class LitPoiKind { DECISIONAL, EXTREME, BREAKER, FLIP }
+
+/** Structural events emitted by the LiT Pro state machine. */
+enum class LitEventType { PULLBACK, IDM, BOS, CHOCH, POI, SCOB }
+
 /** User-editable Phase 13 LIT settings. Values are clamped again inside the engine. */
 @Serializable
 data class LitConfig(
@@ -20,21 +38,89 @@ data class LitConfig(
     val maxShiftToRetestBars: Int = 12,
     val minRiskReward: Double = 2.0,
     val displacementAtrMultiple: Double = 1.25,
+    // LiT Pro structural controls. Appended to preserve compatibility with the
+    // existing positional presets/callers from Phase 13.
+    val swingLeftBars: Int = 3,
+    val swingRightBars: Int = 3,
+    val breakMode: LitBreakMode = LitBreakMode.BODY_PLUS_SWEEP,
+    val maxIdmToBosBars: Int = 12,
+    val maxBosToChochBars: Int = 14,
+    val maxPoiAgeBars: Int = 24,
+    val allowInsideBarMother: Boolean = true,
+    val followDeeperPoiCandle: Boolean = true,
+    val requireScob: Boolean = false,
+    val hiddenShadowMaxAtrFraction: Double = 0.35,
+    val stopAtrBuffer: Double = 0.15,
 ) {
     fun sanitized(): LitConfig = copy(
         minConfidence = minConfidence.coerceIn(50, 95),
-        setupLookback = setupLookback.coerceIn(20, 120),
+        setupLookback = setupLookback.coerceIn(20, 180),
         maxSweepToShiftBars = maxSweepToShiftBars.coerceIn(3, 30),
         maxShiftToRetestBars = maxShiftToRetestBars.coerceIn(3, 40),
         minRiskReward = minRiskReward.coerceIn(1.0, 5.0),
         displacementAtrMultiple = displacementAtrMultiple.coerceIn(0.8, 3.0),
+        swingLeftBars = swingLeftBars.coerceIn(2, 8),
+        swingRightBars = swingRightBars.coerceIn(2, 8),
+        maxIdmToBosBars = maxIdmToBosBars.coerceIn(3, 30),
+        maxBosToChochBars = maxBosToChochBars.coerceIn(3, 36),
+        maxPoiAgeBars = maxPoiAgeBars.coerceIn(4, 80),
+        hiddenShadowMaxAtrFraction = hiddenShadowMaxAtrFraction.coerceIn(0.05, 1.0),
+        stopAtrBuffer = stopAtrBuffer.coerceIn(0.02, 0.75),
     )
 
     companion object {
         fun preset(profile: SignalProfile): LitConfig = when (profile) {
-            SignalProfile.SCALPING -> LitConfig(profile, 68, false, 28, 7, 7, 1.8, 1.15)
-            SignalProfile.INTRADAY -> LitConfig(profile, 72, true, 40, 10, 12, 2.0, 1.25)
-            SignalProfile.SWING -> LitConfig(profile, 76, true, 70, 16, 20, 2.3, 1.35)
+            SignalProfile.SCALPING -> LitConfig(
+                profile = profile,
+                minConfidence = 68,
+                requireDirectionalZone = false,
+                setupLookback = 36,
+                maxSweepToShiftBars = 7,
+                maxShiftToRetestBars = 7,
+                minRiskReward = 1.8,
+                displacementAtrMultiple = 1.15,
+                swingLeftBars = 2,
+                swingRightBars = 2,
+                maxIdmToBosBars = 8,
+                maxBosToChochBars = 10,
+                maxPoiAgeBars = 16,
+                hiddenShadowMaxAtrFraction = 0.30,
+                stopAtrBuffer = 0.12,
+            )
+            SignalProfile.INTRADAY -> LitConfig(
+                profile = profile,
+                minConfidence = 72,
+                requireDirectionalZone = true,
+                setupLookback = 60,
+                maxSweepToShiftBars = 10,
+                maxShiftToRetestBars = 12,
+                minRiskReward = 2.0,
+                displacementAtrMultiple = 1.25,
+                swingLeftBars = 3,
+                swingRightBars = 3,
+                maxIdmToBosBars = 12,
+                maxBosToChochBars = 14,
+                maxPoiAgeBars = 24,
+                hiddenShadowMaxAtrFraction = 0.35,
+                stopAtrBuffer = 0.15,
+            )
+            SignalProfile.SWING -> LitConfig(
+                profile = profile,
+                minConfidence = 76,
+                requireDirectionalZone = true,
+                setupLookback = 100,
+                maxSweepToShiftBars = 16,
+                maxShiftToRetestBars = 20,
+                minRiskReward = 2.3,
+                displacementAtrMultiple = 1.35,
+                swingLeftBars = 4,
+                swingRightBars = 4,
+                maxIdmToBosBars = 18,
+                maxBosToChochBars = 22,
+                maxPoiAgeBars = 40,
+                hiddenShadowMaxAtrFraction = 0.45,
+                stopAtrBuffer = 0.18,
+            )
         }
     }
 }
@@ -104,8 +190,69 @@ data class SmsConfig(
     }
 }
 
+/**
+ * Coarse state exposed to UI/scanners. The detailed structural context is kept in
+ * [LitProContext] so adding a new visual event does not require changing every
+ * state consumer.
+ */
+enum class LitStage {
+    SCANNING,
+    PULLBACK_READY,
+    IDM_CONFIRMED,
+    BOS_CONFIRMED,
+    CHOCH_CONFIRMED,
+    POI_READY,
+    SCOB_READY,
+    RETEST_READY,
+    VALIDATED,
+    // Kept for compatibility with earlier Phase 13 UI text and saved state.
+    LIQUIDITY_READY,
+    SWEEP_CONFIRMED,
+    SHIFT_CONFIRMED,
+}
 
-enum class LitStage { SCANNING, LIQUIDITY_READY, SWEEP_CONFIRMED, SHIFT_CONFIRMED, RETEST_READY, VALIDATED }
+data class LitLevel(
+    val type: LitEventType,
+    val direction: Direction?,
+    val price: Double,
+    val originIndex: Int,
+    /** First bar where this event is objectively knowable. */
+    val confirmationIndex: Int,
+    val swept: Boolean = false,
+)
+
+data class LitPoiZone(
+    val kind: LitPoiKind,
+    val direction: Direction,
+    val low: Double,
+    val high: Double,
+    val originIndex: Int,
+    val confirmationIndex: Int,
+    val mitigated: Boolean = false,
+    val quality: Int = 0,
+)
+
+data class LitScob(
+    val direction: Direction,
+    val low: Double,
+    val high: Double,
+    val originIndex: Int,
+    val confirmationIndex: Int,
+    val quality: Int,
+)
+
+data class LitProContext(
+    val trend: Direction? = null,
+    val pullback: LitLevel? = null,
+    val inducement: LitLevel? = null,
+    val bos: LitLevel? = null,
+    val choch: LitLevel? = null,
+    val poi: LitPoiZone? = null,
+    val scob: LitScob? = null,
+    val protectedHigh: Double? = null,
+    val protectedLow: Double? = null,
+    val notes: List<String> = emptyList(),
+)
 
 data class LitSignal(
     val symbol: String,
@@ -129,6 +276,7 @@ data class LitAnalysis(
     val stage: LitStage,
     val signal: LitSignal?,
     val narrative: String,
+    val context: LitProContext = LitProContext(),
 ) {
     companion object {
         fun empty(symbol: String, timeframe: Timeframe, reason: String = "No confirmed LIT setup.") =
