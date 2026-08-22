@@ -23,12 +23,7 @@ import javax.inject.Inject
  * in their own engines/agents and must not be double-counted as LiT.
  */
 class LitAgent @Inject constructor(
-    private val litEngine: LitEngine = LitEngine(
-        smcDetector = com.foxtrader.app.domain.usecase.smc.SmcDetector(),
-        analyzeStructure = com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase(),
-        displacementDetector = com.foxtrader.app.domain.usecase.litx.DisplacementDetector(),
-        premiumDiscount = com.foxtrader.app.domain.usecase.litx.PremiumDiscountCalculator(),
-    ),
+    private val litEngine: LitEngine,
 ) : TradingAgent {
 
     override val name = AgentName.LIT
