@@ -1,6 +1,7 @@
 package com.foxtrader.app.domain.usecase.signalintel
 
 import com.foxtrader.app.domain.model.SignalFusionComponent
+import com.foxtrader.app.domain.model.SignalSource
 import javax.inject.Inject
 
 /**
@@ -38,6 +39,17 @@ class SignalEvidenceReducer @Inject constructor() {
         "SMT" -> Family.DIVERGENCE
         "TradePro" -> Family.COMPOSITE
         else -> Family.OTHER
+    }
+
+    /** Same correlation policy at the chart-signal boundary. */
+    fun family(source: SignalSource): Family = when (source) {
+        SignalSource.LITX,
+        SignalSource.LIT,
+        SignalSource.SMS -> Family.STRUCTURE_LIQUIDITY
+        SignalSource.SMT -> Family.DIVERGENCE
+        SignalSource.TRADEPRO -> Family.COMPOSITE
+        SignalSource.BINARY3M,
+        SignalSource.STRATEGY -> Family.OTHER
     }
 
     fun distinctFamilyCount(components: List<SignalFusionComponent>): Int =
