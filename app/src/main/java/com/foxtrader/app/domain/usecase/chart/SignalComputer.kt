@@ -10,32 +10,21 @@ import com.foxtrader.app.domain.model.SignalFusionResult
 import com.foxtrader.app.domain.model.SignalSource
 import com.foxtrader.app.domain.model.tradepro.SetupStage
 import com.foxtrader.app.domain.model.tradepro.TradeProAnalysis
+import com.foxtrader.app.domain.usecase.signalintel.SignalEvidenceReducer
 import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
 import javax.inject.Inject
 
 /**
- * Builds a unified [ChartSignal] list from the current analysis results
- * produced by LIT X, TradePro, and the SMT divergence detector.
+ * Builds a unified [ChartSignal] list from current engine analysis results.
  *
  * A signal is live only when its setup/confirmation belongs to the current
- * chart bar; historical entries stay historical even if they are the newest
- * signal available from that source.
- *
- * This class is extracted from ChartViewModel for testability: it is a pure
- * function with no side-effects or framework dependencies.
+ * confirmed chart bar. Historical entries stay historical even if they are the
+ * newest signal available from that source.
  */
-class SignalComputer @Inject constructor() {
+class SignalComputer @Inject constructor(
+    private val evidenceReducer: SignalEvidenceReducer,
+) {
 
-    /**
-     * Compute a unified signal list from the three analysis pipelines.
-     *
-     * @param litXAnalysis the current LIT X analysis result (nullable if LIT X is disabled)
-     * @param tradeProAnalysis the current TradePro analysis result (nullable if none)
-     * @param smtDivergences the list of detected SMT divergences (may be empty)
-     * @param candles the current display candles (used for bar-index reference)
-     * @param currentTimeMillis the current timestamp supplier (defaults to system clock)
-     * @return a list of [ChartSignal] ordered by source priority
-     */
     fun computeSignals(
         litXAnalysis: LitXAnalysis?,
         tradeProAnalysis: TradeProAnalysis?,
@@ -53,13 +42,10 @@ class SignalComputer @Inject constructor() {
         val signals = mutableListOf<ChartSignal>()
 
         // Strategy-library signals are already fully-formed ChartSignals with
-        // correct bar indices and live/history flags, so they only need to join
-        // the confluence pass alongside the engine-derived signals.
+        // correct bar indices and live/history flags.
         signals += strategySignals
 
-        // LIT X signal. Phase 13 plots it on the confirmation bar; legacy
-        // signals without an explicit index safely fall back to the newest
-        // confirmed bar rather than an in-progress candle.
+        // LIT X signal. Plot on its explicit confirmation bar when available.
         litXAnalysis?.signal?.let { signal ->
             val barIndex = signal.confirmationIndex.takeIf { it in candles.indices }
                 ?: latestConfirmedIndex.takeIf { it in candles.indices }
@@ -101,8 +87,7 @@ class SignalComputer @Inject constructor() {
             )
         }
 
-        // Smart Money Structure: the marker belongs to the confirmation bar,
-        // never the hindsight swing/event bar. SMS is context-only (no SL/TP).
+        // Smart Money Structure context marker belongs to confirmation bar.
         smsAnalysis?.signal?.let { signal ->
             val barIndex = signal.confirmationIndex.takeIf { it in candles.indices } ?: return@let
             val entry = candles[barIndex].close
@@ -123,7 +108,7 @@ class SignalComputer @Inject constructor() {
             )
         }
 
-        // TradePro signal (only EXECUTE stage)
+        // TradePro signal (only EXECUTE stage).
         tradeProAnalysis?.setup?.let { setup ->
             if (setup.stage == SetupStage.EXECUTE) {
                 val barIndex = latestConfirmedIndex.takeIf { it in candles.indices } ?: candles.lastIndex
@@ -136,8 +121,6 @@ class SignalComputer @Inject constructor() {
                         sl = setup.stopLoss,
                         tp = setup.target1,
                         barIndex = barIndex,
-                        // Stable/replayable timestamp: the confirmed bar that
-                        // produced the setup, never wall-clock render time.
                         timestamp = candles[barIndex].timestamp,
                         confidence = setup.confidence.toDouble(),
                         isLive = latestConfirmedIndex in candles.indices,
@@ -151,7 +134,8 @@ class SignalComputer @Inject constructor() {
             }
         }
 
-        // SMT divergences
+        // SMT divergences become actionable on their confirmation bar, never on
+        // the hindsight swing origin.
         for (div in smtDivergences) {
             val confirmationCandle = candles.getOrNull(div.confirmationIndex) ?: continue
             if (div.primaryIndex !in candles.indices || div.confirmationIndex < div.primaryIndex) continue
@@ -161,9 +145,6 @@ class SignalComputer @Inject constructor() {
                         "${div.primaryIndex}_${div.confirmationIndex}",
                     source = SignalSource.SMT,
                     direction = div.direction,
-                    // Unified arrows are placed where the divergence becomes
-                    // actionable. The dedicated SMT layer still draws the
-                    // original swing-to-confirmation ray for context.
                     entry = confirmationCandle.close,
                     sl = 0.0,
                     tp = 0.0,
@@ -177,8 +158,8 @@ class SignalComputer @Inject constructor() {
         }
 
         // Treat every upstream engine as untrusted at this boundary. A malformed
-        // NaN price, wrong-side stop, stale strategy index, or out-of-range SMT
-        // marker must never reach Canvas math or confidence confluence.
+        // NaN price, wrong-side stop, stale index, or invalid SMT marker must not
+        // reach Canvas math or confidence confluence.
         val renderable = signals
             .filter { it.isRenderable(candles) }
             .map { it.copy(confidence = normalizeConfidence(it.confidence)) }
@@ -186,16 +167,13 @@ class SignalComputer @Inject constructor() {
     }
 
     /**
-     * Reinforce confidence when independent methodologies agree.
+     * Reinforce confidence only when independent evidence families agree.
      *
-     * LIT X, TradePro and SMT are derived from different logic, so when two or
-     * more of them point the same direction the combined signal is empirically
-     * stronger than any one alone. Each signal gets a bounded boost of
-     * [CONFLUENCE_BOOST_PER_SOURCE] per *other distinct source* confirming its
-     * direction, capped at [CONFLUENCE_BOOST_MAX] and never exceeding 1.0.
-     *
-     * A single source (or multiple entries from the same source, e.g. several
-     * SMT divergences) receives no boost, so single-source output is unchanged.
+     * LiTX, LiT and SMS share structure/liquidity primitives. They therefore
+     * belong to one family and cannot boost one another merely because they are
+     * exposed as different [SignalSource] values. SMT is a divergence family and
+     * TradePro is composite. This mirrors [SignalEvidenceReducer] used by the
+     * upstream fusion layer and prevents UI-only confidence inflation.
      */
     private fun applyConfluence(
         signals: List<ChartSignal>,
@@ -203,42 +181,36 @@ class SignalComputer @Inject constructor() {
     ): List<ChartSignal> {
         if (signals.size < 2) return signals
 
-        // Only *live* signals represent the current read of the market, so only
-        // they may vouch for one another. Historical markers (a strategy's past
-        // setups, superseded SMT divergences) describe bars that have already
-        // closed and must not inflate the confidence of a signal firing now.
-        val liveSourcesByDirection: Map<Direction, Set<SignalSource>> =
-            signals.filter { it.isLive && it.source != SignalSource.BINARY3M }
+        // Only live signals represent the current market read. Binary3m is
+        // excluded because its confidence is part of a fixed-expiry strategy
+        // contract shared with its backtester.
+        val liveFamiliesByDirection: Map<Direction, Set<SignalEvidenceReducer.Family>> =
+            signals
+                .filter { it.isLive && it.source != SignalSource.BINARY3M }
                 .groupBy { it.direction }
-                .mapValues { (_, group) -> group.map { it.source }.toSet() }
+                .mapValues { (_, group) -> group.map { evidenceReducer.family(it.source) }.toSet() }
 
         return signals.map { signal ->
             if (!signal.isLive) return@map signal
-            // Binary3m confidence is part of the fixed-expiry strategy contract
-            // shared with the backtester. Do not mutate it with chart-only
-            // confluence or the live display would diverge from measured logic.
             if (signal.source == SignalSource.BINARY3M) return@map signal
-            // TradePro confidence has already been adjusted by the Phase 13
-            // fusion engine. Applying the generic chart-source boost again
-            // would double-count LiTX/LiT/SMS/SMT evidence.
+            // TradePro confidence has already been adjusted by the Phase-13
+            // fusion engine. Do not apply a second chart-level boost.
             if (phase13TradeProAlreadyFused && signal.source == SignalSource.TRADEPRO) return@map signal
-            val agreeing = liveSourcesByDirection[signal.direction].orEmpty()
-            val otherSources = (agreeing - signal.source).size
-            if (otherSources <= 0) {
+
+            val agreeingFamilies = liveFamiliesByDirection[signal.direction].orEmpty()
+            val ownFamily = evidenceReducer.family(signal.source)
+            val otherFamilies = (agreeingFamilies - ownFamily).size
+            if (otherFamilies <= 0) {
                 signal
             } else {
-                val boost = (otherSources * CONFLUENCE_BOOST_PER_SOURCE)
+                val boost = (otherFamilies * CONFLUENCE_BOOST_PER_FAMILY)
                     .coerceAtMost(CONFLUENCE_BOOST_MAX)
                 signal.copy(confidence = (signal.confidence + boost).coerceAtMost(1.0))
             }
         }
     }
 
-    /**
-     * Domain engines historically used both 0..1 and 0..100 confidence scales.
-     * Normalise at the chart boundary so no signal can render as 6,200% or
-     * bypass the confluence cap.
-     */
+    /** Normalize historical 0..100 and 0..1 confidence scales at UI boundary. */
     private fun normalizeConfidence(value: Double): Double = when {
         !value.isFinite() -> 0.0
         value > 1.0 -> value / 100.0
@@ -269,9 +241,7 @@ class SignalComputer @Inject constructor() {
     }
 
     private companion object {
-        /** Confidence added per additional distinct source confirming a direction. */
-        const val CONFLUENCE_BOOST_PER_SOURCE = 0.04
-        /** Maximum total confluence boost applied to any single signal. */
+        const val CONFLUENCE_BOOST_PER_FAMILY = 0.04
         const val CONFLUENCE_BOOST_MAX = 0.08
     }
 }

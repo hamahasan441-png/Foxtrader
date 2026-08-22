@@ -4,7 +4,6 @@ import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.LitAnalysis
 import com.foxtrader.app.domain.model.LitConfig
-import com.foxtrader.app.domain.model.LitEventType
 import com.foxtrader.app.domain.model.LitLevel
 import com.foxtrader.app.domain.model.LitPoiZone
 import com.foxtrader.app.domain.model.LitProContext
@@ -33,6 +32,10 @@ import kotlin.math.roundToInt
  * Every event carries an origin index and the first bar where it is objectively
  * knowable. The engine only emits on the first confirmed POI retest, so replay,
  * live chart and scanner use the same non-repainting decision boundary.
+ *
+ * Chronology is gated by [LitSequenceValidator]. This keeps the repository's
+ * implemented LiT sequence deterministic and prevents a stale/out-of-order IDM,
+ * BOS or CHOCH from being rescued by later confluence or confidence scoring.
  */
 @Singleton
 @Suppress("UNUSED_PARAMETER")
@@ -44,6 +47,7 @@ class LitEngine @Inject constructor(
     private val displacementDetector: DisplacementDetector,
     private val premiumDiscount: PremiumDiscountCalculator,
     private val structureDetector: LitProStructureDetector = LitProStructureDetector(),
+    private val sequenceValidator: LitSequenceValidator = LitSequenceValidator(),
 ) {
 
     fun analyze(
@@ -63,6 +67,39 @@ class LitEngine @Inject constructor(
 
         val choch = context.choch
             ?: return result(symbol, timeframe, baseStage, context, narrativeFor(baseStage, context))
+
+        // Enforce the repository-defined causal sequence before any POI,
+        // displacement, R:R or confidence logic is allowed to validate a trade.
+        // This is deliberately a hard gate: confluence cannot compensate for an
+        // impossible chronology.
+        val sequence = sequenceValidator.validate(context, cfg)
+        if (!sequence.valid) {
+            return result(
+                symbol,
+                timeframe,
+                sequence.stage,
+                context,
+                "LiT Pro: sequence rejected — ${sequence.reason}.",
+            )
+        }
+
+        val bos = context.bos
+            ?: return result(
+                symbol,
+                timeframe,
+                LitStage.IDM_CONFIRMED,
+                context,
+                "LiT Pro: sequence validator passed without BOS; waiting for a fresh sequence.",
+            )
+        val idm = context.inducement
+            ?: return result(
+                symbol,
+                timeframe,
+                LitStage.SCANNING,
+                context,
+                "LiT Pro: sequence validator passed without IDM; waiting for a fresh sequence.",
+            )
+
         val poi = context.poi
             ?.takeIf { it.confirmationIndex == choch.confirmationIndex && it.direction == choch.direction }
             ?: return result(
@@ -72,32 +109,6 @@ class LitEngine @Inject constructor(
                 context,
                 "LiT Pro: CHOCH confirmed; waiting for a valid post-shift POI.",
             )
-
-        // A LiT reversal must have a continuation BOS before the opposite CHOCH.
-        // This prevents a first/isolated structural break from being mislabeled as
-        // a complete institutional reversal sequence.
-        val bos = context.bos
-        if (bos == null || bos.confirmationIndex >= choch.confirmationIndex || bos.direction == choch.direction) {
-            return result(
-                symbol,
-                timeframe,
-                LitStage.CHOCH_CONFIRMED,
-                context,
-                "LiT Pro: CHOCH is visible, but the preceding opposite BOS is not fully confirmed.",
-            )
-        }
-
-        val idm = context.inducement
-            ?: return result(
-                symbol,
-                timeframe,
-                LitStage.BOS_CONFIRMED,
-                context,
-                "LiT Pro: BOS/CHOCH mapped; waiting for a confirmed IDM sweep/reclaim in the sequence.",
-            )
-        if (idm.confirmationIndex >= choch.confirmationIndex) {
-            return result(symbol, timeframe, LitStage.BOS_CONFIRMED, context, "LiT Pro: IDM chronology is not valid yet.")
-        }
 
         val volatility = averageRange(candles, choch.confirmationIndex)
             ?: return result(symbol, timeframe, baseStage, context, "LiT Pro: volatility is not measurable.")
@@ -235,6 +246,7 @@ class LitEngine @Inject constructor(
             add("IDM")
             add("BOS")
             add("CHOCH")
+            add("SEQUENCE_VALIDATED")
             add("DISPLACEMENT")
             add("POI_${poi.kind.name}")
             if (scob != null) add("SCOB")
@@ -242,7 +254,7 @@ class LitEngine @Inject constructor(
             add("RR_${format2(rr)}")
             add("NON_REPAINT")
         }
-        val rationale = "LiT Pro ${choch.direction.name.lowercase()}: pullback/IDM -> opposite BOS -> " +
+        val rationale = "LiT Pro ${choch.direction.name.lowercase()}: validated IDM -> opposite BOS -> " +
             "CHOCH + displacement -> ${poi.kind.name.lowercase()} POI" +
             (if (scob != null) " -> SCOB" else "") + " -> first retest."
         val signal = LitSignal(

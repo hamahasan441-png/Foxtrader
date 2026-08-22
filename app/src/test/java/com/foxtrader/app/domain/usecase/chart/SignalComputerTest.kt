@@ -14,6 +14,7 @@ import com.foxtrader.app.domain.model.tradepro.SetupStage
 import com.foxtrader.app.domain.model.tradepro.TradeProAnalysis
 import com.foxtrader.app.domain.model.tradepro.TradeProManagementPlan
 import com.foxtrader.app.domain.model.tradepro.TradeProSetup
+import com.foxtrader.app.domain.usecase.signalintel.SignalEvidenceReducer
 import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -22,7 +23,7 @@ import org.junit.Test
 
 class SignalComputerTest {
 
-    private val computer = SignalComputer()
+    private val computer = SignalComputer(SignalEvidenceReducer())
 
     private val sampleCandles = List(10) { i ->
         Candle(

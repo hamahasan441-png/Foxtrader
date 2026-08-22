@@ -4,6 +4,7 @@ import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.ChartSignal
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.SignalSource
+import com.foxtrader.app.domain.usecase.signalintel.SignalEvidenceReducer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -15,7 +16,7 @@ import org.junit.Test
  */
 class StrategySignalIntegrationTest {
 
-    private val computer = SignalComputer()
+    private val computer = SignalComputer(SignalEvidenceReducer())
 
     private val candles = List(10) { i ->
         Candle(
