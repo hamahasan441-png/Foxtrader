@@ -5,8 +5,8 @@ import android.content.ContentValues
 import android.database.Cursor
 import android.net.Uri
 import leakcanary.LeakCanary
-import shark.IgnoredReferenceMatcher
 import shark.ReferencePattern
+import shark.ignored
 
 /**
  * Debug-only LeakCanary policy for a known Android-vendor framework leak.
@@ -30,7 +30,7 @@ class LeakCanaryOemFilterProvider : ContentProvider() {
         val current = LeakCanary.config.referenceMatchers
             .filterNot { matcher -> matcher.pattern == resourcesImplAppContext }
         LeakCanary.config = LeakCanary.config.copy(
-            referenceMatchers = current + IgnoredReferenceMatcher(resourcesImplAppContext),
+            referenceMatchers = current + resourcesImplAppContext.ignored(),
         )
         return true
     }
