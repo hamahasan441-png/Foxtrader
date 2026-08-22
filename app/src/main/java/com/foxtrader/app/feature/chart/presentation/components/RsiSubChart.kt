@@ -117,10 +117,32 @@ fun RsiSubChart(
             val y70 = yForRsi(70.0)
             val y30 = yForRsi(30.0)
             val y50 = yForRsi(50.0)
-            drawLine(RsiOverboughtGuide, Offset(0f, y70), Offset(chartW, y70), 1f, PaneDash)
-            drawLine(RsiOversoldGuide, Offset(0f, y30), Offset(chartW, y30), 1f, PaneDash)
-            drawLine(GridLineColor, Offset(0f, y50), Offset(chartW, y50), 0.5f, PaneDash)
-            drawRect(RsiZoneFill, Offset(0f, y70), Size(chartW, (y30 - y70).coerceAtLeast(0f)))
+            drawLine(
+                color = RsiOverboughtGuide,
+                start = Offset(0f, y70),
+                end = Offset(chartW, y70),
+                strokeWidth = 1f,
+                pathEffect = PaneDash,
+            )
+            drawLine(
+                color = RsiOversoldGuide,
+                start = Offset(0f, y30),
+                end = Offset(chartW, y30),
+                strokeWidth = 1f,
+                pathEffect = PaneDash,
+            )
+            drawLine(
+                color = GridLineColor,
+                start = Offset(0f, y50),
+                end = Offset(chartW, y50),
+                strokeWidth = 0.5f,
+                pathEffect = PaneDash,
+            )
+            drawRect(
+                color = RsiZoneFill,
+                topLeft = Offset(0f, y70),
+                size = Size(chartW, (y30 - y70).coerceAtLeast(0f)),
+            )
 
             if (rsiValues.size > 1) {
                 val rawEnd = startIndex + visibleBars
