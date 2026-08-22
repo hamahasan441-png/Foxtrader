@@ -2,7 +2,6 @@ package com.foxtrader.app.feature.chart.presentation.components.layers
 
 import android.graphics.Paint
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
@@ -23,18 +22,14 @@ import kotlin.math.max
 import kotlin.math.min
 
 // Layer 2 — indicator overlays (EMA, Bollinger, SuperTrend, PSAR, VWAP, Ichimoku).
-//
-// Extracted from CandleChart.kt (Sprint 8.5). Functions are `internal` rather
-// than `private` so the composable can call them across files; they remain
-// module-private. Pure DrawScope extensions - no Compose state - which is
-// what keeps them cheap enough for the 120fps budget.
+// Renderers are deliberately tolerant of short/partially-defined series because
+// live candles can arrive one frame before their indicator arrays are refreshed.
 
 private val IchimokuTenkanColor = Color(0xFFFFC107)
 private val IchimokuKijunColor = Color(0xFF42A5F5)
 private val IchimokuChikouColor = Color(0xFFAB47BC)
 private val IchimokuBullishCloudColor = Color(0x2232CD32)
 private val IchimokuBearishCloudColor = Color(0x22FF5252)
-// `PERF` Hoisted from the draw pass — previously allocated per frame.
 private val IchimokuSenkouAColor = Color(0xFF66BB6A)
 private val IchimokuSenkouBColor = Color(0xFFEF5350)
 internal val SessionVwapColor = Color(0xFF9C27B0)
@@ -52,43 +47,16 @@ internal fun DrawScope.drawIndicatorLayer(
 ) {
     val start = max(0, viewport.startIndex.toInt())
     val end = min(candles.size, (viewport.startIndex + viewport.visibleBars).toInt() + 1)
-
-    // `RENDER` The end index is clamped per-series instead of requiring
-    // `size >= end`. The old all-or-nothing guard made the whole EMA vanish
-    // whenever the overlay array was even one bar shorter than the candle list
-    // — routine during live tick appends, where the candle arrives one frame
-    // before the recomputed overlays — which read as "EMA doesn't show up".
     if (emaShort != null) {
         drawEmaLine(viewport, cw, ch, emaShort, start, min(end, emaShort.size), FoxAmber50.copy(alpha = 0.85f))
     }
-
     if (emaLong != null) {
         drawEmaLine(viewport, cw, ch, emaLong, start, min(end, emaLong.size), FoxNeutral60.copy(alpha = 0.7f))
     }
 }
 
-// ============================================================================
-// Polyline batching (perf)
-//
-// `PERF` Every line series used to issue ONE drawLine per bar. With several
-// overlays enabled at a few hundred visible bars that is thousands of Canvas
-// calls per frame — the dominant draw-pass cost when indicators are stacked.
-// All polylines now build a single reusable Path and stroke it ONCE, which is
-// one Canvas call per series regardless of bar count.
-//
-// Each batched renderer owns its scratch Path(s), reused across frames. Safe
-// because drawing is single-threaded (UI/render thread) — the same reasoning
-// as the shared ohlcBuilder in ChartCrosshairLayer. Renderers get DEDICATED
-// paths (rather than one shared scratch) so a later rewind can never touch a
-// path recorded earlier in the same frame.
-// ============================================================================
 private val linePathScratch = Path()
 
-/**
- * Index stride so a zoomed-out series never emits more than ~1 vertex per
- * pixel. Sub-pixel segments are invisible but still cost path-building and
- * rasterisation; skipping them is lossless at ~1px resolution.
- */
 private fun lodStride(start: Int, end: Int, cw: Float): Int {
     val points = end - start
     if (points <= 0) return 1
@@ -97,8 +65,8 @@ private fun lodStride(start: Int, end: Int, cw: Float): Int {
 }
 
 /**
- * Core batched polyline: builds [linePathScratch] from the series (NaN-safe —
- * gaps split the path into subpaths) and strokes it once.
+ * Core batched polyline. NaN, Infinity, zero and negative prices split the path
+ * rather than being forwarded to the viewport transform/native Canvas.
  */
 private fun DrawScope.strokeSeriesPath(
     viewport: ChartViewport,
@@ -110,30 +78,43 @@ private fun DrawScope.strokeSeriesPath(
     color: Color,
     strokeWidth: Float,
 ) {
-    if (end - start < 2) return
-    val stride = lodStride(start, end, cw)
+    val safeStart = start.coerceIn(0, values.size)
+    val safeEnd = end.coerceIn(safeStart, values.size)
+    if (safeEnd - safeStart < 2) return
+    val stride = lodStride(safeStart, safeEnd, cw)
     val path = linePathScratch
     path.rewind()
     var penDown = false
-    var i = start
-    while (i < end) {
+    var hasSegment = false
+    var i = safeStart
+    while (i < safeEnd) {
         val v = values[i]
-        if (v.isNaN()) {
+        if (!v.isDrawableIndicatorPrice()) {
             penDown = false
         } else {
             val x = viewport.xForIndex(i + 0.5f, cw)
             val y = viewport.yForPrice(v, ch)
-            if (penDown) path.lineTo(x, y) else { path.moveTo(x, y); penDown = true }
+            if (x.isFinite() && y.isFinite()) {
+                if (penDown) {
+                    path.lineTo(x, y)
+                    hasSegment = true
+                } else {
+                    path.moveTo(x, y)
+                    penDown = true
+                }
+            } else {
+                penDown = false
+            }
         }
-        // Always include the final bar so the line reaches the live edge even
-        // when the stride would step past it.
-        i += if (i + stride >= end && i < end - 1) end - 1 - i else stride
+        i += if (i + stride >= safeEnd && i < safeEnd - 1) safeEnd - 1 - i else stride
     }
-    drawPath(
-        path = path,
-        color = color,
-        style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round),
-    )
+    if (hasSegment) {
+        drawPath(
+            path = path,
+            color = color,
+            style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round),
+        )
+    }
 }
 
 internal fun DrawScope.drawEmaLine(
@@ -148,7 +129,6 @@ internal fun DrawScope.drawEmaLine(
     strokeSeriesPath(viewport, cw, ch, values, start, end, color, strokeWidth = 1.5f)
 }
 
-/** Generic single-line series renderer (viewport-culled, batched). */
 internal fun DrawScope.drawLineSeries(
     viewport: ChartViewport,
     cw: Float,
@@ -162,13 +142,6 @@ internal fun DrawScope.drawLineSeries(
     strokeSeriesPath(viewport, cw, ch, values, start, end, color, strokeWidth)
 }
 
-/**
- * NaN-safe single-line series renderer. Segments across NaN gaps are skipped, so
- * a partially-defined series (e.g. anchored VWAP before its anchor bar) renders
- * only where it is valid. Viewport-culled; batched into a single path stroke
- * (NaN handling is built into [strokeSeriesPath], so this is now an alias kept
- * for call-site clarity).
- */
 internal fun DrawScope.drawNaNSafeLineSeries(
     viewport: ChartViewport,
     cw: Float,
@@ -178,11 +151,6 @@ internal fun DrawScope.drawNaNSafeLineSeries(
     strokeWidth: Float,
 ) = drawLineSeries(viewport, cw, ch, values, color, strokeWidth)
 
-/**
- * Anchored VWAP: a cyan mid line plus symmetric standard-deviation bands. Drawn
- * NaN-safe so nothing renders before the anchor bar. Distinct cyan hue keeps it
- * readable alongside the purple session VWAP.
- */
 internal fun DrawScope.drawAnchoredVwap(
     viewport: ChartViewport,
     cw: Float,
@@ -198,7 +166,6 @@ internal fun DrawScope.drawAnchoredVwap(
     if (lower != null) drawNaNSafeLineSeries(viewport, cw, ch, lower, bandColor, 1f)
 }
 
-/** Bollinger Bands: upper/lower channel + middle line. */
 internal fun DrawScope.drawBollinger(
     viewport: ChartViewport,
     cw: Float,
@@ -214,18 +181,10 @@ internal fun DrawScope.drawBollinger(
     drawLineSeries(viewport, cw, ch, middle, midColor, 1f)
 }
 
-// Dedicated two-bucket scratch paths for the direction-colored renderers
-// (SuperTrend runs, Ichimoku cloud quads). Both draw their paths before
-// returning, so reuse across renderers within a frame is safe.
 private val bucketPathA = Path()
 private val bucketPathB = Path()
 
-/** SuperTrend line: green segment when bullish, red when bearish.
- *
- * `PERF` Batched: instead of one drawLine per bar (with a Color branch each),
- * consecutive same-direction runs are accumulated into two Paths — one per
- * direction — and each is stroked once. Two Canvas calls total per frame.
- */
+/** SuperTrend line with invalid-point containment and short-array culling. */
 internal fun DrawScope.drawSuperTrend(
     viewport: ChartViewport,
     cw: Float,
@@ -241,37 +200,54 @@ internal fun DrawScope.drawSuperTrend(
     val bearPath = bucketPathB
     bullPath.rewind()
     bearPath.rewind()
-    // Track pen state per path so a direction flip starts a fresh subpath
-    // anchored at the previous vertex (keeps the line visually continuous).
     var bullDown = false
     var bearDown = false
+    var hasBull = false
+    var hasBear = false
+    var previousIndex: Int? = null
 
-    var prevX = viewport.xForIndex(start + 0.5f, cw)
-    var prevY = viewport.yForPrice(values[start], ch)
-    for (i in start + 1 until end) {
-        val x = viewport.xForIndex(i + 0.5f, cw)
-        val y = viewport.yForPrice(values[i], ch)
-        if (dir[i] == 1) {
-            if (!bullDown) { bullPath.moveTo(prevX, prevY); bullDown = true }
-            bullPath.lineTo(x, y)
-            bearDown = false
-        } else {
-            if (!bearDown) { bearPath.moveTo(prevX, prevY); bearDown = true }
-            bearPath.lineTo(x, y)
+    for (i in start until end) {
+        val value = values[i]
+        if (!value.isDrawableIndicatorPrice() || (dir[i] != 1 && dir[i] != -1)) {
+            previousIndex = null
             bullDown = false
+            bearDown = false
+            continue
         }
-        prevX = x
-        prevY = y
+        val x = viewport.xForIndex(i + 0.5f, cw)
+        val y = viewport.yForPrice(value, ch)
+        if (!x.isFinite() || !y.isFinite()) {
+            previousIndex = null
+            bullDown = false
+            bearDown = false
+            continue
+        }
+
+        val prev = previousIndex
+        if (prev != null) {
+            val prevValue = values[prev]
+            val prevX = viewport.xForIndex(prev + 0.5f, cw)
+            val prevY = viewport.yForPrice(prevValue, ch)
+            if (dir[i] == 1) {
+                if (!bullDown) { bullPath.moveTo(prevX, prevY); bullDown = true }
+                bullPath.lineTo(x, y)
+                hasBull = true
+                bearDown = false
+            } else {
+                if (!bearDown) { bearPath.moveTo(prevX, prevY); bearDown = true }
+                bearPath.lineTo(x, y)
+                hasBear = true
+                bullDown = false
+            }
+        }
+        previousIndex = i
     }
+
     val stroke = Stroke(width = 2f, cap = StrokeCap.Round, join = StrokeJoin.Round)
-    if (!bullPath.isEmpty) drawPath(bullPath, FoxBullish, style = stroke)
-    if (!bearPath.isEmpty) drawPath(bearPath, FoxBearish, style = stroke)
+    if (hasBull) drawPath(bullPath, FoxBullish, style = stroke)
+    if (hasBear) drawPath(bearPath, FoxBearish, style = stroke)
 }
 
-// `PERF` PSAR batching: dots are collected into a reusable coord buffer and
-// submitted as ONE native drawPoints call instead of one drawCircle per bar.
-// Round stroke cap makes each point render as a filled dot. The buffer grows
-// geometrically and is retained across frames (single-threaded render).
 private var sarPointScratch = FloatArray(512)
 private val sarPointPaint = android.graphics.Paint().apply {
     color = android.graphics.Color.argb(0xCC, 0xD4, 0xA8, 0x4E)
@@ -281,7 +257,6 @@ private val sarPointPaint = android.graphics.Paint().apply {
     isAntiAlias = true
 }
 
-/** Parabolic SAR: dots above/below price (batched into one Canvas call). */
 internal fun DrawScope.drawParabolicSar(
     viewport: ChartViewport,
     cw: Float,
@@ -299,9 +274,13 @@ internal fun DrawScope.drawParabolicSar(
     val pts = sarPointScratch
     var count = 0
     for (i in start until end) {
-        val y = viewport.yForPrice(sar[i], ch)
-        if (y < 0f || y > ch) continue
-        pts[count++] = viewport.xForIndex(i + 0.5f, cw)
+        val price = sar[i]
+        if (!price.isDrawableIndicatorPrice()) continue
+        val y = viewport.yForPrice(price, ch)
+        if (!y.isFinite() || y < 0f || y > ch) continue
+        val x = viewport.xForIndex(i + 0.5f, cw)
+        if (!x.isFinite()) continue
+        pts[count++] = x
         pts[count++] = y
     }
     if (count > 0) {
@@ -323,10 +302,6 @@ internal fun DrawScope.drawIchimoku(
     drawLineSeries(viewport, cw, ch, kijun, IchimokuKijunColor, IchimokuPrimaryStroke)
     drawLineSeries(viewport, cw, ch, chikou, IchimokuChikouColor, IchimokuChikouStroke)
 
-    // `PERF` The Kumo cloud was one drawRect per visible bar (hundreds of
-    // Canvas calls + per-bar Offset/Size allocations). Consecutive same-color
-    // runs are now accumulated into closed quads inside two shared Paths —
-    // one per cloud color — and each is filled once.
     val start = max(0, viewport.startIndex.toInt())
     val end = min(minOf(senkouA.size, senkouB.size), (viewport.startIndex + viewport.visibleBars).toInt() + 1)
     if (start < end) {
@@ -334,61 +309,64 @@ internal fun DrawScope.drawIchimoku(
         val bearCloud = bucketPathB
         bullCloud.rewind()
         bearCloud.rewind()
-        var runStart = start
-        var runBullish = senkouA[start] >= senkouB[start]
-        fun flushRun(lastIndexInclusive: Int) {
-            // Emit the run [runStart, lastIndexInclusive] as a quad strip: top
-            // edge left→right along max(A,B), then bottom edge right→left.
+        var hasBullCloud = false
+        var hasBearCloud = false
+        var i = start
+
+        while (i < end) {
+            while (i < end && !isValidCloudPoint(senkouA[i], senkouB[i])) i++
+            if (i >= end) break
+
+            val runStart = i
+            val runBullish = senkouA[i] >= senkouB[i]
+            var runEnd = i
+            i++
+            while (
+                i < end &&
+                isValidCloudPoint(senkouA[i], senkouB[i]) &&
+                (senkouA[i] >= senkouB[i]) == runBullish
+            ) {
+                runEnd = i
+                i++
+            }
+
             val path = if (runBullish) bullCloud else bearCloud
-            val first = runStart
-            val lastIdx = lastIndexInclusive.coerceAtMost(end - 1)
-            path.moveTo(viewport.xForIndex(first.toFloat(), cw), viewport.yForPrice(max(senkouA[first], senkouB[first]), ch))
-            for (i in first..lastIdx) {
-                val xr = viewport.xForIndex((i + 1).toFloat(), cw)
-                path.lineTo(xr, viewport.yForPrice(max(senkouA[i], senkouB[i]), ch))
+            val firstX = viewport.xForIndex(runStart.toFloat(), cw)
+            val firstTop = viewport.yForPrice(max(senkouA[runStart], senkouB[runStart]), ch)
+            if (!firstX.isFinite() || !firstTop.isFinite()) continue
+            path.moveTo(firstX, firstTop)
+            for (j in runStart..runEnd) {
+                path.lineTo(
+                    viewport.xForIndex((j + 1).toFloat(), cw),
+                    viewport.yForPrice(max(senkouA[j], senkouB[j]), ch),
+                )
             }
-            for (i in lastIdx downTo first) {
-                val xr = viewport.xForIndex((i + 1).toFloat(), cw)
-                path.lineTo(xr, viewport.yForPrice(min(senkouA[i], senkouB[i]), ch))
+            for (j in runEnd downTo runStart) {
+                path.lineTo(
+                    viewport.xForIndex((j + 1).toFloat(), cw),
+                    viewport.yForPrice(min(senkouA[j], senkouB[j]), ch),
+                )
             }
-            path.lineTo(viewport.xForIndex(first.toFloat(), cw), viewport.yForPrice(min(senkouA[first], senkouB[first]), ch))
+            path.lineTo(
+                viewport.xForIndex(runStart.toFloat(), cw),
+                viewport.yForPrice(min(senkouA[runStart], senkouB[runStart]), ch),
+            )
             path.close()
+            if (runBullish) hasBullCloud = true else hasBearCloud = true
         }
-        for (i in start + 1 until end) {
-            val bullish = senkouA[i] >= senkouB[i]
-            if (bullish != runBullish) {
-                flushRun(i - 1)
-                runStart = i
-                runBullish = bullish
-            }
-        }
-        flushRun(end - 1)
-        if (!bullCloud.isEmpty) drawPath(bullCloud, IchimokuBullishCloudColor)
-        if (!bearCloud.isEmpty) drawPath(bearCloud, IchimokuBearishCloudColor)
+
+        if (hasBullCloud) drawPath(bullCloud, IchimokuBullishCloudColor)
+        if (hasBearCloud) drawPath(bearCloud, IchimokuBearishCloudColor)
     }
     drawLineSeries(viewport, cw, ch, senkouA, IchimokuSenkouAColor, 1f)
     drawLineSeries(viewport, cw, ch, senkouB, IchimokuSenkouBColor, 1f)
 }
-
-// ============================================================================
-// Channel overlays (Keltner / Donchian) and daily pivot levels.
-//
-// These reuse drawLineSeries so they inherit the same viewport culling and
-// per-frame cost profile as the existing overlays.
-// ============================================================================
 
 private val KeltnerBandColor = Color(0x6620C997)
 private val KeltnerMidColor = Color(0xAA20C997)
 private val DonchianBandColor = Color(0x66FF9F43)
 private val DonchianMidColor = Color(0x88FF9F43)
 
-/**
- * Keltner Channels — EMA midline with ATR-scaled envelope.
- *
- * Drawn in teal so it stays visually distinct from Bollinger's blue: the two
- * are frequently displayed together in a squeeze setup, and identical colours
- * would make the bands impossible to tell apart.
- */
 internal fun DrawScope.drawKeltnerChannel(
     viewport: ChartViewport,
     cw: Float,
@@ -402,7 +380,6 @@ internal fun DrawScope.drawKeltnerChannel(
     drawLineSeries(viewport, cw, ch, middle, KeltnerMidColor, 1f)
 }
 
-/** Donchian Channels — highest-high / lowest-low breakout envelope (amber). */
 internal fun DrawScope.drawDonchianChannel(
     viewport: ChartViewport,
     cw: Float,
@@ -416,13 +393,6 @@ internal fun DrawScope.drawDonchianChannel(
     drawLineSeries(viewport, cw, ch, middle, DonchianMidColor, 0.9f)
 }
 
-/**
- * Daily pivot levels (P / R1-R3 / S1-S3) as labelled horizontal rays.
- *
- * Levels are price-absolute rather than per-bar, so each is a single full-width
- * line. Off-screen levels are skipped so a wide pivot range on a zoomed-in
- * chart costs nothing.
- */
 internal fun DrawScope.drawPivotLevels(
     levels: com.foxtrader.app.domain.usecase.indicators.PivotPoints.PivotLevels,
     viewport: ChartViewport,
@@ -445,10 +415,9 @@ internal fun DrawScope.drawPivotLevels(
     )
 
     for ((label, price, color) in rows) {
-        if (!price.isFinite()) continue
+        if (!price.isDrawableIndicatorPrice()) continue
         val y = viewport.yForPrice(price, ch)
-        // Cull levels outside the canvas so zoomed-in charts stay cheap.
-        if (y < 0f || y > ch) continue
+        if (!y.isFinite() || y < 0f || y > ch) continue
 
         val isPivot = label == "P"
         drawLine(
@@ -461,5 +430,9 @@ internal fun DrawScope.drawPivotLevels(
         drawContext.canvas.nativeCanvas.drawText(label, 6f, y - 4f, labelPaint)
     }
 }
+
+private fun Double.isDrawableIndicatorPrice(): Boolean = isFinite() && this > 0.0
+private fun isValidCloudPoint(a: Double, b: Double): Boolean =
+    a.isDrawableIndicatorPrice() && b.isDrawableIndicatorPrice()
 
 private val PivotDash = PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f)
