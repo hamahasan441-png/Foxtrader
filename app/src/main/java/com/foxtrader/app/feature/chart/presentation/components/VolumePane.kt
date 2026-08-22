@@ -35,23 +35,12 @@ import kotlin.math.max
 import kotlin.math.min
 
 private val VolumeLabelArgb = android.graphics.Color.parseColor("#99999F")
-
-// `PERF` Hoisted colors + reusable direction-bucket paths (rewound per frame,
-// never reallocated; single-threaded render). `.copy(alpha=)` per bar
-// previously allocated a Color box for every visible bar every frame.
 private val BullVolumeColor = FoxBullish.copy(alpha = 0.55f)
 private val BearVolumeColor = FoxBearish.copy(alpha = 0.55f)
 private val bullVolPath = Path()
 private val bearVolPath = Path()
 
-/**
- * Volume histogram sub-pane — a separate resizable pane below the price chart
- * (TradingView-style), distinct from the Volume Profile overlay.
- *
- * Bars are coloured by candle direction (bullish/bearish), viewport-culled, and
- * auto-scaled to the max volume in the visible window. Horizontally synced with
- * the main chart via [startIndex] / [visibleBars].
- */
+/** Volume histogram pane with finite-safe viewport and bar geometry. */
 @Composable
 fun VolumePane(
     candles: CandleSeries,
@@ -72,7 +61,7 @@ fun VolumePane(
         }
     }
 
-    val latestVolume = if (candles.isNotEmpty()) candles[candles.size - 1].volume else 0.0
+    val latestVolume = candles.lastOrNull()?.volume?.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0
 
     Column(modifier = modifier.fillMaxWidth()) {
         Box(
@@ -103,34 +92,42 @@ fun VolumePane(
                 .height(canvasHeight)
                 .background(FoxNeutral5),
         ) {
+            if (candles.isEmpty()) return@Canvas
+            if (!startIndex.isFinite() || !visibleBars.isFinite() || visibleBars <= 0f) return@Canvas
             val w = size.width
             val chartH = size.height
             val chartW = (w - priceScaleWidthPx).coerceAtLeast(1f)
+            if (!chartW.isFinite() || chartW <= 0f || !chartH.isFinite() || chartH <= 0f) return@Canvas
 
+            val rawEnd = startIndex + visibleBars
+            if (!rawEnd.isFinite()) return@Canvas
             val visStart = max(0, startIndex.toInt())
-            val visEnd = min(candles.size, (startIndex + visibleBars).toInt() + 1)
+            val visEnd = min(candles.size, rawEnd.toInt() + 1)
             if (visEnd <= visStart) return@Canvas
 
-            var maxVol = 1e-9
+            var maxVol = 0.0
             for (i in visStart until visEnd) {
-                if (candles[i].volume > maxVol) maxVol = candles[i].volume
+                val volume = candles[i].volume
+                if (volume.isFinite() && volume > maxVol) maxVol = volume
             }
+            if (!maxVol.isFinite() || maxVol <= 0.0) return@Canvas
 
-            // `PERF` Batched: bars are bucketed by direction into two shared
-            // Paths, each filled ONCE — 2 Canvas calls per frame instead of a
-            // drawRect + a Color allocation per visible bar per gesture frame.
-            val barWidth = (chartW / visibleBars * 0.7f).coerceAtLeast(1f)
+            val barWidth = (chartW / visibleBars * 0.7f).coerceIn(1f, 24f)
             val halfBar = barWidth / 2f
             bullVolPath.rewind()
             bearVolPath.rewind()
             for (i in visStart until visEnd) {
-                val cx = (i + 0.5f - startIndex) / visibleBars * chartW
-                if (cx < 0f || cx > chartW) continue
                 val candle = candles[i]
-                val volH = (candle.volume / maxVol * chartH).toFloat().coerceAtLeast(1f)
-                val top = chartH - volH
+                val volume = candle.volume
+                if (!volume.isFinite() || volume < 0.0) continue
+                val cx = (i + 0.5f - startIndex) / visibleBars * chartW
+                if (!cx.isFinite() || cx < -barWidth || cx > chartW + barWidth) continue
+                val rawHeight = (volume / maxVol * chartH).toFloat()
+                if (!rawHeight.isFinite()) continue
+                val volH = rawHeight.coerceIn(1f, chartH)
+                val top = (chartH - volH).coerceIn(0f, chartH)
                 val path = if (candle.isBullish) bullVolPath else bearVolPath
-                path.addRect(Rect(cx - halfBar, top, cx + halfBar, top + volH))
+                path.addRect(Rect(cx - halfBar, top, cx + halfBar, (top + volH).coerceAtMost(chartH)))
             }
             if (!bullVolPath.isEmpty) drawPath(bullVolPath, BullVolumeColor)
             if (!bearVolPath.isEmpty) drawPath(bearVolPath, BearVolumeColor)
@@ -142,8 +139,11 @@ fun VolumePane(
     }
 }
 
-private fun formatVolume(v: Double): String = when {
-    v >= 1_000_000 -> String.format(Locale.US, "%.1fM", v / 1_000_000)
-    v >= 1_000 -> String.format(Locale.US, "%.1fK", v / 1_000)
-    else -> String.format(Locale.US, "%.0f", v)
+private fun formatVolume(v: Double): String {
+    if (!v.isFinite() || v < 0.0) return "—"
+    return when {
+        v >= 1_000_000 -> String.format(Locale.US, "%.1fM", v / 1_000_000)
+        v >= 1_000 -> String.format(Locale.US, "%.1fK", v / 1_000)
+        else -> String.format(Locale.US, "%.0f", v)
+    }
 }
