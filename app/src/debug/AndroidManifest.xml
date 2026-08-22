@@ -3,5 +3,11 @@
     xmlns:tools="http://schemas.android.com/tools">
     <application
         android:usesCleartextTraffic="true"
-        tools:replace="android:usesCleartextTraffic" />
+        tools:replace="android:usesCleartextTraffic">
+        <provider
+            android:name="com.foxtrader.app.debug.LeakCanaryOemFilterProvider"
+            android:authorities="${applicationId}.leakcanary.oemfilter"
+            android:exported="false"
+            android:initOrder="110" />
+    </application>
 </manifest>
