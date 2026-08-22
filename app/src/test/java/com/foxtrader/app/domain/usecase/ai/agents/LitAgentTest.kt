@@ -9,28 +9,19 @@ import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.Timeframe
-import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Verifies the data-driven institutional-entry confidence blend in [LitAgent].
- *
- * The agent no longer emits a flat 80 for a sweep + structure-break confluence;
- * confidence is now `0.6*stronger + 0.4*weaker` of the two contributing
- * insights, clamped to [60, 92]. Uses the real [SmtDivergenceDetector] (a
- * no-dependency concrete class), so no mocking is required.
- */
+/** Regression coverage for the canonical-only LiT agent boundary. */
 class LitAgentTest {
 
-    private val agent = LitAgent(SmtDivergenceDetector())
+    private val agent = LitAgent()
 
-    /** 40 near-flat candles: enough bars, but no organic sweep/inducement noise. */
-    private val flatCandles: List<Candle> = (0 until 40).map { i ->
+    private val flatCandles: List<Candle> = (0 until 80).map { i ->
         Candle(
-            timestamp = 1_700_000_000_000L + i * 60_000L,
+            timestamp = 1_700_000_000_000L + i * 15 * 60_000L,
             open = 1.1000,
             high = 1.1002,
             low = 1.0998,
@@ -39,105 +30,73 @@ class LitAgentTest {
         )
     }
 
-    private fun structureOutput(breakDirection: Direction, breakConfidence: Double): AgentOutput =
-        AgentOutput(
-            agentName = AgentName.MARKET_STRUCTURE,
-            status = AgentStatus.COMPLETE,
-            bias = Bias.NEUTRAL,
-            confidence = breakConfidence,
-            insights = listOf(
-                AgentInsight(
-                    id = "ms-break",
-                    agentName = AgentName.MARKET_STRUCTURE,
-                    type = "BOS",
-                    direction = breakDirection,
-                    confidence = breakConfidence,
-                    barIndex = 38,
-                ),
-            ),
-            narrative = "structure",
-        )
+    private fun output(agentName: AgentName, insights: List<AgentInsight>): AgentOutput = AgentOutput(
+        agentName = agentName,
+        status = AgentStatus.COMPLETE,
+        bias = Bias.BULLISH,
+        confidence = 90.0,
+        insights = insights,
+        narrative = "upstream",
+    )
 
-    private fun ictSweepOutput(sweepDirection: Direction, sweepConfidence: Double): AgentOutput =
-        AgentOutput(
-            agentName = AgentName.ICT,
-            status = AgentStatus.COMPLETE,
-            bias = Bias.NEUTRAL,
-            confidence = sweepConfidence,
-            insights = listOf(
-                AgentInsight(
-                    id = "ict-sweep",
-                    agentName = AgentName.ICT,
-                    type = "LIQUIDITY_SWEEP",
-                    direction = sweepDirection,
-                    confidence = sweepConfidence,
-                    barIndex = 37,
-                    tags = listOf("SWEEP"),
-                ),
-            ),
-            narrative = "sweep",
-        )
+    private fun insight(
+        agentName: AgentName,
+        type: String,
+        direction: Direction = Direction.BULLISH,
+        tags: List<String> = listOf(type),
+    ) = AgentInsight(
+        id = "$agentName-$type",
+        agentName = agentName,
+        type = type,
+        direction = direction,
+        confidence = 95.0,
+        barIndex = 70,
+        tags = tags,
+    )
 
-    private fun analyzeWith(
-        sweepDirection: Direction,
-        sweepConfidence: Double,
-        breakDirection: Direction,
-        breakConfidence: Double,
-    ): AgentOutput {
+    @Test
+    fun `generic sweep and BOS cannot bypass canonical LiT rejection`() {
         val context = AgentContext(
             symbol = "EURUSD",
             timeframe = Timeframe.M15,
             candles = flatCandles,
             previousOutputs = mapOf(
-                AgentName.MARKET_STRUCTURE to structureOutput(breakDirection, breakConfidence),
-                AgentName.ICT to ictSweepOutput(sweepDirection, sweepConfidence),
+                AgentName.ICT to output(
+                    AgentName.ICT,
+                    listOf(insight(AgentName.ICT, "LIQUIDITY_SWEEP", tags = listOf("SWEEP"))),
+                ),
+                AgentName.MARKET_STRUCTURE to output(
+                    AgentName.MARKET_STRUCTURE,
+                    listOf(insight(AgentName.MARKET_STRUCTURE, "BOS")),
+                ),
             ),
         )
-        return agent.analyze(context)
+
+        val result = agent.analyze(context)
+
+        assertEquals(Bias.NEUTRAL, result.bias)
+        assertTrue(result.insights.isEmpty())
+        assertFalse(result.insights.any { it.type == "INSTITUTIONAL_ENTRY_SIGNAL" })
+        assertFalse(result.insights.any { it.type == "LIT_INDUCEMENT_REVERSAL" })
     }
 
     @Test
-    fun `institutional entry confidence blends sweep and break strength`() {
-        val output = analyzeWith(
-            sweepDirection = Direction.BULLISH, sweepConfidence = 90.0,
-            breakDirection = Direction.BULLISH, breakConfidence = 70.0,
+    fun `upstream IDM alone is not promoted to LiT evidence`() {
+        val context = AgentContext(
+            symbol = "EURUSD",
+            timeframe = Timeframe.M15,
+            candles = flatCandles,
+            previousOutputs = mapOf(
+                AgentName.MARKET_STRUCTURE to output(
+                    AgentName.MARKET_STRUCTURE,
+                    listOf(insight(AgentName.MARKET_STRUCTURE, "IDM")),
+                ),
+            ),
         )
-        val entry = output.insights.firstOrNull { it.type == "INSTITUTIONAL_ENTRY_SIGNAL" }
-        assertNotNull("a sweep + aligned break must produce an institutional entry", entry)
-        // 0.6*90 + 0.4*70 = 82.0
-        assertEquals(82.0, entry!!.confidence, 1e-6)
-        assertEquals(Direction.BULLISH, entry.direction)
-    }
 
-    @Test
-    fun `institutional entry confidence respects the minimum floor`() {
-        val output = analyzeWith(
-            sweepDirection = Direction.BEARISH, sweepConfidence = 55.0,
-            breakDirection = Direction.BEARISH, breakConfidence = 50.0,
-        )
-        val entry = output.insights.first { it.type == "INSTITUTIONAL_ENTRY_SIGNAL" }
-        // 0.6*55 + 0.4*50 = 53.0 → clamped up to the 60.0 floor.
-        assertEquals(60.0, entry.confidence, 1e-6)
-    }
+        val result = agent.analyze(context)
 
-    @Test
-    fun `institutional entry confidence respects the maximum ceiling`() {
-        val output = analyzeWith(
-            sweepDirection = Direction.BULLISH, sweepConfidence = 99.0,
-            breakDirection = Direction.BULLISH, breakConfidence = 98.0,
-        )
-        val entry = output.insights.first { it.type == "INSTITUTIONAL_ENTRY_SIGNAL" }
-        // 0.6*99 + 0.4*98 = 98.6 → clamped down to the 92.0 ceiling.
-        assertEquals(92.0, entry.confidence, 1e-6)
-    }
-
-    @Test
-    fun `no institutional entry when sweep and break directions disagree`() {
-        val output = analyzeWith(
-            sweepDirection = Direction.BULLISH, sweepConfidence = 90.0,
-            breakDirection = Direction.BEARISH, breakConfidence = 80.0,
-        )
-        val entry = output.insights.firstOrNull { it.type == "INSTITUTIONAL_ENTRY_SIGNAL" }
-        assertNull("opposing sweep and break must not confluence into an entry", entry)
+        assertEquals(Bias.NEUTRAL, result.bias)
+        assertTrue(result.insights.isEmpty())
     }
 }
