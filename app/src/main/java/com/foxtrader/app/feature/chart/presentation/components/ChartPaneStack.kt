@@ -6,8 +6,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -35,17 +38,11 @@ import com.foxtrader.app.ui.theme.FoxNeutral60
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * Stack of separate-pane ("study") indicators rendered below the price chart:
- * RSI, MACD and Volume. This is the explicit *pane* half of the overlay-vs-pane
- * indicator model — overlay indicators (EMA, Bollinger, SMC, …) draw on the
- * price canvas, while enabling a pane indicator auto-creates a resizable panel
- * here (TradingView-style).
+ * Compact stack of separate-pane studies.
  *
- * Each pane has a draggable splitter so the user can trade vertical space
- * between studies; heights persist across recomposition and process death via
- * [rememberSaveable]. The primary chart's viewport is collected here (once) so
- * only this stack recomposes as the user pans/zooms — the main [CandleChart]
- * render loop is never disturbed.
+ * Multiple oscillators remain available, but the whole stack is capped and
+ * scrollable so enabling RSI/MACD/Stochastic/OBV/MFI/Volume can never collapse
+ * the main price chart into a tiny strip.
  */
 @Composable
 fun ChartPaneStack(
@@ -67,8 +64,14 @@ fun ChartPaneStack(
     val vp = liveViewport ?: fallbackViewport
     val startIndex = vp?.startIndex ?: 0f
     val visibleBars = vp?.visibleBars ?: 120f
+    val scrollState = rememberScrollState()
 
-    Column(modifier = modifier.fillMaxWidth()) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(max = ChartDimens.paneStackMaxHeight)
+            .verticalScroll(scrollState),
+    ) {
         if (indicators.rsi && rsiValues != null) {
             ResizablePane(paneKey = "rsi", paneName = "RSI") { h ->
                 RsiSubChart(
@@ -140,10 +143,6 @@ fun ChartPaneStack(
     }
 }
 
-/**
- * A single resizable pane: a draggable splitter handle on top and the pane
- * content below at a user-controlled, persisted height.
- */
 @Composable
 private fun ResizablePane(
     paneKey: String,
@@ -159,7 +158,6 @@ private fun ResizablePane(
     val resizeCd = stringResource(R.string.chart_pane_resize_cd, paneName)
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        // Draggable splitter. Dragging up grows the pane, down shrinks it.
         Box(
             modifier = Modifier
                 .fillMaxWidth()
