@@ -138,7 +138,7 @@ class ProviderMarketWebSocket @Inject constructor(
         val target = effectiveProvider?.let(::socketFor)
         val previous = routes[key]
 
-        if (previous?.socket === target && target != null && previous.requestedSymbol == requestedSymbol) {
+        if (previous != null && previous.socket === target && target != null && previous.requestedSymbol == requestedSymbol) {
             recomputeConnectionStateLocked()
             return
         }

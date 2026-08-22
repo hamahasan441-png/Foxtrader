@@ -122,7 +122,7 @@ class DukascopyDataSource @Inject constructor(
             } else {
                 emptyConsecutiveHours = 0
                 nonEmpty.forEach(allTicks::addAll)
-                allTicks.sortBy { it.timestamp }
+                allTicks.sortBy { it.timestampMs }
 
                 val aggregated = tickAggregator.aggregate(allTicks, timeframe)
                 if (aggregated.size >= safeLimit + 1) break

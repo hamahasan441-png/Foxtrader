@@ -233,8 +233,8 @@ class MetaApiDataSource @Inject constructor(
             .filter { it.timestamp < beforeTimestampMs }
             .distinctBy { it.timestamp }
             .sortedBy { it.timestamp }
-            .takeLast(safeLimit)
             .toList()
+            .takeLast(safeLimit)
     }
 
     suspend fun executeTrade(

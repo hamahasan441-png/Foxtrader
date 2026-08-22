@@ -7,6 +7,7 @@ import com.foxtrader.app.data.sync.SyncManager
 import com.foxtrader.app.domain.model.AlertConfig
 import com.foxtrader.app.domain.model.SignalProfile
 import com.foxtrader.app.domain.model.LitConfig
+import com.foxtrader.app.domain.model.LitXConfig
 import com.foxtrader.app.domain.model.LitXGrade
 import com.foxtrader.app.domain.model.SmtConfig
 import com.foxtrader.app.domain.model.SmsConfig

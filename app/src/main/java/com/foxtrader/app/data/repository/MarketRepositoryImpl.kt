@@ -225,6 +225,7 @@ class MarketRepositoryImpl @Inject constructor(
                 sanitizedCandles.map { it.toEntity(symbol, timeframe, CandleSource.LIVE) },
             )
             dao.prune(symbol, timeframe.label, appPreferences.maxCachedBars.value)
+            Unit
         }.recoverCatching { error ->
             // Selecting an unimplemented provider is a configuration error, not
             // a transient network fault: surface it instead of papering over it
@@ -246,6 +247,7 @@ class MarketRepositoryImpl @Inject constructor(
             } else {
                 throw error
             }
+            Unit
         }.rethrowCancellation()
     }
 

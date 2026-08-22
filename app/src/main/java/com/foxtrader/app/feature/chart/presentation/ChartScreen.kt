@@ -78,6 +78,7 @@ import com.foxtrader.app.domain.model.ChartSignal
 import com.foxtrader.app.domain.model.ChartBarMode
 import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.DataProvider
+import com.foxtrader.app.domain.model.EquityPoint
 import com.foxtrader.app.domain.model.MarketDataFreshness
 import com.foxtrader.app.domain.model.StrategyType
 import com.foxtrader.app.domain.model.StrategyBlueprint
@@ -1260,7 +1261,7 @@ private fun BacktestEquitySparkline(state: ChartBacktestState) {
     if (state.equityCurve.size < 2) return
     val points = remember(state.equityCurve) {
         val step = (state.equityCurve.size / 180).coerceAtLeast(1)
-        buildList {
+        buildList<EquityPoint> {
             var i = 0
             while (i < state.equityCurve.size) {
                 add(state.equityCurve[i])

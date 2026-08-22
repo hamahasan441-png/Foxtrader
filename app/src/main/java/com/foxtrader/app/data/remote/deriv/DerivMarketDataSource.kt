@@ -108,8 +108,8 @@ class DerivMarketDataSource @Inject constructor(
             .filter { beforeTimestampMs == null || it.timestamp < beforeTimestampMs }
             .distinctBy { it.timestamp }
             .sortedBy { it.timestamp }
-            .takeLast(safeLimit)
             .toList()
+            .takeLast(safeLimit)
     }
 
     /**

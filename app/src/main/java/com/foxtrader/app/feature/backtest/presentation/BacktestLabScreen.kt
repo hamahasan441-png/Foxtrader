@@ -130,6 +130,7 @@ fun BacktestLabScreen(
             }
 
             val result = state.result
+            val binaryResult = state.binaryResult
             when {
                 state.isRunning -> Box(
                     modifier = Modifier.fillMaxWidth().height(140.dp),
@@ -144,7 +145,7 @@ fun BacktestLabScreen(
                     )
                 }
 
-                state.binaryResult != null -> BinaryResultContent(state.binaryResult, state.analyticsReport)
+                binaryResult != null -> BinaryResultContent(binaryResult, state.analyticsReport)
 
                 result != null -> ResultContent(result = result, analytics = state.analyticsReport)
 

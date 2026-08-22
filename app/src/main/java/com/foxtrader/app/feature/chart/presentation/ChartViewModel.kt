@@ -301,7 +301,6 @@ class ChartViewModel @Inject constructor(
         // leave the provider badge/history context stale. Settings clears the
         // provider-agnostic candle cache before emitting this preference.
         appPreferences.dataProvider
-            .distinctUntilChanged()
             .onEach { provider ->
                 val current = _uiState.value
                 if (current.dataProvider != provider) {
