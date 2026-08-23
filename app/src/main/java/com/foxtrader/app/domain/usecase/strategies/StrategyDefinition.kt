@@ -8,11 +8,10 @@ import com.foxtrader.app.domain.usecase.backtest.StrategyFunction
 /**
  * A named, backtestable strategy with metadata for display and filtering.
  *
- * The public [function] is the canonical strategy function wrapped by
- * [StrategyRuntimeSettingsRegistry]. Keeping the wrapper here is intentional:
- * every consumer of StrategyLibrary receives the exact same runtime controls,
- * so chart signals, scanner output and backtests cannot silently use different
- * direction/confidence/R:R settings.
+ * [function] is dynamic for live/interactive use and always observes the latest
+ * chart-corner runtime controls. Historical research must call
+ * [snapshotFunction], which freezes those same controls at run start so one
+ * backtest cannot mix configurations if the user edits a gear mid-run.
  */
 class StrategyDefinition(
     val name: String,
@@ -24,6 +23,11 @@ class StrategyDefinition(
     private val baseFunction: StrategyFunction = function
 
     val function: StrategyFunction = StrategyRuntimeSettingsRegistry.wrap(type, baseFunction)
+
+    fun snapshotFunction(): StrategyFunction = StrategyRuntimeSettingsRegistry.wrapSnapshot(
+        settings = StrategyRuntimeSettingsRegistry.get(type),
+        base = baseFunction,
+    )
 }
 
 /**
