@@ -20,6 +20,8 @@ jobs:
       - name: Execute embedded one-shot patch
         shell: bash
         run: |
+          mkdir -p app/src/test/java/com/foxtrader/app/feature/backtest/presentation
+          mkdir -p app/src/test/java/com/foxtrader/app/feature/chart/presentation
           python3 - <<'PY'
           from pathlib import Path
           workflow = Path('.github/workflows/patch-backtest-visual-rsi-of.yml').read_text()
