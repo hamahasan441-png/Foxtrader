@@ -21,6 +21,14 @@ data class ChartSignal(
      * trader can tell *which* rule fired, not just which engine.
      */
     val label: String? = null,
+    /**
+     * Optional semantic identity shared by multiple integration paths that
+     * represent the same objectively confirmed market event. Unlike [id], this
+     * key is allowed to be common to a canonical engine signal and its
+     * StrategyLibrary mirror so the chart can deduplicate them without changing
+     * legacy IDs consumed by UI/tests/persistence.
+     */
+    val eventKey: String? = null,
 ) {
     /** Risk (entry → stop) in price units, or null when no stop is defined. */
     val risk: Double? get() = if (sl == 0.0) null else kotlin.math.abs(entry - sl)
