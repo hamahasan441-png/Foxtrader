@@ -121,7 +121,6 @@ fun ChartScreen(
     modifier: Modifier = Modifier,
     onNavigateToAlerts: () -> Unit = {},
     onNavigateToTradeManagement: () -> Unit = {},
-    onNavigateToBrokerTrading: () -> Unit = {},
     onNavigateToStudio: () -> Unit = {},
     onNavigateToLitX: (String, Timeframe) -> Unit = { _, _ -> },
     immersive: Boolean = false,
@@ -536,9 +535,7 @@ fun ChartScreen(
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
 
-            // --- Executable setup actions: simulation manager + broker review ---
-            // Broker hand-off stages only a short-lived draft. It never bypasses
-            // the broker screen's review/confirm/live-safety gates.
+            // --- Executable setup actions ---
             if (state.tradeProAnalysis?.setup?.isExecutable == true) {
                 Column(
                     modifier = Modifier
@@ -547,20 +544,6 @@ fun ChartScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     horizontalAlignment = Alignment.End,
                 ) {
-                    SmallFloatingActionButton(
-                        onClick = {
-                            if (viewModel.stageExecutableBrokerTrade()) {
-                                onNavigateToBrokerTrading()
-                            }
-                        },
-                        containerColor = FoxAmber50,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                    ) {
-                        Icon(
-                            Icons.Default.ShowChart,
-                            contentDescription = "Review setup in broker trading",
-                        )
-                    }
                     SmallFloatingActionButton(
                         onClick = onNavigateToTradeManagement,
                         containerColor = MaterialTheme.colorScheme.surfaceVariant,
@@ -849,19 +832,14 @@ private fun ChartTopBar(
  * Enum for which dropdown menu is currently expanded.
  * Only one menu can be open at a time (TradingView behavior).
  */
-private fun providerShortLabel(provider: DataProvider): String = when (provider) {
-    DataProvider.DERIV -> "Deriv"
-    DataProvider.MT4 -> "MT4/5"
-    else -> provider.displayName
-}
+private fun providerShortLabel(provider: DataProvider): String = provider.displayName
 
-/** Keep broker-native chart sources visually separate from general market feeds. */
+/** Group the native Deriv source separately from general market feeds. */
 private fun providerGroups(): List<Pair<String, List<DataProvider>>> {
     val implemented = DataProvider.implemented()
     return listOf(
         "DERIV" to implemented.filter { it == DataProvider.DERIV },
-        "METATRADER" to implemented.filter { it == DataProvider.MT4 },
-        "OTHER DATA PROVIDERS" to implemented.filter { it != DataProvider.DERIV && it != DataProvider.MT4 },
+        "OTHER DATA PROVIDERS" to implemented.filter { it != DataProvider.DERIV },
     ).filter { it.second.isNotEmpty() }
 }
 

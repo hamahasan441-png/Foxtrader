@@ -33,7 +33,7 @@ import com.foxtrader.app.data.local.entity.WatchlistSymbolEntity
  * - v5: adds alerts table (dispatched alert history + acknowledgement).
  * - v6: adds watchlists + watchlist_symbols (user-authored, must persist).
  * - v7: adds litx_signals (validated LIT X institutional signal history).
- * - v8: adds execution_audit_log (append-only record of live MT4 order attempts).
+ * - v8: adds execution_audit_log (append-only record of live order attempts).
  * - v9: adds execution_audit_log.realizedProfit (daily loss gate needs close P&L).
  * - v10: scopes execution audit rows to a broker account to prevent cross-account collisions.
  *

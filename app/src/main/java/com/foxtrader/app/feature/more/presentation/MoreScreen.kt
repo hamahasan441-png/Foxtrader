@@ -71,7 +71,6 @@ enum class MoreAction {
     CORRELATION,
     SETTINGS,
     SUBSCRIPTION,
-    MT4,
     LIVE_TRADING,
     AUTOMATION,
     RELEASE_READINESS,
@@ -117,7 +116,7 @@ fun MoreScreen(
         MoreDestination("Correlation", "Concentration clusters", Icons.Outlined.Hub, MoreAction.CORRELATION, pro = true),
     )
     val liveTrading = listOf(
-        MoreDestination("Live trading", "Phase 6 · Paper, demo, MT4/MT5 & Deriv", Icons.Outlined.ShowChart, MoreAction.LIVE_TRADING),
+        MoreDestination("Live trading", "Phase 6 · Paper & Deriv", Icons.Outlined.ShowChart, MoreAction.LIVE_TRADING),
         MoreDestination("Automation cockpit", "Phase 7 · Signal review and execution routing", Icons.Outlined.Hub, MoreAction.AUTOMATION, pro = true),
         MoreDestination("Release readiness", "Phase 8 · Production gates, security & QA", Icons.Outlined.Settings, MoreAction.RELEASE_READINESS, pro = true),
         MoreDestination("Native Deriv", "Phase 9 · Direct REST + OTP WebSocket", Icons.Outlined.AccountBalanceWallet, MoreAction.DERIV_NATIVE, pro = true),

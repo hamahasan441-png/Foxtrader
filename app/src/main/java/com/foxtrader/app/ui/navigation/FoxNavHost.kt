@@ -45,8 +45,6 @@ import com.foxtrader.app.feature.journal.presentation.JournalScreen
 import com.foxtrader.app.feature.litx.presentation.LitXScreen
 import com.foxtrader.app.feature.more.presentation.MoreAction
 import com.foxtrader.app.feature.more.presentation.MoreScreen
-import com.foxtrader.app.feature.mt4.presentation.Mt4AccountScreen
-import com.foxtrader.app.feature.mt4.presentation.Mt4LoginScreen
 import com.foxtrader.app.feature.tradepro.presentation.OpportunityBoardScreen
 import com.foxtrader.app.feature.tradepro.presentation.AlertRulesScreen
 import com.foxtrader.app.feature.tradepro.presentation.CorrelationScreen
@@ -101,8 +99,6 @@ object FoxRoutes {
     const val AI = "ai_workspace"
     const val WATCHLIST = "watchlist"
     const val SUBSCRIPTION = "subscription"
-    const val MT4_LOGIN = "mt4_login"
-    const val MT4_ACCOUNT = "mt4_account"
     const val LIVE_TRADING = "live_trading"
     const val AUTOMATION = "automation"
     const val RELEASE_READINESS = "release_readiness"
@@ -165,7 +161,6 @@ fun FoxNavHost(
                 ChartScreen(
                     onNavigateToAlerts = { navController.navigate(FoxRoutes.ALERTS) },
                     onNavigateToTradeManagement = { navController.navigate(FoxRoutes.TRADE_MANAGEMENT) },
-                    onNavigateToBrokerTrading = { navController.navigate(FoxRoutes.MT4_LOGIN) },
                     onNavigateToStudio = { navController.navigate(FoxRoutes.PRO_STUDIO) },
                     onNavigateToLitX = { symbol, tf ->
                         navController.navigate(FoxRoutes.litx(symbol, tf.label))
@@ -266,7 +261,6 @@ fun FoxNavHost(
                             MoreAction.CORRELATION -> FoxRoutes.CORRELATION
                             MoreAction.SETTINGS -> FoxRoutes.SETTINGS
                             MoreAction.SUBSCRIPTION -> FoxRoutes.SUBSCRIPTION
-                            MoreAction.MT4 -> FoxRoutes.MT4_LOGIN
                             MoreAction.LIVE_TRADING -> FoxRoutes.LIVE_TRADING
                             MoreAction.AUTOMATION -> FoxRoutes.AUTOMATION
                             MoreAction.RELEASE_READINESS -> FoxRoutes.RELEASE_READINESS
@@ -281,7 +275,6 @@ fun FoxNavHost(
                 Phase6TradingScreen(
                     onNavigateBack = { navController.popBackStack() },
                     onOpenPaper = { navController.navigate(FoxRoutes.PAPER_TRADING) },
-                    onOpenBroker = { navController.navigate(FoxRoutes.MT4_LOGIN) },
                     onOpenDeriv = { navController.navigate(FoxRoutes.DERIV_NATIVE) },
                 )
             }
@@ -297,29 +290,6 @@ fun FoxNavHost(
             }
             composable(FoxRoutes.DERIV_NATIVE) {
                 Phase9DerivScreen(onNavigateBack = { navController.popBackStack() })
-            }
-            composable(FoxRoutes.MT4_LOGIN) {
-                Mt4LoginScreen(
-                    onConnected = {
-                        navController.navigate(FoxRoutes.MT4_ACCOUNT) {
-                            popUpTo(FoxRoutes.MT4_LOGIN) { inclusive = true }
-                        }
-                    },
-                    onDismiss = { navController.popBackStack() },
-                )
-            }
-            composable(FoxRoutes.MT4_ACCOUNT) {
-                Mt4AccountScreen(
-                    onDisconnected = { navController.popBackStack() },
-                    onOpenLiveChart = {
-                        // Return to the chart (MT4 is selected as the provider by
-                        // the user in Settings) so live MT4 quotes feed the chart.
-                        navController.navigate(FoxRoutes.CHART) {
-                            popUpTo(FoxRoutes.HOME) { saveState = true }
-                            launchSingleTop = true
-                        }
-                    },
-                )
             }
             composable(FoxRoutes.AI) {
                 AiWorkspaceScreen(

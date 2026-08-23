@@ -497,10 +497,6 @@ dependencies {
     implementation(libs.okhttp.logging)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.retrofit.kotlinx.serialization)
-    implementation(libs.socket.io.client) {
-        // Android provides org.json; avoid duplicate classes from the Java client.
-        exclude(group = "org.json", module = "json")
-    }
 
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
