@@ -1,6 +1,7 @@
 package com.foxtrader.app.feature.chart.presentation
 
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.ChartBarMode
 import com.foxtrader.app.domain.model.ChartSignal
 import com.foxtrader.app.domain.model.LitAnalysis
 import com.foxtrader.app.domain.model.LitXAnalysis
