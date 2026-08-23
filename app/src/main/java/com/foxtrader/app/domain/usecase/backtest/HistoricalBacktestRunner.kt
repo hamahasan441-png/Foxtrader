@@ -1,5 +1,6 @@
 package com.foxtrader.app.domain.usecase.backtest
 
+import com.foxtrader.app.domain.model.BacktestConfig
 import com.foxtrader.app.domain.model.BacktestResult
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Timeframe
@@ -24,6 +25,7 @@ class HistoricalBacktestRunner @Inject constructor(
         window: HistoricalTestWindow,
         symbol: String,
         timeframe: Timeframe,
+        config: BacktestConfig = BacktestConfig(),
     ): BacktestResult {
         require(candles.size >= 2) { "Historical test requires at least 2 candles." }
         val selected = window.clampTo(candles)
@@ -38,6 +40,10 @@ class HistoricalBacktestRunner @Inject constructor(
             }
         }
 
+        // Historical-range mode must use the exact execution/risk model selected
+        // by its caller. BacktestEngine is stateful by configuration and Hilt is
+        // free to provide this runner a different engine instance than a screen.
+        backtestEngine.updateConfig(config)
         val result = backtestEngine(
             candles = causalSeries,
             strategy = guarded,
