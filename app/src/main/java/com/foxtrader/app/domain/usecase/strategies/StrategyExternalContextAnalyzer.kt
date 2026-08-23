@@ -5,6 +5,7 @@ import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
+import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
 import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
 import javax.inject.Inject
 import kotlin.math.roundToInt
@@ -14,8 +15,8 @@ import kotlin.math.roundToInt
  *
  * This class intentionally does not fetch data. The caller supplies provider-
  * consistent series through [StrategyMarketContext], then this analyzer applies
- * one causal closed-bar boundary and reuses the canonical SMT and market-
- * structure engines already present in the domain layer.
+ * one causal closed-bar boundary and reuses canonical SMT, structure and
+ * technical engines already present in the domain layer.
  */
 class StrategyExternalContextAnalyzer @Inject constructor(
     private val smtDetector: SmtDivergenceDetector,
@@ -31,6 +32,7 @@ class StrategyExternalContextAnalyzer @Inject constructor(
     data class Analysis(
         val context: StrategyMarketContext,
         val smtDivergences: List<SmtDivergenceDetector.SmtDivergence>,
+        /** Conservative HTF consensus: structure + EMA regime, per timeframe. */
         val higherTimeframeBiases: Map<Timeframe, Bias>,
         val evidence: List<Evidence>,
     )
@@ -69,9 +71,9 @@ class StrategyExternalContextAnalyzer @Inject constructor(
         val htfBiases = causal.higherTimeframeCandles
             .asSequence()
             .filter { (timeframe, candles) ->
-                timeframe.minutes > primaryTimeframe.minutes && candles.size >= MIN_STRUCTURE_BARS
+                timeframe.minutes > primaryTimeframe.minutes && candles.size >= MIN_HTF_BARS
             }
-            .associate { (timeframe, candles) -> timeframe to analyzeStructure(candles).bias }
+            .associate { (timeframe, candles) -> timeframe to consensusHtfBias(candles) }
 
         val evidence = buildList {
             addAll(providerEvidence(causal))
@@ -103,7 +105,7 @@ class StrategyExternalContextAnalyzer @Inject constructor(
                         .coerceIn(60, 85)
                     add(
                         Evidence(
-                            source = "HTF_STRUCTURE",
+                            source = "HTF_CONSENSUS",
                             direction = direction,
                             score = score,
                             detail = "$aligned/${directional.size} higher timeframes aligned",
@@ -119,6 +121,30 @@ class StrategyExternalContextAnalyzer @Inject constructor(
             higherTimeframeBiases = htfBiases,
             evidence = evidence,
         )
+    }
+
+    /**
+     * Conservative HTF regime: confirmed structure has priority when EMA agrees;
+     * a neutral structure may fall back to the EMA20/EMA50 + close regime, while
+     * direct structure/EMA disagreement resolves to NEUTRAL instead of guessing.
+     */
+    private fun consensusHtfBias(candles: List<Candle>): Bias {
+        if (candles.size < MIN_HTF_BARS) return Bias.NEUTRAL
+        val structureBias = analyzeStructure(candles).bias
+        val ema20 = TechnicalIndicators.calculateEMA(candles, 20).lastOrNull() ?: return Bias.NEUTRAL
+        val ema50 = TechnicalIndicators.calculateEMA(candles, 50).lastOrNull() ?: return Bias.NEUTRAL
+        val close = candles.last().close
+        val emaBias = when {
+            ema20 > ema50 && close >= ema20 -> Bias.BULLISH
+            ema20 < ema50 && close <= ema20 -> Bias.BEARISH
+            else -> Bias.NEUTRAL
+        }
+        return when {
+            structureBias == Bias.NEUTRAL -> emaBias
+            emaBias == Bias.NEUTRAL -> structureBias
+            structureBias == emaBias -> structureBias
+            else -> Bias.NEUTRAL
+        }
     }
 
     private fun providerEvidence(context: StrategyMarketContext): List<Evidence> = buildList {
@@ -137,6 +163,6 @@ class StrategyExternalContextAnalyzer @Inject constructor(
     }
 
     companion object {
-        private const val MIN_STRUCTURE_BARS = 11
+        private const val MIN_HTF_BARS = 50
     }
 }

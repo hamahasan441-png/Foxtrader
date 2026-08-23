@@ -7,15 +7,17 @@ import com.foxtrader.app.domain.model.AssetClass
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.model.LitXSignalRecord
+import com.foxtrader.app.domain.model.MarketDataFreshness
 import com.foxtrader.app.domain.model.ScannerRiskLevel
 import com.foxtrader.app.domain.model.StrategyType
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.repository.LitXSignalRepository
 import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.heatmap.MarketHeatmap
+import com.foxtrader.app.domain.usecase.scanner.ScannerContextEnricher
 import com.foxtrader.app.domain.usecase.scanner.ScannerUseCase
-import com.foxtrader.app.domain.usecase.scanner.Phase4ConfluenceEngine
-import com.foxtrader.app.domain.usecase.scanner.Phase4SmtPeerResolver
+import com.foxtrader.app.domain.usecase.signalintel.ConfirmedBarPolicy
+import com.foxtrader.app.domain.usecase.strategies.StrategyMarketContextProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,7 +36,8 @@ class ScannerViewModel @Inject constructor(
     private val marketRepository: MarketRepository,
     private val litXSignalRepository: LitXSignalRepository,
     private val marketHeatmap: MarketHeatmap,
-    private val phase4ConfluenceEngine: Phase4ConfluenceEngine,
+    private val strategyContextProvider: StrategyMarketContextProvider,
+    private val scannerContextEnricher: ScannerContextEnricher,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
 
@@ -49,65 +52,70 @@ class ScannerViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null, historyWarning = null) }
             try {
-                // Gather candle data for all watchlist symbols.
-                //
-                // Sourced fetch: the scanner ranks opportunities and the heatmap
-                // implies sector rotation, so both must know whether they are
-                // reading real prices or generated seed bars.
+                // Freeze one wall-clock boundary for the entire scan. Base strategy
+                // analysis and external SMT/HTF context must see the exact same
+                // confirmed primary prefix even if a candle closes mid-scan.
+                val scanNow = System.currentTimeMillis()
                 val watchlist = scannerUseCase.getWatchlist()
-                val dataMap = mutableMapOf<String, List<Candle>>()
+                val rawDataMap = mutableMapOf<String, List<Candle>>()
+                val confirmedDataMap = mutableMapOf<String, List<Candle>>()
                 val sourceBySymbol = mutableMapOf<String, CandleSource>()
-                val htfBySymbol = mutableMapOf<String, MutableMap<Timeframe, List<Candle>>>()
                 val heatmapInput = mutableMapOf<String, Pair<AssetClass, List<Candle>>>()
                 var worstSource = CandleSource.LIVE
 
                 for (ws in watchlist) {
                     if (!ws.enabled) continue
-                    val sourced = marketRepository.getSourcedCandles(ws.symbol)
+                    val sourced = marketRepository.getSourcedCandles(ws.symbol, SCANNER_TIMEFRAME)
                     if (sourced.candles.isEmpty()) continue
-                    dataMap[ws.symbol] = sourced.candles
+                    rawDataMap[ws.symbol] = sourced.candles
+                    val confirmed = ConfirmedBarPolicy.confirmedPrefix(
+                        candles = sourced.candles,
+                        timeframe = SCANNER_TIMEFRAME,
+                        nowMillis = scanNow,
+                    )
+                    if (confirmed.isNotEmpty()) confirmedDataMap[ws.symbol] = confirmed
                     sourceBySymbol[ws.symbol] = sourced.source
                     heatmapInput[ws.symbol] = ws.assetClass to sourced.candles
                     worstSource = CandleSource.worstOf(listOf(worstSource, sourced.source))
-
-                    // Phase 4 MTF confirmation. Missing/untrusted HTF data is deliberately omitted,
-                    // causing the actionability gate to fail closed rather than manufacture alignment.
-                    for (tf in PHASE4_HIGHER_TIMEFRAMES) {
-                        val htf = try {
-                            marketRepository.getSourcedCandles(ws.symbol, tf)
-                        } catch (cancel: CancellationException) {
-                            throw cancel
-                        } catch (_: Exception) {
-                            null
-                        }
-                        if (htf != null && htf.source.isTrustworthy && htf.candles.isNotEmpty()) {
-                            htfBySymbol.getOrPut(ws.symbol) { mutableMapOf() }[tf] = htf.candles
-                        }
-                    }
                 }
 
-                val output = scannerUseCase(dataMap, _uiState.value.selectedStrategy)
-                val phase4Results = withContext(defaultDispatcher) {
-                    output.results.map { result ->
-                        val peers = Phase4SmtPeerResolver.peersFor(result.symbol)
-                            .mapNotNull { peer ->
-                                val peerCandles = dataMap[peer]
-                                if (peerCandles != null && sourceBySymbol[peer]?.isTrustworthy == true) {
-                                    peer to peerCandles
-                                } else {
-                                    null
-                                }
-                            }
-                            .toMap()
-                        phase4ConfluenceEngine.enrich(
+                // ScannerUseCase applies ConfirmedBarPolicy too; passing the frozen
+                // prefix here makes that second guard idempotent and prevents a new
+                // bar from appearing between base and context analysis.
+                val output = scannerUseCase(
+                    dataMap = confirmedDataMap,
+                    strategy = _uiState.value.selectedStrategy,
+                    timeframe = SCANNER_TIMEFRAME,
+                )
+
+                // External context now goes through the same canonical provider
+                // used by other strategy consumers. Scanner no longer fetches a
+                // separate hand-written H4/D1 set or reruns its own SMT detector.
+                val contextualResults = mutableListOf<com.foxtrader.app.domain.model.ScreenerResult>()
+                for (result in output.results) {
+                    val source = sourceBySymbol[result.symbol] ?: CandleSource.CACHED
+                    val context = strategyContextProvider.load(
+                        symbol = result.symbol,
+                        timeframe = SCANNER_TIMEFRAME,
+                        // CandleEntity currently persists source trust but not the
+                        // originating provider id. Do not mislabel cached bars as
+                        // the user's current provider until provider provenance is
+                        // persisted alongside the series.
+                        provider = null,
+                        freshness = source.toMarketDataFreshness(),
+                        refreshMissingPeers = false,
+                    )
+                    val enriched = withContext(defaultDispatcher) {
+                        scannerContextEnricher.enrich(
                             base = result,
-                            baseCandles = dataMap[result.symbol].orEmpty(),
-                            higherTimeframeCandles = htfBySymbol[result.symbol].orEmpty(),
-                            correlatedCandles = peers,
-                            dataTrustworthy = sourceBySymbol[result.symbol]?.isTrustworthy == true,
+                            baseCandles = confirmedDataMap[result.symbol].orEmpty(),
+                            timeframe = SCANNER_TIMEFRAME,
+                            context = context,
                         )
-                    }.sortedByDescending { it.score }
+                    }
+                    contextualResults += enriched
                 }
+                contextualResults.sortByDescending { it.score }
 
                 // Persist only validated signals whose exact candle series is
                 // trustworthy. Per-symbol provenance is required here: one
@@ -125,17 +133,17 @@ class ScannerViewModel @Inject constructor(
                     "Scan completed, but LIT X history could not be saved."
                 }
 
-                // Scoring and heatmap aggregation are CPU-bound across every
-                // watchlist symbol; keep them off the main thread.
+                // Heatmap remains a view of the freshest sourced market snapshot;
+                // its provenance warning is independent of strategy causality.
                 val heatmap = withContext(defaultDispatcher) {
                     marketHeatmap.computeHeatmap(heatmapInput, HEATMAP_PERIOD)
                 }
 
                 _uiState.update {
                     it.copy(
-                        results = phase4Results.toPersistentList(),
+                        results = contextualResults.toPersistentList(),
                         heatmap = heatmap,
-                        dataSource = if (dataMap.isEmpty()) CandleSource.CACHED else worstSource,
+                        dataSource = if (rawDataMap.isEmpty()) CandleSource.CACHED else worstSource,
                         isLoading = false,
                         lastScanTime = output.scannedAt,
                         historyWarning = historyWarning,
@@ -175,12 +183,18 @@ class ScannerViewModel @Inject constructor(
         _uiState.update { it.copy(viewMode = mode) }
     }
 
+    private fun CandleSource.toMarketDataFreshness(): MarketDataFreshness = when (this) {
+        CandleSource.LIVE -> MarketDataFreshness.LIVE
+        CandleSource.CACHED -> MarketDataFreshness.CACHED
+        CandleSource.SYNTHETIC -> MarketDataFreshness.SIMULATED
+    }
+
     private companion object {
         /**
          * Bars the heatmap measures change over. Matches the scanner's own
          * lookback so the list and grid cannot disagree about a mover.
          */
         const val HEATMAP_PERIOD = 20
-        val PHASE4_HIGHER_TIMEFRAMES = listOf(Timeframe.H4, Timeframe.D1)
+        val SCANNER_TIMEFRAME = Timeframe.H1
     }
 }
