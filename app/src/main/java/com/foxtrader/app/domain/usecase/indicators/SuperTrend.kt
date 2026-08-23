@@ -8,15 +8,13 @@ import javax.inject.Inject
  * SuperTrend — ATR-based trend-following indicator.
  *
  * Plots a single line that flips above/below price based on volatility bands.
- * Widely used for trailing stops and trend confirmation.
- *
- * Non-repainting: each bar's value depends only on prior bars.
+ * Non-repainting: each bar's value depends only on prior/current bars.
  */
 class SuperTrend @Inject constructor() {
 
     data class SuperTrendResult(
-        val values: DoubleArray,        // The SuperTrend line
-        val direction: IntArray,        // +1 = bullish (line below price), -1 = bearish
+        val values: DoubleArray,
+        val direction: IntArray,
         val finalUpperBands: DoubleArray,
         val finalLowerBands: DoubleArray,
     )
@@ -47,12 +45,11 @@ class SuperTrend @Inject constructor() {
         val finalLowerBands = DoubleArray(n)
         if (n == 0) return SuperTrendResult(st, dir, finalUpperBands, finalLowerBands)
 
+        val safeAtrPeriod = atrPeriod.coerceAtLeast(1)
+        val safeMultiplier = multiplier.takeIf { it.isFinite() }?.coerceAtLeast(0.0) ?: 3.0
         val atr = TechnicalIndicators.calculateATRIncremental(
             candles = candles,
-            // ATR period reaches here from indicator settings / the plugin SDK.
-            // TechnicalIndicators clamps it too, but doing it here keeps the
-            // band math below reading a period that matches what was computed.
-            period = atrPeriod.coerceAtLeast(1),
+            period = safeAtrPeriod,
             previous = null,
             recomputeFrom = recomputeFrom,
         )
@@ -61,11 +58,6 @@ class SuperTrend @Inject constructor() {
         } else {
             0
         }
-        // `SAFETY` Resume only when the previous snapshot covers the resume
-        // point. A short/stale snapshot previously left startIndex > 0 with a
-        // zeroed prefix: no crash, but the loop then seeded dir[i-1] = 0 and
-        // band state 0.0, silently drawing a wrong SuperTrend line. Fall back
-        // to a full recompute instead.
         val canReuse = previous != null &&
             requestedStart > 0 &&
             previous.values.size >= requestedStart &&
@@ -85,16 +77,20 @@ class SuperTrend @Inject constructor() {
 
         for (i in startIndex until n) {
             val hl2 = (candles[i].high + candles[i].low) / 2.0
-            val basicUpper = hl2 + multiplier * atr[i]
-            val basicLower = hl2 - multiplier * atr[i]
+            val basicUpper = hl2 + safeMultiplier * atr[i]
+            val basicLower = hl2 - safeMultiplier * atr[i]
 
             if (i == 0) {
                 finalUpper = basicUpper
                 finalLower = basicLower
                 finalUpperBands[i] = finalUpper
                 finalLowerBands[i] = finalLower
-                st[i] = basicUpper
+                // Seed bullish and place the bullish line BELOW price. The old
+                // seed used basicUpper while reporting direction=+1, which made
+                // the first state internally contradictory and could contaminate
+                // the next recursive flip decision.
                 dir[i] = 1
+                st[i] = basicLower
                 continue
             }
 
@@ -102,7 +98,7 @@ class SuperTrend @Inject constructor() {
             finalUpper = if (basicUpper < finalUpper || prevClose > finalUpper) basicUpper else finalUpper
             finalLower = if (basicLower > finalLower || prevClose < finalLower) basicLower else finalLower
 
-            val prevDir = dir[i - 1]
+            val prevDir = dir[i - 1].let { if (it == -1) -1 else 1 }
             val close = candles[i].close
             val newDir = when {
                 prevDir == 1 && close < finalLower -> -1
@@ -117,7 +113,6 @@ class SuperTrend @Inject constructor() {
         return SuperTrendResult(st, dir, finalUpperBands, finalLowerBands)
     }
 
-    /** Current trend direction at the last bar. */
     fun currentTrend(result: SuperTrendResult): Direction? {
         if (result.direction.isEmpty()) return null
         return if (result.direction.last() == 1) Direction.BULLISH else Direction.BEARISH
