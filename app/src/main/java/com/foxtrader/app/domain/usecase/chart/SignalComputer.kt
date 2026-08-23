@@ -53,13 +53,9 @@ class SignalComputer @Inject constructor(
                 ?: candles.lastIndex
             signals.add(
                 ChartSignal(
-                    id = SignalIdentity.litX(
-                        symbol = signal.symbol,
-                        timeframe = signal.timeframe,
-                        timestamp = signal.timestamp,
-                        direction = signal.direction,
-                        confirmationIndex = barIndex,
-                    ),
+                    // Preserve the legacy public/chart ID contract. Semantic
+                    // deduplication is carried separately by eventKey.
+                    id = "litx_${signal.timestamp}",
                     source = SignalSource.LITX,
                     direction = signal.direction,
                     entry = signal.entry,
@@ -70,6 +66,13 @@ class SignalComputer @Inject constructor(
                     confidence = signal.confidence.score.toDouble(),
                     isLive = barIndex == latestConfirmedIndex,
                     label = buildSignalLabel("LiTX", signal.confidence.score, signal.confirmations),
+                    eventKey = SignalIdentity.litX(
+                        symbol = signal.symbol,
+                        timeframe = signal.timeframe,
+                        timestamp = signal.timestamp,
+                        direction = signal.direction,
+                        confirmationIndex = barIndex,
+                    ),
                 )
             )
         }
@@ -79,13 +82,9 @@ class SignalComputer @Inject constructor(
             val barIndex = signal.confirmationIndex.takeIf { it in candles.indices } ?: return@let
             signals.add(
                 ChartSignal(
-                    id = SignalIdentity.lit(
-                        symbol = signal.symbol,
-                        timeframe = signal.timeframe,
-                        timestamp = signal.timestamp,
-                        direction = signal.direction,
-                        confirmationIndex = barIndex,
-                    ),
+                    // Preserve the legacy public/chart ID contract. Semantic
+                    // deduplication is carried separately by eventKey.
+                    id = "lit_${signal.symbol}_${signal.timestamp}_${signal.direction}",
                     source = SignalSource.LIT,
                     direction = signal.direction,
                     entry = signal.entry,
@@ -96,6 +95,13 @@ class SignalComputer @Inject constructor(
                     confidence = signal.confidence.toDouble(),
                     isLive = barIndex == latestConfirmedIndex,
                     label = buildSignalLabel("LiT", signal.confidence, signal.confirmations),
+                    eventKey = SignalIdentity.lit(
+                        symbol = signal.symbol,
+                        timeframe = signal.timeframe,
+                        timestamp = signal.timestamp,
+                        direction = signal.direction,
+                        confirmationIndex = barIndex,
+                    ),
                 )
             )
         }
@@ -178,31 +184,33 @@ class SignalComputer @Inject constructor(
             .map { it.copy(confidence = normalizeConfidence(it.confidence)) }
 
         // Canonical engine outputs and their StrategyLibrary mirrors share one
-        // stable identity. Collapse those mirrors before evidence-family math so
-        // one market event cannot draw two arrows or inflate confluence merely
-        // because it travelled through two UI integration paths.
+        // semantic eventKey while preserving their legacy public IDs. Collapse
+        // those mirrors before evidence-family math so one market event cannot
+        // draw two arrows or inflate confluence through two integration paths.
         val deduplicated = deduplicateStableSignals(renderable)
         return applyConfluence(deduplicated, phase13TradeProAlreadyFused = fusion != null)
     }
 
     /**
-     * Deterministically collapse exact semantic duplicates by stable signal ID.
+     * Deterministically collapse semantic duplicates by eventKey when available;
+     * otherwise retain the historical ID-based behavior.
      *
      * Direct engine output wins over the generic STRATEGY mirror. Distinct
-     * strategy IDs are never merged, even if they happen to fire on the same bar
-     * in the same direction.
+     * strategy IDs without a shared eventKey are never merged, even if they fire
+     * on the same bar in the same direction.
      */
     private fun deduplicateStableSignals(signals: List<ChartSignal>): List<ChartSignal> {
         if (signals.size < 2) return signals
 
-        val byId = LinkedHashMap<String, ChartSignal>(signals.size)
+        val byKey = LinkedHashMap<String, ChartSignal>(signals.size)
         for (candidate in signals) {
-            val existing = byId[candidate.id]
+            val key = candidate.eventKey ?: candidate.id
+            val existing = byKey[key]
             if (existing == null || shouldReplaceDuplicate(existing, candidate)) {
-                byId[candidate.id] = candidate
+                byKey[key] = candidate
             }
         }
-        return byId.values.toList()
+        return byKey.values.toList()
     }
 
     private fun shouldReplaceDuplicate(existing: ChartSignal, candidate: ChartSignal): Boolean {
