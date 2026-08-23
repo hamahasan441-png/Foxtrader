@@ -38,12 +38,12 @@ class SignalStableIdentityDedupTest {
     }
 
     @Test
-    fun `canonical LiT replaces strategy mirror with one chart event`() {
+    fun `canonical LiT replaces strategy mirror with one chart event while preserving legacy id`() {
         val index = candles.lastIndex
         val timestamp = candles[index].timestamp
-        val id = SignalIdentity.lit(symbol, timeframe, timestamp, Direction.BULLISH, index)
+        val eventKey = SignalIdentity.lit(symbol, timeframe, timestamp, Direction.BULLISH, index)
         val mirror = ChartSignal(
-            id = id,
+            id = "strategy_LIT_${index}_${timestamp}",
             source = SignalSource.STRATEGY,
             direction = Direction.BULLISH,
             entry = 1.1035,
@@ -54,6 +54,7 @@ class SignalStableIdentityDedupTest {
             confidence = 0.71,
             isLive = true,
             label = "LIT Institutional Entry",
+            eventKey = eventKey,
         )
         val canonical = LitAnalysis(
             symbol = symbol,
@@ -89,18 +90,20 @@ class SignalStableIdentityDedupTest {
         )
 
         assertEquals(1, result.size)
-        assertEquals(id, result.single().id)
+        assertEquals("lit_${symbol}_${timestamp}_${Direction.BULLISH}", result.single().id)
+        assertEquals(eventKey, result.single().eventKey)
         assertEquals(SignalSource.LIT, result.single().source)
+        // The mirror is removed before confluence, so it cannot boost confidence.
         assertEquals(0.82, result.single().confidence, 1e-9)
     }
 
     @Test
-    fun `canonical LiTX replaces strategy mirror with one chart event`() {
+    fun `canonical LiTX replaces strategy mirror with one chart event while preserving legacy id`() {
         val index = candles.lastIndex
         val timestamp = candles[index].timestamp
-        val id = SignalIdentity.litX(symbol, timeframe, timestamp, Direction.BEARISH, index)
+        val eventKey = SignalIdentity.litX(symbol, timeframe, timestamp, Direction.BEARISH, index)
         val mirror = ChartSignal(
-            id = id,
+            id = "strategy_LITX_${index}_${timestamp}",
             source = SignalSource.STRATEGY,
             direction = Direction.BEARISH,
             entry = 1.1030,
@@ -111,6 +114,7 @@ class SignalStableIdentityDedupTest {
             confidence = 0.70,
             isLive = true,
             label = "LIT X Institutional",
+            eventKey = eventKey,
         )
         val canonicalSignal = LitXSignal(
             symbol = symbol,
@@ -153,7 +157,8 @@ class SignalStableIdentityDedupTest {
         )
 
         assertEquals(1, result.size)
-        assertEquals(id, result.single().id)
+        assertEquals("litx_${timestamp}", result.single().id)
+        assertEquals(eventKey, result.single().eventKey)
         assertEquals(SignalSource.LITX, result.single().source)
         assertEquals(0.79, result.single().confidence, 1e-9)
     }
