@@ -12,4 +12,8 @@ enum class AssetClass {
     METALS,
     ENERGY,
     COMMODITIES,
+    /** Provider-native synthetic markets such as Deriv synthetic indices. */
+    SYNTHETIC,
+    /** Explicit fallback when a provider cannot classify an instrument safely. */
+    OTHER,
 }
