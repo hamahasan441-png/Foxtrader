@@ -19,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
@@ -53,6 +54,8 @@ fun IndicatorPanel(
     if (!visible) return
 
     val selected = toggles.productionAnalysisSystem()
+    val density = LocalDensity.current
+    val popupOffset = with(density) { IntOffset(0, POPUP_OFFSET_DP.dp.roundToPx()) }
     var lastToggleAt by remember { mutableLongStateOf(0L) }
 
     val selectSystem: (ProductionAnalysisSystem?) -> Unit = { system ->
@@ -65,7 +68,7 @@ fun IndicatorPanel(
 
     Popup(
         alignment = Alignment.TopCenter,
-        offset = IntOffset(0, POPUP_OFFSET_PX),
+        offset = popupOffset,
         properties = PopupProperties(
             focusable = false,
             dismissOnBackPress = false,
@@ -131,4 +134,4 @@ private fun AnalysisChip(
 }
 
 private const val TOGGLE_DEBOUNCE_MS = 180L
-private const val POPUP_OFFSET_PX = 104
+private const val POPUP_OFFSET_DP = 104
