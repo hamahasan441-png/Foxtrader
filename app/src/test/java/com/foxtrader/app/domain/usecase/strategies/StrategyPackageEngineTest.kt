@@ -84,6 +84,9 @@ class StrategyPackageEngineTest {
         assertArrayEquals(fromPrefix.technical.ichimoku.senkouB, fromFull.technical.ichimoku.senkouB, 0.0)
         assertEquals(fromPrefix.structure, fromFull.structure)
         assertEquals(fromPrefix.smc, fromFull.smc)
+        assertEquals(fromPrefix.patterns, fromFull.patterns)
+        assertEquals(fromPrefix.wyckoff, fromFull.wyckoff)
+        assertEquals(fromPrefix.sessions, fromFull.sessions)
         assertEquals(fromPrefix.evidence, fromFull.evidence)
         assertEquals(fromPrefix.signal, fromFull.signal)
     }
@@ -130,8 +133,12 @@ class StrategyPackageEngineTest {
         assertNotNull(analysis.smc.inversionFVGs)
         assertNotNull(analysis.smc.balancedPriceRanges)
         assertNotNull(analysis.smc.amdPatterns)
+        assertNotNull(analysis.patterns)
+        assertNotNull(analysis.wyckoff)
         assertNotNull(analysis.sessions)
         assertTrue(analysis.narrative.contains("SMC["))
+        assertTrue(analysis.narrative.contains("PAT="))
+        assertTrue(analysis.narrative.contains("WYC="))
     }
 
     @Test
