@@ -3,6 +3,7 @@ package com.foxtrader.app.domain.usecase.strategies
 import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.model.BreakerType
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.DetectedPattern
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.FvgType
 import com.foxtrader.app.domain.model.IfvgType
@@ -16,10 +17,12 @@ import com.foxtrader.app.domain.model.StrategyType
 import com.foxtrader.app.domain.model.StructureBreakType
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
+import com.foxtrader.app.domain.usecase.analysis.WyckoffDetector
 import com.foxtrader.app.domain.usecase.backtest.StrategyFunction
 import com.foxtrader.app.domain.usecase.indicators.IchimokuCloud
 import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
 import com.foxtrader.app.domain.usecase.litx.LitXEngine
+import com.foxtrader.app.domain.usecase.patterns.CandlePatternDetector
 import com.foxtrader.app.domain.usecase.sessions.SessionDetector
 import com.foxtrader.app.domain.usecase.signalintel.LitEngine
 import com.foxtrader.app.domain.usecase.smc.SmcDetector
@@ -34,6 +37,8 @@ import kotlin.math.roundToInt
  * - technical state and previous-bar event state,
  * - confirmed market structure (swings/BOS/CHOCH/bias),
  * - the complete SMC detector bundle (OB/FVG/liquidity/breaker/IFVG/BPR/AMD),
+ * - candlestick-pattern detections,
+ * - Wyckoff market-cycle state,
  * - session context,
  * - and the strategy-specific institutional/classical execution rule.
  *
@@ -45,6 +50,10 @@ import kotlin.math.roundToInt
  * longer needs a second strategy implementation merely because it ranks symbols
  * even when no entry is currently executable.
  *
+ * Pattern/Wyckoff/SMC context refines setup quality; it never manufactures a
+ * strategy entry by itself. The selected strategy's canonical execution rule is
+ * still responsible for entry, stop and target.
+ *
  * Non-repainting invariant: [analyze] truncates input to [0..index] before any
  * detector is invoked. Nothing in this class can inspect a future candle.
  */
@@ -55,6 +64,8 @@ class StrategyPackageEngine(
     private val litXEngine: LitXEngine,
     private val litEngine: LitEngine,
     private val sessionDetector: SessionDetector = SessionDetector(),
+    private val candlePatternDetector: CandlePatternDetector = CandlePatternDetector(),
+    private val wyckoffDetector: WyckoffDetector = WyckoffDetector(),
 ) {
 
     data class TechnicalPackage(
@@ -94,6 +105,8 @@ class StrategyPackageEngine(
         val technical: TechnicalPackage,
         val structure: MarketStructure,
         val smc: SmcDetector.SmcAnalysisResult,
+        val patterns: List<DetectedPattern>,
+        val wyckoff: WyckoffDetector.WyckoffResult,
         val sessions: List<SessionRange>,
         val evidence: List<Evidence>,
         val preferredDirection: Direction?,
@@ -171,7 +184,10 @@ class StrategyPackageEngine(
             append(",IFVG=").append(smc.inversionFVGs.size)
             append(",BPR=").append(smc.balancedPriceRanges.size)
             append(",AMD=").append(smc.amdPatterns.size)
-            append("] · evidence=").append(evidence.size)
+            append("]")
+            append(" · PAT=").append(core.patterns.size)
+            append(" · WYC=").append(core.wyckoff.phase.name)
+            append(" · evidence=").append(evidence.size)
             if (preferredDirection != null) {
                 append(" · bias=").append(preferredDirection.name)
                 append(" ").append(packageScore).append("/100")
@@ -193,6 +209,8 @@ class StrategyPackageEngine(
             technical = core.technical,
             structure = core.structure,
             smc = core.smc,
+            patterns = core.patterns,
+            wyckoff = core.wyckoff,
             sessions = core.sessions,
             evidence = evidence,
             preferredDirection = preferredDirection,
@@ -216,6 +234,8 @@ class StrategyPackageEngine(
         val technical: TechnicalPackage,
         val structure: MarketStructure,
         val smc: SmcDetector.SmcAnalysisResult,
+        val patterns: List<DetectedPattern>,
+        val wyckoff: WyckoffDetector.WyckoffResult,
         val sessions: List<SessionRange>,
     )
 
@@ -278,6 +298,8 @@ class StrategyPackageEngine(
             ),
             structure = analyzeStructure(candles),
             smc = smcDetector.analyzeAll(candles),
+            patterns = candlePatternDetector(candles),
+            wyckoff = wyckoffDetector.detect(candles),
             sessions = sessionDetector.detectSessions(candles),
         )
         cachedCoreKey = key
@@ -383,6 +405,37 @@ class StrategyPackageEngine(
             if (inside) add(Evidence("BPR", null, 60, "price inside balanced range"))
         }
 
+        core.patterns
+            .asSequence()
+            .filter { it.endIndex >= core.index - RECENT_PATTERN_BARS }
+            .maxWithOrNull(compareBy<DetectedPattern> { it.endIndex }.thenBy { it.confidence })
+            ?.let {
+                add(
+                    Evidence(
+                        source = "CANDLE_PATTERN",
+                        direction = it.direction,
+                        score = it.confidence.coerceIn(45, 88),
+                        detail = "${it.type.name} · ${it.bias.name}",
+                    ),
+                )
+            }
+
+        when (core.wyckoff.phase) {
+            WyckoffDetector.WyckoffPhase.ACCUMULATION -> add(
+                Evidence("WYCKOFF", Direction.BULLISH, core.wyckoff.confidence.roundToInt().coerceIn(55, 78), "ACCUMULATION"),
+            )
+            WyckoffDetector.WyckoffPhase.MARKUP -> add(
+                Evidence("WYCKOFF", Direction.BULLISH, core.wyckoff.confidence.roundToInt().coerceIn(58, 82), "MARKUP"),
+            )
+            WyckoffDetector.WyckoffPhase.DISTRIBUTION -> add(
+                Evidence("WYCKOFF", Direction.BEARISH, core.wyckoff.confidence.roundToInt().coerceIn(55, 78), "DISTRIBUTION"),
+            )
+            WyckoffDetector.WyckoffPhase.MARKDOWN -> add(
+                Evidence("WYCKOFF", Direction.BEARISH, core.wyckoff.confidence.roundToInt().coerceIn(58, 82), "MARKDOWN"),
+            )
+            WyckoffDetector.WyckoffPhase.UNDEFINED -> Unit
+        }
+
         val activeSession = core.sessions.lastOrNull { core.index in it.startIndex..it.endIndex }
         activeSession?.let { add(Evidence("SESSION", null, 55, it.session.label)) }
     }
@@ -414,9 +467,11 @@ class StrategyPackageEngine(
         "ORDER_BLOCK" -> 82
         "IFVG" -> 80
         "FVG" -> 78
+        "WYCKOFF" -> 74
         "ADX_DI" -> 72
         "ICHIMOKU" -> 68
         "EMA_STACK" -> 64
+        "CANDLE_PATTERN" -> 62
         "MACD" -> 58
         "RSI_REVERSION" -> 56
         else -> 0
@@ -783,5 +838,6 @@ class StrategyPackageEngine(
         const val CACHE_HASH_BARS = 32
         const val DEFAULT_CONFIDENCE = 60
         const val DIRECTION_BALANCE_RATIO = 0.85
+        const val RECENT_PATTERN_BARS = 2
     }
 }
