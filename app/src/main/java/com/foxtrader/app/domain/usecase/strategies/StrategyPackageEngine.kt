@@ -1,9 +1,11 @@
 package com.foxtrader.app.domain.usecase.strategies
 
 import com.foxtrader.app.domain.model.Bias
+import com.foxtrader.app.domain.model.BreakerType
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.FvgType
+import com.foxtrader.app.domain.model.IfvgType
 import com.foxtrader.app.domain.model.LiquidityType
 import com.foxtrader.app.domain.model.LitXSignal
 import com.foxtrader.app.domain.model.MarketStructure
@@ -363,19 +365,56 @@ class StrategyPackageEngine(
                 val direction = if (it.type == LiquidityType.SELL_SIDE) Direction.BULLISH else Direction.BEARISH
                 add(Evidence("LIQUIDITY_SWEEP", direction, 72, "${it.type.name} swept"))
             }
+        core.smc.breakerBlocks.maxByOrNull { it.breakerIndex }?.let {
+            val direction = if (it.type == BreakerType.BULLISH) Direction.BULLISH else Direction.BEARISH
+            add(Evidence("BREAKER", direction, (it.strength * 100).roundToInt().coerceIn(58, 90), it.type.name))
+        }
+        core.smc.inversionFVGs.maxByOrNull { it.inversionIndex }?.let {
+            val direction = if (it.type == IfvgType.BULLISH) Direction.BULLISH else Direction.BEARISH
+            add(Evidence("IFVG", direction, 66, it.type.name))
+        }
+        core.smc.balancedPriceRanges.lastOrNull()?.let {
+            val bar = core.candles[core.index]
+            val inside = bar.close in it.lowPrice..it.highPrice
+            if (inside) add(Evidence("BPR", null, 60, "price inside balanced range"))
+        }
 
         val activeSession = core.sessions.lastOrNull { core.index in it.startIndex..it.endIndex }
         activeSession?.let { add(Evidence("SESSION", null, 55, it.session.label)) }
     }
 
     private fun dominantDirection(evidence: List<Evidence>): Direction? {
-        val bull = evidence.filter { it.direction == Direction.BULLISH }.sumOf { it.score.toDouble() }
-        val bear = evidence.filter { it.direction == Direction.BEARISH }.sumOf { it.score.toDouble() }
-        if (bull <= 0.0 && bear <= 0.0) return null
+        val directional = evidence.filter { it.direction != null }
+        if (directional.isEmpty()) return null
+        val bull = directional.filter { it.direction == Direction.BULLISH }.sumOf { it.score.toDouble() }
+        val bear = directional.filter { it.direction == Direction.BEARISH }.sumOf { it.score.toDouble() }
         val high = maxOf(bull, bear)
         val low = minOf(bull, bear)
-        if (high > 0.0 && low / high >= DIRECTION_BALANCE_RATIO) return null
+        if (high > 0.0 && low / high >= DIRECTION_BALANCE_RATIO) {
+            // Ranking needs a deterministic direction even when the package is
+            // conflicted. Resolve the tie from the strongest/most structural
+            // evidence while preserving the opposing items in Analysis.conflicts.
+            return directional.maxWithOrNull(
+                compareBy<Evidence> { evidencePriority(it.source) }.thenBy { it.score },
+            )?.direction
+        }
         return if (bull > bear) Direction.BULLISH else Direction.BEARISH
+    }
+
+    private fun evidencePriority(source: String): Int = when (source) {
+        "STRUCTURE" -> 100
+        "STRUCTURE_BREAK" -> 95
+        "LIQUIDITY_SWEEP" -> 90
+        "BREAKER" -> 86
+        "ORDER_BLOCK" -> 82
+        "IFVG" -> 80
+        "FVG" -> 78
+        "ADX_DI" -> 72
+        "ICHIMOKU" -> 68
+        "EMA_STACK" -> 64
+        "MACD" -> 58
+        "RSI_REVERSION" -> 56
+        else -> 0
     }
 
     private fun scorePackage(
