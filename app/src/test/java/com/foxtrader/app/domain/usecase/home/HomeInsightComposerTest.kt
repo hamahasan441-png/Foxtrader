@@ -1,10 +1,7 @@
 package com.foxtrader.app.domain.usecase.home
 
 import com.foxtrader.app.domain.model.AssetClass
-import com.foxtrader.app.domain.model.Bias
-import com.foxtrader.app.domain.model.Direction
-import com.foxtrader.app.domain.model.ScreenerResult
-import com.foxtrader.app.domain.model.StrategyType
+import com.foxtrader.app.domain.model.MarketMover
 import com.foxtrader.app.domain.model.WorkspaceProfile
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -13,7 +10,7 @@ import org.junit.Test
 class HomeInsightComposerTest {
 
     @Test
-    fun `empty scan is a fact not a forecast`() {
+    fun `empty snapshot is a fact not a forecast`() {
         val insights = HomeInsightComposer.compose(
             results = emptyList(),
             unreadAlerts = 0,
@@ -22,13 +19,13 @@ class HomeInsightComposerTest {
             synthetic = false,
         )
         assertEquals(InsightKind.FACT, insights.first().kind)
-        assertTrue(insights.first().text.contains("No scan results"))
+        assertTrue(insights.first().text.contains("No market snapshot"))
     }
 
     @Test
-    fun `synthetic scan is labelled as fact`() {
+    fun `synthetic snapshot is labelled as fact`() {
         val insights = HomeInsightComposer.compose(
-            results = listOf(sample(score = 80, change = 1.2)),
+            results = listOf(sample(change = 1.2)),
             unreadAlerts = 2,
             openPositions = 1,
             profile = WorkspaceProfile(),
@@ -36,17 +33,16 @@ class HomeInsightComposerTest {
         )
         assertEquals(InsightKind.FACT, insights.first().kind)
         assertTrue(insights.any { it.kind == InsightKind.CALCULATION })
-        assertTrue(insights.any { it.kind == InsightKind.PROBABILITY })
         assertTrue(insights.any { it.kind == InsightKind.OPINION })
-        assertTrue(insights.none { it.kind == InsightKind.PROBABILITY && it.text.contains("will") })
+        assertTrue(insights.none { it.text.contains("will") })
     }
 
     @Test
-    fun `counts are reported as facts`() {
+    fun `positive and negative watchlist counts are reported as facts`() {
         val insights = HomeInsightComposer.compose(
             results = listOf(
-                sample(score = 70, change = 1.0, direction = Direction.BULLISH),
-                sample(score = 40, change = -0.8, direction = Direction.BEARISH, symbol = "GBPUSD"),
+                sample(change = 1.0),
+                sample(change = -0.8, symbol = "GBPUSD"),
             ),
             unreadAlerts = 0,
             openPositions = 0,
@@ -55,27 +51,16 @@ class HomeInsightComposerTest {
         )
         val fact = insights.first { it.kind == InsightKind.FACT }
         assertTrue(fact.text.contains("2 symbols"))
-        assertTrue(fact.text.contains("1 scored as buys"))
+        assertTrue(fact.text.contains("1 positive"))
+        assertTrue(fact.text.contains("1 negative"))
     }
 
     private fun sample(
-        score: Int,
         change: Double,
-        direction: Direction = Direction.BULLISH,
         symbol: String = "EURUSD",
-    ) = ScreenerResult(
+    ) = MarketMover(
         symbol = symbol,
         assetClass = AssetClass.FOREX,
-        strategy = StrategyType.CONFLUENCE,
-        direction = direction,
-        score = score,
-        bias = if (direction == Direction.BULLISH) Bias.BULLISH else Bias.BEARISH,
-        trendStrength = 40.0,
-        momentum = 40.0,
-        volatility = 40.0,
-        setupQuality = 40.0,
-        categories = emptyList(),
-        tags = emptyList(),
         lastPrice = 1.08,
         changePercent = change,
     )
