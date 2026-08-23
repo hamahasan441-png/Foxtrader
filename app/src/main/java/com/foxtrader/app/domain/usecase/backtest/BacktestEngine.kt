@@ -1,6 +1,7 @@
 package com.foxtrader.app.domain.usecase.backtest
 
 import com.foxtrader.app.domain.model.BacktestConfig
+import com.foxtrader.app.domain.model.BacktestExecutionMode
 import com.foxtrader.app.domain.model.BacktestMetrics
 import com.foxtrader.app.domain.model.BacktestResult
 import com.foxtrader.app.domain.model.BacktestTrade
@@ -29,8 +30,10 @@ typealias StrategyFunction = (candles: List<Candle>, index: Int) -> StrategySign
  *
  * Features:
  * - Bar-by-bar execution, NO look-ahead (strategy only sees candles up to current bar)
+ * - Explicit fill timing: legacy signal-price or TradingView-style next-bar open
  * - Variable spread modeling (widens with volatility)
- * - Commission and slippage
+ * - Commission and directional slippage
+ * - Conservative SL-before-TP handling when both are touched in one candle
  * - Full metrics: Sharpe, Sortino, Calmar, Profit Factor, Win Rate, Drawdown, Expectancy
  * - Equity curve with per-bar drawdown tracking
  *
@@ -39,6 +42,21 @@ typealias StrategyFunction = (candles: List<Candle>, index: Int) -> StrategySign
 class BacktestEngine @Inject constructor() {
 
     private var config: BacktestConfig = BacktestConfig()
+
+    private data class PendingEntry(
+        val signal: StrategySignal,
+        /** Position size is frozen on the decision bar, before the future open exists. */
+        val volume: Double,
+    )
+
+    private data class OpenPosition(
+        /** Signal rewritten to the actual execution bar/price. */
+        val executedSignal: StrategySignal,
+        val volume: Double,
+        /** Original closed bar where the strategy made the decision. */
+        val signalIndex: Int,
+        val signalTime: Long,
+    )
 
     /**
      * Run a backtest over candle data with a strategy function.
@@ -54,25 +72,61 @@ class BacktestEngine @Inject constructor() {
         var balance = config.initialBalance
         var peakBalance = balance
         var tradeId = 0
-        var openTrade: Pair<StrategySignal, Double>? = null // signal + volume
+        var pendingEntry: PendingEntry? = null
+        var openTrade: OpenPosition? = null
 
         for (i in candles.indices) {
             val candle = candles[i]
+            var openedThisBar = false
 
-            // Manage open trade: check SL/TP hit intra-bar
+            // TradingView-style market timing: an order created from the prior
+            // closed bar becomes executable at this bar's open. Crucially, size
+            // was frozen on the signal bar, so the future open cannot influence
+            // risk sizing.
+            if (
+                config.executionMode == BacktestExecutionMode.NEXT_BAR_OPEN &&
+                openTrade == null &&
+                pendingEntry != null
+            ) {
+                val pending = pendingEntry
+                pendingEntry = null
+                val executed = fillAtBarOpen(pending.signal, candle, i)
+                if (executed != null) {
+                    openTrade = OpenPosition(
+                        executedSignal = executed,
+                        volume = pending.volume,
+                        signalIndex = pending.signal.index,
+                        signalTime = pending.signal.timestamp,
+                    )
+                    openedThisBar = true
+                }
+            }
+
+            // Manage an existing position. A next-bar-open position is eligible
+            // for stops/targets throughout the SAME candle because its fill was
+            // at the candle open. If the open itself gaps through a protection
+            // level, close at the executable open rather than granting a stale
+            // historical stop/target price that the market skipped over.
             if (openTrade != null) {
-                val (signal, volume) = openTrade
-                val exit = checkTradeExit(signal, candle)
+                val position = openTrade
+                val signal = position.executedSignal
+                val exit = if (openedThisBar) {
+                    checkOpeningGapExit(signal) ?: checkTradeExit(signal, candle)
+                } else {
+                    checkTradeExit(signal, candle)
+                }
                 if (exit != null) {
                     val trade = buildTrade(
                         id = ++tradeId,
                         signal = signal,
-                        volume = volume,
+                        volume = position.volume,
                         exitIndex = i,
                         exitTime = candle.timestamp,
                         exitPrice = exit.first,
                         reason = exit.second,
                         balanceBefore = balance,
+                        signalIndex = position.signalIndex,
+                        signalTime = position.signalTime,
                     )
                     balance += trade.netPnL
                     trades += trade.copy(balanceAfter = balance)
@@ -81,42 +135,59 @@ class BacktestEngine @Inject constructor() {
                 }
             }
 
-            // Look for new entry (only if flat)
-            if (openTrade == null) {
-                // CRITICAL: pass only candles up to and including i (no look-ahead)
-                // A broken user strategy is isolated to this bar instead of
-                // aborting the complete research run.
+            // Evaluate a new setup only while flat and with no queued order.
+            if (openTrade == null && pendingEntry == null) {
+                // CRITICAL: pass only candles up to and including i (no look-ahead).
                 val signal = try {
                     strategy(candles.subList(0, i + 1), i)
                 } catch (cancel: CancellationException) {
                     throw cancel
                 } catch (_: Exception) {
+                    // A broken user strategy is isolated to this bar instead of
+                    // aborting the complete research run.
                     null
                 }
-                // A setup on the final bar has no future market data in which
-                // it can execute or exit. Opening and immediately force-closing
-                // it at the same close fabricates a commission/slippage loss.
+
+                // A setup on the final bar has no later market data in which a
+                // new position can be meaningfully tested. This also guarantees
+                // NEXT_BAR_OPEN never invents a future fill candle.
                 if (
                     signal != null &&
                     i < candles.lastIndex &&
                     signal.isExecutable(expectedIndex = i, expectedTimestamp = candle.timestamp)
                 ) {
-                    // Apply entry-side slippage: BUY fills above ask, SELL below bid.
-                    val slippedSignal = if (signal.direction == Direction.BULLISH) {
-                        signal.copy(entry = signal.entry + config.slippage)
-                    } else {
-                        signal.copy(entry = signal.entry - config.slippage)
-                    }
-                    if (slippedSignal.isExecutable(expectedIndex = i, expectedTimestamp = candle.timestamp)) {
-                        val volume = slippedSignal.volume ?: calculateVolume(balance, slippedSignal)
-                        if (volume.isFinite() && volume > 0.0) {
-                            openTrade = slippedSignal to volume
+                    when (config.executionMode) {
+                        BacktestExecutionMode.SIGNAL_PRICE -> {
+                            val slippedSignal = applyEntrySlippage(signal)
+                            if (slippedSignal.isExecutable(expectedIndex = i, expectedTimestamp = candle.timestamp)) {
+                                val volume = slippedSignal.volume ?: calculateVolume(balance, slippedSignal)
+                                if (volume.isFinite() && volume > 0.0) {
+                                    openTrade = OpenPosition(
+                                        executedSignal = slippedSignal,
+                                        volume = volume,
+                                        signalIndex = signal.index,
+                                        signalTime = signal.timestamp,
+                                    )
+                                }
+                            }
+                        }
+
+                        BacktestExecutionMode.NEXT_BAR_OPEN -> {
+                            // Freeze risk from information available NOW. Using
+                            // tomorrow's open to determine size would itself be a
+                            // subtle look-ahead leak.
+                            val volume = signal.volume ?: calculateVolume(balance, signal)
+                            if (volume.isFinite() && volume > 0.0) {
+                                pendingEntry = PendingEntry(signal = signal, volume = volume)
+                            }
                         }
                     }
                 }
             }
 
-            // Record equity point
+            // Record realized-equity point. The engine intentionally preserves
+            // its existing realized-balance semantics rather than silently
+            // changing reports to mark-to-market equity in this execution patch.
             val dd = peakBalance - balance
             equityCurve += EquityPoint(
                 index = i,
@@ -127,27 +198,30 @@ class BacktestEngine @Inject constructor() {
             )
         }
 
-        // Close remaining open trade at last candle
+        // Close a remaining position at the last candle close. A pending order
+        // cannot remain here: signals on the final bar are deliberately ignored,
+        // and a signal from the penultimate bar executes at the final bar open.
         if (openTrade != null) {
-            val (signal, volume) = openTrade
+            val position = openTrade
+            val signal = position.executedSignal
             val lastCandle = candles.last()
             val trade = buildTrade(
                 id = ++tradeId,
                 signal = signal,
-                volume = volume,
+                volume = position.volume,
                 exitIndex = candles.lastIndex,
                 exitTime = lastCandle.timestamp,
                 exitPrice = lastCandle.close,
                 reason = ExitReason.END,
                 balanceBefore = balance,
+                signalIndex = position.signalIndex,
+                signalTime = position.signalTime,
             )
             balance += trade.netPnL
             trades += trade.copy(balanceAfter = balance)
             peakBalance = max(peakBalance, balance)
 
             // The point for the last bar was recorded before END liquidation.
-            // Replace it so the equity curve and max-drawdown metrics include
-            // the forced close instead of reporting a stale pre-exit balance.
             if (equityCurve.isNotEmpty()) {
                 val drawdown = peakBalance - balance
                 equityCurve[equityCurve.lastIndex] = EquityPoint(
@@ -178,19 +252,65 @@ class BacktestEngine @Inject constructor() {
     }
 
     // ========================================================================
-    // TRADE EXIT LOGIC
+    // ENTRY / EXIT EXECUTION
     // ========================================================================
+
+    private fun applyEntrySlippage(signal: StrategySignal): StrategySignal =
+        if (signal.direction == Direction.BULLISH) {
+            signal.copy(entry = signal.entry + config.slippage)
+        } else {
+            signal.copy(entry = signal.entry - config.slippage)
+        }
+
+    /** Fill a queued market entry at the next bar open with directional slippage. */
+    private fun fillAtBarOpen(
+        signal: StrategySignal,
+        candle: Candle,
+        executionIndex: Int,
+    ): StrategySignal? {
+        if (!candle.open.isFinite() || candle.open <= 0.0) return null
+        val fill = if (signal.direction == Direction.BULLISH) {
+            candle.open + config.slippage
+        } else {
+            candle.open - config.slippage
+        }
+        if (!fill.isFinite() || fill <= 0.0) return null
+        return signal.copy(
+            index = executionIndex,
+            timestamp = candle.timestamp,
+            entry = fill,
+        )
+    }
+
+    /**
+     * Handle a bar that opens beyond a stop/target already defined on the signal
+     * bar. Returning the executed entry price models an immediately marketable
+     * protection order and, importantly, never awards the skipped stale level.
+     */
+    private fun checkOpeningGapExit(signal: StrategySignal): Pair<Double, ExitReason>? {
+        return when (signal.direction) {
+            Direction.BULLISH -> when {
+                signal.entry <= signal.stopLoss -> signal.entry to ExitReason.SL
+                signal.entry >= signal.takeProfit -> signal.entry to ExitReason.TP
+                else -> null
+            }
+            Direction.BEARISH -> when {
+                signal.entry >= signal.stopLoss -> signal.entry to ExitReason.SL
+                signal.entry <= signal.takeProfit -> signal.entry to ExitReason.TP
+                else -> null
+            }
+        }
+    }
 
     private fun checkTradeExit(signal: StrategySignal, candle: Candle): Pair<Double, ExitReason>? {
         val spread = getSpread(candle)
 
         if (signal.direction == Direction.BULLISH) {
-            // SL checked first (conservative)
+            // SL checked first (conservative) when one OHLC bar touches both.
             if (candle.low - spread <= signal.stopLoss) {
                 return (signal.stopLoss - config.slippage) to ExitReason.SL
             }
             if (candle.high >= signal.takeProfit) {
-                // Slippage reduces profit on TP: filled slightly below TP price.
                 return (signal.takeProfit - config.slippage) to ExitReason.TP
             }
         } else {
@@ -198,7 +318,6 @@ class BacktestEngine @Inject constructor() {
                 return (signal.stopLoss + config.slippage) to ExitReason.SL
             }
             if (candle.low <= signal.takeProfit) {
-                // Slippage reduces profit on TP: filled slightly above TP price.
                 return (signal.takeProfit + config.slippage) to ExitReason.TP
             }
         }
@@ -214,6 +333,8 @@ class BacktestEngine @Inject constructor() {
         exitPrice: Double,
         reason: ExitReason,
         balanceBefore: Double,
+        signalIndex: Int,
+        signalTime: Long,
     ): BacktestTrade {
         val priceDiff = if (signal.direction == Direction.BULLISH) {
             exitPrice - signal.entry
@@ -246,9 +367,15 @@ class BacktestEngine @Inject constructor() {
             balanceAfter = balanceBefore, // Updated by caller
             setupType = signal.setupType,
             holdingBars = exitIndex - signal.index,
+            signalIndex = signalIndex,
+            signalTime = signalTime,
         )
     }
 
+    /**
+     * Position size is always derived from information available at the call
+     * site. NEXT_BAR_OPEN calls this on the signal bar before the future open.
+     */
     private fun calculateVolume(balance: Double, signal: StrategySignal): Double {
         if (!balance.isFinite() || balance <= 0.0 || config.contractSize <= 0) return 0.0
         if (!config.riskPercent.isFinite() || config.riskPercent <= 0.0) return 0.0
@@ -260,7 +387,7 @@ class BacktestEngine @Inject constructor() {
         return max(MIN_VOLUME, (volume * 100).roundToInt() / 100.0)
     }
 
-    /** Reject malformed, stale, or wrong-side strategy output before it reaches P&L math. */
+    /** Reject malformed, stale, or wrong-side strategy output before it reaches execution. */
     private fun StrategySignal.isExecutable(expectedIndex: Int, expectedTimestamp: Long): Boolean {
         if (index != expectedIndex || timestamp != expectedTimestamp) return false
         if (!entry.isFinite() || !stopLoss.isFinite() || !takeProfit.isFinite()) return false
@@ -275,7 +402,11 @@ class BacktestEngine @Inject constructor() {
     private fun getSpread(candle: Candle): Double {
         if (!config.variableSpread) return config.spread
         val range = candle.high - candle.low
-        val multiplier = min(3.0, 1.0 + range / (config.spread * 100))
+        val spreadDenominator = config.spread * 100
+        if (!range.isFinite() || spreadDenominator <= 0.0 || !spreadDenominator.isFinite()) {
+            return config.spread.coerceAtLeast(0.0)
+        }
+        val multiplier = min(3.0, 1.0 + range / spreadDenominator)
         return config.spread * multiplier
     }
 
@@ -308,9 +439,6 @@ class BacktestEngine @Inject constructor() {
         val sortino = calculateSortino(returns)
 
         val finalBalance = config.initialBalance + netProfit
-        // A zero (or negative) starting balance is a misconfiguration, not a
-        // reason to render "NaN%"/"Infinity%" across the whole report — and a
-        // NaN return silently poisons the Calmar ratio below it too.
         val returnPercent = if (config.initialBalance > 0.0) {
             (netProfit / config.initialBalance) * 100.0
         } else {
@@ -355,10 +483,6 @@ class BacktestEngine @Inject constructor() {
         val returns = DoubleArray(trades.size)
         var balance = config.initialBalance
         for ((i, t) in trades.withIndex()) {
-            // The running balance can legitimately reach exactly zero (an
-            // account wiped out mid-run). Dividing by it yields NaN/Infinity,
-            // and a single non-finite return NaNs the Sharpe and Sortino ratios
-            // for the entire report.
             returns[i] = if (balance != 0.0) t.netPnL / balance else 0.0
             balance += t.netPnL
         }
@@ -386,10 +510,20 @@ class BacktestEngine @Inject constructor() {
     }
 
     private fun calculateStreaks(trades: List<BacktestTrade>): Pair<Int, Int> {
-        var maxWins = 0; var maxLosses = 0; var curWins = 0; var curLosses = 0
+        var maxWins = 0
+        var maxLosses = 0
+        var curWins = 0
+        var curLosses = 0
         for (t in trades) {
-            if (t.netPnL > 0) { curWins++; curLosses = 0; maxWins = max(maxWins, curWins) }
-            else if (t.netPnL < 0) { curLosses++; curWins = 0; maxLosses = max(maxLosses, curLosses) }
+            if (t.netPnL > 0) {
+                curWins++
+                curLosses = 0
+                maxWins = max(maxWins, curWins)
+            } else if (t.netPnL < 0) {
+                curLosses++
+                curWins = 0
+                maxLosses = max(maxLosses, curLosses)
+            }
         }
         return maxWins to maxLosses
     }
@@ -408,7 +542,10 @@ class BacktestEngine @Inject constructor() {
     // CONFIG
     // ========================================================================
 
-    fun updateConfig(newConfig: BacktestConfig) { config = newConfig }
+    fun updateConfig(newConfig: BacktestConfig) {
+        config = newConfig
+    }
+
     fun getConfig(): BacktestConfig = config
 
     private companion object {
