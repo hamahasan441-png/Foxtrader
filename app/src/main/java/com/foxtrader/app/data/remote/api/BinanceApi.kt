@@ -1,34 +1,19 @@
 package com.foxtrader.app.data.remote.api
 
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import retrofit2.http.GET
 import retrofit2.http.Query
 
 /**
- * Binance public REST API for historical kline (candlestick) data.
+ * Binance public REST API for spot market data.
  *
- * Base URL: https://api.binance.com
- * Endpoint: GET /api/v3/klines
- *
- * No API key required for public market data.
- *
- * Response format: Array of arrays — each inner array is:
- * [openTime, open, high, low, close, volume, closeTime, quoteAssetVol,
- *  numberOfTrades, takerBuyBaseVol, takerBuyQuoteVol, ignore]
- *
- * We parse as List<JsonArray> and convert in [BinanceDataSource].
+ * Both endpoints used here are public (`NONE` security):
+ * - GET /api/v3/klines for candle history
+ * - GET /api/v3/exchangeInfo for the provider-native spot symbol directory
  */
 interface BinanceApi {
 
-    /**
-     * Fetch historical klines.
-     *
-     * @param symbol Binance trading pair, e.g. "BTCUSDT" (uppercase).
-     * @param interval Kline interval: 1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w, 1M.
-     * @param limit Number of candles to return (max 1000, default 500).
-     * @param startTime Optional start time (epoch ms).
-     * @param endTime Optional end time (epoch ms).
-     */
     @GET("/api/v3/klines")
     suspend fun getKlines(
         @Query("symbol") symbol: String,
@@ -37,4 +22,30 @@ interface BinanceApi {
         @Query("startTime") startTime: Long? = null,
         @Query("endTime") endTime: Long? = null,
     ): List<JsonArray>
+
+    @GET("/api/v3/exchangeInfo")
+    suspend fun getExchangeInfo(): BinanceExchangeInfoResponse
 }
+
+@Serializable
+data class BinanceExchangeInfoResponse(
+    val symbols: List<BinanceExchangeSymbol> = emptyList(),
+)
+
+@Serializable
+data class BinanceExchangeSymbol(
+    val symbol: String = "",
+    val status: String = "",
+    val baseAsset: String = "",
+    val quoteAsset: String = "",
+    val baseAssetPrecision: Int? = null,
+    val quoteAssetPrecision: Int? = null,
+    val isSpotTradingAllowed: Boolean = true,
+    val filters: List<BinanceSymbolFilter> = emptyList(),
+)
+
+@Serializable
+data class BinanceSymbolFilter(
+    val filterType: String = "",
+    val tickSize: String? = null,
+)
