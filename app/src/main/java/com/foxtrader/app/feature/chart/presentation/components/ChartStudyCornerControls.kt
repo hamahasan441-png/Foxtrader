@@ -19,6 +19,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,6 +30,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.foxtrader.app.domain.usecase.strategies.StrategyRuntimeSettings
+import com.foxtrader.app.domain.usecase.strategies.StrategyRuntimeSettingsRegistry
 import com.foxtrader.app.feature.chart.presentation.BollingerStudySettings
 import com.foxtrader.app.feature.chart.presentation.ChartStudySettings
 import com.foxtrader.app.feature.chart.presentation.DonchianStudySettings
@@ -143,6 +146,7 @@ private fun StudySettingsCard(
 ) {
     val colors = FoxTheme.colors
     val settings = toggles.settings.sanitized()
+    val runtimeStrategySettings by StrategyRuntimeSettingsRegistry.state.collectAsState()
     Surface(
         shape = RoundedCornerShape(10.dp),
         color = colors.surfaceElevated.copy(alpha = 0.98f),
@@ -324,9 +328,57 @@ private fun StudySettingsCard(
                     ResetButton { updateSettings(onChange) { it.copy(mfi = MfiStudySettings()) } }
                 }
 
-                StudyControlId.STRATEGY, StudyControlId.ALL_STRATEGIES, StudyControlId.CUSTOM_STRATEGY -> {
+                StudyControlId.STRATEGY -> {
+                    val type = toggles.activeStrategy
+                    if (type == null) {
+                        Text(
+                            text = "No built-in strategy is active.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colors.textSecondary,
+                        )
+                    } else {
+                        val strategySettings = (runtimeStrategySettings[type] ?: StrategyRuntimeSettings()).sanitized()
+                        Text(
+                            text = type.label,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = colors.accent,
+                        )
+                        ToggleRow("Bullish signals", strategySettings.allowBullish) { enabled ->
+                            StrategyRuntimeSettingsRegistry.update(type) { it.copy(allowBullish = enabled) }
+                        }
+                        ToggleRow("Bearish signals", strategySettings.allowBearish) { enabled ->
+                            StrategyRuntimeSettingsRegistry.update(type) { it.copy(allowBearish = enabled) }
+                        }
+                        IntStepper("Min confidence", strategySettings.minimumConfidence, 0, 100) { value ->
+                            StrategyRuntimeSettingsRegistry.update(type) { it.copy(minimumConfidence = value) }
+                        }
+                        DoubleStepper("Min R:R", strategySettings.minimumRiskReward, 0.25, 0.0, 10.0) { value ->
+                            StrategyRuntimeSettingsRegistry.update(type) { it.copy(minimumRiskReward = value) }
+                        }
+                        DoubleStepper("Target R:R", strategySettings.targetRiskReward, 0.5, 0.0, 10.0) { value ->
+                            StrategyRuntimeSettingsRegistry.update(type) { it.copy(targetRiskReward = value) }
+                        }
+                        Text(
+                            text = "Target R:R = 0 keeps the strategy's canonical target. These controls are shared by live signals and backtests.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colors.textSecondary,
+                        )
+                        ResetButton { StrategyRuntimeSettingsRegistry.reset(type) }
+                    }
+                }
+
+                StudyControlId.ALL_STRATEGIES -> {
                     Text(
-                        text = "Strategy signals use the canonical Strategy Library / saved Builder definition so live-chart and backtest logic stay identical. Use × to remove it; strategy design remains in Strategy Builder.",
+                        text = "All-strategies mode uses each strategy's own saved runtime controls. Select one strategy to edit its direction, confidence and R:R filters.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textSecondary,
+                    )
+                }
+
+                StudyControlId.CUSTOM_STRATEGY -> {
+                    Text(
+                        text = "This saved Builder strategy uses its own canonical conditions and risk action. Edit those inputs in Strategy Builder so chart and backtest stay identical.",
                         style = MaterialTheme.typography.bodySmall,
                         color = colors.textSecondary,
                     )
