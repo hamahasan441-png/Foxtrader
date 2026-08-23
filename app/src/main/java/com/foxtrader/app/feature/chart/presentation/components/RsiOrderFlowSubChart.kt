@@ -91,35 +91,29 @@ fun RsiOrderFlowSubChart(
                 .background(MaterialTheme.colorScheme.surface)
                 .padding(horizontal = 12.dp, vertical = 2.dp),
         ) {
-            Column(modifier = Modifier.align(Alignment.CenterStart)) {
-                Text(
-                    text = "RSI OrderFlow",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = FoxAmber50,
-                )
-                Text(
-                    text = "RSI · OF proxy · confirmed divergence",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Column(horizontalAlignment = Alignment.End, modifier = Modifier.align(Alignment.CenterEnd)) {
-                Text(
-                    text = String.format(java.util.Locale.US, "RSI %.1f · OF %.1f", currentRsi, currentFlow),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = if (currentFlow >= 50.0) RsiOfBull else RsiOfBear,
-                )
-                latestDivergence?.let { div ->
-                    Text(
-                        text = "${if (div.bullish) "BULL DIV" else "BEAR DIV"} ${div.strength}",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = if (div.bullish) RsiOfBull else RsiOfBear,
-                    )
-                }
-            }
+            Text(
+                text = "RSI OrderFlow · proxy",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = FoxAmber50,
+                modifier = Modifier.align(Alignment.CenterStart),
+            )
+            Text(
+                text = buildString {
+                    append(String.format(java.util.Locale.US, "RSI %.1f · OF %.1f", currentRsi, currentFlow))
+                    latestDivergence?.let { div ->
+                        append(" · ")
+                        append(if (div.bullish) "BULL" else "BEAR")
+                        append(' ')
+                        append(div.strength)
+                    }
+                },
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = latestDivergence?.let { if (it.bullish) RsiOfBull else RsiOfBear }
+                    ?: if (currentFlow >= 50.0) RsiOfBull else RsiOfBear,
+                modifier = Modifier.align(Alignment.CenterEnd),
+            )
         }
 
         Canvas(
