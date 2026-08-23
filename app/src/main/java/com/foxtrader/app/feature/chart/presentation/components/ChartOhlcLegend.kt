@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -23,6 +24,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.MarketDataFreshness
+import com.foxtrader.app.feature.chart.presentation.ChartIndicatorRuntime
 import com.foxtrader.app.feature.chart.presentation.ChartViewModel
 import com.foxtrader.app.ui.theme.FoxBearishText
 import com.foxtrader.app.ui.theme.FoxBullishText
@@ -52,6 +54,9 @@ internal fun ChartOhlcLegend(
 ) {
     if (candle == null) return
     val chartState by viewModel.uiState.collectAsStateWithLifecycle()
+    SideEffect {
+        ChartIndicatorRuntime.publishSettings(chartState.indicators.settings)
+    }
 
     val changePct = if (candle.open != 0.0) {
         ((candle.close - candle.open) / candle.open) * 100.0
