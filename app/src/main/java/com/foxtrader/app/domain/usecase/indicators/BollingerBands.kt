@@ -6,15 +6,7 @@ import kotlin.math.sqrt
 
 /**
  * Bollinger Bands — volatility envelope around a moving average.
- *
- * Middle = SMA(period)
- * Upper  = Middle + stdDev * multiplier
- * Lower  = Middle - stdDev * multiplier
- *
- * Also provides:
- * - %B (position within bands: 0 = lower, 1 = upper)
- * - Bandwidth (band width relative to middle — volatility proxy)
- * - Squeeze detection (low bandwidth = pending breakout)
+ * Middle = SMA(period), Upper/Lower = Middle +/- stdDev * multiplier.
  */
 class BollingerBands @Inject constructor() {
 
@@ -47,20 +39,16 @@ class BollingerBands @Inject constructor() {
         val bandwidth = DoubleArray(n)
         if (n == 0) return BollingerResult(middle, upper, lower, percentB, bandwidth)
 
-        // period == 0 makes the window `maxOf(0, i + 1)..i` empty, so
-        // `sum / count` divides by zero and every band becomes NaN — which then
-        // renders as an invisible/garbage overlay rather than an error.
-        @Suppress("NAME_SHADOWING") val period = period.coerceAtLeast(1)
+        val safePeriod = period.coerceAtLeast(1)
+        // A negative/NaN multiplier inverts or poisons upper/lower bands. Keep
+        // direct callers safe in addition to the chart-settings sanitizer.
+        val safeMultiplier = multiplier.takeIf { it.isFinite() }?.coerceAtLeast(0.0) ?: 2.0
 
         val requestedStart = if (previous != null && recomputeFrom > 0) {
-            maxOf(0, recomputeFrom - period + 1)
+            maxOf(0, recomputeFrom - safePeriod + 1)
         } else {
             0
         }
-        // `SAFETY` Only resume when the previous snapshot covers the resume
-        // point (and has every band series at that length). A short snapshot
-        // previously skipped the copy but kept startIndex > 0, leaving a
-        // zeroed prefix that rendered bands at price 0 and wrecked auto-scale.
         val canReuse = previous != null &&
             requestedStart > 0 &&
             previous.middle.size >= requestedStart &&
@@ -78,7 +66,7 @@ class BollingerBands @Inject constructor() {
         }
 
         for (i in startIndex until n) {
-            val start = maxOf(0, i - period + 1)
+            val start = maxOf(0, i - safePeriod + 1)
             var sum = 0.0
             for (j in start..i) sum += candles[j].close
             val count = i - start + 1
@@ -91,8 +79,8 @@ class BollingerBands @Inject constructor() {
             val sd = sqrt(varianceSum / count)
 
             middle[i] = mean
-            upper[i] = mean + sd * multiplier
-            lower[i] = mean - sd * multiplier
+            upper[i] = mean + sd * safeMultiplier
+            lower[i] = mean - sd * safeMultiplier
             val bandRange = (upper[i] - lower[i]).coerceAtLeast(1e-9)
             percentB[i] = (candles[i].close - lower[i]) / bandRange
             bandwidth[i] = if (mean != 0.0) (upper[i] - lower[i]) / mean else 0.0
@@ -100,16 +88,13 @@ class BollingerBands @Inject constructor() {
         return BollingerResult(middle, upper, lower, percentB, bandwidth)
     }
 
-    /**
-     * Detect a "squeeze" — bandwidth at a local minimum over [lookback] bars,
-     * indicating compressed volatility that often precedes a breakout.
-     */
     fun isSqueeze(result: BollingerResult, lookback: Int = 50): Boolean {
+        val safeLookback = lookback.coerceAtLeast(1)
         val bw = result.bandwidth
-        if (bw.size < lookback) return false
-        val recent = bw.takeLast(lookback)
+        if (bw.size < safeLookback) return false
+        val recent = bw.takeLast(safeLookback)
         val current = bw.last()
         val minBw = recent.min()
-        return current <= minBw * 1.05 // within 5% of the lowest bandwidth
+        return current <= minBw * 1.05
     }
 }
