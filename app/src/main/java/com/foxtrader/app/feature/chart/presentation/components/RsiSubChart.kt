@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.foxtrader.app.feature.chart.presentation.ChartDimens
 import com.foxtrader.app.feature.chart.presentation.ImmutableDoubleSeries
+import com.foxtrader.app.feature.chart.presentation.RsiStudySettings
 import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxNeutral5
 import kotlin.math.max
@@ -46,7 +47,6 @@ private val overboughtPath = Path()
 private val oversoldPath = Path()
 private val neutralPath = Path()
 
-/** RSI oscillator pane with finite-safe rendering for rapid indicator toggles. */
 @Composable
 fun RsiSubChart(
     rsiValues: ImmutableDoubleSeries,
@@ -54,7 +54,11 @@ fun RsiSubChart(
     visibleBars: Float,
     modifier: Modifier = Modifier,
     canvasHeight: Dp = ChartDimens.paneDefaultHeight,
+    settings: RsiStudySettings = RsiStudySettings(),
 ) {
+    val cfg = settings.sanitized()
+    val overbought = cfg.overbought
+    val oversold = cfg.oversold
     val density = LocalDensity.current
     val priceScaleWidthPx = with(density) { ChartDimens.subPaneScaleWidth.toPx() }
     val labelPaint = remember {
@@ -69,8 +73,8 @@ fun RsiSubChart(
 
     val currentRsi = rsiValues.lastFiniteOrDefault(50.0).coerceIn(0.0, 100.0)
     val rsiColor = when {
-        currentRsi >= 70 -> RsiOverbought
-        currentRsi <= 30 -> RsiOversold
+        currentRsi >= overbought -> RsiOverbought
+        currentRsi <= oversold -> RsiOversold
         else -> RsiLine
     }
 
@@ -82,7 +86,7 @@ fun RsiSubChart(
                 .padding(horizontal = 12.dp, vertical = 2.dp),
         ) {
             Text(
-                text = "RSI(14)",
+                text = "RSI(${cfg.period})",
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold,
                 color = FoxAmber50,
@@ -114,34 +118,16 @@ fun RsiSubChart(
             fun xForIndex(index: Float): Float =
                 (index - startIndex) / visibleBars * chartW
 
-            val y70 = yForRsi(70.0)
-            val y30 = yForRsi(30.0)
+            val yHigh = yForRsi(overbought)
+            val yLow = yForRsi(oversold)
             val y50 = yForRsi(50.0)
-            drawLine(
-                color = RsiOverboughtGuide,
-                start = Offset(0f, y70),
-                end = Offset(chartW, y70),
-                strokeWidth = 1f,
-                pathEffect = PaneDash,
-            )
-            drawLine(
-                color = RsiOversoldGuide,
-                start = Offset(0f, y30),
-                end = Offset(chartW, y30),
-                strokeWidth = 1f,
-                pathEffect = PaneDash,
-            )
-            drawLine(
-                color = GridLineColor,
-                start = Offset(0f, y50),
-                end = Offset(chartW, y50),
-                strokeWidth = 0.5f,
-                pathEffect = PaneDash,
-            )
+            drawLine(RsiOverboughtGuide, Offset(0f, yHigh), Offset(chartW, yHigh), 1f, pathEffect = PaneDash)
+            drawLine(RsiOversoldGuide, Offset(0f, yLow), Offset(chartW, yLow), 1f, pathEffect = PaneDash)
+            drawLine(GridLineColor, Offset(0f, y50), Offset(chartW, y50), 0.5f, pathEffect = PaneDash)
             drawRect(
                 color = RsiZoneFill,
-                topLeft = Offset(0f, y70),
-                size = Size(chartW, (y30 - y70).coerceAtLeast(0f)),
+                topLeft = Offset(0f, yHigh),
+                size = Size(chartW, (yLow - yHigh).coerceAtLeast(0f)),
             )
 
             if (rsiValues.size > 1) {
@@ -178,8 +164,8 @@ fun RsiSubChart(
                     val prev = previousValue
                     if (prev != null) {
                         val zone = when {
-                            (prev + value) / 2.0 >= 70.0 -> 0
-                            (prev + value) / 2.0 <= 30.0 -> 1
+                            (prev + value) / 2.0 >= overbought -> 0
+                            (prev + value) / 2.0 <= oversold -> 1
                             else -> 2
                         }
                         val path = when (zone) {
@@ -209,12 +195,14 @@ fun RsiSubChart(
 
             val canvas = drawContext.canvas.nativeCanvas
             labelPaint.textAlign = Paint.Align.RIGHT
-            canvas.drawText("70", w - 4f, y70 + 4f, labelPaint)
-            canvas.drawText("30", w - 4f, y30 + 4f, labelPaint)
+            canvas.drawText(formatLevel(overbought), w - 4f, yHigh + 4f, labelPaint)
+            canvas.drawText(formatLevel(oversold), w - 4f, yLow + 4f, labelPaint)
             canvas.drawText("50", w - 4f, y50 + 4f, labelPaint)
         }
     }
 }
+
+private fun formatLevel(value: Double): String = if (value % 1.0 == 0.0) value.toInt().toString() else String.format(java.util.Locale.US, "%.1f", value)
 
 private fun ImmutableDoubleSeries.lastFiniteOrDefault(default: Double): Double {
     for (i in size - 1 downTo 0) {

@@ -18,6 +18,9 @@ import com.foxtrader.app.domain.usecase.litx.PremiumDiscountCalculator
 import com.foxtrader.app.domain.usecase.patterns.CandlePatternDetector
 import com.foxtrader.app.domain.usecase.sessions.SessionDetector
 import com.foxtrader.app.domain.usecase.smc.SmcDetector
+import com.foxtrader.app.domain.usecase.strategies.StrategyRuntimeSettings
+import com.foxtrader.app.domain.usecase.strategies.StrategyRuntimeSettingsRegistry
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -29,6 +32,7 @@ class ScannerUseCaseTest {
 
     @Before
     fun setup() {
+        StrategyRuntimeSettingsRegistry.resetAll()
         scanner = ScannerUseCase(
             smcDetector = SmcDetector(),
             candlePatternDetector = CandlePatternDetector(),
@@ -50,6 +54,11 @@ class ScannerUseCaseTest {
         scanner.setWatchlist(listOf(ScreenerSymbol("EURUSD", AssetClass.FOREX)))
     }
 
+    @After
+    fun tearDown() {
+        StrategyRuntimeSettingsRegistry.resetAll()
+    }
+
     @Test
     fun `scanner result includes deterministic rationale and risk level`() {
         val output = scanner(
@@ -62,6 +71,7 @@ class ScannerUseCaseTest {
         assertTrue(result.rationale.contains("EURUSD"))
         assertTrue(result.rationale.contains(StrategyType.CONFLUENCE.label))
         assertTrue(result.rationale.contains("Risk:"))
+        assertTrue(result.tags.contains("PACKAGE"))
         assertTrue(result.riskLevel in ScannerRiskLevel.entries)
     }
 
@@ -78,9 +88,6 @@ class ScannerUseCaseTest {
 
     @Test
     fun `LIT X omits symbols with no validated signal instead of coercing them bullish`() {
-        // A flat/directionless series never produces a validated LIT X setup.
-        // The scanner must therefore emit no row for it (and persist nothing),
-        // rather than falling back to a fabricated BULLISH opportunity.
         val output = scanner(
             dataMap = mapOf("EURUSD" to flatCandles()),
             strategy = StrategyType.LITX,
@@ -88,6 +95,36 @@ class ScannerUseCaseTest {
 
         assertTrue("a directionless LIT X scan must yield no rows", output.results.isEmpty())
         assertTrue(output.validatedLitXSignals.isEmpty())
+    }
+
+    @Test
+    fun `scanner obeys shared direction controls from strategy gear`() {
+        StrategyRuntimeSettingsRegistry.set(
+            StrategyType.CONFLUENCE,
+            StrategyRuntimeSettings(allowBullish = false, allowBearish = true),
+        )
+
+        val output = scanner(
+            dataMap = mapOf("EURUSD" to trendingCandles()),
+            strategy = StrategyType.CONFLUENCE,
+        )
+
+        assertTrue("bullish package ranking must be hidden when bullish is disabled", output.results.isEmpty())
+    }
+
+    @Test
+    fun `scanner obeys shared minimum confidence on package rankings`() {
+        StrategyRuntimeSettingsRegistry.set(
+            StrategyType.CONFLUENCE,
+            StrategyRuntimeSettings(minimumConfidence = 96),
+        )
+
+        val output = scanner(
+            dataMap = mapOf("EURUSD" to trendingCandles()),
+            strategy = StrategyType.CONFLUENCE,
+        )
+
+        assertTrue("package score is capped below 96 and must be filtered", output.results.isEmpty())
     }
 
     private fun flatCandles(): List<Candle> = (0 until 90).map { i ->

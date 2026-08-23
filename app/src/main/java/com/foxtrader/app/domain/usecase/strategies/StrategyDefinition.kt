@@ -7,14 +7,28 @@ import com.foxtrader.app.domain.usecase.backtest.StrategyFunction
 
 /**
  * A named, backtestable strategy with metadata for display and filtering.
+ *
+ * Runtime settings are frozen when this definition is created. StrategyLibrary
+ * creates a fresh definition whenever a live/chart evaluation is requested, so
+ * a chart-corner edit is picked up by the next recompute. A historical backtest,
+ * however, keeps the one resolved definition for the whole run and therefore
+ * cannot mix old/new settings if the user changes a gear while it is executing.
  */
-data class StrategyDefinition(
+class StrategyDefinition(
     val name: String,
     val type: StrategyType,
     val description: String,
     val minimumBars: Int,
-    val function: StrategyFunction,
-)
+    function: StrategyFunction,
+) {
+    private val baseFunction: StrategyFunction = function
+    private val runtimeSettings: StrategyRuntimeSettings = StrategyRuntimeSettingsRegistry.get(type)
+
+    val function: StrategyFunction = StrategyRuntimeSettingsRegistry.wrapSnapshot(
+        settings = runtimeSettings,
+        base = baseFunction,
+    )
+}
 
 /**
  * Convert a market bias to a directional enum for strategy alignment checks.

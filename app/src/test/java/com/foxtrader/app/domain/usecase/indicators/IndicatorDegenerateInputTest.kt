@@ -3,6 +3,7 @@ package com.foxtrader.app.domain.usecase.indicators
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.usecase.analysis.MarketProfile
 import com.foxtrader.app.domain.usecase.smc.SmcDetector
+import com.foxtrader.app.domain.usecase.smc.computeVolumeProfile
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

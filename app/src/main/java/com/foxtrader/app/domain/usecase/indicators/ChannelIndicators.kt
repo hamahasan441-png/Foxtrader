@@ -19,7 +19,6 @@ class ChannelIndicators @Inject constructor() {
         val lower: DoubleArray,
     )
 
-    /** Keltner Channels: EMA +/- (ATR * multiplier). */
     fun keltner(
         candles: List<Candle>,
         emaPeriod: Int = 20,
@@ -27,25 +26,28 @@ class ChannelIndicators @Inject constructor() {
         multiplier: Double = 2.0,
     ): Channel {
         val n = candles.size
-        val ema = TechnicalIndicators.calculateEMA(candles, emaPeriod)
-        val atr = TechnicalIndicators.calculateATR(candles, atrPeriod)
+        val safeEmaPeriod = emaPeriod.coerceAtLeast(1)
+        val safeAtrPeriod = atrPeriod.coerceAtLeast(1)
+        val safeMultiplier = multiplier.takeIf { it.isFinite() }?.coerceAtLeast(0.0) ?: 2.0
+        val ema = TechnicalIndicators.calculateEMA(candles, safeEmaPeriod)
+        val atr = TechnicalIndicators.calculateATR(candles, safeAtrPeriod)
         val upper = DoubleArray(n)
         val lower = DoubleArray(n)
         for (i in 0 until n) {
-            upper[i] = ema[i] + atr[i] * multiplier
-            lower[i] = ema[i] - atr[i] * multiplier
+            upper[i] = ema[i] + atr[i] * safeMultiplier
+            lower[i] = ema[i] - atr[i] * safeMultiplier
         }
         return Channel(upper, ema, lower)
     }
 
-    /** Donchian Channels: highest high / lowest low over period. */
     fun donchian(candles: List<Candle>, period: Int = 20): Channel {
         val n = candles.size
         val upper = DoubleArray(n)
         val lower = DoubleArray(n)
         val middle = DoubleArray(n)
+        val safePeriod = period.coerceAtLeast(1)
         for (i in 0 until n) {
-            val start = max(0, i - period + 1)
+            val start = max(0, i - safePeriod + 1)
             var hh = Double.NEGATIVE_INFINITY
             var ll = Double.POSITIVE_INFINITY
             for (j in start..i) {
