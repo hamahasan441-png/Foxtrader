@@ -116,12 +116,8 @@ class LiveStrategyEngine @Inject constructor(
 
         return recent.map { signal ->
             ChartSignal(
-                id = stableChartSignalId(
-                    strategyId = strategyId,
-                    symbol = symbol,
-                    timeframe = timeframe,
-                    signal = signal,
-                ),
+                // Keep the legacy strategy-facing ID stable for UI/tests/history.
+                id = "strategy_${strategyId}_${signal.index}_${signal.timestamp}",
                 source = SignalSource.STRATEGY,
                 direction = signal.direction,
                 entry = signal.entry,
@@ -134,22 +130,27 @@ class LiveStrategyEngine @Inject constructor(
                     .coerceIn(0.0, 1.0),
                 isLive = signal.index == candles.lastIndex,
                 label = strategyName,
+                eventKey = stableEventKey(
+                    strategyId = strategyId,
+                    symbol = symbol,
+                    timeframe = timeframe,
+                    signal = signal,
+                ),
             )
         }
     }
 
     /**
      * Engine-backed LiT/LiTX strategies mirror the same canonical event that the
-     * dedicated chart engine exposes. Give those mirrors the exact same semantic
-     * identity so [SignalComputer] can collapse them deterministically instead
-     * of drawing a second arrow or counting the mirror as independent evidence.
+     * dedicated chart engine exposes. Share only the semantic event key; keep
+     * their public/legacy [ChartSignal.id] untouched.
      */
-    private fun stableChartSignalId(
+    private fun stableEventKey(
         strategyId: String,
         symbol: String,
         timeframe: Timeframe,
         signal: StrategySignal,
-    ): String = when (strategyId) {
+    ): String? = when (strategyId) {
         StrategyType.LIT.name -> SignalIdentity.lit(
             symbol = symbol,
             timeframe = timeframe,
@@ -164,7 +165,7 @@ class LiveStrategyEngine @Inject constructor(
             direction = signal.direction,
             confirmationIndex = signal.index,
         )
-        else -> "strategy_${strategyId}_${signal.index}_${signal.timestamp}"
+        else -> null
     }
 
     /**
