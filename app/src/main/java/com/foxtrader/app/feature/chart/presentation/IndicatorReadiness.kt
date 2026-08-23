@@ -1,21 +1,16 @@
 package com.foxtrader.app.feature.chart.presentation
 
 import com.foxtrader.app.domain.model.ChartBarMode
+import kotlin.math.max
 
-/**
- * Runtime-readiness metadata for chart studies.
- *
- * A large class of "indicator does nothing" reports are not engine failures at
- * all: the study was enabled before enough bars were loaded, or on a synthetic
- * bar mode (Renko) that intentionally disables time/index-sensitive SMC logic.
- */
+/** Runtime-readiness metadata for chart studies. */
 enum class ChartStudyId(
     val label: String,
     val minimumBars: Int,
     val requiresTimeAxis: Boolean = false,
     val contextHint: String? = null,
 ) {
-    EMA("EMA 20 / 50", 50),
+    EMA("EMA", 50),
     SUPER_TREND("SuperTrend", 15),
     ICHIMOKU("Ichimoku", 52),
     PARABOLIC_SAR("Parabolic SAR", 2),
@@ -58,11 +53,6 @@ data class IndicatorReadiness(
     val missingBars: Int = 0,
 )
 
-/**
- * Primary-chart runtime snapshot consumed by the indicator command center.
- * Volatile primitives avoid Compose snapshot writes from the computation path;
- * ChartScreen state updates already trigger the recomposition that reads them.
- */
 object ChartIndicatorRuntime {
     @Volatile
     var candleCount: Int = 0
@@ -83,6 +73,7 @@ object IndicatorReadinessCatalog {
         study: ChartStudyId,
         candleCount: Int,
         barMode: ChartBarMode,
+        settings: ChartStudySettings = ChartStudySettings(),
     ): IndicatorReadiness {
         if (study.requiresTimeAxis && !barMode.preservesTimeAxis) {
             return IndicatorReadiness(
@@ -90,7 +81,10 @@ object IndicatorReadinessCatalog {
                 label = "Time bars only",
             )
         }
-        val missing = (study.minimumBars - candleCount).coerceAtLeast(0)
+
+        val cfg = settings.sanitized()
+        val required = requiredBars(study, cfg)
+        val missing = (required - candleCount).coerceAtLeast(0)
         if (missing > 0) {
             return IndicatorReadiness(
                 level = IndicatorReadinessLevel.WARMING,
@@ -103,4 +97,26 @@ object IndicatorReadinessCatalog {
             label = study.contextHint?.let { "Ready · $it" } ?: "Ready",
         )
     }
+
+    fun requiredBars(study: ChartStudyId, settings: ChartStudySettings): Int = when (study) {
+        ChartStudyId.EMA -> settings.ema.slowPeriod
+        ChartStudyId.SUPER_TREND -> settings.superTrend.atrPeriod + 2
+        ChartStudyId.ICHIMOKU -> maxOf(
+            settings.ichimoku.tenkanPeriod,
+            settings.ichimoku.kijunPeriod,
+            settings.ichimoku.senkouBPeriod,
+        )
+        ChartStudyId.PARABOLIC_SAR -> 2
+        ChartStudyId.RSI -> settings.rsi.period + 1
+        ChartStudyId.RSI_ORDER_FLOW ->
+            max(settings.rsiOrderFlow.rsiPeriod, settings.rsiOrderFlow.flowPeriod) +
+                settings.rsiOrderFlow.pivotLeft + settings.rsiOrderFlow.pivotRight + 1
+        ChartStudyId.MACD -> max(settings.macd.fastPeriod, settings.macd.slowPeriod) + settings.macd.signalPeriod
+        ChartStudyId.STOCHASTIC -> max(settings.stochastic.kPeriod, settings.stochastic.dPeriod) + 1
+        ChartStudyId.BOLLINGER -> settings.bollinger.period
+        ChartStudyId.KELTNER -> max(settings.keltner.emaPeriod, settings.keltner.atrPeriod) + 1
+        ChartStudyId.DONCHIAN -> settings.donchian.period
+        ChartStudyId.MFI -> settings.mfi.period + 1
+        else -> study.minimumBars
+    }.coerceAtLeast(1)
 }
