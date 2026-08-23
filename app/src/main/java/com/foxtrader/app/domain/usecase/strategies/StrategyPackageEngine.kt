@@ -33,7 +33,7 @@ import kotlin.math.roundToInt
  * indicators, this engine builds one shared market package containing:
  * - technical state and previous-bar event state,
  * - confirmed market structure (swings/BOS/CHOCH/bias),
- * - the complete SMC detector bundle (OB/FVG/liquidity/breaker/IFVG/BPR),
+ * - the complete SMC detector bundle (OB/FVG/liquidity/breaker/IFVG/BPR/AMD),
  * - session context,
  * - and the strategy-specific institutional/classical execution rule.
  *
@@ -170,6 +170,7 @@ class StrategyPackageEngine(
             append(",BRK=").append(smc.breakerBlocks.size)
             append(",IFVG=").append(smc.inversionFVGs.size)
             append(",BPR=").append(smc.balancedPriceRanges.size)
+            append(",AMD=").append(smc.amdPatterns.size)
             append("] · evidence=").append(evidence.size)
             if (preferredDirection != null) {
                 append(" · bias=").append(preferredDirection.name)
@@ -373,6 +374,9 @@ class StrategyPackageEngine(
             val direction = if (it.type == IfvgType.BULLISH) Direction.BULLISH else Direction.BEARISH
             add(Evidence("IFVG", direction, 66, it.type.name))
         }
+        core.smc.amdPatterns.maxByOrNull { it.confirmIndex }?.let {
+            add(Evidence("AMD", it.direction, 76, "Power of Three ${it.phase.name}"))
+        }
         core.smc.balancedPriceRanges.lastOrNull()?.let {
             val bar = core.candles[core.index]
             val inside = bar.close in it.lowPrice..it.highPrice
@@ -405,6 +409,7 @@ class StrategyPackageEngine(
         "STRUCTURE" -> 100
         "STRUCTURE_BREAK" -> 95
         "LIQUIDITY_SWEEP" -> 90
+        "AMD" -> 88
         "BREAKER" -> 86
         "ORDER_BLOCK" -> 82
         "IFVG" -> 80
