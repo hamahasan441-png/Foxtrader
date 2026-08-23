@@ -331,7 +331,7 @@ class SmcDetector @Inject constructor() {
 
     /** Build a basic price-bucket volume profile for the supplied range. */
     fun buildVolumeProfile(candles: List<Candle>, bins: Int = 24): VolumeProfile {
-        if (candles.isEmpty() || bins <= 0) {
+        if (candles.isEmpty()) {
             return VolumeProfile(emptyList(), 0.0, 0.0, 0.0, 0.0)
         }
         val low = candles.minOf { it.low }
@@ -421,23 +421,16 @@ class SmcDetector @Inject constructor() {
                 }
                 if (!broken) continue
 
-                // After violation, wait for price to return into the old OB zone.
-                for (j in i + 1 until candles.size) {
-                    val r = candles[j]
-                    if (r.low <= ob.highPrice && r.high >= ob.lowPrice) {
-                        breakers.add(
-                            BreakerBlock(
-                                type = if (ob.type == OrderBlockType.BULLISH) BreakerType.BEARISH else BreakerType.BULLISH,
-                                highPrice = ob.highPrice,
-                                lowPrice = ob.lowPrice,
-                                originIndex = origin,
-                                breakerIndex = j,
-                                strength = ob.strength,
-                            )
-                        )
-                        break
-                    }
-                }
+                breakers.add(
+                    BreakerBlock(
+                        type = if (ob.type == OrderBlockType.BULLISH) BreakerType.BEARISH else BreakerType.BULLISH,
+                        highPrice = ob.highPrice,
+                        lowPrice = ob.lowPrice,
+                        originIndex = origin,
+                        breakerIndex = i,
+                        strength = ob.strength,
+                    )
+                )
                 break
             }
         }
