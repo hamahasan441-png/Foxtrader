@@ -1,5 +1,6 @@
 package com.foxtrader.app.domain.usecase.strategies
 
+import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.StrategyType
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
@@ -7,6 +8,7 @@ import com.foxtrader.app.domain.usecase.indicators.IchimokuCloud
 import com.foxtrader.app.domain.usecase.litx.LitXEngine
 import com.foxtrader.app.domain.usecase.signalintel.LitEngine
 import com.foxtrader.app.domain.usecase.smc.SmcDetector
+import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -36,6 +38,12 @@ class StrategyLibrary @Inject constructor(
         analyzeStructure = AnalyzeMarketStructureUseCase(),
         displacementDetector = com.foxtrader.app.domain.usecase.litx.DisplacementDetector(),
         premiumDiscount = com.foxtrader.app.domain.usecase.litx.PremiumDiscountCalculator(),
+    ),
+    // External context is additive. Existing callers do not need to provide it,
+    // while Hilt injects the canonical production detector instances.
+    private val externalContextAnalyzer: StrategyExternalContextAnalyzer = StrategyExternalContextAnalyzer(
+        smtDetector = SmtDivergenceDetector(),
+        analyzeStructure = AnalyzeMarketStructureUseCase(),
     ),
 ) {
     private val packageEngine = StrategyPackageEngine(
@@ -69,7 +77,7 @@ class StrategyLibrary @Inject constructor(
         type: StrategyType,
         symbol: String,
         timeframe: Timeframe,
-        candles: List<com.foxtrader.app.domain.model.Candle>,
+        candles: List<Candle>,
         index: Int,
     ): StrategyPackageEngine.Analysis = packageEngine.analyze(
         type = type,
@@ -78,6 +86,53 @@ class StrategyLibrary @Inject constructor(
         candles = candles,
         index = index,
     )
+
+    /**
+     * Analyze the canonical strategy package together with real peer/HTF/provider
+     * context. Existing [analyze] behavior remains unchanged for source and
+     * backtest compatibility; new consumers can opt into the contextual result
+     * without creating a second strategy implementation.
+     */
+    fun analyzeWithContext(
+        type: StrategyType,
+        symbol: String,
+        timeframe: Timeframe,
+        candles: List<Candle>,
+        index: Int,
+        context: StrategyMarketContext,
+    ): ContextualStrategyAnalysis {
+        require(index in candles.indices) {
+            "Contextual strategy index $index is outside ${candles.indices}."
+        }
+        val visible = if (index == candles.lastIndex) candles else candles.subList(0, index + 1)
+        val packageAnalysis = packageEngine.analyze(
+            type = type,
+            symbol = symbol,
+            timeframe = timeframe,
+            candles = visible,
+            index = visible.lastIndex,
+        )
+        val external = externalContextAnalyzer.analyze(
+            primarySymbol = symbol,
+            primaryTimeframe = timeframe,
+            primaryCandles = visible,
+            context = context,
+        )
+        val externalEvidence = external.evidence.map { item ->
+            StrategyPackageEngine.Evidence(
+                source = item.source,
+                direction = item.direction,
+                score = item.score,
+                detail = item.detail,
+            )
+        }
+        return ContextualStrategyAnalysis(
+            packageAnalysis = packageAnalysis,
+            externalAnalysis = external,
+            allEvidence = packageAnalysis.evidence + externalEvidence,
+            decisionEligible = external.context.decisionEligible,
+        )
+    }
 
     private fun definition(
         type: StrategyType,
