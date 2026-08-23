@@ -153,6 +153,12 @@ class ScannerUseCase @Inject constructor(
         val executableSignal = packageAnalysis.signal?.let { raw ->
             StrategyRuntimeSettingsRegistry.apply(runtimeSettings, raw)
         }
+
+        // LiTX is a validated event strategy, not a generic directional ranking.
+        // Package evidence may still have a bullish/bearish bias when LiTX itself
+        // produced no setup; never coerce that context into a fake LiTX signal row.
+        if (strategy == StrategyType.LITX && executableSignal == null) return null
+
         val rankingDirection = packageAnalysis.preferredDirection?.takeIf { direction ->
             when (direction) {
                 Direction.BULLISH -> runtimeSettings.allowBullish
