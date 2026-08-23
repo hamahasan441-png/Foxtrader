@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.foxtrader.app.di.DefaultDispatcher
 import com.foxtrader.app.domain.model.BacktestConfig
+import com.foxtrader.app.domain.model.BacktestExecutionMode
 import com.foxtrader.app.domain.model.BinaryBacktestConfig
 import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.Candle
@@ -255,6 +256,11 @@ class BacktestLabViewModel @Inject constructor(
                 val config = BacktestConfig(
                     initialBalance = state.initialBalance,
                     riskPercent = state.riskPercent,
+                    // Backtest Lab is intentionally TradingView-style: signals
+                    // are decided from a closed bar and market fills occur at
+                    // the next bar open. Direct engine callers retain the legacy
+                    // default unless they explicitly select this mode.
+                    executionMode = BacktestExecutionMode.NEXT_BAR_OPEN,
                     // Resolve the contract size for the instrument being tested so
                     // crypto/gold/index P&L is not computed as a forex lot.
                     contractSize = instrumentTypeResolver.resolve(state.symbol).contractSize.toInt(),
