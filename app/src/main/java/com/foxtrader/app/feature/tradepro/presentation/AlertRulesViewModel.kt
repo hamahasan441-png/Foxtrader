@@ -10,10 +10,10 @@ import com.foxtrader.app.domain.model.tradepro.TradeProAnalysis
 import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.ai.MtfContextProvider
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
-import com.foxtrader.app.domain.usecase.scanner.ScannerUseCase
 import com.foxtrader.app.domain.usecase.signalintel.ConfirmedBarPolicy
 import com.foxtrader.app.domain.usecase.tradepro.AlertRuleEngine
 import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
+import com.foxtrader.app.domain.usecase.watchlist.ActiveWatchlistSymbols
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CancellationException
@@ -29,16 +29,12 @@ import kotlinx.coroutines.withContext
 import java.util.UUID
 import javax.inject.Inject
 
-/**
- * Manages the user's TRADEPRO alert rules (persisted via [AppPreferences]) and runs an on-demand
- * "test scan" that evaluates the rules against the live watchlist so the trader can preview which
- * alerts would fire right now.
- */
+/** Manages TRADEPRO alert rules and previews them against the persisted watchlist. */
 @HiltViewModel
 class AlertRulesViewModel @Inject constructor(
     private val appPreferences: AppPreferences,
     private val repository: MarketRepository,
-    private val scannerUseCase: ScannerUseCase,
+    private val activeWatchlistSymbols: ActiveWatchlistSymbols,
     private val signalEngine: TradeProSignalEngine,
     private val mtfContextProvider: MtfContextProvider,
     private val alertRuleEngine: AlertRuleEngine,
@@ -72,34 +68,27 @@ class AlertRulesViewModel @Inject constructor(
         _uiState.update { it.copy(draft = rule) }
     }
 
-    fun updateDraft(rule: AlertRule) {
-        _uiState.update { it.copy(draft = rule) }
-    }
-
-    fun cancelDraft() {
-        _uiState.update { it.copy(draft = null) }
-    }
+    fun updateDraft(rule: AlertRule) { _uiState.update { it.copy(draft = rule) } }
+    fun cancelDraft() { _uiState.update { it.copy(draft = null) } }
 
     fun saveDraft() {
         val draft = _uiState.value.draft ?: return
         val existing = _uiState.value.rules
         val updated = if (existing.any { it.id == draft.id }) {
             existing.map { if (it.id == draft.id) draft else it }
-        } else {
-            existing + draft
-        }
+        } else existing + draft
         appPreferences.setTradeProAlertRules(updated)
         _uiState.update { it.copy(draft = null) }
     }
 
     fun deleteRule(id: String) {
-        val updated = _uiState.value.rules.filterNot { it.id == id }
-        appPreferences.setTradeProAlertRules(updated)
+        appPreferences.setTradeProAlertRules(_uiState.value.rules.filterNot { it.id == id })
     }
 
     fun toggleRule(id: String) {
-        val updated = _uiState.value.rules.map { if (it.id == id) it.copy(enabled = !it.enabled) else it }
-        appPreferences.setTradeProAlertRules(updated)
+        appPreferences.setTradeProAlertRules(
+            _uiState.value.rules.map { if (it.id == id) it.copy(enabled = !it.enabled) else it },
+        )
     }
 
     fun testScan() {
@@ -112,11 +101,11 @@ class AlertRulesViewModel @Inject constructor(
             _uiState.update { it.copy(isScanning = true, error = null) }
             try {
                 val config = appPreferences.tradeProConfig.value
-                val watchlist = scannerUseCase.getWatchlist().filter { it.enabled }.take(MAX_SYMBOLS)
+                val watchlist = activeWatchlistSymbols(MAX_SYMBOLS)
                 val analyses = HashMap<String, TradeProAnalysis>()
                 val prices = HashMap<String, Double>()
                 for (entry in watchlist) {
-                    val timeframe = ruleTimeframe(rules, entry.symbol)
+                    val timeframe = ruleTimeframe(rules)
                     val now = System.currentTimeMillis()
                     val candles = ConfirmedBarPolicy.confirmedPrefix(
                         repository.getSourcedCandles(entry.symbol, timeframe).candles,
@@ -148,17 +137,14 @@ class AlertRulesViewModel @Inject constructor(
                     )
                 }
             } catch (cancel: CancellationException) {
-                // Never swallow cancellation: doing so breaks structured
-                // concurrency and surfaces a routine screen-close or
-                // re-run as a spurious on-screen error.
                 throw cancel
             } catch (e: Exception) {
-                _uiState.update { it.copy(isScanning = false, error = e.message ?: "Test scan failed.") }
+                _uiState.update { it.copy(isScanning = false, error = e.message ?: "Preview failed.") }
             }
         }
     }
 
-    private fun ruleTimeframe(rules: List<AlertRule>, symbol: String): Timeframe {
+    private fun ruleTimeframe(rules: List<AlertRule>): Timeframe {
         val label = rules.firstOrNull { it.timeframeLabel.isNotBlank() }?.timeframeLabel
         return if (label != null) Timeframe.fromLabel(label) else Timeframe.H1
     }
