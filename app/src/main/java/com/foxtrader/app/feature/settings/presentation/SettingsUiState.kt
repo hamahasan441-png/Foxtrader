@@ -5,7 +5,6 @@ import com.foxtrader.app.domain.model.AlertConfig
 import com.foxtrader.app.domain.usecase.performance.PerformanceMode
 import com.foxtrader.app.domain.model.AuthState
 import com.foxtrader.app.domain.model.DataProvider
-import com.foxtrader.app.domain.model.PositionSizingMethod
 import com.foxtrader.app.domain.model.LitXConfig
 import com.foxtrader.app.domain.model.LitConfig
 import com.foxtrader.app.domain.model.SmtConfig
@@ -16,26 +15,14 @@ import com.foxtrader.app.domain.model.tradepro.TradeProConfig
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentMapOf
 
-/**
- * AI Decision Engine configuration exposed in the Settings screen.
- */
+/** AI Decision Engine configuration exposed in Settings. */
 @Immutable
 data class AiConfig(
-    /** Minimum confluences (of 9) to approve a signal. */
     val minConfluences: Int = 5,
-    /** Minimum aggregate confidence (0..100) to approve. */
     val minConfidence: Int = 55,
-    /** Push-alert cooldown per symbol+direction, in minutes. */
     val alertCooldownMinutes: Int = 5,
-    /** Enable/disable background periodic scan alerts. */
-    val backgroundScanEnabled: Boolean = true,
-    /** Background scan interval in minutes (WorkManager minimum 15). */
-    val backgroundScanIntervalMinutes: Int = 15,
 )
 
-/**
- * Transient status of a one-shot connection test (never persisted).
- */
 sealed interface ConnectionTest {
     data object Idle : ConnectionTest
     data object Testing : ConnectionTest
@@ -43,9 +30,6 @@ sealed interface ConnectionTest {
     data class Failure(val message: String) : ConnectionTest
 }
 
-/**
- * Immutable UI state for the Settings screen.
- */
 @Immutable
 data class SettingsUiState(
     val riskConfig: RiskConfig = RiskConfig(),
@@ -55,29 +39,22 @@ data class SettingsUiState(
     val dataProvider: DataProvider = DataProvider.SAMPLE,
     val providerApiKeys: ImmutableMap<DataProvider, String> = persistentMapOf(),
     val darkMode: Boolean = true,
-    /** User override for the FoxTrader backend origin; blank = build default. */
     val backendBaseUrl: String = "",
-    /** Hot-cache ceiling per market (bars); performance/memory tradeoff. */
     val maxCachedBars: Int = 5_000,
-    /** Chart adaptive-quality ceiling. */
     val performanceMode: PerformanceMode = PerformanceMode.SMOOTH,
     val providerTest: ConnectionTest = ConnectionTest.Idle,
     val backendTest: ConnectionTest = ConnectionTest.Idle,
     val authState: AuthState = AuthState.UNAUTHENTICATED,
     val isSyncing: Boolean = false,
     val syncMessage: String? = null,
-    // --- Security ---
     val appLockEnabled: Boolean = false,
     val biometricAvailable: Boolean = false,
-    // --- Privacy ---
     val crashReportingEnabled: Boolean = false,
-    // --- TRADEPRO ---
     val tradeProConfig: TradeProConfig = TradeProConfig(),
     val litXConfig: LitXConfig = LitXConfig(),
     val litConfig: LitConfig = LitConfig(),
     val smtConfig: SmtConfig = SmtConfig(),
     val smsConfig: SmsConfig = SmsConfig(),
-    // --- MT4 Live Trading (safety knobs) ---
     val mt4LiveModeEnabled: Boolean = false,
     val mt4KillSwitchEngaged: Boolean = false,
     val mt4StaleQuoteTimeoutMs: Long = 5_000L,
