@@ -59,16 +59,16 @@ data class StrategyRuntimeSettings(
 /**
  * Process-wide canonical strategy settings registry.
  *
- * StrategyDefinition wraps every built-in StrategyFunction through this object,
- * therefore a setting change is observed by every consumer that actually uses
- * StrategyLibrary's canonical definition (including live-chart and chart
- * backtest, plus Backtest-Lab templates that delegate to StrategyLibrary).
- * Scanner-specific ranking logic remains independent and is intentionally not
- * claimed as canonical here.
+ * StrategyLibrary creates fresh StrategyDefinition objects when a strategy is
+ * resolved. Each definition snapshots the current settings through
+ * [wrapSnapshot]. This has two deliberate properties:
+ * - the next live-chart recompute immediately sees a chart-corner edit;
+ * - an already-started historical run keeps one immutable configuration for all
+ *   bars and cannot mix old/new settings mid-backtest.
  *
- * Live functions read the latest immutable settings on every bar. Research
- * callers must use StrategyDefinition.snapshotFunction() so one historical run
- * cannot mix two user configurations if a gear changes mid-computation.
+ * Consumers that actually use StrategyLibrary's canonical definition therefore
+ * share the same controls. Scanner-specific ranking logic remains independent
+ * and is intentionally not claimed as canonical here.
  */
 object StrategyRuntimeSettingsRegistry {
     private val _state = MutableStateFlow<Map<StrategyType, StrategyRuntimeSettings>>(emptyMap())
@@ -100,13 +100,7 @@ object StrategyRuntimeSettingsRegistry {
         _state.value = emptyMap()
     }
 
-    /** Dynamic wrapper for live/interactive consumers. */
-    fun wrap(type: StrategyType, base: StrategyFunction): StrategyFunction = fn@{ candles, index ->
-        val signal = base(candles, index) ?: return@fn null
-        apply(get(type), signal)
-    }
-
-    /** Fixed wrapper for one reproducible research run. */
+    /** Fixed wrapper used by one resolved StrategyDefinition. */
     fun wrapSnapshot(
         settings: StrategyRuntimeSettings,
         base: StrategyFunction,
