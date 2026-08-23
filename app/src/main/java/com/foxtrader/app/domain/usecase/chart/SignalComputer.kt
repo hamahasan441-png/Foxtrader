@@ -5,6 +5,7 @@ import com.foxtrader.app.domain.model.ChartSignal
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.LitXAnalysis
 import com.foxtrader.app.domain.model.LitAnalysis
+import com.foxtrader.app.domain.model.SignalIdentity
 import com.foxtrader.app.domain.model.SmsAnalysis
 import com.foxtrader.app.domain.model.SignalFusionResult
 import com.foxtrader.app.domain.model.SignalSource
@@ -52,7 +53,13 @@ class SignalComputer @Inject constructor(
                 ?: candles.lastIndex
             signals.add(
                 ChartSignal(
-                    id = "litx_${signal.timestamp}",
+                    id = SignalIdentity.litX(
+                        symbol = signal.symbol,
+                        timeframe = signal.timeframe,
+                        timestamp = signal.timestamp,
+                        direction = signal.direction,
+                        confirmationIndex = barIndex,
+                    ),
                     source = SignalSource.LITX,
                     direction = signal.direction,
                     entry = signal.entry,
@@ -72,7 +79,13 @@ class SignalComputer @Inject constructor(
             val barIndex = signal.confirmationIndex.takeIf { it in candles.indices } ?: return@let
             signals.add(
                 ChartSignal(
-                    id = "lit_${signal.symbol}_${signal.timestamp}_${signal.direction}",
+                    id = SignalIdentity.lit(
+                        symbol = signal.symbol,
+                        timeframe = signal.timeframe,
+                        timestamp = signal.timestamp,
+                        direction = signal.direction,
+                        confirmationIndex = barIndex,
+                    ),
                     source = SignalSource.LIT,
                     direction = signal.direction,
                     entry = signal.entry,
@@ -163,7 +176,50 @@ class SignalComputer @Inject constructor(
         val renderable = signals
             .filter { it.isRenderable(candles) }
             .map { it.copy(confidence = normalizeConfidence(it.confidence)) }
-        return applyConfluence(renderable, phase13TradeProAlreadyFused = fusion != null)
+
+        // Canonical engine outputs and their StrategyLibrary mirrors share one
+        // stable identity. Collapse those mirrors before evidence-family math so
+        // one market event cannot draw two arrows or inflate confluence merely
+        // because it travelled through two UI integration paths.
+        val deduplicated = deduplicateStableSignals(renderable)
+        return applyConfluence(deduplicated, phase13TradeProAlreadyFused = fusion != null)
+    }
+
+    /**
+     * Deterministically collapse exact semantic duplicates by stable signal ID.
+     *
+     * Direct engine output wins over the generic STRATEGY mirror. Distinct
+     * strategy IDs are never merged, even if they happen to fire on the same bar
+     * in the same direction.
+     */
+    private fun deduplicateStableSignals(signals: List<ChartSignal>): List<ChartSignal> {
+        if (signals.size < 2) return signals
+
+        val byId = LinkedHashMap<String, ChartSignal>(signals.size)
+        for (candidate in signals) {
+            val existing = byId[candidate.id]
+            if (existing == null || shouldReplaceDuplicate(existing, candidate)) {
+                byId[candidate.id] = candidate
+            }
+        }
+        return byId.values.toList()
+    }
+
+    private fun shouldReplaceDuplicate(existing: ChartSignal, candidate: ChartSignal): Boolean {
+        val existingPriority = sourcePriority(existing.source)
+        val candidatePriority = sourcePriority(candidate.source)
+        return candidatePriority > existingPriority ||
+            (candidatePriority == existingPriority && candidate.confidence > existing.confidence)
+    }
+
+    private fun sourcePriority(source: SignalSource): Int = when (source) {
+        SignalSource.LIT -> 100
+        SignalSource.LITX -> 95
+        SignalSource.SMS -> 90
+        SignalSource.SMT -> 85
+        SignalSource.TRADEPRO -> 80
+        SignalSource.BINARY3M -> 70
+        SignalSource.STRATEGY -> 10
     }
 
     /**
