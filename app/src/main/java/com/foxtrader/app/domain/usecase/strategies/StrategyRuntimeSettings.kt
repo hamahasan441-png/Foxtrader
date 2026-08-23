@@ -66,8 +66,9 @@ data class StrategyRuntimeSettings(
  * Scanner-specific ranking logic remains independent and is intentionally not
  * claimed as canonical here.
  *
- * The wrapper reads the latest immutable snapshot on every bar, so definitions
- * do not need to be rebuilt after a gear change.
+ * Live functions read the latest immutable settings on every bar. Research
+ * callers must use StrategyDefinition.snapshotFunction() so one historical run
+ * cannot mix two user configurations if a gear changes mid-computation.
  */
 object StrategyRuntimeSettingsRegistry {
     private val _state = MutableStateFlow<Map<StrategyType, StrategyRuntimeSettings>>(emptyMap())
@@ -99,29 +100,40 @@ object StrategyRuntimeSettingsRegistry {
         _state.value = emptyMap()
     }
 
-    /**
-     * Wrap a canonical strategy function without changing its entry algorithm.
-     * Direction, confidence and R:R filters are applied after the strategy has
-     * produced a causal signal. No future candle is read here.
-     */
+    /** Dynamic wrapper for live/interactive consumers. */
     fun wrap(type: StrategyType, base: StrategyFunction): StrategyFunction = fn@{ candles, index ->
         val signal = base(candles, index) ?: return@fn null
-        apply(type, signal)
+        apply(get(type), signal)
     }
 
-    internal fun apply(type: StrategyType, signal: StrategySignal): StrategySignal? {
-        val settings = get(type)
+    /** Fixed wrapper for one reproducible research run. */
+    fun wrapSnapshot(
+        settings: StrategyRuntimeSettings,
+        base: StrategyFunction,
+    ): StrategyFunction {
+        val frozen = settings.sanitized()
+        return fn@{ candles, index ->
+            val signal = base(candles, index) ?: return@fn null
+            apply(frozen, signal)
+        }
+    }
+
+    internal fun apply(type: StrategyType, signal: StrategySignal): StrategySignal? =
+        apply(get(type), signal)
+
+    internal fun apply(settings: StrategyRuntimeSettings, signal: StrategySignal): StrategySignal? {
+        val sanitized = settings.sanitized()
 
         when (signal.direction) {
-            Direction.BULLISH -> if (!settings.allowBullish) return null
-            Direction.BEARISH -> if (!settings.allowBearish) return null
+            Direction.BULLISH -> if (!sanitized.allowBullish) return null
+            Direction.BEARISH -> if (!sanitized.allowBearish) return null
         }
 
         // Several institutional strategies already provide confidence, while a
         // few classical definitions do not. Use the same neutral 60% fallback
         // used by LiveStrategyEngine so live and research filtering agree.
         val confidence = signal.confidence ?: DEFAULT_CONFIDENCE
-        if (confidence < settings.minimumConfidence) return null
+        if (confidence < sanitized.minimumConfidence) return null
 
         val risk = abs(signal.entry - signal.stopLoss)
         val reward = abs(signal.takeProfit - signal.entry)
@@ -129,13 +141,13 @@ object StrategyRuntimeSettingsRegistry {
 
         val originalRiskReward = reward / risk
         if (
-            settings.minimumRiskReward > 0.0 &&
-            (!originalRiskReward.isFinite() || originalRiskReward + EPSILON < settings.minimumRiskReward)
+            sanitized.minimumRiskReward > 0.0 &&
+            (!originalRiskReward.isFinite() || originalRiskReward + EPSILON < sanitized.minimumRiskReward)
         ) return null
 
-        if (settings.targetRiskReward <= 0.0) return signal
+        if (sanitized.targetRiskReward <= 0.0) return signal
 
-        val rewardDistance = risk * settings.targetRiskReward
+        val rewardDistance = risk * sanitized.targetRiskReward
         if (!rewardDistance.isFinite() || rewardDistance <= MIN_PRICE_DISTANCE) return null
         val target = when (signal.direction) {
             Direction.BULLISH -> signal.entry + rewardDistance
