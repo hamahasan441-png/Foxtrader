@@ -3,6 +3,7 @@ package com.foxtrader.app.domain.usecase.strategies
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.ChartSignal
 import com.foxtrader.app.domain.model.Direction
+import com.foxtrader.app.domain.model.SignalIdentity
 import com.foxtrader.app.domain.model.SignalSource
 import com.foxtrader.app.domain.model.StrategySignal
 import com.foxtrader.app.domain.model.StrategyType
@@ -49,6 +50,8 @@ class LiveStrategyEngine @Inject constructor(
             candles = candles,
             scanWindow = scanWindow,
             maxSignals = maxSignals,
+            symbol = symbol,
+            timeframe = timeframe,
         )
     }
 
@@ -68,6 +71,8 @@ class LiveStrategyEngine @Inject constructor(
         candles = candles,
         scanWindow = scanWindow,
         maxSignals = maxSignals,
+        symbol = "",
+        timeframe = Timeframe.H1,
     )
 
     private fun evaluateDefinition(
@@ -78,6 +83,8 @@ class LiveStrategyEngine @Inject constructor(
         candles: List<Candle>,
         scanWindow: Int,
         maxSignals: Int,
+        symbol: String,
+        timeframe: Timeframe,
     ): List<ChartSignal> {
         val safeMinimumBars = minimumBars.coerceAtLeast(1)
         val safeScanWindow = scanWindow.coerceAtLeast(1)
@@ -109,7 +116,12 @@ class LiveStrategyEngine @Inject constructor(
 
         return recent.map { signal ->
             ChartSignal(
-                id = "strategy_${strategyId}_${signal.index}_${signal.timestamp}",
+                id = stableChartSignalId(
+                    strategyId = strategyId,
+                    symbol = symbol,
+                    timeframe = timeframe,
+                    signal = signal,
+                ),
                 source = SignalSource.STRATEGY,
                 direction = signal.direction,
                 entry = signal.entry,
@@ -124,6 +136,35 @@ class LiveStrategyEngine @Inject constructor(
                 label = strategyName,
             )
         }
+    }
+
+    /**
+     * Engine-backed LiT/LiTX strategies mirror the same canonical event that the
+     * dedicated chart engine exposes. Give those mirrors the exact same semantic
+     * identity so [SignalComputer] can collapse them deterministically instead
+     * of drawing a second arrow or counting the mirror as independent evidence.
+     */
+    private fun stableChartSignalId(
+        strategyId: String,
+        symbol: String,
+        timeframe: Timeframe,
+        signal: StrategySignal,
+    ): String = when (strategyId) {
+        StrategyType.LIT.name -> SignalIdentity.lit(
+            symbol = symbol,
+            timeframe = timeframe,
+            timestamp = signal.timestamp,
+            direction = signal.direction,
+            confirmationIndex = signal.index,
+        )
+        StrategyType.LITX.name -> SignalIdentity.litX(
+            symbol = symbol,
+            timeframe = timeframe,
+            timestamp = signal.timestamp,
+            direction = signal.direction,
+            confirmationIndex = signal.index,
+        )
+        else -> "strategy_${strategyId}_${signal.index}_${signal.timestamp}"
     }
 
     /**
