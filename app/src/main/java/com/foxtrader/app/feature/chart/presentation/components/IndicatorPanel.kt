@@ -202,6 +202,7 @@ private fun IndicatorCommandCenter(
             StudyChip(stringResource(R.string.chart_indicator_ichimoku), ChartStudyId.ICHIMOKU, toggles.ichimoku, candleCount, barMode) { requestToggle { it.copy(ichimoku = !it.ichimoku) } }
             StudyChip(stringResource(R.string.chart_indicator_psar), ChartStudyId.PARABOLIC_SAR, toggles.parabolicSar, candleCount, barMode) { requestToggle { it.copy(parabolicSar = !it.parabolicSar) } }
             StudyChip("RSI", ChartStudyId.RSI, toggles.rsi, candleCount, barMode) { requestToggle { it.copy(rsi = !it.rsi) } }
+            StudyChip("RSI OrderFlow", ChartStudyId.RSI_ORDER_FLOW, toggles.rsiOrderFlow, candleCount, barMode) { requestToggle { it.copy(rsiOrderFlow = !it.rsiOrderFlow) } }
             StudyChip("MACD", ChartStudyId.MACD, toggles.macd, candleCount, barMode) { requestToggle { it.copy(macd = !it.macd) } }
             StudyChip("Stoch", ChartStudyId.STOCHASTIC, toggles.stochastic, candleCount, barMode) { requestToggle { it.copy(stochastic = !it.stochastic) } }
         }
@@ -369,7 +370,7 @@ private fun activeStudyCount(t: IndicatorToggles): Int = listOf(
     t.ema, t.bollinger, t.superTrend, t.parabolicSar, t.vwap, t.anchoredVwap, t.ichimoku,
     t.keltner, t.donchian, t.pivotPoints, t.volumeProfile, t.marketProfile, t.supportResistance,
     t.fibonacci, t.confluence, t.orderBlocks, t.fairValueGaps, t.liquidity, t.sessions, t.structure,
-    t.litX, t.lit, t.sms, t.smt, t.tradePro, t.binary3m, t.rsi, t.macd, t.volume, t.stochastic,
+    t.litX, t.lit, t.sms, t.smt, t.tradePro, t.binary3m, t.rsi, t.rsiOrderFlow, t.macd, t.volume, t.stochastic,
     t.obv, t.moneyFlowIndex,
 ).count { it } + if (t.activeStrategy != null || t.activeBlueprintId != null || t.allStrategies) 1 else 0
 
@@ -406,6 +407,7 @@ private fun activeReadinessIssues(
         if (t.tradePro) add(ChartStudyId.TRADE_PRO)
         if (t.binary3m) add(ChartStudyId.BINARY_3M)
         if (t.rsi) add(ChartStudyId.RSI)
+        if (t.rsiOrderFlow) add(ChartStudyId.RSI_ORDER_FLOW)
         if (t.macd) add(ChartStudyId.MACD)
         if (t.volume) add(ChartStudyId.VOLUME)
         if (t.stochastic) add(ChartStudyId.STOCHASTIC)
