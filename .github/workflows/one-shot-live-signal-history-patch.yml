@@ -1,0 +1,157 @@
+name: One-shot live signal history patch
+
+on:
+  push:
+    branches:
+      - feat/live-signal-history
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[live-history-patched]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/live-signal-history
+          fetch-depth: 0
+      - name: Patch chart integration
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              s = p.read_text()
+              count = s.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one match, got {count}')
+              p.write_text(s.replace(old, new, 1))
+
+          replace_once(
+              'app/src/main/java/com/foxtrader/app/feature/chart/presentation/ChartUiState.kt',
+              '''    val signals: List<ChartSignal> = emptyList(),
+              val showSignalHistory: Boolean = false,
+          ''',
+              '''    val signals: List<ChartSignal> = emptyList(),
+              val showSignalHistory: Boolean = true,
+              val liveSignalStats: LiveSignalPerformanceStats = LiveSignalPerformanceStats(),
+          ''',
+          )
+
+          replace_once(
+              'app/src/main/java/com/foxtrader/app/feature/chart/presentation/ChartViewModel.kt',
+              '''    private val historicalBacktestRunner = HistoricalBacktestRunner(backtestEngine)
+          ''',
+              '''    private val historicalBacktestRunner = HistoricalBacktestRunner(backtestEngine)
+              private val liveSignalArchive = LiveSignalArchive()
+              private val liveSignalPerformanceEvaluator = LiveSignalPerformanceEvaluator()
+          ''',
+          )
+
+          replace_once(
+              'app/src/main/java/com/foxtrader/app/feature/chart/presentation/ChartViewModel.kt',
+              '''        _uiState.value = mappedState.copy(
+                  signals = signalComputer.computeSignals(
+                      litXAnalysis = litXAnalysis.takeIf { ind.litX },
+                      tradeProAnalysis = tradeProAnalysis,
+                      smtDivergences = smtDivergences,
+                      candles = displayCandles,
+                      strategySignals = chartStrategySignals,
+                      litAnalysis = litAnalysis.takeIf { ind.lit },
+                      smsAnalysis = smsAnalysis.takeIf { ind.sms },
+                      latestConfirmedIndex = latestConfirmedIndex,
+                      fusion = signalFusion,
+                  ),
+                  dataFreshness = MarketDataFreshnessResolver.resolve(
+          ''',
+              '''        val frameSignals = signalComputer.computeSignals(
+                  litXAnalysis = litXAnalysis.takeIf { ind.litX },
+                  tradeProAnalysis = tradeProAnalysis,
+                  smtDivergences = smtDivergences,
+                  candles = displayCandles,
+                  strategySignals = chartStrategySignals,
+                  litAnalysis = litAnalysis.takeIf { ind.lit },
+                  smsAnalysis = smsAnalysis.takeIf { ind.sms },
+                  latestConfirmedIndex = latestConfirmedIndex,
+                  fusion = signalFusion,
+              )
+              val liveSignalContext = LiveSignalContext(
+                  provider = mappedState.dataProvider,
+                  symbol = symbol.trim().uppercase(),
+                  timeframe = timeframe,
+                  barMode = barMode,
+              )
+              val retainedSignals = liveSignalArchive.merge(
+                  context = liveSignalContext,
+                  frameSignals = frameSignals,
+                  candles = displayCandles,
+              )
+              val liveSignalStats = liveSignalPerformanceEvaluator.evaluate(
+                  signals = liveSignalArchive.liveSnapshot(liveSignalContext, displayCandles),
+                  candles = displayCandles,
+                  timeframe = timeframe,
+              )
+              _uiState.value = mappedState.copy(
+                  signals = retainedSignals,
+                  liveSignalStats = liveSignalStats,
+                  dataFreshness = MarketDataFreshnessResolver.resolve(
+          ''',
+          )
+
+          replace_once(
+              'app/src/main/java/com/foxtrader/app/feature/chart/presentation/ChartViewModel.kt',
+              '''            aiDecision = null, confluence = null,
+                  chartBacktest = ChartBacktestState(
+          ''',
+              '''            aiDecision = null, confluence = null,
+                  signals = emptyList(), liveSignalStats = LiveSignalPerformanceStats(),
+                  chartBacktest = ChartBacktestState(
+          ''',
+          )
+
+          replace_once(
+              'app/src/main/java/com/foxtrader/app/feature/chart/presentation/ChartViewModel.kt',
+              '''        _uiState.value = current.copy(
+                  barMode = barMode,
+                  chartBacktest = ChartBacktestState(
+          ''',
+              '''        _uiState.value = current.copy(
+                  barMode = barMode,
+                  signals = emptyList(),
+                  liveSignalStats = LiveSignalPerformanceStats(),
+                  chartBacktest = ChartBacktestState(
+          ''',
+          )
+
+          replace_once(
+              'app/src/main/java/com/foxtrader/app/feature/chart/presentation/ChartScreen.kt',
+              '''                        if (!replayState.isActive) {
+                              ChartBacktestSummaryOverlay(
+          ''',
+              '''                        if (!replayState.isActive && state.showSignalHistory && state.liveSignalStats.totalObserved > 0) {
+                              com.foxtrader.app.feature.chart.presentation.components.LiveSignalPerformanceOverlay(
+                                  stats = state.liveSignalStats,
+                                  modifier = Modifier
+                                      .align(Alignment.TopEnd)
+                                      .padding(top = 8.dp, end = 70.dp),
+                              )
+                          }
+                          if (!replayState.isActive) {
+                              ChartBacktestSummaryOverlay(
+          ''',
+          )
+          PY
+      - name: Remove one-shot workflow and commit
+        run: |
+          rm .github/workflows/one-shot-live-signal-history-patch.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/foxtrader/app/feature/chart/presentation/ChartUiState.kt \
+                  app/src/main/java/com/foxtrader/app/feature/chart/presentation/ChartViewModel.kt \
+                  app/src/main/java/com/foxtrader/app/feature/chart/presentation/ChartScreen.kt \
+                  .github/workflows/one-shot-live-signal-history-patch.yml
+          git commit -m "Integrate retained live signal history [live-history-patched]"
+          git push origin HEAD:feat/live-signal-history
