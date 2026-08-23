@@ -164,6 +164,8 @@ data class IndicatorToggles(
 }
 
 enum class ChartBacktestRange(val label: String, val days: Int?) {
+    /** Test exactly the bars currently visible in the primary chart viewport. */
+    VISIBLE("Visible", null),
     LOADED("Loaded", null),
     ONE_MONTH("1M", 30),
     THREE_MONTHS("3M", 90),

@@ -15,6 +15,11 @@ enum class ReplaySpeed(val label: String, val delayMs: Long) {
 
 /**
  * Replay engine state — observable by the UI.
+ *
+ * Indices use the existing replay convention: [currentIndex] is the exclusive
+ * end of [visibleCandles]. [startIndex] is where replay started. [endIndex] is
+ * an optional exclusive hard boundary used by selected-history replay; zero
+ * keeps the legacy unbounded-to-dataset-end behaviour.
  */
 data class ReplayState(
     val isActive: Boolean = false,
@@ -22,11 +27,21 @@ data class ReplayState(
     val speed: ReplaySpeed = ReplaySpeed.SPEED_1,
     val currentIndex: Int = 0,
     val totalBars: Int = 0,
-    val startIndex: Int = 0,       // Where replay started
+    val startIndex: Int = 0,
+    /** Exclusive selected-history boundary; 0 for legacy whole-tail replay. */
+    val endIndex: Int = 0,
     val visibleCandles: List<Candle> = emptyList(),
 ) {
     val progress: Float
-        get() = if (totalBars > 0) currentIndex.toFloat() / totalBars else 0f
+        get() = when {
+            !isActive -> 0f
+            endIndex > startIndex -> ((currentIndex - startIndex).toFloat() / (endIndex - startIndex).toFloat())
+                .coerceIn(0f, 1f)
+            totalBars > 0 -> (currentIndex.toFloat() / totalBars.toFloat()).coerceIn(0f, 1f)
+            else -> 0f
+        }
 
     val isPlaying: Boolean get() = isActive && !isPaused
+    val isBounded: Boolean get() = isActive && endIndex > startIndex
+    val isAtRangeEnd: Boolean get() = isBounded && currentIndex >= endIndex
 }

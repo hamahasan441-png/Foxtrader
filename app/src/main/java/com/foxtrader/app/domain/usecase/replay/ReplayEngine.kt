@@ -22,17 +22,16 @@ import javax.inject.Singleton
 /**
  * Replay Engine — bar-by-bar historical playback for practice and analysis.
  *
- * Feeds candles one at a time to simulate real-time market movement.
- * The chart renders only the candles revealed so far, allowing traders
- * to practice reading price action without hindsight bias.
+ * Feeds candles one at a time to simulate real-time market movement. The chart
+ * renders only the causal prefix revealed so far, so every enabled indicator and
+ * strategy is recomputed without future bars.
  *
  * Features:
  * - Play / Pause / Step forward / Step backward
  * - Adjustable speed (0.25x to 16x)
  * - Jump to any bar index
- * - Integrates with existing chart engine (just provides a candle sublist)
- *
- * Pure domain logic — no Android dependencies.
+ * - Hard-bounded selected-history replay
+ * - Integrates with the existing chart/indicator engine through visibleCandles
  */
 @Singleton
 class ReplayEngine @Inject constructor(
@@ -52,41 +51,42 @@ class ReplayEngine @Inject constructor(
     // ========================================================================
 
     /**
-     * Start a replay session from a specific bar index.
-     * @param candles The full candle dataset to replay through
-     * @param startAt The bar index to begin replay (candles before this are visible)
+     * Legacy whole-tail replay. [startAt] uses the original exclusive visible
+     * count convention so existing UI/tests remain compatible.
      */
     fun start(candles: List<Candle>, startAt: Int = 50) {
-        // Need at least 2 candles to run a replay.
         if (candles.size < 2) {
             _state.value = ReplayState()
             return
         }
-        allCandles = candles
-        // Guard: coerceIn requires min <= max. With >=2 candles, size-1 >= 1.
         val clamped = startAt.coerceIn(1, candles.size - 1)
-        _state.value = ReplayState(
-            isActive = true,
-            isPaused = true,  // Start paused so user can see the initial state
-            speed = _state.value.speed,
-            currentIndex = clamped,
-            totalBars = candles.size,
-            startIndex = clamped,
-            visibleCandles = candles.subList(0, clamped),
-        )
+        begin(candles, startVisibleCount = clamped, endVisibleCount = 0)
     }
 
     /**
-     * Start a replay session from raw ticks, aggregating them into candles first.
+     * Replay only a selected closed historical bar range.
      *
-     * The ticks are converted to [aggregateTo] candles via [TickAggregator] and then
-     * fed through the existing [start] path — so all playback controls behave
-     * identically to a candle-based replay.
-     *
-     * @param ticks Raw tick stream to aggregate and replay.
-     * @param aggregateTo Target candle timeframe for aggregation.
-     * @param startAt The bar index to begin replay (candles before this are visible).
+     * [startBarIndex] and [endBarIndex] are inclusive candle indices. Candles
+     * before the selected start remain in [ReplayState.visibleCandles] as causal
+     * warm-up/context, but playback cannot step/jump before the selected start or
+     * beyond the selected end. Future bars after the selected end are never
+     * exposed to the chart during this session.
      */
+    fun startRange(candles: List<Candle>, startBarIndex: Int, endBarIndex: Int) {
+        if (candles.size < 2) {
+            _state.value = ReplayState()
+            return
+        }
+        val startBar = startBarIndex.coerceIn(0, candles.lastIndex - 1)
+        val endBar = endBarIndex.coerceIn(startBar + 1, candles.lastIndex)
+        begin(
+            candles = candles,
+            startVisibleCount = startBar + 1,
+            endVisibleCount = endBar + 1,
+        )
+    }
+
+    /** Start a replay session from raw ticks, aggregating them into candles first. */
     fun startTickReplay(ticks: List<Tick>, aggregateTo: Timeframe, startAt: Int = 50) {
         val candles = tickAggregator.aggregate(ticks, aggregateTo)
         start(candles, startAt)
@@ -100,14 +100,34 @@ class ReplayEngine @Inject constructor(
         _state.value = ReplayState()
     }
 
+    private fun begin(candles: List<Candle>, startVisibleCount: Int, endVisibleCount: Int) {
+        playbackJob?.cancel()
+        playbackJob = null
+        allCandles = candles
+        _state.value = ReplayState(
+            isActive = true,
+            isPaused = true,
+            speed = _state.value.speed,
+            currentIndex = startVisibleCount,
+            totalBars = candles.size,
+            startIndex = startVisibleCount,
+            endIndex = endVisibleCount,
+            visibleCandles = candles.subList(0, startVisibleCount),
+        )
+    }
+
     // ========================================================================
     // PLAYBACK CONTROLS
     // ========================================================================
 
     /** Start/resume auto-play. */
     fun play() {
-        if (!_state.value.isActive) return
-        _state.value = _state.value.copy(isPaused = false)
+        val state = _state.value
+        if (!state.isActive || atPlaybackEnd(state)) {
+            if (state.isActive) _state.value = state.copy(isPaused = true)
+            return
+        }
+        _state.value = state.copy(isPaused = false)
         startPlaybackLoop()
     }
 
@@ -123,31 +143,35 @@ class ReplayEngine @Inject constructor(
         if (_state.value.isPaused) play() else pause()
     }
 
-    /** Advance one bar forward. */
+    /** Advance one bar forward, never beyond the selected range end. */
     fun stepForward() {
-        if (!_state.value.isActive) return
-        val next = (_state.value.currentIndex + 1).coerceAtMost(allCandles.size)
+        val state = _state.value
+        if (!state.isActive) return
+        val next = (state.currentIndex + 1).coerceAtMost(playbackEnd(state))
         updateIndex(next)
     }
 
-    /** Go one bar backward. */
+    /** Go one bar backward; bounded sessions cannot escape their selected start. */
     fun stepBackward() {
-        if (!_state.value.isActive) return
-        val prev = (_state.value.currentIndex - 1).coerceAtLeast(1)
+        val state = _state.value
+        if (!state.isActive) return
+        val floor = if (state.isBounded) state.startIndex else 1
+        val prev = (state.currentIndex - 1).coerceAtLeast(floor)
         updateIndex(prev)
     }
 
-    /** Jump to a specific bar index. */
+    /** Jump to a replay visible-count index, clamped to the active range. */
     fun jumpTo(index: Int) {
-        if (!_state.value.isActive) return
-        val clamped = index.coerceIn(1, allCandles.size)
+        val state = _state.value
+        if (!state.isActive) return
+        val min = if (state.isBounded) state.startIndex else 1
+        val clamped = index.coerceIn(min, playbackEnd(state))
         updateIndex(clamped)
     }
 
     /** Change playback speed. */
     fun setSpeed(speed: ReplaySpeed) {
         _state.value = _state.value.copy(speed = speed)
-        // Restart playback loop with new speed if playing
         if (_state.value.isPlaying) {
             playbackJob?.cancel()
             startPlaybackLoop()
@@ -171,23 +195,32 @@ class ReplayEngine @Inject constructor(
         playbackJob = scope.launch {
             while (isActive && _state.value.isActive && !_state.value.isPaused) {
                 delay(_state.value.speed.delayMs)
-                val next = _state.value.currentIndex + 1
-                if (next > allCandles.size) {
-                    // Reached end — pause
-                    _state.value = _state.value.copy(isPaused = true)
+                val state = _state.value
+                if (atPlaybackEnd(state)) {
+                    _state.value = state.copy(isPaused = true)
                     break
                 }
-                updateIndex(next)
+                updateIndex((state.currentIndex + 1).coerceAtMost(playbackEnd(state)))
             }
         }
     }
 
+    private fun playbackEnd(state: ReplayState): Int =
+        if (state.isBounded) state.endIndex else allCandles.size
+
+    private fun atPlaybackEnd(state: ReplayState): Boolean =
+        state.currentIndex >= playbackEnd(state)
+
     private fun updateIndex(newIndex: Int) {
         if (allCandles.isEmpty()) return
-        val clamped = newIndex.coerceIn(1, allCandles.size)
-        _state.value = _state.value.copy(
+        val state = _state.value
+        val min = if (state.isBounded) state.startIndex else 1
+        val max = playbackEnd(state)
+        val clamped = newIndex.coerceIn(min, max)
+        _state.value = state.copy(
             currentIndex = clamped,
             visibleCandles = allCandles.subList(0, clamped),
+            isPaused = if (clamped >= max) true else state.isPaused,
         )
     }
 }
