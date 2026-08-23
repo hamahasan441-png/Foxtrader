@@ -201,6 +201,10 @@ class ChartViewModel @Inject constructor(
     /** Preserve an explicit user choice to keep streaming off across symbol changes. */
     private var liveUserOverrideOff = false
 
+    /** Replay owns chart overlays while active; live frames are suppressed. */
+    private var replayWasActive = false
+    private var lastReplayFrameIndex = -1
+
     // --- Controllers (plain classes, NOT @Inject) ---
     private val dataController = ChartDataController(
         repository = repository,
@@ -433,6 +437,31 @@ class ChartViewModel @Inject constructor(
                 }
             }
             .launchIn(viewModelScope)
+        // Replay is a separate causal render clock. While active, each new
+        // revealed bar recomputes indicators/structure/primary-series signal
+        // engines from that prefix only; live websocket frames cannot replace
+        // the historical frame. Stopping replay restores the latest live frame.
+        replayEngine.state
+            .onEach { replay ->
+                if (replay.isActive) {
+                    replayWasActive = true
+                    if (lastReplayFrameIndex != replay.currentIndex) {
+                        lastReplayFrameIndex = replay.currentIndex
+                        processReplayFrame(replay)
+                    }
+                } else if (replayWasActive) {
+                    replayWasActive = false
+                    lastReplayFrameIndex = -1
+                    try {
+                        dataController.processMergedCandles(preferIncremental = false)
+                    } catch (cancel: CancellationException) {
+                        throw cancel
+                    } catch (_: Exception) {
+                        // A later market/history emission retries the normal frame.
+                    }
+                }
+            }
+            .launchIn(viewModelScope)
         refresh()
     }
 
@@ -440,6 +469,10 @@ class ChartViewModel @Inject constructor(
     // INTERNAL PIPELINE WIRING
     // ========================================================================
     private suspend fun processCandles(source: CandleSource, preferIncremental: Boolean) {
+        // Replay owns the visual computation clock. Keep ingesting market
+        // data in the repository, but never let a live frame overwrite a
+        // historical prefix while the trader is testing the past.
+        if (replayEngine.state.value.isActive) return
         // `CRASH-SAFETY` Outer containment for the whole pipeline. Every
         // per-engine guard below protects against a known failure mode, but the
         // user report that triggered this class of work — "touch an indicator
@@ -758,6 +791,144 @@ class ChartViewModel @Inject constructor(
                 confluence = result.confluence,
             )
         }
+    }
+
+    private suspend fun processReplayFrame(replay: ReplayState) {
+        if (!replay.isActive || replay.visibleCandles.isEmpty()) return
+        val gen = computationGeneration.incrementAndGet()
+        val current = _uiState.value
+        val candles = replay.visibleCandles
+        val ind = current.indicators
+        val symbol = current.symbol
+        val timeframe = current.timeframe
+
+        val computation = try {
+            indicatorCoordinator.processCandles(
+                candles = candles,
+                source = current.dataSource,
+                toggles = ind,
+                symbol = symbol,
+                timeframe = timeframe,
+                preferIncremental = false,
+            )
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (_: Exception) {
+            return
+        }
+
+        // Primary-series institutional engines are safe to replay because they
+        // receive only the revealed prefix. MTF/peer engines (TradePro/SMT) are
+        // deliberately suppressed here until every auxiliary series is bounded
+        // to the same historical clock.
+        val litXConfig = appPreferences.litXConfig.value
+        val litXAnalysis = if (ind.litX && litXConfig.enabled) {
+            withContext(defaultDispatcher) {
+                containedOrNull { litXEngine.analyze(symbol, timeframe, candles, litXConfig) }
+            }
+        } else null
+        val litAnalysis = if (ind.lit) {
+            withContext(defaultDispatcher) {
+                containedOrNull { litEngine.analyze(symbol, timeframe, candles, appPreferences.litConfig.value) }
+            }
+        } else null
+        val smsAnalysis = if (ind.sms) {
+            withContext(defaultDispatcher) {
+                containedOrNull { smsEngine.analyze(symbol, timeframe, candles, appPreferences.smsConfig.value) }
+            }
+        } else null
+
+        val strategySignals = when {
+            ind.allStrategies -> withContext(defaultDispatcher) {
+                containedOrDefault(emptyList()) {
+                    liveStrategyEngine.evaluateAll(candles, symbol = symbol, timeframe = timeframe)
+                }
+            }
+            ind.activeStrategy != null -> withContext(defaultDispatcher) {
+                containedOrDefault(emptyList()) {
+                    liveStrategyEngine.evaluate(
+                        type = ind.activeStrategy,
+                        candles = candles,
+                        symbol = symbol,
+                        timeframe = timeframe,
+                    )
+                }
+            }
+            ind.activeBlueprintId != null -> {
+                val blueprint = current.strategyBlueprints.firstOrNull { it.id == ind.activeBlueprintId }
+                if (blueprint == null) emptyList() else withContext(defaultDispatcher) {
+                    containedOrDefault(emptyList()) {
+                        val compiled = compileBlueprint(blueprint)
+                        liveStrategyEngine.evaluateCustom(
+                            strategyId = compiled.id,
+                            strategyName = compiled.name,
+                            minimumBars = compiled.minBars,
+                            function = { series, index -> scriptEngine.evaluate(compiled, series, index) },
+                            candles = candles,
+                        )
+                    }
+                }
+            }
+            else -> emptyList()
+        }
+
+        val binary3mSignals: List<ChartSignal> = if (
+            ind.binary3m &&
+            current.dataProvider == DataProvider.DERIV &&
+            timeframe == Timeframe.M1
+        ) {
+            withContext(defaultDispatcher) {
+                containedOrDefault(emptyList()) {
+                    derivBinary3mSignalEngine
+                        .evaluateAll(candles, DerivBinary3mSignalEngine.DEFAULT_MIN_CONFIDENCE)
+                        .takeLast(BINARY3M_MAX_CHART_SIGNALS)
+                        .mapNotNull { binary ->
+                            val candle = candles.getOrNull(binary.signalIndex) ?: return@mapNotNull null
+                            ChartSignal(
+                                id = "binary3m_${symbol}_${binary.timestamp}_${binary.direction.name}",
+                                source = SignalSource.BINARY3M,
+                                direction = binary.direction,
+                                entry = candle.close,
+                                sl = 0.0,
+                                tp = 0.0,
+                                barIndex = binary.signalIndex,
+                                timestamp = binary.timestamp,
+                                confidence = binary.confidence.toDouble(),
+                                isLive = binary.signalIndex == candles.lastIndex,
+                                label = "Deriv 3m ${if (binary.direction == Direction.BULLISH) "CALL" else "PUT"} · replay",
+                            )
+                        }
+                }
+            }
+        } else emptyList()
+
+        if (
+            gen != computationGeneration.get() ||
+            !replayEngine.state.value.isActive ||
+            replayEngine.state.value.currentIndex != replay.currentIndex
+        ) return
+
+        val chartSignals = signalComputer.computeSignals(
+            litXAnalysis = litXAnalysis,
+            tradeProAnalysis = null,
+            smtDivergences = emptyList(),
+            candles = candles,
+            strategySignals = strategySignals + binary3mSignals,
+            litAnalysis = litAnalysis,
+            smsAnalysis = smsAnalysis,
+            latestConfirmedIndex = candles.lastIndex,
+            fusion = null,
+        )
+        val latest = _uiState.value
+        _uiState.value = latest.withReplayComputation(
+            replayCandles = candles,
+            computation = computation,
+            toggles = ind,
+            signals = chartSignals,
+            litXAnalysis = litXAnalysis,
+            litAnalysis = litAnalysis,
+            smsAnalysis = smsAnalysis,
+        )
     }
 
     /**
@@ -1244,12 +1415,16 @@ class ChartViewModel @Inject constructor(
         performanceMonitor.onOverlayConfigChanged()
         viewModelScope.launch {
             try {
-                dataController.processMergedCandles(preferIncremental = false)
+                val replay = replayEngine.state.value
+                if (replay.isActive) {
+                    processReplayFrame(replay)
+                } else {
+                    dataController.processMergedCandles(preferIncremental = false)
+                }
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (_: Exception) {
-                // Swallow concurrent modification exceptions during indicator toggle.
-                // The next data emission will trigger a successful recompute.
+                // Keep the last good frame. The next replay/data emission retries.
             }
         }
     }
