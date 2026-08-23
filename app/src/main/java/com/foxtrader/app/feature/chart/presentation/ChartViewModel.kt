@@ -925,6 +925,7 @@ class ChartViewModel @Inject constructor(
             computation = computation,
             toggles = ind,
             signals = chartSignals,
+            barMode = current.barMode,
             litXAnalysis = litXAnalysis,
             litAnalysis = litAnalysis,
             smsAnalysis = smsAnalysis,
