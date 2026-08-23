@@ -110,8 +110,8 @@ class StrategyRuntimeSettingsTest {
     }
 
     @Test
-    fun `definition wrapper reads settings changed after definition creation`() {
-        val definition = StrategyDefinition(
+    fun `definition freezes settings while newly resolved definition sees later change`() {
+        val oldDefinition = StrategyDefinition(
             name = "Test",
             type = StrategyType.CONFLUENCE,
             description = "",
@@ -119,12 +119,24 @@ class StrategyRuntimeSettingsTest {
             function = { _, _ -> signal(direction = Direction.BULLISH, confidence = 80) },
         )
 
-        assertNotNull(definition.function(emptyList(), 0))
+        assertNotNull(oldDefinition.function(emptyList(), 0))
         StrategyRuntimeSettingsRegistry.set(
             StrategyType.CONFLUENCE,
             StrategyRuntimeSettings(allowBullish = false),
         )
-        assertNull(definition.function(emptyList(), 0))
+
+        // A run that already resolved its definition stays reproducible.
+        assertNotNull(oldDefinition.function(emptyList(), 0))
+
+        // The next live/research resolution receives the new settings.
+        val newDefinition = StrategyDefinition(
+            name = "Test",
+            type = StrategyType.CONFLUENCE,
+            description = "",
+            minimumBars = 1,
+            function = { _, _ -> signal(direction = Direction.BULLISH, confidence = 80) },
+        )
+        assertNull(newDefinition.function(emptyList(), 0))
     }
 
     private fun signal(
