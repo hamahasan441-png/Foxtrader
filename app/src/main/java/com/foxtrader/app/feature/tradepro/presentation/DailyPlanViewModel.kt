@@ -11,10 +11,10 @@ import com.foxtrader.app.domain.repository.JournalRepository
 import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.ai.MtfContextProvider
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
-import com.foxtrader.app.domain.usecase.scanner.ScannerUseCase
 import com.foxtrader.app.domain.usecase.signalintel.ConfirmedBarPolicy
 import com.foxtrader.app.domain.usecase.tradepro.DailyPlanEngine
 import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
+import com.foxtrader.app.domain.usecase.watchlist.ActiveWatchlistSymbols
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -28,14 +28,11 @@ import java.util.Calendar
 import java.util.TimeZone
 import javax.inject.Inject
 
-/**
- * Builds the pre-market [DailyPlan] by scanning the watchlist for TRADEPRO reads and folding in recent
- * journal history to set the risk posture, then reviews the current day's logged trades against it.
- */
+/** Builds the pre-market plan from the persisted watchlist and recent journal history. */
 @HiltViewModel
 class DailyPlanViewModel @Inject constructor(
     private val repository: MarketRepository,
-    private val scannerUseCase: ScannerUseCase,
+    private val activeWatchlistSymbols: ActiveWatchlistSymbols,
     private val signalEngine: TradeProSignalEngine,
     private val mtfContextProvider: MtfContextProvider,
     private val planEngine: DailyPlanEngine,
@@ -63,7 +60,7 @@ class DailyPlanViewModel @Inject constructor(
                     .filter { !it.isOpen && it.pnl != null }
                     .sortedBy { it.exitTime ?: it.entryTime }
 
-                val watchlist = scannerUseCase.getWatchlist().filter { it.enabled }.take(MAX_SYMBOLS)
+                val watchlist = activeWatchlistSymbols(MAX_SYMBOLS)
                 val analyses = ArrayList<TradeProAnalysis>(watchlist.size)
                 for (symbol in watchlist) {
                     val now = System.currentTimeMillis()
@@ -89,9 +86,6 @@ class DailyPlanViewModel @Inject constructor(
                 val review = planEngine.reviewSession(plan, todaysEntries(allEntries, plan))
                 _uiState.update { it.copy(isGenerating = false, plan = plan, review = review, error = null) }
             } catch (cancel: CancellationException) {
-                // Never swallow cancellation: doing so breaks structured
-                // concurrency and surfaces a routine screen-close or
-                // re-run as a spurious on-screen error.
                 throw cancel
             } catch (e: Exception) {
                 _uiState.update { it.copy(isGenerating = false, error = e.message ?: "Failed to build the plan.") }
