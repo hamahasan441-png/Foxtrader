@@ -14,6 +14,7 @@ import com.foxtrader.app.domain.usecase.litx.PremiumDiscountCalculator
 import com.foxtrader.app.domain.usecase.sessions.SessionDetector
 import com.foxtrader.app.domain.usecase.smc.SmcDetector
 import org.junit.After
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -68,7 +69,19 @@ class StrategyPackageEngineTest {
             index = prefix.lastIndex,
         )
 
-        assertEquals(fromPrefix.technical, fromFull.technical)
+        assertEquals(fromPrefix.technical.ema9, fromFull.technical.ema9, 0.0)
+        assertEquals(fromPrefix.technical.ema20, fromFull.technical.ema20, 0.0)
+        assertEquals(fromPrefix.technical.ema21, fromFull.technical.ema21, 0.0)
+        assertEquals(fromPrefix.technical.ema50, fromFull.technical.ema50, 0.0)
+        assertEquals(fromPrefix.technical.rsi14, fromFull.technical.rsi14, 0.0)
+        assertEquals(fromPrefix.technical.atr14, fromFull.technical.atr14, 0.0)
+        assertEquals(fromPrefix.technical.adx14, fromFull.technical.adx14, 0.0)
+        assertEquals(fromPrefix.technical.macdHistogram, fromFull.technical.macdHistogram, 0.0)
+        assertEquals(fromPrefix.technical.ichimokuPosition, fromFull.technical.ichimokuPosition)
+        assertArrayEquals(fromPrefix.technical.ichimoku.tenkan, fromFull.technical.ichimoku.tenkan, 0.0)
+        assertArrayEquals(fromPrefix.technical.ichimoku.kijun, fromFull.technical.ichimoku.kijun, 0.0)
+        assertArrayEquals(fromPrefix.technical.ichimoku.senkouA, fromFull.technical.ichimoku.senkouA, 0.0)
+        assertArrayEquals(fromPrefix.technical.ichimoku.senkouB, fromFull.technical.ichimoku.senkouB, 0.0)
         assertEquals(fromPrefix.structure, fromFull.structure)
         assertEquals(fromPrefix.smc, fromFull.smc)
         assertEquals(fromPrefix.evidence, fromFull.evidence)
