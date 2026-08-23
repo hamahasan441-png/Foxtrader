@@ -148,6 +148,7 @@ class LiveSignalArchive(
         SignalSource.LIT -> 100
         SignalSource.LITX -> 95
         SignalSource.SMS -> 90
+        SignalSource.RSI_ORDERFLOW -> 88
         SignalSource.SMT -> 85
         SignalSource.TRADEPRO -> 80
         SignalSource.BINARY3M -> 70
