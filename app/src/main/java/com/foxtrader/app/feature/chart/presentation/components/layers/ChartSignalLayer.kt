@@ -260,6 +260,7 @@ internal fun DrawScope.drawSignalMarkers(
                 SignalSource.SMS -> "SMS"
                 SignalSource.TRADEPRO -> "TP"
                 SignalSource.SMT -> "SMT"
+                SignalSource.RSI_ORDERFLOW -> "ROF"
                 SignalSource.BINARY3M -> "B3"
                 SignalSource.STRATEGY -> "ST"
             }
