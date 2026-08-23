@@ -27,6 +27,8 @@ import com.foxtrader.app.domain.usecase.strategies.StrategyLibrary
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -67,6 +69,7 @@ class BacktestLabViewModel @Inject constructor(
     )
     val uiState: StateFlow<BacktestLabUiState> = _uiState.asStateFlow()
     private var initialBacktestStarted = false
+    private var replayJob: Job? = null
 
     init {
         appPreferences.strategyBlueprints
@@ -190,9 +193,11 @@ class BacktestLabViewModel @Inject constructor(
     }
 
     fun runBacktest() {
+        replayJob?.cancel()
+        replayJob = null
         viewModelScope.launch {
             val state = _uiState.value
-            _uiState.update { it.copy(isRunning = true, error = null) }
+            _uiState.update { it.copy(isRunning = true, replayPlaying = false, error = null) }
             try {
                 // Backtests must measure the provider currently selected in
                 // this screen, not an anonymous Room series left by a previous
@@ -238,6 +243,9 @@ class BacktestLabViewModel @Inject constructor(
                             result = null,
                             binaryResult = binary,
                             analyticsReport = analytics,
+                            replayCandles = candles.toPersistentList(),
+                            replayCursor = initialReplayCursor(candles),
+                            replayPlaying = false,
                             lastRunTime = System.currentTimeMillis(),
                         )
                     }
@@ -284,6 +292,9 @@ class BacktestLabViewModel @Inject constructor(
                         result = result,
                         binaryResult = null,
                         analyticsReport = analytics,
+                        replayCandles = candles.toPersistentList(),
+                        replayCursor = initialReplayCursor(candles),
+                        replayPlaying = false,
                         lastRunTime = System.currentTimeMillis(),
                     )
                 }
@@ -302,6 +313,89 @@ class BacktestLabViewModel @Inject constructor(
             }
         }
     }
+
+    fun restartVisualReplay() {
+        replayJob?.cancel()
+        replayJob = null
+        _uiState.update { state ->
+            if (!state.hasReplayData) state else state.copy(
+                replayCursor = initialReplayCursor(state.replayCandles),
+                replayPlaying = false,
+            )
+        }
+    }
+
+    fun stepVisualReplay(delta: Int) {
+        replayJob?.cancel()
+        replayJob = null
+        _uiState.update { state ->
+            if (!state.hasReplayData) state else state.copy(
+                replayCursor = (state.replayCursor + delta).coerceIn(0, state.replayCandles.lastIndex),
+                replayPlaying = false,
+            )
+        }
+    }
+
+    fun seekVisualReplay(index: Int) {
+        replayJob?.cancel()
+        replayJob = null
+        _uiState.update { state ->
+            if (!state.hasReplayData) state else state.copy(
+                replayCursor = index.coerceIn(0, state.replayCandles.lastIndex),
+                replayPlaying = false,
+            )
+        }
+    }
+
+    fun toggleVisualReplayPlay() {
+        val current = _uiState.value
+        if (!current.hasReplayData) return
+        if (current.replayPlaying) {
+            replayJob?.cancel()
+            replayJob = null
+            _uiState.update { it.copy(replayPlaying = false) }
+            return
+        }
+        if (current.replayCursor >= current.replayCandles.lastIndex) {
+            _uiState.update { it.copy(replayCursor = initialReplayCursor(it.replayCandles)) }
+        }
+        replayJob?.cancel()
+        replayJob = viewModelScope.launch {
+            _uiState.update { it.copy(replayPlaying = true) }
+            try {
+                while (true) {
+                    delay(VISUAL_REPLAY_TICK_MS)
+                    var finished = false
+                    _uiState.update { state ->
+                        if (!state.hasReplayData) {
+                            finished = true
+                            state.copy(replayPlaying = false)
+                        } else {
+                            val next = state.replayCursor + 1
+                            if (next > state.replayCandles.lastIndex) {
+                                finished = true
+                                state.copy(replayPlaying = false)
+                            } else {
+                                state.copy(replayCursor = next)
+                            }
+                        }
+                    }
+                    if (finished) break
+                }
+            } finally {
+                replayJob = null
+            }
+        }
+    }
+
+    override fun onCleared() {
+        replayJob?.cancel()
+        replayJob = null
+        super.onCleared()
+    }
+
+    private fun initialReplayCursor(candles: List<Candle>): Int =
+        (VISUAL_REPLAY_WARMUP_BARS - 1).coerceIn(0, candles.lastIndex.coerceAtLeast(0))
 
     private fun buildStrategy(state: BacktestLabUiState): StrategyFunction {
         val blueprint = state.selectedBlueprint
@@ -448,5 +542,7 @@ class BacktestLabViewModel @Inject constructor(
         const val BREAKOUT_LOOKBACK = 20
         const val TRADEPRO_MIN_BARS = 40
         const val TRADEPRO_WINDOW = 250
+        const val VISUAL_REPLAY_WARMUP_BARS = 100
+        const val VISUAL_REPLAY_TICK_MS = 350L
     }
 }

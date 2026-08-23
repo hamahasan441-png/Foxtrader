@@ -3,6 +3,7 @@ package com.foxtrader.app.feature.backtest.presentation
 import androidx.compose.runtime.Immutable
 import com.foxtrader.app.domain.model.BacktestResult
 import com.foxtrader.app.domain.model.BinaryBacktestResult
+import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.StrategyBlueprint
 import com.foxtrader.app.domain.model.Timeframe
@@ -64,8 +65,13 @@ data class BacktestLabUiState(
     val binaryResult: BinaryBacktestResult? = null,
     val analyticsReport: BacktestAnalyticsReport? = null,
     val lastRunTime: Long = 0L,
+    val replayCandles: ImmutableList<Candle> = persistentListOf(),
+    val replayCursor: Int = 0,
+    val replayPlaying: Boolean = false,
 ) {
     val hasResult: Boolean get() = result != null || binaryResult != null
+    val hasReplayData: Boolean get() = hasResult && replayCandles.isNotEmpty()
+    val replayProgress: Double get() = if (replayCandles.size <= 1) 0.0 else replayCursor.coerceIn(0, replayCandles.lastIndex).toDouble() / replayCandles.lastIndex.toDouble()
     val isBinary3m: Boolean get() = selectedBlueprintId == null && strategy == BacktestStrategyTemplate.DERIV_BINARY_3M
     val selectedBlueprint: StrategyBlueprint?
         get() = selectedBlueprintId?.let { id -> strategyBlueprints.firstOrNull { it.id == id } }
