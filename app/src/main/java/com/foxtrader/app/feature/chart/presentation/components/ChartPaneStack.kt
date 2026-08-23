@@ -32,19 +32,7 @@ import com.foxtrader.app.feature.chart.presentation.IndicatorToggles
 import com.foxtrader.app.ui.theme.FoxTheme
 import kotlinx.coroutines.flow.StateFlow
 
-/**
- * Bottom study deck for oscillators/volume.
- *
- * Price and oscillator studies use different numeric scales. They therefore
- * must never share the price canvas. This component deliberately participates
- * in normal Compose layout instead of using a Popup/overlay: the price chart is
- * measured above this deck and can never render behind RSI/OrderFlow.
- *
- * Only one study is expanded at a time. Enabled studies stay available as tabs,
- * keeping the phone chart large while preserving a TradingView-style lower pane.
- * Pan/zoom alignment comes from the same ChartViewportState used by the price
- * chart, so candle and study indices remain locked together.
- */
+/** Bottom study deck for oscillators/volume, locked to the primary viewport. */
 @Composable
 fun ChartPaneStack(
     indicators: IndicatorToggles,
@@ -95,9 +83,7 @@ fun ChartPaneStack(
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -106,9 +92,8 @@ fun ChartPaneStack(
                     label = pane.label,
                     selected = pane == selected && !collapsed,
                     onClick = {
-                        if (selectedKey == pane.key && !collapsed) {
-                            collapsed = true
-                        } else {
+                        if (selectedKey == pane.key && !collapsed) collapsed = true
+                        else {
                             selectedKey = pane.key
                             collapsed = false
                         }
@@ -130,6 +115,7 @@ fun ChartPaneStack(
                         startIndex = startIndex,
                         visibleBars = visibleBars,
                         canvasHeight = STUDY_CANVAS_HEIGHT,
+                        settings = indicators.settings.rsi,
                     )
                 }
 
@@ -138,6 +124,7 @@ fun ChartPaneStack(
                     startIndex = startIndex,
                     visibleBars = visibleBars,
                     canvasHeight = STUDY_CANVAS_HEIGHT,
+                    settings = indicators.settings.rsiOrderFlow,
                 )
 
                 StudyPane.MACD -> if (macdLine != null && macdSignal != null && macdHistogram != null) {
@@ -158,34 +145,20 @@ fun ChartPaneStack(
                         startIndex = startIndex,
                         visibleBars = visibleBars,
                         canvasHeight = STUDY_CANVAS_HEIGHT,
+                        settings = indicators.settings.stochastic,
                     )
                 }
 
                 StudyPane.OBV -> obv?.let {
-                    ObvSubChart(
-                        obv = it,
-                        startIndex = startIndex,
-                        visibleBars = visibleBars,
-                        canvasHeight = STUDY_CANVAS_HEIGHT,
-                    )
+                    ObvSubChart(obv = it, startIndex = startIndex, visibleBars = visibleBars, canvasHeight = STUDY_CANVAS_HEIGHT)
                 }
 
                 StudyPane.MFI -> moneyFlowIndex?.let {
-                    MoneyFlowSubChart(
-                        mfi = it,
-                        startIndex = startIndex,
-                        visibleBars = visibleBars,
-                        canvasHeight = STUDY_CANVAS_HEIGHT,
-                    )
+                    MoneyFlowSubChart(mfi = it, startIndex = startIndex, visibleBars = visibleBars, canvasHeight = STUDY_CANVAS_HEIGHT)
                 }
 
                 StudyPane.VOLUME -> if (candles.isNotEmpty()) {
-                    VolumePane(
-                        candles = candles,
-                        startIndex = startIndex,
-                        visibleBars = visibleBars,
-                        canvasHeight = STUDY_CANVAS_HEIGHT,
-                    )
+                    VolumePane(candles = candles, startIndex = startIndex, visibleBars = visibleBars, canvasHeight = STUDY_CANVAS_HEIGHT)
                 }
             }
         }
@@ -193,11 +166,7 @@ fun ChartPaneStack(
 }
 
 @Composable
-private fun StudyTab(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
+private fun StudyTab(label: String, selected: Boolean, onClick: () -> Unit) {
     val colors = FoxTheme.colors
     Text(
         text = label,
