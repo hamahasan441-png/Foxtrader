@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.foxtrader.app.feature.chart.presentation.ChartDimens
 import com.foxtrader.app.feature.chart.presentation.ImmutableDoubleSeries
+import com.foxtrader.app.feature.chart.presentation.StochasticStudySettings
 import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxNeutral5
 import java.util.Locale
@@ -39,7 +40,6 @@ private val StochOversoldGuide = StochOversold.copy(alpha = 0.5f)
 private val GridLineColor = Color(0x33FFFFFF)
 private val LabelArgb = android.graphics.Color.parseColor("#99999F")
 
-/** Stochastic pane that fails closed on partial/non-finite live values. */
 @Composable
 fun StochasticSubChart(
     percentK: ImmutableDoubleSeries,
@@ -48,7 +48,9 @@ fun StochasticSubChart(
     visibleBars: Float,
     modifier: Modifier = Modifier,
     canvasHeight: Dp = ChartDimens.paneDefaultHeight,
+    settings: StochasticStudySettings = StochasticStudySettings(),
 ) {
+    val cfg = settings.sanitized()
     val density = LocalDensity.current
     val priceScaleWidthPx = with(density) { ChartDimens.subPaneScaleWidth.toPx() }
     val labelPaint = remember {
@@ -64,8 +66,8 @@ fun StochasticSubChart(
     val currentK = percentK.lastFiniteOrDefault(50.0).coerceIn(0.0, 100.0)
     val currentD = percentD.lastFiniteOrDefault(50.0).coerceIn(0.0, 100.0)
     val kColor = when {
-        currentK >= 80 -> StochOverbought
-        currentK <= 20 -> StochOversold
+        currentK >= cfg.overbought -> StochOverbought
+        currentK <= cfg.oversold -> StochOversold
         else -> StochKLine
     }
 
@@ -77,7 +79,7 @@ fun StochasticSubChart(
                 .padding(horizontal = 12.dp, vertical = 2.dp),
         ) {
             Text(
-                text = "Stoch(14,3)",
+                text = "Stoch(${cfg.kPeriod},${cfg.dPeriod})",
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold,
                 color = FoxAmber50,
@@ -106,46 +108,26 @@ fun StochasticSubChart(
 
             fun yFor(value: Double): Float =
                 ((100.0 - value.coerceIn(0.0, 100.0)) / 100.0 * chartH).toFloat()
-            val y80 = yFor(80.0)
-            val y20 = yFor(20.0)
+            val yHigh = yFor(cfg.overbought)
+            val yLow = yFor(cfg.oversold)
             val y50 = yFor(50.0)
 
-            drawRect(
-                color = StochZoneFill,
-                topLeft = Offset(0f, y80),
-                size = Size(chartW, (y20 - y80).coerceAtLeast(0f)),
-            )
-            drawLine(
-                color = StochOverboughtGuide,
-                start = Offset(0f, y80),
-                end = Offset(chartW, y80),
-                strokeWidth = 1f,
-                pathEffect = PaneDash,
-            )
-            drawLine(
-                color = StochOversoldGuide,
-                start = Offset(0f, y20),
-                end = Offset(chartW, y20),
-                strokeWidth = 1f,
-                pathEffect = PaneDash,
-            )
-            drawLine(
-                color = GridLineColor,
-                start = Offset(0f, y50),
-                end = Offset(chartW, y50),
-                strokeWidth = 0.5f,
-                pathEffect = PaneDash,
-            )
+            drawRect(StochZoneFill, Offset(0f, yHigh), Size(chartW, (yLow - yHigh).coerceAtLeast(0f)))
+            drawLine(StochOverboughtGuide, Offset(0f, yHigh), Offset(chartW, yHigh), 1f, pathEffect = PaneDash)
+            drawLine(StochOversoldGuide, Offset(0f, yLow), Offset(chartW, yLow), 1f, pathEffect = PaneDash)
+            drawLine(GridLineColor, Offset(0f, y50), Offset(chartW, y50), 0.5f, pathEffect = PaneDash)
 
             strokePaneSeries(percentD, startIndex, visibleBars, chartW, StochDLine, 1.4f) { v -> yFor(v) }
             strokePaneSeries(percentK, startIndex, visibleBars, chartW, StochKLine, 2f) { v -> yFor(v) }
 
             val canvas = drawContext.canvas.nativeCanvas
-            canvas.drawText("80", w - 4f, y80 + 4f, labelPaint)
-            canvas.drawText("20", w - 4f, y20 + 4f, labelPaint)
+            canvas.drawText(formatStochLevel(cfg.overbought), w - 4f, yHigh + 4f, labelPaint)
+            canvas.drawText(formatStochLevel(cfg.oversold), w - 4f, yLow + 4f, labelPaint)
         }
     }
 }
+
+private fun formatStochLevel(value: Double): String = if (value % 1.0 == 0.0) value.toInt().toString() else String.format(Locale.US, "%.1f", value)
 
 private fun ImmutableDoubleSeries.lastFiniteOrDefault(default: Double): Double {
     for (i in size - 1 downTo 0) {
