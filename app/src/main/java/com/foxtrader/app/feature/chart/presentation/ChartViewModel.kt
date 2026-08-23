@@ -138,6 +138,8 @@ class ChartViewModel @Inject constructor(
     // Use the exact BacktestEngine instance already owned by the chart so
     // visible-range research shares the same execution model and config.
     private val historicalBacktestRunner = HistoricalBacktestRunner(backtestEngine)
+    private val liveSignalArchive = LiveSignalArchive()
+    private val liveSignalPerformanceEvaluator = LiveSignalPerformanceEvaluator()
 
     /**
      * Independent, bounded cleanup scope. viewModelScope is already cancelled
@@ -757,18 +759,36 @@ class ChartViewModel @Inject constructor(
             smtDivergences = smtDivergences,
             barMode = barMode,
         )
+        val frameSignals = signalComputer.computeSignals(
+            litXAnalysis = litXAnalysis.takeIf { ind.litX },
+            tradeProAnalysis = tradeProAnalysis,
+            smtDivergences = smtDivergences,
+            candles = displayCandles,
+            strategySignals = chartStrategySignals,
+            litAnalysis = litAnalysis.takeIf { ind.lit },
+            smsAnalysis = smsAnalysis.takeIf { ind.sms },
+            latestConfirmedIndex = latestConfirmedIndex,
+            fusion = signalFusion,
+        )
+        val liveSignalContext = LiveSignalContext(
+            provider = mappedState.dataProvider,
+            symbol = symbol.trim().uppercase(),
+            timeframe = timeframe,
+            barMode = barMode,
+        )
+        val retainedSignals = liveSignalArchive.merge(
+            context = liveSignalContext,
+            frameSignals = frameSignals,
+            candles = displayCandles,
+        )
+        val liveSignalStats = liveSignalPerformanceEvaluator.evaluate(
+            signals = liveSignalArchive.liveSnapshot(liveSignalContext, displayCandles),
+            candles = displayCandles,
+            timeframe = timeframe,
+        )
         _uiState.value = mappedState.copy(
-            signals = signalComputer.computeSignals(
-                litXAnalysis = litXAnalysis.takeIf { ind.litX },
-                tradeProAnalysis = tradeProAnalysis,
-                smtDivergences = smtDivergences,
-                candles = displayCandles,
-                strategySignals = chartStrategySignals,
-                litAnalysis = litAnalysis.takeIf { ind.lit },
-                smsAnalysis = smsAnalysis.takeIf { ind.sms },
-                latestConfirmedIndex = latestConfirmedIndex,
-                fusion = signalFusion,
-            ),
+            signals = retainedSignals,
+            liveSignalStats = liveSignalStats,
             dataFreshness = MarketDataFreshnessResolver.resolve(
                 source = source,
                 connectionState = mappedState.connectionState,
@@ -1511,6 +1531,7 @@ class ChartViewModel @Inject constructor(
             dataFreshness = MarketDataFreshness.CACHED, dataAgeMs = null,
             showSymbolPicker = if (clearSymbolPicker) false else _uiState.value.showSymbolPicker,
             aiDecision = null, confluence = null,
+            signals = emptyList(), liveSignalStats = LiveSignalPerformanceStats(),
             chartBacktest = ChartBacktestState(
                 selectedStrategy = _uiState.value.chartBacktest.selectedStrategy,
                 selectedRange = _uiState.value.chartBacktest.selectedRange,
@@ -1586,6 +1607,8 @@ class ChartViewModel @Inject constructor(
         val backtest = current.chartBacktest
         _uiState.value = current.copy(
             barMode = barMode,
+            signals = emptyList(),
+            liveSignalStats = LiveSignalPerformanceStats(),
             chartBacktest = ChartBacktestState(
                 selectedStrategy = backtest.selectedStrategy,
                 selectedRange = backtest.selectedRange,

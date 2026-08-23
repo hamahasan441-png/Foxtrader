@@ -446,6 +446,14 @@ fun ChartScreen(
                                 .align(Alignment.TopStart)
                                 .padding(8.dp),
                         )
+                        if (!replayState.isActive && state.showSignalHistory && state.liveSignalStats.totalObserved > 0) {
+                            com.foxtrader.app.feature.chart.presentation.components.LiveSignalPerformanceOverlay(
+                                stats = state.liveSignalStats,
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(top = 8.dp, end = 70.dp),
+                            )
+                        }
                         if (!replayState.isActive) {
                             ChartBacktestSummaryOverlay(
                                 state = state.chartBacktest,
