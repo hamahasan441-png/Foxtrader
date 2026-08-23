@@ -70,4 +70,24 @@ fun SmcDetector.computeVolumeProfile(
     buckets: Int = 24,
 ): VolumeProfile = buildVolumeProfile(candles, buckets)
 
+/**
+ * Source-compatible adapter for callers/tests that still use the original
+ * `tolerance` / `minTouches` named arguments. The new detector expresses the
+ * tolerance as a percentage of price and has a native two-touch minimum.
+ */
+fun SmcDetector.detectLiquidity(
+    candles: List<Candle>,
+    tolerance: Double,
+    minTouches: Int,
+): List<LiquidityPool> {
+    val safeTouches = minTouches.coerceAtLeast(2)
+    return detectLiquidity(
+        candles = candles,
+        tolerancePercent = tolerance.coerceAtLeast(0.0),
+        lookback = candles.size.coerceAtLeast(1),
+    ).filter { pool ->
+        safeTouches <= 2 || (pool.endIndex - pool.startIndex + 1) >= safeTouches
+    }
+}
+
 private const val ORDER_BLOCK_RENDER_EXTENSION_BARS = 20
