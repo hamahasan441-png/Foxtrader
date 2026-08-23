@@ -4,23 +4,24 @@ import androidx.compose.ui.unit.dp
 
 /** Central design tokens for the Chart feature. */
 object ChartDimens {
-    // Keep scales readable while giving price action more of the phone width.
-    val priceScaleWidth = 58.dp
-    val timeAxisHeight = 20.dp
+    // Phone-first: keep scales readable while reclaiming a little more room for
+    // price action. Labels still fit typical FX/crypto price precision.
+    val priceScaleWidth = 54.dp
+    val timeAxisHeight = 18.dp
     val subPaneScaleWidth = priceScaleWidth
 
     // --- Stacked sub-panes (RSI / MACD / Volume / oscillators) ---
     val paneHeaderHeight = 18.dp
     val paneMinHeight = 52.dp
-    val paneMaxHeight = 160.dp
-    val paneDefaultHeight = 72.dp
+    val paneMaxHeight = 168.dp
+    val paneDefaultHeight = 80.dp
     val paneSplitterHeight = 8.dp
 
     /**
      * Hard ceiling for the entire study stack. Multiple enabled oscillators may
      * scroll inside this area, but they cannot consume the price canvas.
      */
-    val paneStackMaxHeight = 150.dp
+    val paneStackMaxHeight = 168.dp
 
     // --- Chrome spacing ---
     // Intentionally compact: the chart is the primary surface and top chrome

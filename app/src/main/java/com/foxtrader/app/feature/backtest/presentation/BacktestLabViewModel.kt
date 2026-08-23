@@ -405,7 +405,14 @@ class BacktestLabViewModel @Inject constructor(
         }
 
         return when (state.strategy) {
-            BacktestStrategyTemplate.RSI_MEAN_REVERSION -> ::rsiMeanReversion
+            // Use the same production strategy definition as the strategy
+            // library/live surfaces. This removes the former Backtest-Lab-only
+            // RSI implementation that fired repeatedly on every extreme bar.
+            BacktestStrategyTemplate.RSI_MEAN_REVERSION -> strategyLibrary.get(
+                StrategyType.MEAN_REVERSION,
+                state.symbol,
+                state.timeframe,
+            ).function
             BacktestStrategyTemplate.EMA_TREND_PULLBACK -> ::emaTrendPullback
             BacktestStrategyTemplate.ATR_BREAKOUT -> ::atrBreakout
             BacktestStrategyTemplate.TRADEPRO -> ::tradePro
@@ -438,35 +445,6 @@ class BacktestLabViewModel @Inject constructor(
             confidence = setup.confidence,
             setupType = BacktestStrategyTemplate.TRADEPRO.displayName,
         )
-    }
-
-    private fun rsiMeanReversion(candles: List<Candle>, index: Int): StrategySignal? {
-        if (index < 30 || index >= candles.size) return null
-        val rsi = TechnicalIndicators.calculateRSI(candles, 14)
-        val atr = TechnicalIndicators.calculateATR(candles, 14)
-        val atrValue = atr.getOrNull(index)?.takeIf { it > 0.0 } ?: return null
-        val close = candles[index].close
-        return when {
-            rsi[index] <= 30.0 -> StrategySignal(
-                index = index,
-                timestamp = candles[index].timestamp,
-                direction = Direction.BULLISH,
-                entry = close,
-                stopLoss = close - atrValue * 1.8,
-                takeProfit = close + atrValue * 2.7,
-                setupType = BacktestStrategyTemplate.RSI_MEAN_REVERSION.displayName,
-            )
-            rsi[index] >= 70.0 -> StrategySignal(
-                index = index,
-                timestamp = candles[index].timestamp,
-                direction = Direction.BEARISH,
-                entry = close,
-                stopLoss = close + atrValue * 1.8,
-                takeProfit = close - atrValue * 2.7,
-                setupType = BacktestStrategyTemplate.RSI_MEAN_REVERSION.displayName,
-            )
-            else -> null
-        }
     }
 
     private fun emaTrendPullback(candles: List<Candle>, index: Int): StrategySignal? {

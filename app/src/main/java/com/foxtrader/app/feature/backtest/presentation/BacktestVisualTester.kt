@@ -45,6 +45,9 @@ import kotlin.math.abs
  * The canvas is deliberately bound to [BacktestLabUiState.replayCursor]. It never
  * draws a candle after that cursor, and [projectBacktestReplay] withholds an
  * exit/expiry outcome until its actual bar has been revealed.
+ *
+ * Phone-first rendering keeps a smaller visible window and wider bodies than the
+ * old tester so entries/exits remain legible without compromising causal replay.
  */
 @Composable
 fun BacktestVisualTester(
@@ -74,7 +77,7 @@ fun BacktestVisualTester(
             markers = projection.markers,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(230.dp),
+                .height(300.dp),
         )
 
         Slider(
@@ -201,7 +204,7 @@ private fun ReplayCandleCanvas(
         val maxPrice = rawMax + pad
         val priceSpan = (maxPrice - minPrice).coerceAtLeast(1e-12)
         val slot = size.width / visible.size.coerceAtLeast(1)
-        val bodyW = (slot * 0.62f).coerceIn(2f, 12f)
+        val bodyW = (slot * 0.74f).coerceIn(2.4f, 14f)
 
         fun x(index: Int): Float = ((index - start) + 0.5f) * slot
         fun y(price: Double): Float =
@@ -209,8 +212,8 @@ private fun ReplayCandleCanvas(
                 .toFloat()
                 .coerceIn(0f, size.height)
 
-        repeat(4) { row ->
-            val gy = size.height * row / 4f
+        repeat(5) { row ->
+            val gy = size.height * row / 5f
             drawLine(
                 color = Color(0x223A4657),
                 start = Offset(0f, gy),
@@ -233,10 +236,10 @@ private fun ReplayCandleCanvas(
                 color = color,
                 start = Offset(cx, highY),
                 end = Offset(cx, lowY),
-                strokeWidth = 1.2f,
+                strokeWidth = 1.3f,
             )
             val top = minOf(openY, closeY)
-            val h = abs(closeY - openY).coerceAtLeast(1.5f)
+            val h = abs(closeY - openY).coerceAtLeast(1.7f)
             drawRect(
                 color = color,
                 topLeft = Offset(cx - bodyW / 2f, top),
@@ -251,13 +254,13 @@ private fun ReplayCandleCanvas(
                 val color = if (marker.direction == Direction.BULLISH) FoxBullishText else FoxBearishText
                 val path = Path().apply {
                     if (marker.direction == Direction.BULLISH) {
-                        moveTo(cx, cy - 8f)
-                        lineTo(cx - 6f, cy + 3f)
-                        lineTo(cx + 6f, cy + 3f)
+                        moveTo(cx, cy - 9f)
+                        lineTo(cx - 6.5f, cy + 3.5f)
+                        lineTo(cx + 6.5f, cy + 3.5f)
                     } else {
-                        moveTo(cx, cy + 8f)
-                        lineTo(cx - 6f, cy - 3f)
-                        lineTo(cx + 6f, cy - 3f)
+                        moveTo(cx, cy + 9f)
+                        lineTo(cx - 6.5f, cy - 3.5f)
+                        lineTo(cx + 6.5f, cy - 3.5f)
                     }
                     close()
                 }
@@ -274,7 +277,7 @@ private fun ReplayCandleCanvas(
                 }
                 drawCircle(
                     color = color,
-                    radius = 4.5f,
+                    radius = 5f,
                     center = Offset(x(exit), y(exitPrice)),
                 )
             }
@@ -289,4 +292,4 @@ private fun ReplayCandleCanvas(
     }
 }
 
-private const val MAX_VISIBLE_BARS = 100
+private const val MAX_VISIBLE_BARS = 72
