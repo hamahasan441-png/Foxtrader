@@ -18,7 +18,7 @@ enum class BacktestStrategyTemplate(
 ) {
     RSI_MEAN_REVERSION(
         displayName = "RSI Mean Reversion",
-        description = "Fades RSI extremes with ATR-based 2R/3R exits.",
+        description = "Trades confirmed RSI exits from oversold/overbought with ATR-adaptive risk.",
     ),
     EMA_TREND_PULLBACK(
         displayName = "EMA Trend Pullback",
@@ -80,7 +80,14 @@ data class BacktestLabUiState(
         get() = selectedBlueprint?.name ?: strategy.displayName
 
     val selectedStrategyDescription: String
-        get() = selectedBlueprint?.summary() ?: strategy.description
+        get() {
+            val base = selectedBlueprint?.summary() ?: strategy.description
+            return if (isBinary3m) {
+                base
+            } else {
+                "$base • Execution: closed-bar signal → next-bar-open market fill."
+            }
+        }
 
     companion object {
         val DEFAULT_SYMBOLS = persistentListOf(

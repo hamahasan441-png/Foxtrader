@@ -14,19 +14,19 @@ import javax.inject.Inject
 /**
  * AI-Scored Backtest Engine.
  *
- * Wraps the standard [BacktestEngine] and evaluates every trade entry against
- * the AI decision pipeline (orchestrator → MasterDecisionEngine). Each trade
- * is annotated with:
+ * Wraps the standard [BacktestEngine] and evaluates every trade decision against
+ * the AI decision pipeline (orchestrator → MasterDecisionEngine). Each trade is
+ * annotated with:
  *   - Whether the AI would have approved it ([BacktestTrade.aiApproved])
  *   - The signal grade ([BacktestTrade.aiGrade])
  *   - The aggregate confidence and confluence count
  *
  * NON-REPAINTING guarantees:
- *   - Primary candles: trimmed to [0..entryIndex] (inclusive).
- *   - HTF candles: trimmed so that only CLOSED bars whose open time + bar
+ *   - Primary candles are trimmed to [0..signalIndex] (inclusive), not the later
+ *     execution bar used by NEXT_BAR_OPEN fills.
+ *   - HTF candles are trimmed so that only CLOSED bars whose open time + bar
  *     duration ≤ decision timestamp are visible. A bar that was still forming
- *     at the decision moment is excluded entirely, matching how live trading
- *     works — a higher-timeframe bar is not readable until it closes.
+ *     at the decision moment is excluded entirely, matching live analysis.
  *
  * Pure domain logic — no Android dependencies.
  */
@@ -36,7 +36,10 @@ class AiScoredBacktestEngine @Inject constructor(
     private val decisionEngine: MasterDecisionEngine,
 ) {
 
-    fun updateConfig(config: BacktestConfig) { backtestEngine.updateConfig(config) }
+    fun updateConfig(config: BacktestConfig) {
+        backtestEngine.updateConfig(config)
+    }
+
     fun getConfig(): BacktestConfig = backtestEngine.getConfig()
 
     operator fun invoke(
@@ -54,17 +57,21 @@ class AiScoredBacktestEngine @Inject constructor(
         }
 
         val scoredTrades = baseResult.trades.map { trade ->
-            scoreTradeEntry(trade, candles, symbol, timeframe, htfCandles, dataSource)
+            scoreTradeDecision(trade, candles, symbol, timeframe, htfCandles, dataSource)
         }
 
         val approved = scoredTrades.filter { it.aiApproved == true }
         val approvalRate = if (scoredTrades.isNotEmpty()) {
             (approved.size.toDouble() / scoredTrades.size) * 100.0
-        } else null
+        } else {
+            null
+        }
 
         val filteredMetrics = if (approved.size >= 2) {
             computeFilteredMetrics(approved, baseResult.config.initialBalance)
-        } else null
+        } else {
+            null
+        }
 
         return baseResult.copy(
             trades = scoredTrades,
@@ -74,7 +81,7 @@ class AiScoredBacktestEngine @Inject constructor(
         )
     }
 
-    private fun scoreTradeEntry(
+    private fun scoreTradeDecision(
         trade: BacktestTrade,
         candles: List<Candle>,
         symbol: String,
@@ -82,13 +89,16 @@ class AiScoredBacktestEngine @Inject constructor(
         htfCandles: Map<Timeframe, List<Candle>>,
         dataSource: CandleSource,
     ): BacktestTrade {
-        val visibleCandles = candles.subList(0, (trade.entryIndex + 1).coerceAtMost(candles.size))
+        // NEXT_BAR_OPEN deliberately separates the decision bar from the fill
+        // bar. Scoring against entryIndex would expose the whole future fill
+        // candle to the AI, creating look-ahead. Always anchor to signalIndex.
+        val decisionIndex = trade.signalIndex.coerceIn(0, candles.lastIndex)
+        val visibleCandles = candles.subList(0, decisionIndex + 1)
         if (visibleCandles.size < MIN_BARS_FOR_AI) return trade
 
-        // Point-in-time HTF filter: the AI may only see HTF bars that had
-        // CLOSED at or before the moment the entry bar closed.
-        // Formula: bar.timestamp + htf.minutes*60_000 <= entryTime + ltf.minutes*60_000
-        val decisionTimestamp = trade.entryTime + timeframe.minutes * 60_000L
+        // Candle timestamps represent bar open times. The decision becomes
+        // available only once its signal candle has closed.
+        val decisionTimestamp = trade.signalTime + timeframe.minutes * 60_000L
         val pointInTimeHtf = htfCandles.mapValues { (htf, bars) ->
             val htfBarMs = htf.minutes * 60_000L
             bars.filter { bar -> bar.timestamp + htfBarMs <= decisionTimestamp }
@@ -115,36 +125,55 @@ class AiScoredBacktestEngine @Inject constructor(
         trades: List<BacktestTrade>,
         initialBalance: Double,
     ): com.foxtrader.app.domain.model.BacktestMetrics {
-        val wins   = trades.filter { it.netPnL > 0 }
+        val wins = trades.filter { it.netPnL > 0 }
         val losses = trades.filter { it.netPnL <= 0 }
         val grossProfit = wins.sumOf { it.netPnL }
-        val grossLoss   = kotlin.math.abs(losses.sumOf { it.netPnL })
-        val netProfit   = grossProfit - grossLoss
-        val winRate     = if (trades.isNotEmpty()) (wins.size.toDouble() / trades.size) * 100.0 else 0.0
-        val avgWin      = if (wins.isNotEmpty()) grossProfit / wins.size else 0.0
-        val avgLoss     = if (losses.isNotEmpty()) grossLoss / losses.size else 0.0
-        val profitFactor = if (grossLoss > 0) grossProfit / grossLoss
-                           else if (grossProfit > 0) Double.MAX_VALUE else 0.0
-        val expectancy   = (winRate / 100.0) * avgWin - ((100.0 - winRate) / 100.0) * avgLoss
-        val safeDenom    = if (initialBalance > 0.0) initialBalance else 1.0
+        val grossLoss = kotlin.math.abs(losses.sumOf { it.netPnL })
+        val netProfit = grossProfit - grossLoss
+        val winRate = if (trades.isNotEmpty()) (wins.size.toDouble() / trades.size) * 100.0 else 0.0
+        val avgWin = if (wins.isNotEmpty()) grossProfit / wins.size else 0.0
+        val avgLoss = if (losses.isNotEmpty()) grossLoss / losses.size else 0.0
+        val profitFactor = if (grossLoss > 0) {
+            grossProfit / grossLoss
+        } else if (grossProfit > 0) {
+            Double.MAX_VALUE
+        } else {
+            0.0
+        }
+        val expectancy = (winRate / 100.0) * avgWin - ((100.0 - winRate) / 100.0) * avgLoss
+        val safeDenom = if (initialBalance > 0.0) initialBalance else 1.0
 
         return com.foxtrader.app.domain.model.BacktestMetrics(
-            netProfit = netProfit, grossProfit = grossProfit, grossLoss = grossLoss,
-            totalTrades = trades.size, winningTrades = wins.size, losingTrades = losses.size,
-            winRate = winRate, profitFactor = profitFactor, expectancy = expectancy,
+            netProfit = netProfit,
+            grossProfit = grossProfit,
+            grossLoss = grossLoss,
+            totalTrades = trades.size,
+            winningTrades = wins.size,
+            losingTrades = losses.size,
+            winRate = winRate,
+            profitFactor = profitFactor,
+            expectancy = expectancy,
             averageTrade = if (trades.isNotEmpty()) netProfit / trades.size else 0.0,
-            averageWin = avgWin, averageLoss = avgLoss,
-            largestWin  = wins.maxOfOrNull { it.netPnL } ?: 0.0,
+            averageWin = avgWin,
+            averageLoss = avgLoss,
+            largestWin = wins.maxOfOrNull { it.netPnL } ?: 0.0,
             largestLoss = losses.minOfOrNull { it.netPnL } ?: 0.0,
-            maxDrawdown = 0.0, maxDrawdownPercent = 0.0,
-            sharpeRatio = 0.0, sortinoRatio = 0.0, calmarRatio = 0.0, recoveryFactor = 0.0,
+            maxDrawdown = 0.0,
+            maxDrawdownPercent = 0.0,
+            sharpeRatio = 0.0,
+            sortinoRatio = 0.0,
+            calmarRatio = 0.0,
+            recoveryFactor = 0.0,
             avgHoldingBars = trades.sumOf { it.holdingBars }.toDouble() / trades.size,
-            maxConsecutiveWins = 0, maxConsecutiveLosses = 0,
-            finalBalance  = initialBalance + netProfit,
+            maxConsecutiveWins = 0,
+            maxConsecutiveLosses = 0,
+            finalBalance = initialBalance + netProfit,
             returnPercent = (netProfit / safeDenom) * 100.0,
             totalCommission = trades.sumOf { it.commission },
         )
     }
 
-    private companion object { const val MIN_BARS_FOR_AI = 50 }
+    private companion object {
+        const val MIN_BARS_FOR_AI = 50
+    }
 }
