@@ -20,6 +20,7 @@ enum class ChartStudyId(
     ICHIMOKU("Ichimoku", 52),
     PARABOLIC_SAR("Parabolic SAR", 2),
     RSI("RSI", 15),
+    RSI_ORDER_FLOW("RSI OrderFlow", 25, contextHint = "OHLCV delta/CVD proxy"),
     MACD("MACD", 35),
     STOCHASTIC("Stochastic", 15),
     BOLLINGER("Bollinger", 20),

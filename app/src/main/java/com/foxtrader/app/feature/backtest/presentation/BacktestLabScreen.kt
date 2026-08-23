@@ -129,6 +129,10 @@ fun BacktestLabScreen(
                 )
             }
 
+            if (state.hasReplayData && !state.isRunning) {
+                BacktestVisualTester(state = state, viewModel = viewModel)
+            }
+
             val result = state.result
             val binaryResult = state.binaryResult
             when {

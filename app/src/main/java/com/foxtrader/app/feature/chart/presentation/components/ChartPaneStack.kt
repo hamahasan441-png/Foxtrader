@@ -69,6 +69,7 @@ fun ChartPaneStack(
 ) {
     val active = buildList {
         if (indicators.rsi && rsiValues != null && candles.isNotEmpty()) add(StudyPane.RSI)
+        if (indicators.rsiOrderFlow && candles.isNotEmpty()) add(StudyPane.RSI_ORDER_FLOW)
         if (indicators.macd && macdLine != null && macdSignal != null && macdHistogram != null) add(StudyPane.MACD)
         if (indicators.stochastic && stochasticK != null && stochasticD != null) add(StudyPane.STOCHASTIC)
         if (indicators.obv && obv != null) add(StudyPane.OBV)
@@ -142,7 +143,15 @@ fun ChartPaneStack(
 
             if (!collapsed) {
                 when (selected) {
-                    StudyPane.RSI -> RsiOrderFlowSubChart(
+                    StudyPane.RSI -> rsiValues?.let {
+                        RsiSubChart(
+                            rsiValues = it,
+                            startIndex = startIndex,
+                            visibleBars = visibleBars,
+                            canvasHeight = STUDY_CANVAS_HEIGHT,
+                        )
+                    }
+                    StudyPane.RSI_ORDER_FLOW -> RsiOrderFlowSubChart(
                         candles = candles,
                         startIndex = startIndex,
                         visibleBars = visibleBars,
@@ -218,7 +227,8 @@ private fun StudyTab(
 }
 
 private enum class StudyPane(val key: String, val label: String) {
-    RSI("rsi", "RSI OF"),
+    RSI("rsi", "RSI"),
+    RSI_ORDER_FLOW("rsi_order_flow", "RSI OF"),
     MACD("macd", "MACD"),
     STOCHASTIC("stochastic", "Stoch"),
     OBV("obv", "OBV"),

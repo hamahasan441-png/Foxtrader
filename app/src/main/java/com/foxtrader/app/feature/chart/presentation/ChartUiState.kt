@@ -72,6 +72,7 @@ data class IndicatorToggles(
     val tradePro: Boolean = false,
     val binary3m: Boolean = false,
     val rsi: Boolean = false,
+    val rsiOrderFlow: Boolean = false,
     val macd: Boolean = false,
     val volume: Boolean = false,
     val stochastic: Boolean = false,
@@ -87,7 +88,7 @@ data class IndicatorToggles(
             ichimoku || keltner || donchian || pivotPoints || volumeProfile || marketProfile ||
             supportResistance || fibonacci || confluence || orderBlocks || fairValueGaps ||
             liquidity || sessions || structure || litX || lit || sms || smt || tradePro || binary3m ||
-            rsi || macd || volume || stochastic || obv || moneyFlowIndex ||
+            rsi || rsiOrderFlow || macd || volume || stochastic || obv || moneyFlowIndex ||
             activeStrategy != null || activeBlueprintId != null || allStrategies
 
     val smcSuiteActive: Boolean
