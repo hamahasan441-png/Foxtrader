@@ -1,16 +1,12 @@
 package com.foxtrader.app.data.remote.api
 
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.DataProvider
+import com.foxtrader.app.domain.model.ProviderMarketSymbol
 import com.foxtrader.app.domain.model.Timeframe
 import javax.inject.Inject
 
-/**
- * Adapter that fetches historical candles from Bybit's public V5 REST API.
- *
- * This complements [com.foxtrader.app.data.remote.websocket.BybitWebSocket] so
- * a Bybit-selected chart loads an initial historical viewport before live
- * forming candles arrive.
- */
+/** Adapter for Bybit V5 public spot history and symbol discovery. */
 class BybitDataSource @Inject constructor(
     private val bybitApi: BybitApi,
 ) {
@@ -59,9 +55,31 @@ class BybitDataSource @Inject constructor(
             .takeLast(limit.coerceIn(1, 1000))
     }
 
-    /**
-     * Returns true if the symbol is likely supported by Bybit spot public data.
-     */
+    /** Load Bybit's actual spot instruments. Spot directory is non-paginated. */
+    suspend fun discoverSymbols(): List<ProviderMarketSymbol> {
+        val response = bybitApi.getInstrumentsInfo(category = "spot")
+        if (response.retCode != 0) {
+            throw IllegalStateException("Bybit: ${response.retMsg.ifBlank { "retCode ${response.retCode}" }}")
+        }
+        return response.result?.instruments.orEmpty()
+            .asSequence()
+            .mapNotNull { instrument ->
+                ProviderSymbolNormalization.cryptoSpot(
+                    provider = DataProvider.BYBIT,
+                    providerSymbol = instrument.symbol,
+                    baseAsset = instrument.baseCoin,
+                    quoteAsset = instrument.quoteCoin,
+                    displayName = instrument.displayName,
+                    tickSizeText = instrument.priceFilter?.tickSize,
+                    category = instrument.symbolType,
+                    isTrading = instrument.status.equals("Trading", ignoreCase = true),
+                )
+            }
+            .distinctBy { it.providerSymbol }
+            .sortedBy { it.providerSymbol }
+            .toList()
+    }
+
     fun isBybitSymbol(symbol: String): Boolean {
         val upper = normalizeSymbol(symbol)
         return BYBIT_QUOTE_SUFFIXES.any { upper.endsWith(it) }
