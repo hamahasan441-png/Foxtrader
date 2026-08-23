@@ -36,19 +36,20 @@ import kotlin.math.min
  * - [StrategyPackageEngine.Analysis.signal] marks a currently executable setup.
  *
  * Both are derived from one causal package containing technical state, confirmed
- * structure, full SMC detections, session context and strategy-specific logic.
- * Direction/confidence controls from the chart strategy gear are applied here as
- * well; R:R controls apply only when an executable entry actually exists.
+ * structure, full SMC detections, candlestick patterns, Wyckoff state, sessions
+ * and strategy-specific execution logic. Direction/confidence controls from the
+ * chart strategy gear are applied here as well; R:R controls apply only when an
+ * executable entry actually exists.
  */
 class ScannerUseCase @Inject constructor(
     private val smcDetector: SmcDetector,
-    // Retained in the public constructor for source/Hilt compatibility. Pattern,
-    // Bollinger and Wyckoff evidence is now represented by the canonical package
-    // path instead of a second scanner-only strategy implementation.
-    @Suppress("unused") private val candlePatternDetector: CandlePatternDetector,
+    private val candlePatternDetector: CandlePatternDetector,
     private val ichimokuCloud: IchimokuCloud,
+    // Retained for public constructor/Hilt compatibility. Bollinger analysis is
+    // represented in canonical technical/package logic rather than a second
+    // scanner-only strategy implementation.
     @Suppress("unused") private val bollingerBands: BollingerBands,
-    @Suppress("unused") private val wyckoffDetector: WyckoffDetector,
+    private val wyckoffDetector: WyckoffDetector,
     private val analyzeStructure: AnalyzeMarketStructureUseCase,
     private val litXEngine: com.foxtrader.app.domain.usecase.litx.LitXEngine,
     private val litEngine: LitEngine = LitEngine(
@@ -66,6 +67,8 @@ class ScannerUseCase @Inject constructor(
         ichimokuCloud = ichimokuCloud,
         litXEngine = litXEngine,
         litEngine = litEngine,
+        candlePatternDetector = candlePatternDetector,
+        wyckoffDetector = wyckoffDetector,
     )
 
     /** Scan every enabled watchlist symbol using the selected canonical package. */
