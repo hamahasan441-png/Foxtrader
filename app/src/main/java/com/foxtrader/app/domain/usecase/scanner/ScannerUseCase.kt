@@ -21,6 +21,7 @@ import com.foxtrader.app.domain.usecase.signalintel.ConfirmedBarPolicy
 import com.foxtrader.app.domain.usecase.signalintel.LitEngine
 import com.foxtrader.app.domain.usecase.smc.SmcDetector
 import com.foxtrader.app.domain.usecase.strategies.StrategyPackageEngine
+import com.foxtrader.app.domain.usecase.strategies.StrategyRuntimeSettingsRegistry
 import javax.inject.Inject
 import kotlin.math.abs
 import kotlin.math.min
@@ -36,6 +37,8 @@ import kotlin.math.min
  *
  * Both are derived from one causal package containing technical state, confirmed
  * structure, full SMC detections, session context and strategy-specific logic.
+ * Direction/confidence controls from the chart strategy gear are applied here as
+ * well; R:R controls apply only when an executable entry actually exists.
  */
 class ScannerUseCase @Inject constructor(
     private val smcDetector: SmcDetector,
@@ -139,12 +142,24 @@ class ScannerUseCase @Inject constructor(
             candles = candles,
             index = last,
         )
-        val direction = packageAnalysis.signal?.direction
-            ?: packageAnalysis.preferredDirection
-            ?: return null
+        val runtimeSettings = StrategyRuntimeSettingsRegistry.get(strategy)
 
-        val score = (packageAnalysis.signal?.confidence ?: packageAnalysis.packageScore)
-            .coerceIn(0, 100)
+        // Executable setups obey every shared strategy control, including R:R
+        // and target override. Ranking-only rows have no entry/stop yet, so only
+        // direction and confidence gates are meaningful for those rows.
+        val executableSignal = packageAnalysis.signal?.let { raw ->
+            StrategyRuntimeSettingsRegistry.apply(runtimeSettings, raw)
+        }
+        val rankingDirection = packageAnalysis.preferredDirection?.takeIf { direction ->
+            when (direction) {
+                Direction.BULLISH -> runtimeSettings.allowBullish
+                Direction.BEARISH -> runtimeSettings.allowBearish
+            }
+        }
+        val direction = executableSignal?.direction ?: rankingDirection ?: return null
+        val score = (executableSignal?.confidence ?: packageAnalysis.packageScore).coerceIn(0, 100)
+        if (score < runtimeSettings.minimumConfidence) return null
+
         val start = (last - CHANGE_LOOKBACK_BARS).coerceAtLeast(0)
         val startPrice = candles[start].close
         val changePercent = if (startPrice.isFinite() && abs(startPrice) > MIN_DIVISOR_THRESHOLD) {
@@ -162,7 +177,7 @@ class ScannerUseCase @Inject constructor(
 
         val tags = buildList {
             add("PACKAGE")
-            if (packageAnalysis.signal != null) add("EXECUTABLE")
+            if (executableSignal != null) add("EXECUTABLE")
             packageAnalysis.confirmations
                 .asSequence()
                 .map { it.substringBefore(':') }
@@ -209,7 +224,9 @@ class ScannerUseCase @Inject constructor(
                     riskLevel = riskLevel,
                 ),
             ),
-            validatedLitXSignal = packageAnalysis.validatedLitXSignal,
+            // A validated institutional event is persisted only when the shared
+            // runtime controls still accept its executable setup.
+            validatedLitXSignal = packageAnalysis.validatedLitXSignal.takeIf { executableSignal != null },
         )
     }
 
@@ -301,7 +318,6 @@ class ScannerUseCase @Inject constructor(
         private const val MAX_PACKAGE_TAGS = 5
 
         val DEFAULT_WATCHLIST: List<ScreenerSymbol> = listOf(
-            // Forex
             ScreenerSymbol("EURUSD", AssetClass.FOREX),
             ScreenerSymbol("GBPUSD", AssetClass.FOREX),
             ScreenerSymbol("USDJPY", AssetClass.FOREX),
@@ -312,30 +328,24 @@ class ScannerUseCase @Inject constructor(
             ScreenerSymbol("EURGBP", AssetClass.FOREX),
             ScreenerSymbol("EURJPY", AssetClass.FOREX),
             ScreenerSymbol("GBPJPY", AssetClass.FOREX),
-            // Crypto
             ScreenerSymbol("BTCUSDT", AssetClass.CRYPTO),
             ScreenerSymbol("ETHUSDT", AssetClass.CRYPTO),
             ScreenerSymbol("SOLUSDT", AssetClass.CRYPTO),
             ScreenerSymbol("BNBUSDT", AssetClass.CRYPTO),
             ScreenerSymbol("XRPUSDT", AssetClass.CRYPTO),
-            // Stocks
             ScreenerSymbol("AAPL", AssetClass.STOCKS),
             ScreenerSymbol("MSFT", AssetClass.STOCKS),
             ScreenerSymbol("NVDA", AssetClass.STOCKS),
             ScreenerSymbol("TSLA", AssetClass.STOCKS),
             ScreenerSymbol("AMZN", AssetClass.STOCKS),
-            // Indices
             ScreenerSymbol("US30", AssetClass.INDICES),
             ScreenerSymbol("NAS100", AssetClass.INDICES),
             ScreenerSymbol("US500", AssetClass.INDICES),
             ScreenerSymbol("DE30", AssetClass.INDICES),
-            // Metals
             ScreenerSymbol("XAUUSD", AssetClass.METALS),
             ScreenerSymbol("XAGUSD", AssetClass.METALS),
-            // Energy
             ScreenerSymbol("WTIUSD", AssetClass.ENERGY),
             ScreenerSymbol("BRENTUSD", AssetClass.ENERGY),
-            // Commodities
             ScreenerSymbol("NATGAS", AssetClass.COMMODITIES),
             ScreenerSymbol("COPPER", AssetClass.COMMODITIES),
         )
