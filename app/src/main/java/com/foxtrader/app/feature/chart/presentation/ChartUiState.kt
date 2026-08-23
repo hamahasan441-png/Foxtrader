@@ -42,6 +42,11 @@ import kotlinx.collections.immutable.persistentListOf
 /**
  * Which indicators are currently enabled on the chart.
  * Immutable — toggled via the chart's indicator panel.
+ *
+ * [settings] deliberately lives in the same value object as the enable flags.
+ * This means the existing coordinator snapshot/equality check invalidates an
+ * incremental frame when any parameter changes; values calculated with old
+ * periods can never be reused under a new settings label.
  */
 @Immutable
 data class IndicatorToggles(
@@ -82,6 +87,7 @@ data class IndicatorToggles(
     val activeStrategy: StrategyType? = null,
     val activeBlueprintId: String? = null,
     val allStrategies: Boolean = false,
+    val settings: ChartStudySettings = ChartStudySettings(),
 ) {
     val anyActive: Boolean
         get() = ema || bollinger || superTrend || parabolicSar || vwap || anchoredVwap ||
@@ -165,7 +171,6 @@ data class IndicatorToggles(
 }
 
 enum class ChartBacktestRange(val label: String, val days: Int?) {
-    /** Test exactly the bars currently visible in the primary chart viewport. */
     VISIBLE("Visible", null),
     LOADED("Loaded", null),
     ONE_MONTH("1M", 30),
