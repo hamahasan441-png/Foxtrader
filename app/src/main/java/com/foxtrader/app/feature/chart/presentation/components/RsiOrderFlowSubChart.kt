@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.usecase.indicators.RsiOrderFlow
 import com.foxtrader.app.feature.chart.presentation.ChartDimens
+import com.foxtrader.app.feature.chart.presentation.RsiOrderFlowStudySettings
 import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxNeutral5
 import kotlin.math.max
@@ -48,12 +49,8 @@ private val RsiOfZoneFill = Color(0x12FFC107)
 private val RsiOfLabelArgb = android.graphics.Color.parseColor("#99999F")
 
 /**
- * RSI OrderFlow pane.
- *
- * RSI is plotted on the same 0..100 scale as a smoothed directional-flow
- * oscillator. Flow bars are an OHLCV proxy, not exchange bid/ask footprint.
- * Confirmed dual RSI+flow divergences remain visible historically and are drawn
- * only after their right-side pivot confirmation is available.
+ * RSI OrderFlow pane using the exact settings stored in chart state.
+ * Flow remains an OHLCV directional-pressure proxy, not exchange footprint.
  */
 @Composable
 fun RsiOrderFlowSubChart(
@@ -62,9 +59,27 @@ fun RsiOrderFlowSubChart(
     visibleBars: Float,
     modifier: Modifier = Modifier,
     canvasHeight: Dp = ChartDimens.paneDefaultHeight,
+    settings: RsiOrderFlowStudySettings = RsiOrderFlowStudySettings(),
 ) {
-    val analysis = remember(candles) {
-        runCatching { RsiOrderFlow.calculate(candles) }.getOrNull()
+    val cfg = settings.sanitized()
+    val analysis = remember(candles, cfg) {
+        runCatching {
+            RsiOrderFlow.calculate(
+                candles,
+                RsiOrderFlow.Config(
+                    rsiPeriod = cfg.rsiPeriod,
+                    flowPeriod = cfg.flowPeriod,
+                    flowSmoothing = cfg.flowSmoothing,
+                    pivotLeft = cfg.pivotLeft,
+                    pivotRight = cfg.pivotRight,
+                    minPivotSeparation = cfg.minPivotSeparation,
+                    maxPivotSeparation = cfg.maxPivotSeparation,
+                    minRsiDifference = cfg.minRsiDifference,
+                    minFlowDifference = cfg.minFlowDifference,
+                    includeHidden = cfg.includeHidden,
+                ),
+            )
+        }.getOrNull()
     } ?: return
     if (analysis.rsi.isEmpty()) return
 
@@ -92,7 +107,7 @@ fun RsiOrderFlowSubChart(
                 .padding(horizontal = 12.dp, vertical = 2.dp),
         ) {
             Text(
-                text = "RSI OrderFlow · proxy",
+                text = "RSI OF(${cfg.rsiPeriod}/${cfg.flowPeriod}) · proxy",
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold,
                 color = FoxAmber50,
@@ -130,18 +145,13 @@ fun RsiOrderFlowSubChart(
 
             fun yFor(value: Double): Float =
                 ((100.0 - value.coerceIn(0.0, 100.0)) / 100.0 * h).toFloat()
-            fun xFor(index: Float): Float =
-                (index - startIndex) / visibleBars * chartW
+            fun xFor(index: Float): Float = (index - startIndex) / visibleBars * chartW
 
             val y70 = yFor(70.0)
             val y50 = yFor(50.0)
             val y30 = yFor(30.0)
 
-            drawRect(
-                color = RsiOfZoneFill,
-                topLeft = Offset(0f, y70),
-                size = Size(chartW, (y30 - y70).coerceAtLeast(0f)),
-            )
+            drawRect(RsiOfZoneFill, Offset(0f, y70), Size(chartW, (y30 - y70).coerceAtLeast(0f)))
             drawLine(RsiOfOverbought.copy(alpha = 0.48f), Offset(0f, y70), Offset(chartW, y70), 1f, pathEffect = PaneDash)
             drawLine(RsiOfGrid, Offset(0f, y50), Offset(chartW, y50), 0.7f, pathEffect = PaneDash)
             drawLine(RsiOfOversold.copy(alpha = 0.48f), Offset(0f, y30), Offset(chartW, y30), 1f, pathEffect = PaneDash)
@@ -153,7 +163,6 @@ fun RsiOrderFlowSubChart(
             val pxPerBar = chartW / visibleBars.coerceAtLeast(2f)
             val flowBarWidth = (pxPerBar * 0.62f).coerceIn(1f, 8f)
 
-            // Order-flow pressure histogram around the neutral 50 line.
             for (i in visStart until visEnd) {
                 val value = analysis.flow[i]
                 if (!value.isFinite()) continue
@@ -189,20 +198,13 @@ fun RsiOrderFlowSubChart(
                     }
                 }
                 if (started) {
-                    drawPath(
-                        path = path,
-                        color = color,
-                        style = Stroke(width = width, cap = StrokeCap.Round, join = StrokeJoin.Round),
-                    )
+                    drawPath(path, color, style = Stroke(width = width, cap = StrokeCap.Round, join = StrokeJoin.Round))
                 }
             }
 
             drawSeries(analysis.flow, RsiOfFlowLine.copy(alpha = 0.9f), 1.5f)
             drawSeries(analysis.rsi, RsiOfRsiLine, 2.2f)
 
-            // Historical confirmed divergences. The line is attached to the
-            // actual oscillator pivots; the small dot is on confirmedIndex so
-            // the user can see when the setup became knowable in real time.
             analysis.divergences.forEach { div ->
                 if (div.confirmedIndex >= analysis.rsi.size) return@forEach
                 if (div.endIndex < visStart - 2 || div.startIndex > visEnd + 2) return@forEach
