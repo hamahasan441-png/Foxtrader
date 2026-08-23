@@ -4,7 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.foxtrader.app.di.DefaultDispatcher
 import com.foxtrader.app.domain.model.CandleSource
-import com.foxtrader.app.domain.model.ScreenerSymbol
+import com.foxtrader.app.domain.model.MarketMover
+import com.foxtrader.app.domain.model.WatchlistSymbol
 import com.foxtrader.app.domain.repository.AlertRepository
 import com.foxtrader.app.domain.repository.JournalRepository
 import com.foxtrader.app.domain.repository.MarketRepository
@@ -13,7 +14,7 @@ import com.foxtrader.app.domain.usecase.home.HomeInsightComposer
 import com.foxtrader.app.domain.usecase.portfolio.JournalPositionMapper
 import com.foxtrader.app.domain.usecase.portfolio.PortfolioEngine
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
-import com.foxtrader.app.domain.usecase.scanner.ScannerUseCase
+import com.foxtrader.app.domain.usecase.watchlist.ActiveWatchlistSymbols
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.CancellationException
@@ -27,11 +28,12 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 import javax.inject.Inject
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
-    private val scannerUseCase: ScannerUseCase,
+    private val activeWatchlistSymbols: ActiveWatchlistSymbols,
     private val marketRepository: MarketRepository,
     private val journalRepository: JournalRepository,
     private val alertRepository: AlertRepository,
@@ -52,7 +54,7 @@ class HomeViewModel @Inject constructor(
     }
 
     fun refresh() {
-        viewModelScope.launch { scanMarkets() }
+        viewModelScope.launch { refreshMarketSnapshot() }
     }
 
     private fun observeLocalBooks() {
@@ -72,7 +74,7 @@ class HomeViewModel @Inject constructor(
             )
         }.onEach { books ->
             val open = books.entries.filter { it.isOpen }
-            val livePrices = open.associate { it.symbol.uppercase() to (it.entryPrice) }
+            val livePrices = open.associate { it.symbol.uppercase() to it.entryPrice }
             val equity = appPreferences.riskConfig.value.accountBalance
             val snapshot = if (open.isEmpty()) {
                 null
@@ -108,37 +110,56 @@ class HomeViewModel @Inject constructor(
         }.launchIn(viewModelScope)
     }
 
-    private suspend fun scanMarkets() {
+    private suspend fun refreshMarketSnapshot() {
         _uiState.update { it.copy(isLoading = true, error = null) }
         try {
-            val watchlist = scannerUseCase.getWatchlist()
-            val dataMap = linkedMapOf<String, List<com.foxtrader.app.domain.model.Candle>>()
-            var worstSource = CandleSource.LIVE
+            val watchlist = activeWatchlistSymbols(HOME_MARKET_LIMIT)
             val symbols = preferredSymbols(watchlist)
-            for (ws in symbols) {
-                if (!ws.enabled) continue
-                val sourced = marketRepository.getSourcedCandles(ws.symbol)
-                if (sourced.candles.isEmpty()) continue
-                dataMap[ws.symbol] = sourced.candles
+            val movers = mutableListOf<MarketMover>()
+            var worstSource = CandleSource.LIVE
+            var sourcedCount = 0
+
+            for (item in symbols) {
+                val sourced = marketRepository.getSourcedCandles(item.symbol)
+                val candles = sourced.candles
+                if (candles.isEmpty()) continue
+                sourcedCount += 1
                 worstSource = CandleSource.worstOf(listOf(worstSource, sourced.source))
+                val last = candles.last()
+                val startIndex = (candles.lastIndex - CHANGE_LOOKBACK_BARS).coerceAtLeast(0)
+                val startPrice = candles[startIndex].close
+                val change = if (
+                    last.close.isFinite() &&
+                    startPrice.isFinite() &&
+                    abs(startPrice) > MIN_PRICE
+                ) {
+                    ((last.close - startPrice) / startPrice) * 100.0
+                } else {
+                    0.0
+                }
+                movers += MarketMover(
+                    symbol = item.symbol,
+                    assetClass = item.assetClass,
+                    lastPrice = last.close,
+                    changePercent = change,
+                )
             }
-            val output = withContext(defaultDispatcher) {
-                scannerUseCase(dataMap)
-            }
-            val movers = output.results.sortedByDescending { kotlin.math.abs(it.changePercent) }.take(6)
-            val signals = output.results.sortedByDescending { it.score }.take(5)
+
+            val sortedMovers = movers
+                .sortedByDescending { abs(it.changePercent) }
+                .take(HOME_MOVER_LIMIT)
             _uiState.update { current ->
+                val source = if (sourcedCount == 0) CandleSource.CACHED else worstSource
                 val insights = HomeInsightComposer.compose(
-                    results = output.results,
+                    results = movers,
                     unreadAlerts = current.unreadAlerts,
                     openPositions = current.openPositions,
                     profile = current.profile,
-                    synthetic = worstSource == CandleSource.SYNTHETIC,
+                    synthetic = source == CandleSource.SYNTHETIC,
                 )
                 current.copy(
-                    movers = movers.toPersistentList(),
-                    signals = signals.toPersistentList(),
-                    dataSource = if (dataMap.isEmpty()) CandleSource.CACHED else worstSource,
+                    movers = sortedMovers.toPersistentList(),
+                    dataSource = source,
                     insights = insights.toPersistentList(),
                     isLoading = false,
                 )
@@ -146,14 +167,14 @@ class HomeViewModel @Inject constructor(
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (error: Exception) {
-            _uiState.update { it.copy(isLoading = false, error = error.message ?: "Scan failed") }
+            _uiState.update { it.copy(isLoading = false, error = error.message ?: "Snapshot failed") }
         }
     }
 
-    private fun preferredSymbols(watchlist: List<ScreenerSymbol>): List<ScreenerSymbol> {
+    private fun preferredSymbols(watchlist: List<WatchlistSymbol>): List<WatchlistSymbol> {
         val preferred = _uiState.value.profile.markets
         val filtered = if (preferred.isEmpty()) watchlist else watchlist.filter { it.assetClass in preferred }
-        return (filtered.ifEmpty { watchlist }).take(HOME_SCAN_LIMIT)
+        return filtered.ifEmpty { watchlist }.take(HOME_MARKET_LIMIT)
     }
 
     private data class LocalBooks(
@@ -165,6 +186,9 @@ class HomeViewModel @Inject constructor(
     )
 
     private companion object {
-        const val HOME_SCAN_LIMIT = 18
+        const val HOME_MARKET_LIMIT = 18
+        const val HOME_MOVER_LIMIT = 6
+        const val CHANGE_LOOKBACK_BARS = 20
+        const val MIN_PRICE = 1e-9
     }
 }
