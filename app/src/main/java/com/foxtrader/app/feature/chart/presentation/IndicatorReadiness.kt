@@ -53,6 +53,12 @@ data class IndicatorReadiness(
     val missingBars: Int = 0,
 )
 
+/**
+ * Small read-only runtime snapshot used by the floating indicator command center.
+ * Settings are published alongside bar count/mode so legacy readiness calls that
+ * do not pass settings explicitly still describe the values actually being used
+ * by the calculation pipeline.
+ */
 object ChartIndicatorRuntime {
     @Volatile
     var candleCount: Int = 0
@@ -62,9 +68,17 @@ object ChartIndicatorRuntime {
     var barMode: ChartBarMode = ChartBarMode.TIME
         private set
 
+    @Volatile
+    var settings: ChartStudySettings = ChartStudySettings()
+        private set
+
     fun publish(candleCount: Int, barMode: ChartBarMode) {
         this.candleCount = candleCount.coerceAtLeast(0)
         this.barMode = barMode
+    }
+
+    fun publishSettings(settings: ChartStudySettings) {
+        this.settings = settings.sanitized()
     }
 }
 
@@ -73,7 +87,7 @@ object IndicatorReadinessCatalog {
         study: ChartStudyId,
         candleCount: Int,
         barMode: ChartBarMode,
-        settings: ChartStudySettings = ChartStudySettings(),
+        settings: ChartStudySettings = ChartIndicatorRuntime.settings,
     ): IndicatorReadiness {
         if (study.requiresTimeAxis && !barMode.preservesTimeAxis) {
             return IndicatorReadiness(
