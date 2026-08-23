@@ -1,0 +1,50 @@
+name: One-shot replay overlay clear patch
+
+on:
+  push:
+    branches:
+      - feat/advanced-history-testing
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[history-patch]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/advanced-history-testing
+          fetch-depth: 0
+      - name: Patch replay start
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('app/src/main/java/com/foxtrader/app/feature/chart/presentation/ChartViewModel.kt')
+          s = p.read_text()
+          old = '''        if (latestConfirmed < 1) return
+          val closed = source.subList(0, latestConfirmed + 1)
+
+          if (startAt >= 1) {
+          '''
+          new = '''        if (latestConfirmed < 1) return
+          val closed = source.subList(0, latestConfirmed + 1)
+          // Never flash full-history overlays on the first replay frame while
+          // the prefix-only computation is still running off-main.
+          _uiState.value = _uiState.value.withoutReplayDerivedState()
+
+          if (startAt >= 1) {
+          '''
+          if s.count(old) != 1:
+              raise SystemExit(f'expected one replay-start match, got {s.count(old)}')
+          p.write_text(s.replace(old, new, 1))
+          PY
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/foxtrader/app/feature/chart/presentation/ChartViewModel.kt
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Clear derived overlays before replay starts [history-patch]"
+          git push origin HEAD:feat/advanced-history-testing
