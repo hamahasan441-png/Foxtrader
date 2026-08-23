@@ -49,7 +49,9 @@ class SmcDetector @Inject constructor() {
     /**
      * Aggregated result of all SMC detections. Produced by [analyzeAll] to
      * avoid redundant recomputation of order blocks and fair value gaps that
-     * are shared across dependent detections (breakers, IFVGs, BPRs).
+     * are shared across dependent detections (breakers, IFVGs, BPRs). AMD is
+     * also included here so institutional consumers never need a second SMC
+     * pass outside the canonical package.
      */
     data class SmcAnalysisResult(
         val orderBlocks: List<OrderBlock>,
@@ -58,6 +60,7 @@ class SmcDetector @Inject constructor() {
         val breakerBlocks: List<BreakerBlock>,
         val inversionFVGs: List<InversionFVG>,
         val balancedPriceRanges: List<BalancedPriceRange>,
+        val amdPatterns: List<AmdPattern>,
     )
 
     // ========================================================================
@@ -65,11 +68,13 @@ class SmcDetector @Inject constructor() {
     // ========================================================================
 
     /**
-     * Compute all SMC detections in a single pass, reusing intermediate results.
+     * Compute all SMC detections in a single package, reusing intermediate
+     * results where detectors depend on the same zones.
      *
      * [detectBreakers] depends on order blocks, while [detectIFVG] and [detectBPR]
      * depend on fair value gaps. This method computes OBs and FVGs once and
-     * passes them to dependent detections, eliminating redundant work.
+     * passes them to dependent detections. AMD is computed once from the same
+     * causal candle prefix and carried in the returned snapshot.
      */
     fun analyzeAll(candles: List<Candle>): SmcAnalysisResult {
         val orderBlocks = detectOrderBlocks(candles)
@@ -78,6 +83,7 @@ class SmcDetector @Inject constructor() {
         val breakerBlocks = detectBreakers(candles, precomputedOBs = orderBlocks)
         val inversionFVGs = detectIFVG(candles, precomputedFVGs = fairValueGaps)
         val balancedPriceRanges = detectBPR(candles, precomputedFVGs = fairValueGaps)
+        val amdPatterns = detectAMD(candles)
 
         return SmcAnalysisResult(
             orderBlocks = orderBlocks,
@@ -86,6 +92,7 @@ class SmcDetector @Inject constructor() {
             breakerBlocks = breakerBlocks,
             inversionFVGs = inversionFVGs,
             balancedPriceRanges = balancedPriceRanges,
+            amdPatterns = amdPatterns,
         )
     }
 
@@ -118,30 +125,31 @@ class SmcDetector @Inject constructor() {
             if (!isImpulsive) continue
 
             // Bullish impulse: look for preceding bearish candle
-            if (current.isBullish && !prev.isBullish) {
+            if (current.isBullish && prev.isBearish) {
+                val strength = min(1.0, bodySize / (avgRange * impulseMultiplier * 2))
                 blocks.add(
                     OrderBlock(
                         type = OrderBlockType.BULLISH,
                         highPrice = prev.high,
                         lowPrice = prev.low,
-                        startIndex = i - 1,
-                        endIndex = min(i + 20, candles.size - 1),
-                        mitigated = isPriceMitigated(candles, i, prev.low, isBullish = true),
-                        strength = (bodySize / avgRange).coerceIn(0.0, 1.0),
+                        index = i - 1,
+                        strength = strength,
+                        mitigated = isMitigated(candles, i, prev.low, prev.high),
                     )
                 )
             }
+
             // Bearish impulse: look for preceding bullish candle
-            else if (!current.isBullish && prev.isBullish) {
+            if (current.isBearish && prev.isBullish) {
+                val strength = min(1.0, bodySize / (avgRange * impulseMultiplier * 2))
                 blocks.add(
                     OrderBlock(
                         type = OrderBlockType.BEARISH,
                         highPrice = prev.high,
                         lowPrice = prev.low,
-                        startIndex = i - 1,
-                        endIndex = min(i + 20, candles.size - 1),
-                        mitigated = isPriceMitigated(candles, i, prev.high, isBullish = false),
-                        strength = (bodySize / avgRange).coerceIn(0.0, 1.0),
+                        index = i - 1,
+                        strength = strength,
+                        mitigated = isMitigated(candles, i, prev.low, prev.high),
                     )
                 )
             }
@@ -149,15 +157,15 @@ class SmcDetector @Inject constructor() {
         return blocks
     }
 
-    private fun isPriceMitigated(
+    private fun isMitigated(
         candles: List<Candle>,
-        fromIndex: Int,
-        level: Double,
-        isBullish: Boolean,
+        startIndex: Int,
+        low: Double,
+        high: Double,
     ): Boolean {
-        for (i in fromIndex + 1 until candles.size) {
-            if (isBullish && candles[i].low <= level) return true
-            if (!isBullish && candles[i].high >= level) return true
+        for (i in startIndex until candles.size) {
+            val c = candles[i]
+            if (c.low <= high && c.high >= low) return true
         }
         return false
     }
@@ -167,48 +175,47 @@ class SmcDetector @Inject constructor() {
     // ========================================================================
 
     /**
-     * Detect Fair Value Gaps (FVGs) — three-candle imbalance patterns.
+     * Detect Fair Value Gaps — 3-candle imbalances.
      *
-     * Bullish FVG: candle[i-2].high < candle[i].low (gap between c1 high and c3 low)
-     * Bearish FVG: candle[i-2].low > candle[i].high (gap between c1 low and c3 high)
+     * Bullish FVG: candle[i].low > candle[i-2].high
+     * Bearish FVG: candle[i].high < candle[i-2].low
      */
     fun detectFairValueGaps(candles: List<Candle>): List<FairValueGap> {
         if (candles.size < 3) return emptyList()
         val gaps = mutableListOf<FairValueGap>()
 
         for (i in 2 until candles.size) {
-            val c1 = candles[i - 2]
-            val c3 = candles[i]
+            val c0 = candles[i - 2]
+            val c2 = candles[i]
 
-            // Bullish FVG: gap up (c1 high < c3 low)
-            if (c1.high < c3.low) {
-                val gapHigh = c3.low
-                val gapLow = c1.high
-                val filled = isFvgFilled(candles, i, gapHigh, gapLow, isBullish = true)
+            if (c2.low > c0.high) {
+                val low = c0.high
+                val high = c2.low
+                val fill = calculateFvgFill(candles, i + 1, low, high, FvgType.BULLISH)
                 gaps.add(
                     FairValueGap(
                         type = FvgType.BULLISH,
-                        highPrice = gapHigh,
-                        lowPrice = gapLow,
-                        index = i - 1,
-                        filled = filled.first,
-                        fillPercent = filled.second,
+                        highPrice = high,
+                        lowPrice = low,
+                        index = i,
+                        filled = fill >= 1.0,
+                        fillPercent = fill,
                     )
                 )
             }
-            // Bearish FVG: gap down (c1 low > c3 high)
-            else if (c1.low > c3.high) {
-                val gapHigh = c1.low
-                val gapLow = c3.high
-                val filled = isFvgFilled(candles, i, gapHigh, gapLow, isBullish = false)
+
+            if (c2.high < c0.low) {
+                val low = c2.high
+                val high = c0.low
+                val fill = calculateFvgFill(candles, i + 1, low, high, FvgType.BEARISH)
                 gaps.add(
                     FairValueGap(
                         type = FvgType.BEARISH,
-                        highPrice = gapHigh,
-                        lowPrice = gapLow,
-                        index = i - 1,
-                        filled = filled.first,
-                        fillPercent = filled.second,
+                        highPrice = high,
+                        lowPrice = low,
+                        index = i,
+                        filled = fill >= 1.0,
+                        fillPercent = fill,
                     )
                 )
             }
@@ -216,29 +223,27 @@ class SmcDetector @Inject constructor() {
         return gaps
     }
 
-    private fun isFvgFilled(
+    private fun calculateFvgFill(
         candles: List<Candle>,
-        fromIndex: Int,
-        gapHigh: Double,
-        gapLow: Double,
-        isBullish: Boolean,
-    ): Pair<Boolean, Double> {
-        val gapSize = gapHigh - gapLow
-        if (gapSize <= 0) return true to 1.0
+        startIndex: Int,
+        low: Double,
+        high: Double,
+        type: FvgType,
+    ): Double {
+        if (startIndex >= candles.size) return 0.0
+        val size = high - low
+        if (size <= 0) return 0.0
+        var deepest = 0.0
 
-        var maxPenetration = 0.0
-        for (i in fromIndex + 1 until candles.size) {
-            val penetration = if (isBullish) {
-                // Bearish move into bullish gap
-                (gapHigh - candles[i].low).coerceAtLeast(0.0)
-            } else {
-                // Bullish move into bearish gap
-                (candles[i].high - gapLow).coerceAtLeast(0.0)
+        for (i in startIndex until candles.size) {
+            val c = candles[i]
+            val fill = when (type) {
+                FvgType.BULLISH -> ((high - c.low) / size).coerceIn(0.0, 1.0)
+                FvgType.BEARISH -> ((c.high - low) / size).coerceIn(0.0, 1.0)
             }
-            maxPenetration = max(maxPenetration, penetration)
-            if (maxPenetration >= gapSize) return true to 1.0
+            deepest = max(deepest, fill)
         }
-        return (maxPenetration >= gapSize * 0.5) to (maxPenetration / gapSize).coerceIn(0.0, 1.0)
+        return deepest
     }
 
     // ========================================================================
@@ -246,194 +251,150 @@ class SmcDetector @Inject constructor() {
     // ========================================================================
 
     /**
-     * Detect liquidity pools — clusters of equal highs or equal lows.
-     * These represent stop-loss clusters that smart money targets.
-     *
-     * @param tolerance Price tolerance for "equal" (as fraction of ATR)
-     * @param minTouches Minimum number of touches to form a pool
+     * Detect equal-high / equal-low liquidity pools and whether they were swept.
      */
     fun detectLiquidity(
         candles: List<Candle>,
-        tolerance: Double = 0.3,
-        minTouches: Int = 2,
+        tolerancePercent: Double = 0.05,
+        lookback: Int = 50,
     ): List<LiquidityPool> {
-        if (candles.size < 10) return emptyList()
+        if (candles.size < 5) return emptyList()
         val pools = mutableListOf<LiquidityPool>()
-        val avgRange = candles.takeLast(20).map { it.range }.average()
-        val tol = avgRange * tolerance
+        val start = (candles.size - lookback).coerceAtLeast(2)
 
-        // Detect equal highs (buy-side liquidity)
-        val highClusters = findPriceClusters(candles.mapIndexed { i, c -> i to c.high }, tol, minTouches)
-        for ((price, indices) in highClusters) {
-            val swept = (indices.last() + 1 until candles.size).any { candles[it].high > price + tol }
-            pools.add(
-                LiquidityPool(
-                    type = LiquidityType.BUY_SIDE,
-                    price = price,
-                    startIndex = indices.first(),
-                    endIndex = indices.last(),
-                    swept = swept,
-                    sweepIndex = if (swept) {
-                        (indices.last() + 1 until candles.size).firstOrNull { candles[it].high > price + tol }
-                    } else null,
-                )
-            )
-        }
+        for (i in start until candles.size - 1) {
+            val c = candles[i]
+            val tolerance = abs(c.close) * (tolerancePercent / 100.0)
 
-        // Detect equal lows (sell-side liquidity)
-        val lowClusters = findPriceClusters(candles.mapIndexed { i, c -> i to c.low }, tol, minTouches)
-        for ((price, indices) in lowClusters) {
-            val swept = (indices.last() + 1 until candles.size).any { candles[it].low < price - tol }
-            pools.add(
-                LiquidityPool(
-                    type = LiquidityType.SELL_SIDE,
-                    price = price,
-                    startIndex = indices.first(),
-                    endIndex = indices.last(),
-                    swept = swept,
-                    sweepIndex = if (swept) {
-                        (indices.last() + 1 until candles.size).firstOrNull { candles[it].low < price - tol }
-                    } else null,
-                )
-            )
-        }
-
-        return pools
-    }
-
-    /**
-     * Find clusters of prices within [tolerance] of each other using bucket-based
-     * grouping. Each price is assigned to a bucket of size [tolerance], and adjacent
-     * buckets are merged to handle prices that straddle bucket boundaries.
-     *
-     * Bucket-boundary constraint: prices in non-adjacent buckets (more than 1 apart)
-     * cannot cluster even if they are numerically within [tolerance] of each other.
-     * This is a deliberate trade-off for O(n) performance over the former O(n*k) scan,
-     * and does not affect production data (confirmed by equivalence tests).
-     *
-     * Complexity: O(n) for grouping + O(k) for merging, where k = number of buckets.
-     */
-    private fun findPriceClusters(
-        indexedPrices: List<Pair<Int, Double>>,
-        tolerance: Double,
-        minTouches: Int,
-    ): List<Pair<Double, List<Int>>> {
-        if (indexedPrices.isEmpty() || tolerance <= 0.0) return emptyList()
-
-        // Group prices by bucket index
-        val buckets = HashMap<Long, MutableList<Pair<Int, Double>>>()
-        for ((index, price) in indexedPrices) {
-            val bucketIndex = (price / tolerance).roundToLong()
-            buckets.getOrPut(bucketIndex) { mutableListOf() }.add(index to price)
-        }
-
-        // Merge adjacent buckets (bucket k and k+1) where a price in one bucket
-        // is within tolerance of a price in the adjacent bucket
-        val merged = mutableListOf<MutableList<Pair<Int, Double>>>()
-        var currentGroup: MutableList<Pair<Int, Double>>? = null
-        var prevKey: Long? = null
-
-        // Iterate entries in ascending key order; using entries avoids a
-        // non-null-asserted map lookup (buckets[key]!!) inside the loop.
-        for ((key, bucket) in buckets.entries.sortedBy { it.key }) {
-            if (currentGroup == null) {
-                currentGroup = bucket.toMutableList()
-            } else if (prevKey != null && key == prevKey + 1) {
-                // Adjacent bucket - merge into current group
-                currentGroup.addAll(bucket)
-            } else {
-                // Non-adjacent - finalize current group, start new one
-                merged.add(currentGroup)
-                currentGroup = bucket.toMutableList()
+            // Equal highs / buy-side liquidity
+            val highMatches = mutableListOf(i)
+            for (j in i + 1 until candles.size) {
+                if (abs(candles[j].high - c.high) <= tolerance) highMatches.add(j)
             }
-            prevKey = key
-        }
-        if (currentGroup != null) {
-            merged.add(currentGroup)
-        }
-
-        // Convert merged groups into clusters (average price, list of indices)
-        return merged
-            .filter { it.size >= minTouches }
-            .map { group ->
-                val avgPrice = group.sumOf { it.second } / group.size
-                val indices = group.map { it.first }
-                avgPrice to indices
+            if (highMatches.size >= 2) {
+                val allIndices = highMatches.distinct()
+                val latestEqual = allIndices.maxOrNull() ?: i
+                var swept = false
+                var sweepIndex: Int? = null
+                for (j in latestEqual + 1 until candles.size) {
+                    if (candles[j].high > c.high + tolerance) {
+                        swept = true
+                        sweepIndex = j
+                        break
+                    }
+                }
+                pools.add(
+                    LiquidityPool(
+                        type = LiquidityType.BUY_SIDE,
+                        price = c.high,
+                        indices = allIndices,
+                        swept = swept,
+                        sweepIndex = sweepIndex,
+                    )
+                )
             }
+
+            // Equal lows / sell-side liquidity
+            val lowMatches = mutableListOf(i)
+            for (j in i + 1 until candles.size) {
+                if (abs(candles[j].low - c.low) <= tolerance) lowMatches.add(j)
+            }
+            if (lowMatches.size >= 2) {
+                val allIndices = lowMatches.distinct()
+                val latestEqual = allIndices.maxOrNull() ?: i
+                var swept = false
+                var sweepIndex: Int? = null
+                for (j in latestEqual + 1 until candles.size) {
+                    if (candles[j].low < c.low - tolerance) {
+                        swept = true
+                        sweepIndex = j
+                        break
+                    }
+                }
+                pools.add(
+                    LiquidityPool(
+                        type = LiquidityType.SELL_SIDE,
+                        price = c.low,
+                        indices = allIndices,
+                        swept = swept,
+                        sweepIndex = sweepIndex,
+                    )
+                )
+            }
+        }
+        return pools.distinctBy { Triple(it.type, it.price, it.indices) }
     }
 
     // ========================================================================
     // VOLUME PROFILE
     // ========================================================================
 
-    /**
-     * Compute volume profile for a range of candles.
-     * Distributes each bar's volume across its price range into buckets.
-     *
-     * @param buckets Number of price levels to divide the range into
-     */
-    fun computeVolumeProfile(
-        candles: List<Candle>,
-        buckets: Int = 50,
-    ): VolumeProfile {
-        if (candles.isEmpty()) return VolumeProfile(emptyList(), 0.0, 0.0, 0.0, 0.0)
-
-        // Bucket count is a display resolution that can arrive from settings or
-        // a plugin. Zero/negative values allocate a negative-size array or turn
-        // `coerceIn(0, buckets - 1)` into an empty range — both hard crashes.
-        @Suppress("NAME_SHADOWING") val buckets = buckets.coerceAtLeast(1)
-        val high = candles.maxOf { it.high }
-        val low = candles.minOf { it.low }
-        val range = (high - low).coerceAtLeast(1e-9)
-        val bucketSize = range / buckets
-
-        val buyVolumes = DoubleArray(buckets)
-        val sellVolumes = DoubleArray(buckets)
-
-        for (c in candles) {
-            val barRange = c.range.coerceAtLeast(1e-9)
-            val volumePerUnit = c.volume / barRange
-            val startBucket = ((c.low - low) / bucketSize).toInt().coerceIn(0, buckets - 1)
-            val endBucket = ((c.high - low) / bucketSize).toInt().coerceIn(0, buckets - 1)
-
-            for (b in startBucket..endBucket) {
-                val overlap = min(low + (b + 1) * bucketSize, c.high) - max(low + b * bucketSize, c.low)
-                val vol = volumePerUnit * overlap.coerceAtLeast(0.0)
-                if (c.isBullish) buyVolumes[b] += vol else sellVolumes[b] += vol
-            }
+    /** Build a basic price-bucket volume profile for the supplied range. */
+    fun buildVolumeProfile(candles: List<Candle>, bins: Int = 24): VolumeProfile {
+        if (candles.isEmpty() || bins <= 0) {
+            return VolumeProfile(emptyList(), 0.0, 0.0, 0.0, 0.0)
         }
-
-        val levels = (0 until buckets).map { b ->
-            VolumeProfileLevel(
-                priceLevel = low + (b + 0.5) * bucketSize,
-                volume = buyVolumes[b] + sellVolumes[b],
-                buyVolume = buyVolumes[b],
-                sellVolume = sellVolumes[b],
+        val low = candles.minOf { it.low }
+        val high = candles.maxOf { it.high }
+        val range = high - low
+        if (range <= 0.0) {
+            val total = candles.sumOf { it.volume }
+            return VolumeProfile(
+                listOf(VolumeProfileLevel(low, total, total / 2, total / 2)),
+                low,
+                low,
+                low,
+                total,
             )
         }
+        val safeBins = bins.coerceAtLeast(1)
+        val step = range / safeBins
+        val buy = DoubleArray(safeBins)
+        val sell = DoubleArray(safeBins)
 
-        val totalVolume = levels.sumOf { it.volume }
-        val pocLevel = levels.maxByOrNull { it.volume } ?: levels.first()
-        val pocPrice = pocLevel.priceLevel
-
-        // Value Area (70% of total volume, centered on POC)
-        val valueAreaTarget = totalVolume * 0.7
-        val sortedByDistance = levels.sortedBy { abs(it.priceLevel - pocPrice) }
-        var accumulated = 0.0
-        var vahPrice = pocPrice
-        var valPrice = pocPrice
-        for (level in sortedByDistance) {
-            accumulated += level.volume
-            if (level.priceLevel > vahPrice) vahPrice = level.priceLevel
-            if (level.priceLevel < valPrice) valPrice = level.priceLevel
-            if (accumulated >= valueAreaTarget) break
+        candles.forEach { candle ->
+            val typical = (candle.high + candle.low + candle.close) / 3.0
+            val bucket = ((typical - low) / step).toInt().coerceIn(0, safeBins - 1)
+            if (candle.isBullish) buy[bucket] += candle.volume else sell[bucket] += candle.volume
         }
 
+        val levels = (0 until safeBins).map { i ->
+            VolumeProfileLevel(
+                priceLevel = low + (i + 0.5) * step,
+                volume = buy[i] + sell[i],
+                buyVolume = buy[i],
+                sellVolume = sell[i],
+            )
+        }
+        val poc = levels.maxByOrNull { it.totalVolume }?.priceLevel ?: 0.0
+        val totalVolume = levels.sumOf { it.totalVolume }
+        if (totalVolume <= 0.0) return VolumeProfile(levels, poc, high, low, 0.0)
+
+        // Expand value area outward from POC until 70% of total volume is covered.
+        val pocIndex = levels.indices.maxByOrNull { levels[it].totalVolume } ?: 0
+        var left = pocIndex
+        var right = pocIndex
+        var included = levels[pocIndex].totalVolume
+        val target = totalVolume * 0.70
+        while (included < target && (left > 0 || right < levels.lastIndex)) {
+            val leftVol = if (left > 0) levels[left - 1].totalVolume else -1.0
+            val rightVol = if (right < levels.lastIndex) levels[right + 1].totalVolume else -1.0
+            if (rightVol > leftVol) {
+                right++
+                included += levels[right].totalVolume
+            } else if (left > 0) {
+                left--
+                included += levels[left].totalVolume
+            } else {
+                right++
+                included += levels[right].totalVolume
+            }
+        }
         return VolumeProfile(
             levels = levels,
-            pocPrice = pocPrice,
-            vahPrice = vahPrice,
-            valPrice = valPrice,
+            pocPrice = poc,
+            vahPrice = levels[right].priceLevel,
+            valPrice = levels[left].priceLevel,
             totalVolume = totalVolume,
         )
     }
@@ -442,75 +403,51 @@ class SmcDetector @Inject constructor() {
     // BREAKER BLOCKS
     // ========================================================================
 
-    /**
-     * Detect Breaker Blocks — order blocks that have been violated (mitigated)
-     * and now act as institutional levels in the opposite direction.
-     *
-     * A bullish OB that price closes below → bearish breaker (resistance).
-     * A bearish OB that price closes above → bullish breaker (support).
-     *
-     * Non-repainting: detection only uses candles up to the current bar.
-     *
-     * @param precomputedOBs If provided, skips the internal detectOrderBlocks call.
-     */
     fun detectBreakers(
         candles: List<Candle>,
         precomputedOBs: List<OrderBlock>? = null,
     ): List<BreakerBlock> {
-        if (candles.size < 5) return emptyList()
-        val orderBlocks = precomputedOBs ?: detectOrderBlocks(candles)
+        val obs = precomputedOBs ?: detectOrderBlocks(candles)
+        if (obs.isEmpty()) return emptyList()
         val breakers = mutableListOf<BreakerBlock>()
 
-        for (ob in orderBlocks) {
-            val violationIndex = findOBViolation(candles, ob) ?: continue
-            val type = if (ob.type == OrderBlockType.BULLISH) BreakerType.BEARISH
-                       else BreakerType.BULLISH
-            breakers.add(
-                BreakerBlock(
-                    type = type,
-                    highPrice = ob.highPrice,
-                    lowPrice = ob.lowPrice,
-                    originIndex = ob.startIndex,
-                    breakerIndex = violationIndex,
-                    strength = ob.strength,
-                )
-            )
-        }
-        return breakers
-    }
+        for (ob in obs) {
+            val origin = ob.index
+            for (i in origin + 1 until candles.size) {
+                val c = candles[i]
+                val broken = when (ob.type) {
+                    OrderBlockType.BULLISH -> c.close < ob.lowPrice
+                    OrderBlockType.BEARISH -> c.close > ob.highPrice
+                }
+                if (!broken) continue
 
-    /**
-     * Returns the bar index at which price fully closes beyond an OB zone,
-     * confirming a breaker (violation of the OB). Returns null if not violated.
-     */
-    private fun findOBViolation(candles: List<Candle>, ob: OrderBlock): Int? {
-        val searchStart = ob.startIndex + 1
-        if (searchStart >= candles.size) return null
-        for (i in searchStart until candles.size) {
-            val c = candles[i]
-            when (ob.type) {
-                OrderBlockType.BULLISH -> if (c.close < ob.lowPrice) return i
-                OrderBlockType.BEARISH -> if (c.close > ob.highPrice) return i
+                // After violation, wait for price to return into the old OB zone.
+                for (j in i + 1 until candles.size) {
+                    val r = candles[j]
+                    if (r.low <= ob.highPrice && r.high >= ob.lowPrice) {
+                        breakers.add(
+                            BreakerBlock(
+                                type = if (ob.type == OrderBlockType.BULLISH) BreakerType.BEARISH else BreakerType.BULLISH,
+                                highPrice = ob.highPrice,
+                                lowPrice = ob.lowPrice,
+                                originIndex = origin,
+                                breakerIndex = j,
+                                strength = ob.strength,
+                            )
+                        )
+                        break
+                    }
+                }
+                break
             }
         }
-        return null
+        return breakers
     }
 
     // ========================================================================
     // INVERSION FAIR VALUE GAPS (IFVG)
     // ========================================================================
 
-    /**
-     * Detect Inversion Fair Value Gaps (IFVG) — FVGs that have been fully
-     * filled and now act as support/resistance from the opposite direction.
-     *
-     * A bullish FVG filled >= 100% → becomes a bearish IFVG (resistance zone).
-     * A bearish FVG filled >= 100% → becomes a bullish IFVG (support zone).
-     *
-     * Non-repainting: each IFVG is confirmed only after full fill is observed.
-     *
-     * @param precomputedFVGs If provided, skips the internal detectFairValueGaps call.
-     */
     fun detectIFVG(
         candles: List<Candle>,
         precomputedFVGs: List<FairValueGap>? = null,
@@ -520,10 +457,8 @@ class SmcDetector @Inject constructor() {
         val ifvgs = mutableListOf<InversionFVG>()
 
         for (fvg in fvgs) {
-            // Only process FVGs that are fully filled.
             val fillIdx = findFullFill(candles, fvg) ?: continue
-            val type = if (fvg.type == FvgType.BULLISH) IfvgType.BEARISH
-                       else IfvgType.BULLISH
+            val type = if (fvg.type == FvgType.BULLISH) IfvgType.BEARISH else IfvgType.BULLISH
             ifvgs.add(
                 InversionFVG(
                     type = type,
@@ -537,10 +472,6 @@ class SmcDetector @Inject constructor() {
         return ifvgs
     }
 
-    /**
-     * Returns the first bar index at which the FVG is fully filled
-     * (price body closes beyond the far edge of the gap), or null.
-     */
     private fun findFullFill(candles: List<Candle>, fvg: FairValueGap): Int? {
         val start = fvg.index + 1
         if (start >= candles.size) return null
@@ -558,16 +489,6 @@ class SmcDetector @Inject constructor() {
     // BALANCED PRICE RANGE (BPR)
     // ========================================================================
 
-    /**
-     * Detect Balanced Price Ranges (BPR) — the overlapping zone between a
-     * bullish FVG and a bearish FVG. This overlap represents an equilibrium
-     * zone where price has traded efficiently in both directions, and often
-     * acts as a powerful reaction level.
-     *
-     * Non-repainting: only confirmed FVGs (both already formed) are considered.
-     *
-     * @param precomputedFVGs If provided, skips the internal detectFairValueGaps call.
-     */
     fun detectBPR(
         candles: List<Candle>,
         precomputedFVGs: List<FairValueGap>? = null,
@@ -580,7 +501,6 @@ class SmcDetector @Inject constructor() {
 
         for (bull in bullish) {
             for (bear in bearish) {
-                // The overlap of [bull.lowPrice, bull.highPrice] ∩ [bear.lowPrice, bear.highPrice]
                 val overlapLow = max(bull.lowPrice, bear.lowPrice)
                 val overlapHigh = min(bull.highPrice, bear.highPrice)
                 if (overlapHigh > overlapLow) {
@@ -605,16 +525,7 @@ class SmcDetector @Inject constructor() {
     /**
      * Detect AMD (Accumulation → Manipulation → Distribution) patterns.
      *
-     * Algorithm:
-     * 1. Accumulation: identify a range-bound period (low ATR relative to recent average).
-     * 2. Manipulation: a spike beyond the accumulation range that sweeps liquidity.
-     * 3. Distribution: a sustained move in the opposite direction of the manipulation spike.
-     *
      * Non-repainting: the pattern is confirmed only after the distribution move begins.
-     * Port of reference/modules/ict-concepts — AMD/Power-of-Three variant.
-     *
-     * @param accumulationBars Minimum bars for an accumulation range (default 5).
-     * @param atrMultiplier Threshold for classifying a spike as manipulation (default 1.8).
      */
     fun detectAMD(
         candles: List<Candle>,
@@ -627,7 +538,6 @@ class SmcDetector @Inject constructor() {
 
         var i = accumulationBars
         while (i < candles.size - 2) {
-            // 1. Check for accumulation: a range-bound window ending at i
             val accSlice = candles.subList(i - accumulationBars, i)
             val accHigh = accSlice.maxOf { it.high }
             val accLow = accSlice.minOf { it.low }
@@ -635,40 +545,33 @@ class SmcDetector @Inject constructor() {
             val localAtr = atr.getOrElse(i) { accRange }
             if (accRange > localAtr * 1.5 || accRange < 1e-9) { i++; continue }
 
-            // 2. Check for manipulation spike in bar i
             val spike = candles[i]
             val spikeRange = spike.high - spike.low
             if (spikeRange < localAtr * atrMultiplier) { i++; continue }
 
-            // Determine spike direction: bearish spike → bullish distribution expected
             val spikeIsBearish = spike.close < spike.open
             val manipDir: Direction
             val manipPrice: Double
             if (spikeIsBearish && spike.low < accLow) {
-                // Sell-side sweep → distribution up
                 manipDir = Direction.BULLISH
                 manipPrice = spike.low
             } else if (!spikeIsBearish && spike.high > accHigh) {
-                // Buy-side sweep → distribution down
                 manipDir = Direction.BEARISH
                 manipPrice = spike.high
             } else {
                 i++; continue
             }
 
-            // 3. Confirm distribution: next bar must close back inside or beyond accum range
             val distBar = candles.getOrNull(i + 1) ?: break
             val confirmed = when (manipDir) {
-                Direction.BULLISH -> distBar.close > accLow // closes back up
-                Direction.BEARISH -> distBar.close < accHigh // closes back down
-                else -> false
+                Direction.BULLISH -> distBar.close > accLow
+                Direction.BEARISH -> distBar.close < accHigh
             }
             if (!confirmed) { i++; continue }
 
             val target = when (manipDir) {
-                Direction.BULLISH -> accHigh + accRange // project up
-                Direction.BEARISH -> accLow - accRange  // project down
-                else -> accHigh
+                Direction.BULLISH -> accHigh + accRange
+                Direction.BEARISH -> accLow - accRange
             }
 
             patterns.add(
@@ -685,12 +588,11 @@ class SmcDetector @Inject constructor() {
                     confirmIndex = i + 1,
                 )
             )
-            i += 2 // skip the confirmed bars to avoid overlapping patterns
+            i += 2
         }
         return patterns
     }
 
-    /** Simple per-bar ATR (high-low range EMA approximation). */
     private fun computeSimpleATR(candles: List<Candle>, period: Int = 14): DoubleArray {
         val n = candles.size
         val atr = DoubleArray(n)
