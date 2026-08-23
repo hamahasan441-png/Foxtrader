@@ -27,16 +27,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.foxtrader.app.domain.model.FoxAlert
-import com.foxtrader.app.domain.model.ScreenerResult
+import com.foxtrader.app.domain.model.MarketMover
 import com.foxtrader.app.domain.usecase.home.ClassifiedInsight
 import com.foxtrader.app.domain.usecase.home.InsightKind
 import com.foxtrader.app.ui.components.FoxBadge
 import com.foxtrader.app.ui.components.FoxBanner
-import com.foxtrader.app.ui.components.FoxDirectionBadge
 import com.foxtrader.app.ui.components.FoxEmptyState
 import com.foxtrader.app.ui.components.FoxErrorState
 import com.foxtrader.app.ui.components.FoxIconButton
@@ -57,7 +55,7 @@ fun HomeScreen(
     onOpenMarkets: () -> Unit = {},
     onOpenAlerts: () -> Unit = {},
     onOpenPortfolio: () -> Unit = {},
-    onOpenLab: () -> Unit = {},
+    @Suppress("UNUSED_PARAMETER") onOpenLab: () -> Unit = {},
     onOpenAi: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
@@ -100,7 +98,7 @@ fun HomeScreen(
             state.error != null && state.movers.isEmpty() -> {
                 FoxErrorState(
                     title = "Snapshot unavailable",
-                    subtitle = state.error ?: "The scan could not finish.",
+                    subtitle = state.error ?: "The market snapshot could not finish.",
                     modifier = Modifier.padding(padding),
                     onRetry = viewModel::refresh,
                 )
@@ -117,9 +115,7 @@ fun HomeScreen(
                     ),
                     verticalArrangement = Arrangement.spacedBy(spacing.md),
                 ) {
-                    item {
-                        GreetingHeader(state)
-                    }
+                    item { GreetingHeader(state) }
                     if (state.isSyntheticData) {
                         item {
                             FoxBanner(
@@ -129,15 +125,11 @@ fun HomeScreen(
                             )
                         }
                     }
+                    item { SnapshotStrip(state, onOpenPortfolio) }
                     item {
-                        SnapshotStrip(state, onOpenPortfolio)
+                        FoxSectionHeader("Watchlist breadth", actionLabel = "Open watchlist", onAction = onOpenMarkets)
                     }
-                    item {
-                        FoxSectionHeader("Market breadth", actionLabel = "Open scan", onAction = onOpenMarkets)
-                    }
-                    item {
-                        BreadthCard(state)
-                    }
+                    item { BreadthCard(state) }
                     item {
                         FoxSectionHeader("Top movers", actionLabel = "Open chart", onAction = onOpenChart)
                     }
@@ -145,46 +137,22 @@ fun HomeScreen(
                         item {
                             FoxEmptyState(
                                 title = "No movers yet",
-                                subtitle = "Run a scan from Markets once candle history is available.",
+                                subtitle = "Add symbols to Markets and refresh once candle history is available.",
                                 modifier = Modifier.height(FoxTheme.spacing.huge * 4),
                             )
                         }
                     } else {
-                        items(state.movers, key = { it.symbol }) { mover ->
-                            MoverRow(mover)
-                        }
-                    }
-                    item {
-                        FoxSectionHeader("Active signals", actionLabel = "Open lab", onAction = onOpenLab)
-                    }
-                    if (state.signals.isEmpty()) {
-                        item {
-                            Text(
-                                "No ranked setups in this snapshot.",
-                                style = FoxTheme.type.body,
-                                color = colors.textMuted,
-                            )
-                        }
-                    } else {
-                        items(state.signals, key = { "sig-${it.symbol}-${it.score}" }) { signal ->
-                            SignalRow(signal)
-                        }
+                        items(state.movers, key = { it.symbol }) { mover -> MoverRow(mover) }
                     }
                     item {
                         FoxSectionHeader("AI market summary", actionLabel = "Workspace", onAction = onOpenAi)
                     }
-                    item {
-                        InsightList(state.insights)
-                    }
+                    item { InsightList(state.insights) }
                     item {
                         FoxSectionHeader("Watchlist", actionLabel = "Edit list", onAction = onOpenMarkets)
                     }
-                    item {
-                        WatchlistStrip(state)
-                    }
-                    item {
-                        FoxSectionHeader("Alerts")
-                    }
+                    item { WatchlistStrip(state) }
+                    item { FoxSectionHeader("Alerts") }
                     if (state.recentAlerts.isEmpty()) {
                         item {
                             Text(
@@ -194,9 +162,7 @@ fun HomeScreen(
                             )
                         }
                     } else {
-                        items(state.recentAlerts, key = { it.id }) { alert ->
-                            AlertRow(alert)
-                        }
+                        items(state.recentAlerts, key = { it.id }) { alert -> AlertRow(alert) }
                     }
                     item { Spacer(Modifier.height(spacing.lg)) }
                 }
@@ -209,11 +175,7 @@ fun HomeScreen(
 private fun GreetingHeader(state: HomeUiState) {
     val colors = FoxTheme.colors
     Column {
-        Text(
-            text = "Desk",
-            style = FoxTheme.type.caption,
-            color = colors.textMuted,
-        )
+        Text("Desk", style = FoxTheme.type.caption, color = colors.textMuted)
         Text(
             text = "${state.profile.preferredTimeframe.label} · ${state.profile.greetingFocus}",
             style = FoxTheme.type.h2,
@@ -267,8 +229,7 @@ private fun SnapshotStrip(state: HomeUiState, onOpenPortfolio: () -> Unit) {
     )
 }
 
-private fun Modifier.clickableText(onClick: () -> Unit): Modifier =
-    this.clickable(onClick = onClick)
+private fun Modifier.clickableText(onClick: () -> Unit): Modifier = this.clickable(onClick = onClick)
 
 @Composable
 private fun BreadthCard(state: HomeUiState) {
@@ -286,7 +247,7 @@ private fun BreadthCard(state: HomeUiState) {
         }
         Spacer(Modifier.height(FoxTheme.spacing.xs))
         Text(
-            "Breadth is inferred from the scanned universe, not from a global index.",
+            "Breadth is inferred only from the current watchlist price changes, not from a scanner or global index.",
             style = FoxTheme.type.caption,
             color = FoxTheme.colors.textMuted,
         )
@@ -294,7 +255,7 @@ private fun BreadthCard(state: HomeUiState) {
 }
 
 @Composable
-private fun MoverRow(result: ScreenerResult) {
+private fun MoverRow(result: MarketMover) {
     FoxPanel {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -314,30 +275,10 @@ private fun MoverRow(result: ScreenerResult) {
 }
 
 @Composable
-private fun SignalRow(result: ScreenerResult) {
-    FoxPanel {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(FoxTheme.spacing.xs), verticalAlignment = Alignment.CenterVertically) {
-                    Text(result.symbol, style = FoxTheme.type.h3, fontWeight = FontWeight.Bold, color = FoxTheme.colors.textPrimary)
-                    FoxDirectionBadge(result.direction, longLabel = "BUY", shortLabel = "SELL")
-                }
-                Text(result.strategy.label, style = FoxTheme.type.caption, color = FoxTheme.colors.textMuted)
-            }
-            Text("${result.score}", style = FoxTheme.type.price, color = FoxTheme.colors.accent)
-        }
-    }
-}
-
-@Composable
 private fun InsightList(insights: List<ClassifiedInsight>) {
     FoxPanel {
         if (insights.isEmpty()) {
-            Text("Summary appears after the first scan.", style = FoxTheme.type.body, color = FoxTheme.colors.textMuted)
+            Text("Summary appears after the first market snapshot.", style = FoxTheme.type.body, color = FoxTheme.colors.textMuted)
         } else {
             insights.forEachIndexed { index, insight ->
                 if (index > 0) Spacer(Modifier.height(FoxTheme.spacing.sm))
