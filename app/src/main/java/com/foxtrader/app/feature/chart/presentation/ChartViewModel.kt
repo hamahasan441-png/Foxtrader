@@ -51,6 +51,7 @@ import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
 import com.foxtrader.app.domain.usecase.litx.LitXEngine
 import com.foxtrader.app.domain.usecase.signalintel.ConfirmedBarPolicy
 import com.foxtrader.app.domain.usecase.signalintel.LitEngine
+import com.foxtrader.app.domain.usecase.signalintel.RsiOrderFlowSignalEngine
 import com.foxtrader.app.domain.usecase.signalintel.SmsEngine
 import com.foxtrader.app.domain.usecase.signalintel.SignalFusionEngine
 import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
@@ -116,6 +117,7 @@ class ChartViewModel @Inject constructor(
     private val smsEngine: SmsEngine,
     private val signalFusionEngine: SignalFusionEngine,
     private val smtDivergenceDetector: SmtDivergenceDetector,
+    private val rsiOrderFlowSignalEngine: RsiOrderFlowSignalEngine,
     private val heikinAshiTransformer: HeikinAshiTransformer,
     private val candleRenkoBuilder: CandleRenkoBuilder,
     private val signalComputer: SignalComputer,
@@ -622,6 +624,26 @@ class ChartViewModel @Inject constructor(
             }
         } else emptyList()
 
+        // RSI Orderflow Candle is defined on executable raw candles only. Do
+        // not generate trade arrows from Heikin-Ashi or Renko transformations.
+        // signalCandles is already the closed-bar prefix, so this path is causal.
+        val rsiOrderFlowSignals = if (
+            ind.rsiOrderFlow &&
+            barMode == ChartBarMode.TIME &&
+            signalCandles.isNotEmpty()
+        ) {
+            withContext(defaultDispatcher) {
+                containedOrDefault(emptyList()) {
+                    rsiOrderFlowSignalEngine.analyze(
+                        symbol = symbol,
+                        timeframe = timeframe,
+                        candles = signalCandles,
+                        config = ind.settings.rsiOrderFlow.toSignalEngineConfig(),
+                    ).signals
+                }
+            }
+        } else emptyList()
+
         val fused = signalFusionEngine.fuse(
             tradePro = tradeProBase,
             litX = litXAnalysis,
@@ -762,6 +784,7 @@ class ChartViewModel @Inject constructor(
             strategySignals = chartStrategySignals,
             litAnalysis = litAnalysis.takeIf { ind.lit },
             smsAnalysis = smsAnalysis.takeIf { ind.sms },
+            rsiOrderFlowSignals = rsiOrderFlowSignals,
             latestConfirmedIndex = latestConfirmedIndex,
             fusion = signalFusion,
         )
@@ -853,6 +876,25 @@ class ChartViewModel @Inject constructor(
             }
         } else null
 
+        // Replay visibleCandles is already the hard historical prefix. Running
+        // the same engine/config here therefore produces the same confirmation
+        // event as simulated live without any access to unrevealed bars.
+        val rsiOrderFlowSignals = if (
+            ind.rsiOrderFlow &&
+            current.barMode == ChartBarMode.TIME
+        ) {
+            withContext(defaultDispatcher) {
+                containedOrDefault(emptyList()) {
+                    rsiOrderFlowSignalEngine.analyze(
+                        symbol = symbol,
+                        timeframe = timeframe,
+                        candles = candles,
+                        config = ind.settings.rsiOrderFlow.toSignalEngineConfig(),
+                    ).signals
+                }
+            }
+        } else emptyList()
+
         val strategySignals = when {
             ind.allStrategies -> withContext(defaultDispatcher) {
                 containedOrDefault(emptyList()) {
@@ -931,6 +973,7 @@ class ChartViewModel @Inject constructor(
             strategySignals = strategySignals + binary3mSignals,
             litAnalysis = litAnalysis,
             smsAnalysis = smsAnalysis,
+            rsiOrderFlowSignals = rsiOrderFlowSignals,
             latestConfirmedIndex = candles.lastIndex,
             fusion = null,
         )
