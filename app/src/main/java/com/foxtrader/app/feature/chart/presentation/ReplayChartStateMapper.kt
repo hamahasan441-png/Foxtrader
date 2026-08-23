@@ -21,6 +21,7 @@ internal fun ChartUiState.withReplayComputation(
     computation: ChartComputation,
     toggles: IndicatorToggles,
     signals: List<ChartSignal>,
+    barMode: ChartBarMode,
     litXAnalysis: LitXAnalysis? = null,
     litAnalysis: LitAnalysis? = null,
     smsAnalysis: SmsAnalysis? = null,
@@ -38,7 +39,7 @@ internal fun ChartUiState.withReplayComputation(
         smsAnalysis = smsAnalysis,
         signalFusion = null,
         smtDivergences = emptyList(),
-        barMode = ChartBarMode.TIME,
+        barMode = barMode,
     ).copy(
         candles = sourceCandles,
         dataSource = sourceKind,
