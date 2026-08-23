@@ -6,6 +6,7 @@ import com.foxtrader.app.domain.model.MarketDataFreshness
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -13,16 +14,16 @@ import org.junit.Test
 class StrategyExternalContextAnalyzerTest {
 
     @Test
-    fun `context truncates peer and higher timeframe bars at primary decision timestamp`() {
+    fun `legacy context cutoff truncates future bars and blank peer symbols`() {
         val context = StrategyMarketContext(
             provider = DataProvider.DERIV,
             freshness = MarketDataFreshness.LIVE,
             peerCandles = mapOf(
-                "PEER" to listOf(candle(1), candle(2), candle(8)),
-                "" to listOf(candle(1)),
+                "PEER" to listOf(candleMinutes(1), candleMinutes(2), candleMinutes(8)),
+                "" to listOf(candleMinutes(1)),
             ),
             higherTimeframeCandles = mapOf(
-                Timeframe.H1 to listOf(candle(1), candle(3), candle(9)),
+                Timeframe.H1 to listOf(candleMinutes(1), candleMinutes(3), candleMinutes(9)),
             ),
         )
 
@@ -35,10 +36,32 @@ class StrategyExternalContextAnalyzerTest {
     }
 
     @Test
+    fun `timeframe aware cutoff rejects higher timeframe candle that has not closed`() {
+        // Primary H1 decision bar opens at 12:00 and closes at 13:00.
+        // The 08:00 H4 candle closed at 12:00 and is causal. The 12:00 H4
+        // candle closes at 16:00 and must not be visible to the 13:00 decision.
+        val decisionOpen = 12 * HOUR
+        val closedH4 = candleAt(8 * HOUR)
+        val stillOpenH4 = candleAt(12 * HOUR)
+        val context = StrategyMarketContext(
+            higherTimeframeCandles = mapOf(
+                Timeframe.H4 to listOf(closedH4, stillOpenH4),
+            ),
+        )
+
+        val causal = context.causalAt(
+            decisionBarOpenTimestamp = decisionOpen,
+            primaryTimeframe = Timeframe.H1,
+        )
+
+        assertEquals(listOf(closedH4), causal.higherTimeframeCandles[Timeframe.H4])
+    }
+
+    @Test
     fun `external analyzer never admits future peer or HTF candles`() {
-        val primary = (0 until 20).map { candle(it) }
-        val futureOnlyPeer = (20 until 80).map { candle(it) }
-        val futureOnlyHtf = (20 until 40).map { candle(it) }
+        val primary = (0 until 20).map { candleMinutes(it) }
+        val futureOnlyPeer = (20 until 80).map { candleMinutes(it) }
+        val futureOnlyHtf = (20 until 40).map { candleMinutes(it) }
         val analyzer = StrategyExternalContextAnalyzer(
             smtDetector = SmtDivergenceDetector(),
             analyzeStructure = AnalyzeMarketStructureUseCase(),
@@ -70,10 +93,13 @@ class StrategyExternalContextAnalyzerTest {
         assertFalse(context.decisionEligible)
     }
 
-    private fun candle(index: Int): Candle {
+    private fun candleMinutes(index: Int): Candle = candleAt(index * MINUTE)
+
+    private fun candleAt(timestamp: Long): Candle {
+        val index = timestamp.toDouble() / MINUTE
         val close = 100.0 + index * 0.1
         return Candle(
-            timestamp = index * MINUTE,
+            timestamp = timestamp,
             open = close - 0.05,
             high = close + 0.20,
             low = close - 0.20,
@@ -84,5 +110,6 @@ class StrategyExternalContextAnalyzerTest {
 
     companion object {
         private const val MINUTE = 60_000L
+        private const val HOUR = 60 * MINUTE
     }
 }

@@ -1,6 +1,7 @@
 package com.foxtrader.app.domain.usecase.strategies
 
 import com.foxtrader.app.domain.model.Bias
+import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
@@ -13,7 +14,7 @@ import kotlin.math.roundToInt
  *
  * This class intentionally does not fetch data. The caller supplies provider-
  * consistent series through [StrategyMarketContext], then this analyzer applies
- * one causal timestamp boundary and reuses the canonical SMT and market-
+ * one causal closed-bar boundary and reuses the canonical SMT and market-
  * structure engines already present in the domain layer.
  */
 class StrategyExternalContextAnalyzer @Inject constructor(
@@ -37,7 +38,7 @@ class StrategyExternalContextAnalyzer @Inject constructor(
     fun analyze(
         primarySymbol: String,
         primaryTimeframe: Timeframe,
-        primaryCandles: List<com.foxtrader.app.domain.model.Candle>,
+        primaryCandles: List<Candle>,
         context: StrategyMarketContext = StrategyMarketContext.EMPTY,
     ): Analysis {
         if (primaryCandles.isEmpty()) {
@@ -49,8 +50,11 @@ class StrategyExternalContextAnalyzer @Inject constructor(
             )
         }
 
-        val cutoff = primaryCandles.last().timestamp
-        val causal = context.causalAt(cutoff)
+        val decisionBarOpen = primaryCandles.last().timestamp
+        val causal = context.causalAt(
+            decisionBarOpenTimestamp = decisionBarOpen,
+            primaryTimeframe = primaryTimeframe,
+        )
         val peers = causal.peerCandles.filterKeys { !it.equals(primarySymbol, ignoreCase = true) }
         val smt = if (peers.isEmpty()) {
             emptyList()
