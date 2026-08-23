@@ -83,10 +83,6 @@ fun RsiOrderFlowSubChart(
     val currentRsi = analysis.rsi.last().takeIf { it.isFinite() }?.coerceIn(0.0, 100.0) ?: 50.0
     val currentFlow = analysis.flow.last().takeIf { it.isFinite() }?.coerceIn(0.0, 100.0) ?: 50.0
     val latestDivergence = analysis.divergences.lastOrNull()
-    val latestDivText = latestDivergence?.let { div ->
-        val side = if (div.bullish) "BULL DIV" else "BEAR DIV"
-        "$side ${div.strength}"
-    }
 
     Column(modifier = modifier.fillMaxWidth()) {
         Box(
@@ -115,12 +111,12 @@ fun RsiOrderFlowSubChart(
                     fontWeight = FontWeight.Bold,
                     color = if (currentFlow >= 50.0) RsiOfBull else RsiOfBear,
                 )
-                latestDivText?.let {
+                latestDivergence?.let { div ->
                     Text(
-                        text = it,
+                        text = "${if (div.bullish) "BULL DIV" else "BEAR DIV"} ${div.strength}",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
-                        color = if (latestDivergence.bullish) RsiOfBull else RsiOfBear,
+                        color = if (div.bullish) RsiOfBull else RsiOfBear,
                     )
                 }
             }
