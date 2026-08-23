@@ -1,6 +1,9 @@
 package com.foxtrader.app.domain.usecase.backtest
 
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.Direction
+import com.foxtrader.app.domain.model.ExitReason
+import com.foxtrader.app.domain.model.StrategySignal
 import com.foxtrader.app.domain.model.Timeframe
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -43,6 +46,39 @@ class HistoricalBacktestRunnerTest {
         assertEquals(candles[14].timestamp, result.endDate)
         assertEquals((10..14).toList(), result.equityCurve.map { it.index })
         assertTrue(result.trades.isEmpty())
+    }
+
+    @Test
+    fun `trade opened in selected range is force closed at selected end`() {
+        val runner = HistoricalBacktestRunner(BacktestEngine())
+        val window = HistoricalTestWindow(startIndex = 10, endIndex = 14)
+        val strategy: StrategyFunction = { _, index ->
+            if (index != 10) null else StrategySignal(
+                index = index,
+                timestamp = candles[index].timestamp,
+                direction = Direction.BULLISH,
+                entry = candles[index].close,
+                stopLoss = candles[index].close - 100.0,
+                takeProfit = candles[index].close + 100.0,
+                volume = 0.01,
+                setupType = "RANGE_BOUNDARY_FIXTURE",
+            )
+        }
+
+        val result = runner(
+            candles = candles,
+            strategy = strategy,
+            window = window,
+            symbol = "EURUSD",
+            timeframe = Timeframe.M1,
+        )
+
+        assertEquals(1, result.trades.size)
+        val trade = result.trades.single()
+        assertEquals(10, trade.entryIndex)
+        assertEquals(14, trade.exitIndex)
+        assertEquals(candles[14].timestamp, trade.exitTime)
+        assertEquals(ExitReason.END, trade.exitReason)
     }
 
     @Test
