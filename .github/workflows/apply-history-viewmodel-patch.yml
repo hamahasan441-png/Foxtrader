@@ -1,0 +1,35 @@
+name: Apply advanced history ViewModel patch
+
+on:
+  push:
+    branches:
+      - feat/advanced-history-testing
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[history-patch]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/advanced-history-testing
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Patch ChartViewModel
+        run: python scripts/patch_advanced_history_viewmodel.py
+      - name: Commit patch
+        run: |
+          if git diff --quiet; then
+            echo "No patch changes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/foxtrader/app/feature/chart/presentation/ChartViewModel.kt
+          git commit -m "Apply advanced history ViewModel integration [history-patch]"
+          git push origin HEAD:feat/advanced-history-testing
