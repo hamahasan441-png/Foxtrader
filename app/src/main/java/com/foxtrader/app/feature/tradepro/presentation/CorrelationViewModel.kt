@@ -6,8 +6,8 @@ import com.foxtrader.app.di.DefaultDispatcher
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.repository.MarketRepository
-import com.foxtrader.app.domain.usecase.scanner.ScannerUseCase
 import com.foxtrader.app.domain.usecase.tradepro.CorrelationEngine
+import com.foxtrader.app.domain.usecase.watchlist.ActiveWatchlistSymbols
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -19,13 +19,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
-/**
- * Loads the watchlist candle sets and computes the correlation matrix off the main thread.
- */
+/** Loads persisted watchlist candle sets and computes the correlation matrix off the main thread. */
 @HiltViewModel
 class CorrelationViewModel @Inject constructor(
     private val repository: MarketRepository,
-    private val scannerUseCase: ScannerUseCase,
+    private val activeWatchlistSymbols: ActiveWatchlistSymbols,
     private val correlationEngine: CorrelationEngine,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
@@ -33,9 +31,7 @@ class CorrelationViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(CorrelationUiState())
     val uiState: StateFlow<CorrelationUiState> = _uiState.asStateFlow()
 
-    init {
-        compute()
-    }
+    init { compute() }
 
     fun setTimeframe(timeframe: Timeframe) {
         if (timeframe == _uiState.value.timeframe) return
@@ -48,20 +44,15 @@ class CorrelationViewModel @Inject constructor(
             val timeframe = _uiState.value.timeframe
             _uiState.update { it.copy(isComputing = true, error = null) }
             try {
-                val watchlist = scannerUseCase.getWatchlist().filter { it.enabled }.take(MAX_SYMBOLS)
+                val watchlist = activeWatchlistSymbols(MAX_SYMBOLS)
                 val candlesBySymbol = LinkedHashMap<String, List<Candle>>(watchlist.size)
                 for (entry in watchlist) {
                     val candles = repository.getSourcedCandles(entry.symbol, timeframe).candles
                     if (candles.size > MIN_BARS) candlesBySymbol[entry.symbol] = candles
                 }
-                val matrix = withContext(defaultDispatcher) {
-                    correlationEngine.compute(candlesBySymbol)
-                }
+                val matrix = withContext(defaultDispatcher) { correlationEngine.compute(candlesBySymbol) }
                 _uiState.update { it.copy(isComputing = false, matrix = matrix) }
             } catch (cancel: CancellationException) {
-                // Never swallow cancellation: doing so breaks structured
-                // concurrency and surfaces a routine screen-close or
-                // re-run as a spurious on-screen error.
                 throw cancel
             } catch (e: Exception) {
                 _uiState.update { it.copy(isComputing = false, error = e.message ?: "Failed to compute correlations.") }
