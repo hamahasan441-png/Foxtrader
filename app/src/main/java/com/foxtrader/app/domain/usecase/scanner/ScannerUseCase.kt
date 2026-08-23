@@ -4,11 +4,7 @@ import com.foxtrader.app.domain.model.AssetClass
 import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
-import com.foxtrader.app.domain.model.FvgType
-import com.foxtrader.app.domain.model.LiquidityType
 import com.foxtrader.app.domain.model.LitXSignal
-import com.foxtrader.app.domain.model.LitXStage
-import com.foxtrader.app.domain.model.OrderBlockType
 import com.foxtrader.app.domain.model.ScannerRiskLevel
 import com.foxtrader.app.domain.model.ScreenerOutput
 import com.foxtrader.app.domain.model.ScreenerResult
@@ -20,31 +16,36 @@ import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import com.foxtrader.app.domain.usecase.analysis.WyckoffDetector
 import com.foxtrader.app.domain.usecase.indicators.BollingerBands
 import com.foxtrader.app.domain.usecase.indicators.IchimokuCloud
-import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
 import com.foxtrader.app.domain.usecase.patterns.CandlePatternDetector
-import com.foxtrader.app.domain.usecase.smc.SmcDetector
 import com.foxtrader.app.domain.usecase.signalintel.ConfirmedBarPolicy
 import com.foxtrader.app.domain.usecase.signalintel.LitEngine
+import com.foxtrader.app.domain.usecase.smc.SmcDetector
+import com.foxtrader.app.domain.usecase.strategies.StrategyPackageEngine
 import javax.inject.Inject
 import kotlin.math.abs
-import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.roundToInt
 
 /**
- * Multi-asset Screener / Scanner.
+ * Multi-asset scanner backed by the same complete strategy packages used by the
+ * live chart and backtests.
  *
- * Scans all enabled watchlist symbols using EMA, ADX, RSI, Momentum, ATR.
- * Ranks results by composite score and assigns "Best" category badges.
+ * Scanner ranking and executable trade signals intentionally remain different
+ * concepts, but they no longer have different strategy implementations:
+ * - [StrategyPackageEngine.Analysis.preferredDirection]/packageScore rank assets.
+ * - [StrategyPackageEngine.Analysis.signal] marks a currently executable setup.
  *
- * Pure domain logic — no platform dependencies.
+ * Both are derived from one causal package containing technical state, confirmed
+ * structure, full SMC detections, session context and strategy-specific logic.
  */
 class ScannerUseCase @Inject constructor(
     private val smcDetector: SmcDetector,
-    private val candlePatternDetector: CandlePatternDetector,
+    // Retained in the public constructor for source/Hilt compatibility. Pattern,
+    // Bollinger and Wyckoff evidence is now represented by the canonical package
+    // path instead of a second scanner-only strategy implementation.
+    @Suppress("unused") private val candlePatternDetector: CandlePatternDetector,
     private val ichimokuCloud: IchimokuCloud,
-    private val bollingerBands: BollingerBands,
-    private val wyckoffDetector: WyckoffDetector,
+    @Suppress("unused") private val bollingerBands: BollingerBands,
+    @Suppress("unused") private val wyckoffDetector: WyckoffDetector,
     private val analyzeStructure: AnalyzeMarketStructureUseCase,
     private val litXEngine: com.foxtrader.app.domain.usecase.litx.LitXEngine,
     private val litEngine: LitEngine = LitEngine(
@@ -56,10 +57,15 @@ class ScannerUseCase @Inject constructor(
 ) {
     private var watchlist: MutableList<ScreenerSymbol> = DEFAULT_WATCHLIST.toMutableList()
 
-    /**
-     * Scan all watchlist symbols.
-     * @param dataMap symbol → candle data (at least 50 bars each)
-     */
+    private val strategyPackages = StrategyPackageEngine(
+        smcDetector = smcDetector,
+        analyzeStructure = analyzeStructure,
+        ichimokuCloud = ichimokuCloud,
+        litXEngine = litXEngine,
+        litEngine = litEngine,
+    )
+
+    /** Scan every enabled watchlist symbol using the selected canonical package. */
     operator fun invoke(
         dataMap: Map<String, List<Candle>>,
         strategy: StrategyType = StrategyType.CONFLUENCE,
@@ -72,17 +78,15 @@ class ScannerUseCase @Inject constructor(
             if (!ws.enabled) continue
             val rawCandles = dataMap[ws.symbol] ?: continue
             val candles = ConfirmedBarPolicy.confirmedPrefix(rawCandles, timeframe, System.currentTimeMillis())
-            if (candles.size < 50) continue
+            if (candles.size < MIN_SCANNER_BARS) continue
             analyzeSymbol(ws, candles, strategy, timeframe)?.let { candidate ->
                 results += candidate.result
                 candidate.validatedLitXSignal?.let(validatedLitXSignals::add)
             }
         }
 
-        // Sort by score descending
         results.sortByDescending { it.score }
 
-        // Assign category badges
         val buys = results.filter { it.direction == Direction.BULLISH }.sortedByDescending { it.score }
         val sells = results.filter { it.direction == Direction.BEARISH }.sortedByDescending { it.score }
         val swings = results.sortedByDescending { it.trendStrength }
@@ -90,12 +94,13 @@ class ScannerUseCase @Inject constructor(
         val longterm = results.sortedByDescending { it.trendStrength * it.score }
 
         val categorized = results.map { it.copy(categories = mutableListOf()) }.toMutableList()
-        fun tag(list: List<ScreenerResult>, cat: WatchlistCategory) {
+        fun tag(list: List<ScreenerResult>, category: WatchlistCategory) {
             val top = list.firstOrNull() ?: return
-            val idx = categorized.indexOfFirst { it.symbol == top.symbol }
-            if (idx >= 0) {
-                val current = categorized[idx]
-                categorized[idx] = current.copy(categories = current.categories + cat)
+            val index = categorized.indexOfFirst { it.symbol == top.symbol }
+            if (index >= 0) {
+                categorized[index] = categorized[index].copy(
+                    categories = categorized[index].categories + category,
+                )
             }
         }
         tag(buys, WatchlistCategory.BEST_BUY)
@@ -117,10 +122,6 @@ class ScannerUseCase @Inject constructor(
         )
     }
 
-    // ========================================================================
-    // ANALYSIS
-    // ========================================================================
-
     private fun analyzeSymbol(
         ws: ScreenerSymbol,
         candles: List<Candle>,
@@ -129,128 +130,91 @@ class ScannerUseCase @Inject constructor(
     ): AnalyzedCandidate? {
         val last = candles.lastIndex
         val price = candles[last].close
-        val start = (last - 20).coerceAtLeast(0)
-        val changePercent = ((price - candles[start].close) / candles[start].close) * 100.0
+        if (!price.isFinite() || price <= 0.0) return null
 
-        val ema20 = TechnicalIndicators.calculateEMA(candles, 20)
-        val ema50 = TechnicalIndicators.calculateEMA(candles, 50)
-        val adxResult = TechnicalIndicators.calculateADX(candles)
-        val rsi = TechnicalIndicators.calculateRSI(candles)
-        val mom = TechnicalIndicators.calculateMomentum(candles)
-        val atr = TechnicalIndicators.calculateATR(candles, 14)
+        val packageAnalysis = strategyPackages.analyze(
+            type = strategy,
+            symbol = ws.symbol,
+            timeframe = timeframe,
+            candles = candles,
+            index = last,
+        )
+        val direction = packageAnalysis.signal?.direction
+            ?: packageAnalysis.preferredDirection
+            ?: return null
 
-        val trendStrength = min(100.0, adxResult.adx[last] * 2.0)
-        val momentum = min(100.0, 50.0 + abs(mom[last]) * 5.0)
-        val volatility = min(100.0, (atr[last] / price) * 100.0 * 50.0)
-        val signal = when (strategy) {
-            StrategyType.CONFLUENCE -> confluenceSignal(
-                changePercent = changePercent,
-                ema20 = ema20[last],
-                ema50 = ema50[last],
-                plusDi = adxResult.plusDI[last],
-                minusDi = adxResult.minusDI[last],
-                adx = adxResult.adx[last],
-                rsi = rsi[last],
-                trendStrength = trendStrength,
-                momentum = momentum,
-                volatility = volatility,
-            )
-            StrategyType.TREND_FOLLOWING -> trendSignal(
-                ema20 = ema20[last],
-                ema50 = ema50[last],
-                adx = adxResult.adx[last],
-                plusDi = adxResult.plusDI[last],
-                minusDi = adxResult.minusDI[last],
-                momentum = mom[last],
-                changePercent = changePercent,
-            )
-            StrategyType.MEAN_REVERSION -> meanReversionSignal(
-                price = price,
-                rsi = rsi[last],
-                boll = bollingerBands.calculate(candles),
-                atr = atr[last],
-                lastIndex = last,
-            )
-            StrategyType.BREAKOUT -> breakoutSignal(
-                candles = candles,
-                lastIndex = last,
-                adx = adxResult.adx[last],
-                atr = atr[last],
-                momentum = mom[last],
-            )
-            StrategyType.SMART_MONEY -> smartMoneySignal(
-                candles = candles,
-                price = price,
-                atr = atr[last],
-            )
-            StrategyType.LIT -> litSignal(
-                symbol = ws.symbol,
-                timeframe = timeframe,
-                candles = candles,
-            ) ?: return null
-            StrategyType.LITX -> litXSignal(
-                symbol = ws.symbol,
-                timeframe = timeframe,
-                candles = candles,
-            ) ?: return null
-            StrategyType.ICHIMOKU -> ichimokuSignal(
-                candles = candles,
-                changePercent = changePercent,
-                momentum = momentum,
-            )
-            StrategyType.PATTERN -> patternSignal(
-                candles = candles,
-                atr = atr[last],
-            )
+        val score = (packageAnalysis.signal?.confidence ?: packageAnalysis.packageScore)
+            .coerceIn(0, 100)
+        val start = (last - CHANGE_LOOKBACK_BARS).coerceAtLeast(0)
+        val startPrice = candles[start].close
+        val changePercent = if (startPrice.isFinite() && abs(startPrice) > MIN_DIVISOR_THRESHOLD) {
+            ((price - startPrice) / startPrice) * 100.0
+        } else {
+            0.0
         }
 
+        val technical = packageAnalysis.technical
+        val trendStrength = min(100.0, technical.adx14.coerceAtLeast(0.0) * 2.0)
+        val normalizedMacd = abs(technical.macdHistogram) / abs(price).coerceAtLeast(MIN_DIVISOR_THRESHOLD)
+        val momentum = (50.0 + normalizedMacd * MOMENTUM_SCALE).coerceIn(0.0, 100.0)
+        val volatility = ((technical.atr14 / abs(price).coerceAtLeast(MIN_DIVISOR_THRESHOLD)) * 100.0 * VOLATILITY_SCALE)
+            .coerceIn(0.0, 100.0)
+
+        val tags = buildList {
+            add("PACKAGE")
+            if (packageAnalysis.signal != null) add("EXECUTABLE")
+            packageAnalysis.confirmations
+                .asSequence()
+                .map { it.substringBefore(':') }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .take(MAX_PACKAGE_TAGS)
+                .forEach(::add)
+            if (packageAnalysis.conflicts.isNotEmpty()) add("CONFLICT_${packageAnalysis.conflicts.size}")
+        }
         val riskLevel = riskLevelFor(
-            score = signal.score,
+            score = score,
             trendStrength = trendStrength,
             volatility = volatility,
         )
+
         return AnalyzedCandidate(
             result = ScreenerResult(
                 symbol = ws.symbol,
                 assetClass = ws.assetClass,
                 strategy = strategy,
-                direction = signal.direction,
-                score = signal.score,
-                bias = if (signal.direction == Direction.BULLISH) Bias.BULLISH else Bias.BEARISH,
+                direction = direction,
+                score = score,
+                bias = if (direction == Direction.BULLISH) Bias.BULLISH else Bias.BEARISH,
                 trendStrength = trendStrength,
                 momentum = momentum,
                 volatility = volatility,
-                setupQuality = signal.setupQuality,
+                setupQuality = score.toDouble(),
                 categories = emptyList(),
-                tags = signal.tags,
+                tags = tags,
                 lastPrice = price,
                 changePercent = changePercent,
                 riskLevel = riskLevel,
                 rationale = buildRationale(
                     symbol = ws.symbol,
                     strategy = strategy,
-                    signal = signal,
+                    direction = direction,
+                    score = score,
                     trendStrength = trendStrength,
                     momentum = momentum,
                     volatility = volatility,
                     changePercent = changePercent,
+                    tags = tags,
+                    packageNarrative = packageAnalysis.narrative,
                     riskLevel = riskLevel,
                 ),
             ),
-            validatedLitXSignal = signal.validatedLitXSignal,
+            validatedLitXSignal = packageAnalysis.validatedLitXSignal,
         )
     }
 
     private data class AnalyzedCandidate(
         val result: ScreenerResult,
-        val validatedLitXSignal: LitXSignal? = null,
-    )
-
-    private data class StrategySignalSnapshot(
-        val direction: Direction,
-        val score: Int,
-        val setupQuality: Double,
-        val tags: List<String>,
         val validatedLitXSignal: LitXSignal? = null,
     )
 
@@ -267,14 +231,17 @@ class ScannerUseCase @Inject constructor(
     private fun buildRationale(
         symbol: String,
         strategy: StrategyType,
-        signal: StrategySignalSnapshot,
+        direction: Direction,
+        score: Int,
         trendStrength: Double,
         momentum: Double,
         volatility: Double,
         changePercent: Double,
+        tags: List<String>,
+        packageNarrative: String,
         riskLevel: ScannerRiskLevel,
     ): String {
-        val direction = if (signal.direction == Direction.BULLISH) "bullish" else "bearish"
+        val directionText = if (direction == Direction.BULLISH) "bullish" else "bearish"
         val trendText = when {
             trendStrength >= 70.0 -> "strong trend"
             trendStrength >= 40.0 -> "developing trend"
@@ -290,286 +257,12 @@ class ScannerUseCase @Inject constructor(
             volatility >= 45.0 -> "normal volatility"
             else -> "controlled volatility"
         }
-        val tags = signal.tags.take(4).joinToString(", ")
-        val driverText = if (tags.isBlank()) "No special tags" else "Drivers: $tags"
-        return "$symbol ${strategy.label}: $direction scan with ${signal.score}/100 score, " +
+        val driverText = tags.take(5).joinToString(", ").ifBlank { "PACKAGE" }
+        return "$symbol ${strategy.label}: $directionText package scan with $score/100 score, " +
             "$trendText, $momentumText, $volatilityText, ${"%+.2f".format(changePercent)}% change. " +
-            "$driverText. Risk: ${riskLevel.name.lowercase().replaceFirstChar { it.uppercase() }}."
+            "Drivers: $driverText. $packageNarrative. " +
+            "Risk: ${riskLevel.name.lowercase().replaceFirstChar { it.uppercase() }}."
     }
-
-    private fun confluenceSignal(
-        changePercent: Double,
-        ema20: Double,
-        ema50: Double,
-        plusDi: Double,
-        minusDi: Double,
-        adx: Double,
-        rsi: Double,
-        trendStrength: Double,
-        momentum: Double,
-        volatility: Double,
-    ): StrategySignalSnapshot {
-        val bullEma = ema20 > ema50
-        val diUp = plusDi > minusDi
-        val direction = if ((bullEma && diUp) || changePercent > 0.5) Direction.BULLISH else Direction.BEARISH
-        val rsiScore = abs(rsi - 50.0)
-        val setupQuality = min(100.0, trendStrength * 0.4 + momentum * 0.3 + rsiScore * 0.3)
-        val score = min(100, (setupQuality * 0.6 + trendStrength * 0.3 + if (bullEma == diUp) 10.0 else 0.0).roundToInt())
-        val tags = buildList {
-            if (adx > 25) add("TRENDING")
-            if (rsi > 70) add("OVERBOUGHT")
-            if (rsi < 30) add("OVERSOLD")
-            if (volatility > 60) add("HIGH_VOL")
-            if (abs(changePercent) > 2) add("MOVER")
-        }
-        return StrategySignalSnapshot(direction, score, setupQuality, tags)
-    }
-
-    private fun trendSignal(
-        ema20: Double,
-        ema50: Double,
-        adx: Double,
-        plusDi: Double,
-        minusDi: Double,
-        momentum: Double,
-        changePercent: Double,
-    ): StrategySignalSnapshot {
-        val bullish = ema20 >= ema50 && plusDi >= minusDi
-        val alignment = if ((ema20 >= ema50) == (plusDi >= minusDi)) 12.0 else 0.0
-        val score = (adx * 2.1 + abs(momentum) * 6.0 + abs(changePercent) * 4.0 + alignment)
-            .roundToInt()
-            .coerceIn(0, 100)
-        return StrategySignalSnapshot(
-            direction = if (bullish) Direction.BULLISH else Direction.BEARISH,
-            score = score,
-            setupQuality = score.toDouble(),
-            tags = listOfNotNull(
-                "EMA_STACK",
-                if (adx >= 25) "STRONG_TREND" else null,
-                if (abs(changePercent) >= 1.0) "FOLLOW_THROUGH" else null,
-            ),
-        )
-    }
-
-    private fun meanReversionSignal(
-        price: Double,
-        rsi: Double,
-        boll: BollingerBands.BollingerResult,
-        atr: Double,
-        lastIndex: Int,
-    ): StrategySignalSnapshot {
-        val upper = boll.upper.getOrNull(lastIndex) ?: price
-        val lower = boll.lower.getOrNull(lastIndex) ?: price
-        val distance = max(abs(price - upper), abs(price - lower))
-        val bullish = rsi <= 40.0 || price <= lower
-        val score = (
-            abs(rsi - 50.0) * 1.6 +
-                (if (price <= lower || price >= upper) 20 else 0) +
-                distance / atr * 8
-            )
-            .roundToInt()
-            .coerceIn(0, 100)
-        return StrategySignalSnapshot(
-            direction = if (bullish) Direction.BULLISH else Direction.BEARISH,
-            score = score,
-            setupQuality = score.toDouble(),
-            tags = listOfNotNull(
-                if (price <= lower) "LOWER_BAND" else null,
-                if (price >= upper) "UPPER_BAND" else null,
-                if (rsi < 30) "RSI_OVERSOLD" else null,
-                if (rsi > 70) "RSI_OVERBOUGHT" else null,
-            ),
-        )
-    }
-
-    private fun breakoutSignal(
-        candles: List<Candle>,
-        lastIndex: Int,
-        adx: Double,
-        atr: Double,
-        momentum: Double,
-    ): StrategySignalSnapshot {
-        val lookback = candles.subList(max(0, lastIndex - 20), lastIndex)
-        val breakoutHigh = lookback.maxOfOrNull { it.high } ?: candles[lastIndex].high
-        val breakoutLow = lookback.minOfOrNull { it.low } ?: candles[lastIndex].low
-        val candle = candles[lastIndex]
-        val bullish = candle.close >= breakoutHigh
-        val bearish = candle.close <= breakoutLow
-        val score = (
-            adx * BREAKOUT_ADX_WEIGHT +
-                abs(momentum) * BREAKOUT_MOMENTUM_WEIGHT +
-                candle.range / atr * BREAKOUT_RANGE_WEIGHT +
-                if (bullish || bearish) BREAKOUT_BONUS else 0
-            )
-            .roundToInt()
-            .coerceIn(0, 100)
-        return StrategySignalSnapshot(
-            direction = if (bullish || !bearish && momentum >= 0) Direction.BULLISH else Direction.BEARISH,
-            score = score,
-            setupQuality = score.toDouble(),
-            tags = listOfNotNull(
-                if (bullish) "RANGE_BREAK_HIGH" else null,
-                if (bearish) "RANGE_BREAK_LOW" else null,
-                if (adx >= 25) "EXPANSION" else null,
-            ),
-        )
-    }
-
-    private fun smartMoneySignal(
-        candles: List<Candle>,
-        price: Double,
-        atr: Double,
-    ): StrategySignalSnapshot {
-        val activeOrderBlock = smcDetector.detectOrderBlocks(candles).filter { !it.mitigated }
-            .minByOrNull { abs(((it.highPrice + it.lowPrice) / 2.0) - price) }
-        val activeFvg = smcDetector.detectFairValueGaps(candles).filter { !it.filled }
-            .minByOrNull { abs(((it.highPrice + it.lowPrice) / 2.0) - price) }
-        val liquidity = smcDetector.detectLiquidity(candles).lastOrNull { !it.swept }
-        val bullish = when {
-            activeOrderBlock != null -> activeOrderBlock.type == OrderBlockType.BULLISH
-            activeFvg != null -> activeFvg.type == FvgType.BULLISH
-            liquidity != null -> liquidity.type == LiquidityType.SELL_SIDE
-            else -> true
-        }
-        val distanceScore = listOfNotNull(
-            activeOrderBlock?.let { atrSafeDistance(price, (it.highPrice + it.lowPrice) / 2.0, atr) },
-            activeFvg?.let { atrSafeDistance(price, (it.highPrice + it.lowPrice) / 2.0, atr) },
-        ).maxOrNull() ?: 0.0
-        val score = (
-            SMC_BASE_SCORE +
-                distanceScore * SMC_DISTANCE_WEIGHT +
-                (activeOrderBlock?.strength ?: 0.0) * SMC_ORDER_BLOCK_WEIGHT +
-                if (liquidity != null) SMC_LIQUIDITY_BONUS else 0
-            )
-            .roundToInt()
-            .coerceIn(0, 100)
-        return StrategySignalSnapshot(
-            direction = if (bullish) Direction.BULLISH else Direction.BEARISH,
-            score = score,
-            setupQuality = score.toDouble(),
-            tags = listOfNotNull(
-                if (activeOrderBlock != null) "ORDER_BLOCK" else null,
-                if (activeFvg != null) "FVG" else null,
-                if (liquidity != null) "LIQUIDITY" else null,
-            ),
-        )
-    }
-
-    private fun ichimokuSignal(
-        candles: List<Candle>,
-        changePercent: Double,
-        momentum: Double,
-    ): StrategySignalSnapshot {
-        val result = ichimokuCloud.calculate(candles)
-        val position = ichimokuCloud.cloudPosition(candles, result)
-        val last = candles.lastIndex
-        val bullish = position != IchimokuCloud.CloudPosition.BELOW &&
-            result.tenkan[last] >= result.kijun[last]
-        val score = (55 + abs(changePercent) * 6 + abs(momentum) * 4 +
-            if (position != IchimokuCloud.CloudPosition.INSIDE) 15 else 0)
-            .roundToInt()
-            .coerceIn(0, 100)
-        return StrategySignalSnapshot(
-            direction = if (bullish) Direction.BULLISH else Direction.BEARISH,
-            score = score,
-            setupQuality = score.toDouble(),
-            tags = listOf(
-                "CLOUD_${position.name}",
-                if (result.tenkan[last] >= result.kijun[last]) "TK_BULL" else "TK_BEAR",
-            ),
-        )
-    }
-
-    private fun litSignal(
-        symbol: String,
-        timeframe: Timeframe,
-        candles: List<Candle>,
-    ): StrategySignalSnapshot? {
-        val analysis = litEngine.analyze(symbol, timeframe, candles)
-        val signal = analysis.signal ?: return null
-        return StrategySignalSnapshot(
-            direction = signal.direction,
-            score = signal.confidence.coerceIn(0, 100),
-            setupQuality = signal.confidence.toDouble(),
-            tags = signal.confirmations + listOf("LIT", "PHASE13", analysis.stage.name),
-        )
-    }
-
-
-    /**
-     * LIT X strategy — delegates to the institutional [LitXEngine] and maps its
-     * analysis to a scanner snapshot. HTF context isn't fetched here (the
-     * scanner is a fast first pass), so a validated grade is rarer than on the
-     * dedicated LIT X screen; the pipeline stage drives a readiness score.
-     */
-    private fun litXSignal(
-        symbol: String,
-        timeframe: Timeframe,
-        candles: List<Candle>,
-    ): StrategySignalSnapshot? {
-        val analysis = litXEngine.analyze(symbol, timeframe, candles)
-        val signal = analysis.signal ?: return null
-        val score = maxOf(signal.confidence.score, analysis.stage.readinessScore()).coerceIn(0, 100)
-        val tags = buildList {
-            add("LITX")
-            add(analysis.stage.name)
-            add(signal.confidence.grade.name)
-            if (analysis.displacement != null) add("DISPLACEMENT")
-        }
-        return StrategySignalSnapshot(
-            direction = signal.direction,
-            score = score,
-            setupQuality = score.toDouble(),
-            tags = tags,
-            validatedLitXSignal = signal,
-        )
-    }
-
-    private fun LitXStage.readinessScore(): Int = when (this) {
-        LitXStage.SCANNING -> 30
-        LitXStage.LIQUIDITY_MAPPED -> 40
-        LitXStage.SWEEP_DETECTED -> 45
-        LitXStage.SHIFT_CONFIRMED -> 50
-        LitXStage.POI_TAPPED -> 55
-        LitXStage.VALIDATED -> 60
-    }
-
-    private fun patternSignal(
-        candles: List<Candle>,
-        atr: Double,
-    ): StrategySignalSnapshot {
-        val pattern = candlePatternDetector(candles, lookback = 20)
-            .maxByOrNull { it.confidence }
-        val wyckoff = wyckoffDetector.detect(candles)
-        val direction = when {
-            pattern != null -> pattern.direction
-            wyckoff.phase == WyckoffDetector.WyckoffPhase.MARKDOWN ||
-                wyckoff.phase == WyckoffDetector.WyckoffPhase.DISTRIBUTION -> Direction.BEARISH
-            else -> Direction.BULLISH
-        }
-        val score = (
-            (pattern?.confidence ?: 40) +
-                (if (wyckoff.confidence >= 60) 10 else 0) +
-                (atr / candles.last().close * 1000).coerceAtMost(10.0)
-            ).roundToInt().coerceIn(0, 100)
-        return StrategySignalSnapshot(
-            direction = direction,
-            score = score,
-            setupQuality = score.toDouble(),
-            tags = listOfNotNull(
-                pattern?.type?.name?.let(::truncateTag),
-                if (wyckoff.phase != WyckoffDetector.WyckoffPhase.UNDEFINED) wyckoff.phase.name else null,
-            ),
-        )
-    }
-
-    private fun atrSafeDistance(price: Double, target: Double, atr: Double): Double {
-        val safeAtr = atr.coerceAtLeast(MIN_DIVISOR_THRESHOLD)
-        return (1.0 - (abs(price - target) / safeAtr).coerceAtMost(1.0)).coerceIn(0.0, 1.0)
-    }
-
-    private fun truncateTag(tag: String): String =
-        if (tag.length <= MAX_TAG_LENGTH) tag else tag.take(MAX_TAG_LENGTH - 1) + "…"
 
     // ========================================================================
     // WATCHLIST MANAGEMENT
@@ -586,8 +279,8 @@ class ScannerUseCase @Inject constructor(
     }
 
     fun toggleSymbol(symbol: String, enabled: Boolean) {
-        val idx = watchlist.indexOfFirst { it.symbol == symbol }
-        if (idx >= 0) watchlist[idx] = watchlist[idx].copy(enabled = enabled)
+        val index = watchlist.indexOfFirst { it.symbol == symbol }
+        if (index >= 0) watchlist[index] = watchlist[index].copy(enabled = enabled)
     }
 
     fun getWatchlist(): List<ScreenerSymbol> = watchlist.toList()
@@ -599,21 +292,14 @@ class ScannerUseCase @Inject constructor(
         watchlist = symbols.toMutableList()
     }
 
-    // ========================================================================
-    // DEFAULT WATCHLIST
-    // ========================================================================
-
     companion object {
-        private const val MAX_TAG_LENGTH = 18
+        private const val MIN_SCANNER_BARS = 50
+        private const val CHANGE_LOOKBACK_BARS = 20
         private const val MIN_DIVISOR_THRESHOLD = 1e-9
-        private const val BREAKOUT_ADX_WEIGHT = 1.8
-        private const val BREAKOUT_MOMENTUM_WEIGHT = 8.0
-        private const val BREAKOUT_RANGE_WEIGHT = 12.0
-        private const val BREAKOUT_BONUS = 15
-        private const val SMC_BASE_SCORE = 55
-        private const val SMC_DISTANCE_WEIGHT = 20
-        private const val SMC_ORDER_BLOCK_WEIGHT = 25
-        private const val SMC_LIQUIDITY_BONUS = 8
+        private const val MOMENTUM_SCALE = 10_000.0
+        private const val VOLATILITY_SCALE = 50.0
+        private const val MAX_PACKAGE_TAGS = 5
+
         val DEFAULT_WATCHLIST: List<ScreenerSymbol> = listOf(
             // Forex
             ScreenerSymbol("EURUSD", AssetClass.FOREX),
