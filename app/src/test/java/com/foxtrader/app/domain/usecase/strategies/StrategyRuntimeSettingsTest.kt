@@ -99,6 +99,17 @@ class StrategyRuntimeSettingsTest {
     }
 
     @Test
+    fun `target risk reward cannot be sanitized below minimum risk reward`() {
+        val sanitized = StrategyRuntimeSettings(
+            minimumRiskReward = 3.0,
+            targetRiskReward = 2.0,
+        ).sanitized()
+
+        assertEquals(3.0, sanitized.minimumRiskReward, 0.0)
+        assertEquals(3.0, sanitized.targetRiskReward, 0.0)
+    }
+
+    @Test
     fun `definition wrapper reads settings changed after definition creation`() {
         val definition = StrategyDefinition(
             name = "Test",
