@@ -68,7 +68,7 @@ fun ChartPaneStack(
     modifier: Modifier = Modifier,
 ) {
     val active = buildList {
-        if (indicators.rsi && rsiValues != null) add(StudyPane.RSI)
+        if (indicators.rsi && rsiValues != null && candles.isNotEmpty()) add(StudyPane.RSI)
         if (indicators.macd && macdLine != null && macdSignal != null && macdHistogram != null) add(StudyPane.MACD)
         if (indicators.stochastic && stochasticK != null && stochasticD != null) add(StudyPane.STOCHASTIC)
         if (indicators.obv && obv != null) add(StudyPane.OBV)
@@ -142,14 +142,12 @@ fun ChartPaneStack(
 
             if (!collapsed) {
                 when (selected) {
-                    StudyPane.RSI -> rsiValues?.let {
-                        RsiSubChart(
-                            rsiValues = it,
-                            startIndex = startIndex,
-                            visibleBars = visibleBars,
-                            canvasHeight = STUDY_CANVAS_HEIGHT,
-                        )
-                    }
+                    StudyPane.RSI -> RsiOrderFlowSubChart(
+                        candles = candles,
+                        startIndex = startIndex,
+                        visibleBars = visibleBars,
+                        canvasHeight = STUDY_CANVAS_HEIGHT,
+                    )
                     StudyPane.MACD -> if (macdLine != null && macdSignal != null && macdHistogram != null) {
                         MacdSubChart(
                             macdLine = macdLine,
@@ -220,7 +218,7 @@ private fun StudyTab(
 }
 
 private enum class StudyPane(val key: String, val label: String) {
-    RSI("rsi", "RSI"),
+    RSI("rsi", "RSI OF"),
     MACD("macd", "MACD"),
     STOCHASTIC("stochastic", "Stoch"),
     OBV("obv", "OBV"),
