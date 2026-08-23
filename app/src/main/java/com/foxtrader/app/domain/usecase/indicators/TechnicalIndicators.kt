@@ -251,14 +251,22 @@ object TechnicalIndicators {
         avgGain /= period
         avgLoss /= period
 
-        // Emit the first RSI value at index [period] from the seed averages.
-        // Previously this bar was skipped (the loop began at period + 1), leaving
-        // rsi[period] stuck at the 50.0 default — one incorrect bar that could
-        // suppress a genuine oversold/overbought signal on that candle.
-        rsi[period] = run {
-            val rs = if (avgLoss > 0) avgGain / avgLoss else 100.0
-            100.0 - 100.0 / (1.0 + rs)
+        // TradingView/Pine's RSI is 100 - 100/(1 + avgGain/avgLoss). A strictly
+        // rising window therefore has avgLoss == 0 and must resolve to exactly
+        // 100 (not an arbitrary finite RS surrogate such as 100 -> 99.0099).
+        // A completely flat window is kept neutral at 50 to avoid NaN poisoning.
+        fun fromAverages(gain: Double, loss: Double): Double = when {
+            loss <= 0.0 && gain <= 0.0 -> 50.0
+            loss <= 0.0 -> 100.0
+            gain <= 0.0 -> 0.0
+            else -> {
+                val rs = gain / loss
+                100.0 - 100.0 / (1.0 + rs)
+            }
         }
+
+        // Emit the first RSI value at index [period] from the seed averages.
+        rsi[period] = fromAverages(avgGain, avgLoss)
 
         for (i in period + 1 until candles.size) {
             val change = candles[i].close - candles[i - 1].close
@@ -267,9 +275,7 @@ object TechnicalIndicators {
 
             avgGain = (avgGain * (period - 1) + gain) / period
             avgLoss = (avgLoss * (period - 1) + loss) / period
-
-            val rs = if (avgLoss > 0) avgGain / avgLoss else 100.0
-            rsi[i] = 100.0 - 100.0 / (1.0 + rs)
+            rsi[i] = fromAverages(avgGain, avgLoss)
         }
         return rsi
     }
