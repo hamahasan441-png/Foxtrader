@@ -49,7 +49,18 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Build debug APK
-        run: ./gradlew :app:assembleDebug --stacktrace --no-daemon --no-configuration-cache
+        shell: bash
+        run: |
+          set +e
+          ./gradlew :app:assembleDebug --stacktrace --no-daemon --no-configuration-cache > /tmp/foxtrader-build.log 2>&1
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "=== FOXTRADER COMPILE ERRORS ==="
+            grep -E '(^e: |^error: | error: |FAILURE:|What went wrong:|Compilation error|Unresolved reference|Type mismatch|No value passed|Cannot access|Too many arguments)' /tmp/foxtrader-build.log | tail -n 160 || true
+            echo "=== END COMPILE ERRORS ==="
+            exit "$status"
+          fi
+          tail -n 80 /tmp/foxtrader-build.log
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
