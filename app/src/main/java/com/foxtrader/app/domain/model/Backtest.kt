@@ -1,7 +1,24 @@
 package com.foxtrader.app.domain.model
 
 /**
- * Backtester configuration — spread, commission, slippage, risk.
+ * Order-fill timing used by the historical SL/TP backtester.
+ *
+ * [SIGNAL_PRICE] preserves the legacy Foxtrader behavior: once a closed bar
+ * confirms a signal, the engine treats the signal's declared entry price as
+ * the fill price (plus directional slippage).
+ *
+ * [NEXT_BAR_OPEN] models TradingView-style market-order timing: a signal is
+ * created from a closed bar and the market entry fills at the next bar open.
+ * The signal bar remains recorded separately from the execution bar so AI and
+ * any point-in-time analysis never gain access to the future fill candle.
+ */
+enum class BacktestExecutionMode(val displayName: String) {
+    SIGNAL_PRICE("Signal price (legacy)"),
+    NEXT_BAR_OPEN("Next bar open (TradingView)"),
+}
+
+/**
+ * Backtester configuration — spread, commission, slippage, risk, and fill timing.
  */
 data class BacktestConfig(
     val initialBalance: Double = 100_000.0,
@@ -11,6 +28,8 @@ data class BacktestConfig(
     val slippage: Double = 0.00001,
     val riskPercent: Double = 1.0,
     val contractSize: Int = 100_000,
+    /** Legacy by default so existing direct engine callers/tests remain stable. */
+    val executionMode: BacktestExecutionMode = BacktestExecutionMode.SIGNAL_PRICE,
 )
 
 /**
@@ -34,7 +53,9 @@ data class StrategySignal(
 data class BacktestTrade(
     val id: Int,
     val direction: Direction,
+    /** Actual execution bar, which may differ from the signal bar. */
     val entryIndex: Int,
+    /** Actual execution timestamp. */
     val entryTime: Long,
     val entryPrice: Double,
     val exitIndex: Int,
@@ -54,6 +75,10 @@ data class BacktestTrade(
     val aiGrade: String? = null,         // SignalGrade.name or null
     val aiConfidence: Double? = null,
     val aiConfluenceCount: Int? = null,
+    /** Closed bar where the strategy decision was made. */
+    val signalIndex: Int = entryIndex,
+    /** Timestamp of the strategy decision bar. */
+    val signalTime: Long = entryTime,
 )
 
 enum class ExitReason { TP, SL, END }
