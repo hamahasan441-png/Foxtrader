@@ -3,7 +3,7 @@ package com.foxtrader.app.feature.home.presentation
 import androidx.compose.runtime.Immutable
 import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.model.FoxAlert
-import com.foxtrader.app.domain.model.ScreenerResult
+import com.foxtrader.app.domain.model.MarketMover
 import com.foxtrader.app.domain.model.SubscriptionState
 import com.foxtrader.app.domain.model.Watchlist
 import com.foxtrader.app.domain.model.WorkspaceProfile
@@ -16,8 +16,7 @@ import kotlinx.collections.immutable.persistentListOf
 data class HomeUiState(
     val profile: WorkspaceProfile = WorkspaceProfile(),
     val subscription: SubscriptionState = SubscriptionState(),
-    val movers: ImmutableList<ScreenerResult> = persistentListOf(),
-    val signals: ImmutableList<ScreenerResult> = persistentListOf(),
+    val movers: ImmutableList<MarketMover> = persistentListOf(),
     val watchlist: Watchlist? = null,
     val recentAlerts: ImmutableList<FoxAlert> = persistentListOf(),
     val unreadAlerts: Int = 0,
@@ -33,8 +32,8 @@ data class HomeUiState(
     val sentimentLabel: String
         get() {
             if (movers.isEmpty()) return "—"
-            val bullish = movers.count { it.changePercent >= 0 }
-            val ratio = bullish.toDouble() / movers.size
+            val positive = movers.count { it.changePercent >= 0.0 }
+            val ratio = positive.toDouble() / movers.size
             return when {
                 ratio >= 0.7 -> "RISK-ON BREADTH"
                 ratio <= 0.3 -> "RISK-OFF BREADTH"

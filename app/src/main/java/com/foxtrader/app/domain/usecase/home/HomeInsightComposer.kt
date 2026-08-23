@@ -1,8 +1,8 @@
 package com.foxtrader.app.domain.usecase.home
 
-import com.foxtrader.app.domain.model.Direction
-import com.foxtrader.app.domain.model.ScreenerResult
+import com.foxtrader.app.domain.model.MarketMover
 import com.foxtrader.app.domain.model.WorkspaceProfile
+import kotlin.math.abs
 
 /** Epistemic label for anything the dashboard says out loud. */
 enum class InsightKind { FACT, CALCULATION, ASSUMPTION, PROBABILITY, OPINION }
@@ -12,14 +12,11 @@ data class ClassifiedInsight(
     val text: String,
 )
 
-/**
- * Builds the Home AI summary from already-computed numbers.
- * Pure: no I/O, no forecasts presented as facts.
- */
+/** Builds the Home summary from price-only watchlist snapshots. */
 object HomeInsightComposer {
 
     fun compose(
-        results: List<ScreenerResult>,
+        results: List<MarketMover>,
         unreadAlerts: Int,
         openPositions: Int,
         profile: WorkspaceProfile,
@@ -30,46 +27,46 @@ object HomeInsightComposer {
         if (synthetic) {
             insights += ClassifiedInsight(
                 InsightKind.FACT,
-                "Scan is labelled simulated — these moves are generated bars, not a live tape.",
+                "Market snapshot is labelled simulated — these moves are generated bars, not a live tape.",
             )
         }
 
         if (results.isEmpty()) {
             insights += ClassifiedInsight(
                 InsightKind.FACT,
-                "No scan results yet. Open Markets to run a watchlist scan.",
+                "No market snapshot yet. Add symbols to the Watchlist and refresh when candle history is available.",
             )
             return insights
         }
 
-        val bullish = results.count { it.direction == Direction.BULLISH }
-        val bearish = results.count { it.direction == Direction.BEARISH }
+        val positive = results.count { it.changePercent >= 0.0 }
+        val negative = results.size - positive
         insights += ClassifiedInsight(
             InsightKind.FACT,
-            "Scan covered ${results.size} symbols: $bullish scored as buys, $bearish as sells.",
+            "Watchlist snapshot covers ${results.size} symbols: $positive positive and $negative negative over the local lookback.",
         )
 
-        val avgScore = results.map { it.score }.average()
+        val averageAbsoluteMove = results.map { abs(it.changePercent) }.average()
         insights += ClassifiedInsight(
             InsightKind.CALCULATION,
-            "Average composite score is ${avgScore.toInt()} / 100 across the visible universe.",
+            "Average absolute watchlist move is ${"%.2f".format(java.util.Locale.US, averageAbsoluteMove)}%.",
         )
 
-        val breadth = if (results.isEmpty()) 0.0 else bullish.toDouble() / results.size
+        val breadth = positive.toDouble() / results.size
         insights += ClassifiedInsight(
             InsightKind.ASSUMPTION,
             when {
-                breadth >= 0.65 -> "Breadth leans risk-on if the scan universe matches the market you trade."
-                breadth <= 0.35 -> "Breadth leans risk-off if the scan universe matches the market you trade."
-                else -> "Breadth is mixed — treat direction as symbol-specific, not a market call."
+                breadth >= 0.65 -> "Watchlist breadth leans risk-on if this list represents the markets you trade."
+                breadth <= 0.35 -> "Watchlist breadth leans risk-off if this list represents the markets you trade."
+                else -> "Watchlist breadth is mixed — price direction remains symbol-specific."
             },
         )
 
-        val top = results.maxByOrNull { it.score }
+        val top = results.maxByOrNull { abs(it.changePercent) }
         if (top != null) {
             insights += ClassifiedInsight(
-                InsightKind.PROBABILITY,
-                "${top.symbol} is the highest-ranked print (${top.score}). Rank is a historical composite, not a forecast.",
+                InsightKind.CALCULATION,
+                "${top.symbol} has the largest absolute move in this snapshot (${"%+.2f".format(java.util.Locale.US, top.changePercent)}%).",
             )
         }
 

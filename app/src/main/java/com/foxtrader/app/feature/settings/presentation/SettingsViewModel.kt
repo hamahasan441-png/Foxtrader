@@ -1,32 +1,30 @@
 package com.foxtrader.app.feature.settings.presentation
 
 import androidx.lifecycle.ViewModel
-import com.foxtrader.app.data.alerts.ScanAlertScheduler
+import androidx.lifecycle.viewModelScope
 import com.foxtrader.app.data.auth.BiometricAuthManager
 import com.foxtrader.app.data.sync.SyncManager
 import com.foxtrader.app.domain.model.AlertConfig
-import com.foxtrader.app.domain.model.SignalProfile
-import com.foxtrader.app.domain.model.LitConfig
-import com.foxtrader.app.domain.model.LitXConfig
-import com.foxtrader.app.domain.model.LitXGrade
-import com.foxtrader.app.domain.model.SmtConfig
-import com.foxtrader.app.domain.model.SmsConfig
 import com.foxtrader.app.domain.model.AlertPriority
 import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.DecisionConfig
+import com.foxtrader.app.domain.model.LitConfig
+import com.foxtrader.app.domain.model.LitXConfig
+import com.foxtrader.app.domain.model.LitXGrade
 import com.foxtrader.app.domain.model.PositionSizingMethod
-import com.foxtrader.app.domain.model.RiskConfig
+import com.foxtrader.app.domain.model.SignalProfile
+import com.foxtrader.app.domain.model.SmsConfig
+import com.foxtrader.app.domain.model.SmtConfig
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.repository.AuthRepository
 import com.foxtrader.app.domain.repository.MarketRepository
-import com.foxtrader.app.domain.usecase.performance.PerformanceMode
 import com.foxtrader.app.domain.usecase.ai.AiAlertService
 import com.foxtrader.app.domain.usecase.ai.MasterDecisionEngine
 import com.foxtrader.app.domain.usecase.alerts.AlertEngine
+import com.foxtrader.app.domain.usecase.performance.PerformanceMode
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.domain.usecase.risk.RiskEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
-import androidx.lifecycle.viewModelScope
 import kotlinx.collections.immutable.toPersistentMap
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -49,7 +47,6 @@ class SettingsViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val syncManager: SyncManager,
     private val biometricAuthManager: BiometricAuthManager,
-    private val scanAlertScheduler: ScanAlertScheduler,
     private val marketRepository: MarketRepository,
 ) : ViewModel() {
 
@@ -63,8 +60,6 @@ class SettingsViewModel @Inject constructor(
                 minConfluences = appPreferences.aiMinConfluences.value,
                 minConfidence = appPreferences.aiMinConfidence.value,
                 alertCooldownMinutes = appPreferences.aiAlertCooldownMinutes.value,
-                backgroundScanEnabled = appPreferences.backgroundScanEnabled.value,
-                backgroundScanIntervalMinutes = appPreferences.backgroundScanIntervalMinutes.value,
             ),
             defaultTimeframe = appPreferences.defaultTimeframe.value,
             dataProvider = appPreferences.dataProvider.value,
@@ -93,69 +88,35 @@ class SettingsViewModel @Inject constructor(
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
     init {
-        authRepository.authState
-            .onEach { state -> _uiState.update { it.copy(authState = state) } }
-            .launchIn(viewModelScope)
-        appPreferences.apiKeys
-            .onEach { keys -> _uiState.update { it.copy(providerApiKeys = keys.toPersistentMap()) } }
-            .launchIn(viewModelScope)
-        appPreferences.riskConfig
-            .onEach { config -> _uiState.update { it.copy(riskConfig = config) } }
-            .launchIn(viewModelScope)
-        appPreferences.alertConfig
-            .onEach { config -> _uiState.update { it.copy(alertConfig = config) } }
-            .launchIn(viewModelScope)
-        appPreferences.defaultTimeframe
-            .onEach { tf -> _uiState.update { it.copy(defaultTimeframe = tf) } }
-            .launchIn(viewModelScope)
-        appPreferences.crashReportingEnabled
-            .onEach { enabled -> _uiState.update { it.copy(crashReportingEnabled = enabled) } }
-            .launchIn(viewModelScope)
-        appPreferences.backendBaseUrl
-            .onEach { url -> _uiState.update { it.copy(backendBaseUrl = url) } }
-            .launchIn(viewModelScope)
-        appPreferences.maxCachedBars
-            .onEach { bars -> _uiState.update { it.copy(maxCachedBars = bars) } }
-            .launchIn(viewModelScope)
-        appPreferences.performanceMode
-            .onEach { mode -> _uiState.update { it.copy(performanceMode = mode) } }
-            .launchIn(viewModelScope)
-        appPreferences.litXConfig
-            .onEach { cfg -> _uiState.update { it.copy(litXConfig = cfg) } }
-            .launchIn(viewModelScope)
-        appPreferences.litConfig
-            .onEach { cfg -> _uiState.update { it.copy(litConfig = cfg) } }
-            .launchIn(viewModelScope)
-        appPreferences.smtConfig
-            .onEach { cfg -> _uiState.update { it.copy(smtConfig = cfg) } }
-            .launchIn(viewModelScope)
-        appPreferences.smsConfig
-            .onEach { cfg -> _uiState.update { it.copy(smsConfig = cfg) } }
-            .launchIn(viewModelScope)
+        authRepository.authState.onEach { state -> _uiState.update { it.copy(authState = state) } }.launchIn(viewModelScope)
+        appPreferences.apiKeys.onEach { keys -> _uiState.update { it.copy(providerApiKeys = keys.toPersistentMap()) } }.launchIn(viewModelScope)
+        appPreferences.riskConfig.onEach { config -> _uiState.update { it.copy(riskConfig = config) } }.launchIn(viewModelScope)
+        appPreferences.alertConfig.onEach { config -> _uiState.update { it.copy(alertConfig = config) } }.launchIn(viewModelScope)
+        appPreferences.defaultTimeframe.onEach { tf -> _uiState.update { it.copy(defaultTimeframe = tf) } }.launchIn(viewModelScope)
+        appPreferences.crashReportingEnabled.onEach { enabled -> _uiState.update { it.copy(crashReportingEnabled = enabled) } }.launchIn(viewModelScope)
+        appPreferences.backendBaseUrl.onEach { url -> _uiState.update { it.copy(backendBaseUrl = url) } }.launchIn(viewModelScope)
+        appPreferences.maxCachedBars.onEach { bars -> _uiState.update { it.copy(maxCachedBars = bars) } }.launchIn(viewModelScope)
+        appPreferences.performanceMode.onEach { mode -> _uiState.update { it.copy(performanceMode = mode) } }.launchIn(viewModelScope)
+        appPreferences.litXConfig.onEach { cfg -> _uiState.update { it.copy(litXConfig = cfg) } }.launchIn(viewModelScope)
+        appPreferences.litConfig.onEach { cfg -> _uiState.update { it.copy(litConfig = cfg) } }.launchIn(viewModelScope)
+        appPreferences.smtConfig.onEach { cfg -> _uiState.update { it.copy(smtConfig = cfg) } }.launchIn(viewModelScope)
+        appPreferences.smsConfig.onEach { cfg -> _uiState.update { it.copy(smsConfig = cfg) } }.launchIn(viewModelScope)
         combine(
             appPreferences.aiMinConfluences,
             appPreferences.aiMinConfidence,
             appPreferences.aiAlertCooldownMinutes,
-            appPreferences.backgroundScanEnabled,
-            appPreferences.backgroundScanIntervalMinutes,
-        ) { confluences, confidence, cooldown, enabled, interval ->
+        ) { confluences, confidence, cooldown ->
             AiConfig(
                 minConfluences = confluences,
                 minConfidence = confidence,
                 alertCooldownMinutes = cooldown,
-                backgroundScanEnabled = enabled,
-                backgroundScanIntervalMinutes = interval,
             )
-        }
-            .onEach { aiConfig ->
-                _uiState.update { it.copy(aiConfig = aiConfig) }
-            }
-            .launchIn(viewModelScope)
+        }.onEach { aiConfig ->
+            _uiState.update { it.copy(aiConfig = aiConfig) }
+        }.launchIn(viewModelScope)
     }
 
-    fun logout() {
-        viewModelScope.launch { authRepository.logout() }
-    }
+    fun logout() { viewModelScope.launch { authRepository.logout() } }
 
     fun syncNow() {
         viewModelScope.launch {
@@ -164,11 +125,7 @@ class SettingsViewModel @Inject constructor(
             _uiState.update {
                 it.copy(
                     isSyncing = false,
-                    syncMessage = if (result.success) {
-                        "Synced ${result.mergedEntries} item(s)."
-                    } else {
-                        result.error ?: "Sync failed."
-                    },
+                    syncMessage = if (result.success) "Synced ${result.mergedEntries} item(s)." else result.error ?: "Sync failed.",
                 )
             }
         }
@@ -180,37 +137,24 @@ class SettingsViewModel @Inject constructor(
         _uiState.update { it.copy(dataProvider = provider, saved = false, providerTest = ConnectionTest.Idle) }
         providerSwitchJob?.cancel()
         providerSwitchJob = viewModelScope.launch {
-            // Provider is a global preference while CandleEntity has no provider
-            // dimension. Clear on both sides of the preference flip: the first
-            // purge removes the old snapshot; the second removes any old-feed
-            // tick that raced with ProviderMarketWebSocket's re-route.
             marketRepository.clearMarketDataCache()
             appPreferences.setDataProvider(provider)
             marketRepository.clearMarketDataCache()
         }
     }
 
-    /** Backend origin override — persisted on Save (like the other text fields). */
-    fun setBackendBaseUrl(value: String) {
-        _uiState.update { it.copy(backendBaseUrl = value, saved = false) }
-    }
+    fun setBackendBaseUrl(value: String) { _uiState.update { it.copy(backendBaseUrl = value, saved = false) } }
 
-    /** Cache ceiling — a performance/memory tradeoff; persisted immediately. */
     fun setMaxCachedBars(value: Int) {
         appPreferences.setMaxCachedBars(value)
         _uiState.update { it.copy(maxCachedBars = value, saved = false) }
     }
 
-    /** Chart performance mode (adaptive-quality ceiling); persisted immediately. */
     fun setPerformanceMode(mode: PerformanceMode) {
         appPreferences.setPerformanceMode(mode)
         _uiState.update { it.copy(performanceMode = mode, saved = false) }
     }
 
-    /**
-     * Test the selected provider against its live API. Commits the entered API
-     * key first so the test reflects what's on screen, then reports the result.
-     */
     fun testProviderConnection() {
         val state = _uiState.value
         appPreferences.setApiKey(state.dataProvider, state.currentProviderApiKey)
@@ -229,7 +173,6 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    /** Ping the FoxTrader backend, committing the entered URL first. */
     fun testBackendConnection() {
         appPreferences.setBackendBaseUrl(_uiState.value.backendBaseUrl)
         _uiState.update { it.copy(backendTest = ConnectionTest.Testing) }
@@ -247,20 +190,13 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun setProviderApiKey(value: String) {
-        // Persisted on Save to match the rest of editable settings fields.
         _uiState.update { state ->
             state.copy(
-                providerApiKeys = state.providerApiKeys
-                    .toMap()
-                    .toMutableMap()
-                    .apply { this[state.dataProvider] = value }
-                    .toPersistentMap(),
+                providerApiKeys = state.providerApiKeys.toMap().toMutableMap().apply { this[state.dataProvider] = value }.toPersistentMap(),
                 saved = false,
             )
         }
     }
-
-    // --- MT4 Live Trading ---
 
     fun setMt4LiveModeEnabled(enabled: Boolean) {
         appPreferences.setMt4LiveModeEnabled(enabled)
@@ -294,75 +230,34 @@ class SettingsViewModel @Inject constructor(
         _uiState.update { it.copy(mt4MaxDailyLoss = value, saved = false) }
     }
 
-    // --- Risk Config ---
+    fun setRiskPercent(value: Double) { _uiState.update { it.copy(riskConfig = it.riskConfig.copy(riskPercentPerTrade = value), saved = false) } }
+    fun setSizingMethod(method: PositionSizingMethod) { _uiState.update { it.copy(riskConfig = it.riskConfig.copy(sizingMethod = method), saved = false) } }
+    fun setMaxDailyLoss(value: Double) { _uiState.update { it.copy(riskConfig = it.riskConfig.copy(maxDailyLossPercent = value), saved = false) } }
+    fun setMaxDrawdown(value: Double) { _uiState.update { it.copy(riskConfig = it.riskConfig.copy(maxDrawdownPercent = value), saved = false) } }
+    fun setMaxConsecutiveLosses(value: Int) { _uiState.update { it.copy(riskConfig = it.riskConfig.copy(maxConsecutiveLosses = value), saved = false) } }
+    fun setAtrMultiplier(value: Double) { _uiState.update { it.copy(riskConfig = it.riskConfig.copy(atrStopMultiplier = value), saved = false) } }
 
-    fun setRiskPercent(value: Double) {
-        _uiState.update { it.copy(riskConfig = it.riskConfig.copy(riskPercentPerTrade = value), saved = false) }
-    }
+    fun setSoundEnabled(enabled: Boolean) { _uiState.update { it.copy(alertConfig = it.alertConfig.copy(soundEnabled = enabled), saved = false) } }
+    fun setMinAlertPriority(priority: AlertPriority) { _uiState.update { it.copy(alertConfig = it.alertConfig.copy(minPriority = priority), saved = false) } }
+    fun setMaxAlertsPerHour(value: Int) { _uiState.update { it.copy(alertConfig = it.alertConfig.copy(maxAlertsPerHour = value), saved = false) } }
 
-    fun setSizingMethod(method: PositionSizingMethod) {
-        _uiState.update { it.copy(riskConfig = it.riskConfig.copy(sizingMethod = method), saved = false) }
-    }
-
-    fun setMaxDailyLoss(value: Double) {
-        _uiState.update { it.copy(riskConfig = it.riskConfig.copy(maxDailyLossPercent = value), saved = false) }
-    }
-
-    fun setMaxDrawdown(value: Double) {
-        _uiState.update { it.copy(riskConfig = it.riskConfig.copy(maxDrawdownPercent = value), saved = false) }
-    }
-
-    fun setMaxConsecutiveLosses(value: Int) {
-        _uiState.update { it.copy(riskConfig = it.riskConfig.copy(maxConsecutiveLosses = value), saved = false) }
-    }
-
-    fun setAtrMultiplier(value: Double) {
-        _uiState.update { it.copy(riskConfig = it.riskConfig.copy(atrStopMultiplier = value), saved = false) }
-    }
-
-    // --- Alert Config ---
-
-    fun setSoundEnabled(enabled: Boolean) {
-        _uiState.update { it.copy(alertConfig = it.alertConfig.copy(soundEnabled = enabled), saved = false) }
-    }
-
-    fun setMinAlertPriority(priority: AlertPriority) {
-        _uiState.update { it.copy(alertConfig = it.alertConfig.copy(minPriority = priority), saved = false) }
-    }
-
-    fun setMaxAlertsPerHour(value: Int) {
-        _uiState.update { it.copy(alertConfig = it.alertConfig.copy(maxAlertsPerHour = value), saved = false) }
-    }
-
-    // --- General ---
-
-    fun setDefaultTimeframe(tf: Timeframe) {
-        _uiState.update { it.copy(defaultTimeframe = tf, saved = false) }
-    }
+    fun setDefaultTimeframe(tf: Timeframe) { _uiState.update { it.copy(defaultTimeframe = tf, saved = false) } }
 
     fun setDarkMode(dark: Boolean) {
         appPreferences.setDarkMode(dark)
         _uiState.update { it.copy(darkMode = dark, saved = false) }
     }
 
-    // --- Security ---
-
     fun setAppLockEnabled(enabled: Boolean) {
-        // Only allow enabling if the device can actually authenticate.
         if (enabled && !biometricAuthManager.canAuthenticate()) return
         appPreferences.setAppLockEnabled(enabled)
         _uiState.update { it.copy(appLockEnabled = enabled) }
     }
 
-    // --- Privacy ---
-
-    /** Opt-in crash reporting. Persisted immediately; defaults OFF. */
     fun setCrashReportingEnabled(enabled: Boolean) {
         appPreferences.setCrashReportingEnabled(enabled)
         _uiState.update { it.copy(crashReportingEnabled = enabled) }
     }
-
-    // --- Phase 13 signal intelligence settings (persist immediately) ---
 
     private fun updateLit(transform: (LitConfig) -> LitConfig) {
         val cfg = transform(_uiState.value.litConfig).sanitized()
@@ -420,10 +315,6 @@ class SettingsViewModel @Inject constructor(
     fun setSmsMinConfidence(v: Int) = updateSms { it.copy(minConfidence = v) }
     fun setSmsRequireSweep(v: Boolean) = updateSms { it.copy(requireLiquiditySweep = v) }
     fun setSmsRequireDisplacement(v: Boolean) = updateSms { it.copy(requireDisplacementForChoch = v) }
-
-    // --- TRADEPRO ---
-
-    // --- LIT X (persisted immediately so the toggle applies at once) ---
 
     fun setLitXEnabled(enabled: Boolean) {
         val cfg = _uiState.value.litXConfig.copy(enabled = enabled)
@@ -491,63 +382,16 @@ class SettingsViewModel @Inject constructor(
         _uiState.update { it.copy(litXConfig = cfg, saved = false) }
     }
 
-    fun setTradeProStopPoints(value: Double) {
-        _uiState.update { it.copy(tradeProConfig = it.tradeProConfig.copy(stopPoints = value.coerceIn(1.0, 10.0)), saved = false) }
-    }
+    fun setTradeProStopPoints(value: Double) { _uiState.update { it.copy(tradeProConfig = it.tradeProConfig.copy(stopPoints = value.coerceIn(1.0, 10.0)), saved = false) } }
+    fun setTradeProTarget1(value: Double) { _uiState.update { it.copy(tradeProConfig = it.tradeProConfig.copy(target1Points = value.coerceIn(1.0, 20.0)), saved = false) } }
+    fun setTradeProTarget2(value: Double) { _uiState.update { it.copy(tradeProConfig = it.tradeProConfig.copy(target2Points = value.coerceIn(2.0, 40.0)), saved = false) } }
+    fun setTradeProContracts(value: Int) { _uiState.update { it.copy(tradeProConfig = it.tradeProConfig.copy(contracts = value.coerceIn(1, 20)), saved = false) } }
+    fun setTradeProMaxDailyLoss(value: Double) { _uiState.update { it.copy(tradeProConfig = it.tradeProConfig.copy(maxDailyLossPoints = value.coerceIn(5.0, 100.0)), saved = false) } }
+    fun setTradeProTrendFilter(enabled: Boolean) { _uiState.update { it.copy(tradeProConfig = it.tradeProConfig.copy(useTrendFilter = enabled), saved = false) } }
 
-    fun setTradeProTarget1(value: Double) {
-        _uiState.update { it.copy(tradeProConfig = it.tradeProConfig.copy(target1Points = value.coerceIn(1.0, 20.0)), saved = false) }
-    }
-
-    fun setTradeProTarget2(value: Double) {
-        _uiState.update { it.copy(tradeProConfig = it.tradeProConfig.copy(target2Points = value.coerceIn(2.0, 40.0)), saved = false) }
-    }
-
-    fun setTradeProContracts(value: Int) {
-        _uiState.update { it.copy(tradeProConfig = it.tradeProConfig.copy(contracts = value.coerceIn(1, 20)), saved = false) }
-    }
-
-    fun setTradeProMaxDailyLoss(value: Double) {
-        _uiState.update { it.copy(tradeProConfig = it.tradeProConfig.copy(maxDailyLossPoints = value.coerceIn(5.0, 100.0)), saved = false) }
-    }
-
-    fun setTradeProTrendFilter(enabled: Boolean) {
-        _uiState.update { it.copy(tradeProConfig = it.tradeProConfig.copy(useTrendFilter = enabled), saved = false) }
-    }
-
-    // --- AI Config ---
-
-    fun setMinConfluences(value: Int) {
-        _uiState.update { it.copy(aiConfig = it.aiConfig.copy(minConfluences = value.coerceIn(1, 9)), saved = false) }
-    }
-
-    fun setMinConfidence(value: Int) {
-        _uiState.update { it.copy(aiConfig = it.aiConfig.copy(minConfidence = value.coerceIn(10, 100)), saved = false) }
-    }
-
-    fun setAlertCooldownMinutes(value: Int) {
-        _uiState.update { it.copy(aiConfig = it.aiConfig.copy(alertCooldownMinutes = value.coerceIn(1, 60)), saved = false) }
-    }
-
-    fun setBackgroundScanEnabled(enabled: Boolean) {
-        _uiState.update { it.copy(aiConfig = it.aiConfig.copy(backgroundScanEnabled = enabled), saved = false) }
-    }
-
-    fun setBackgroundScanIntervalMinutes(value: Int) {
-        _uiState.update {
-            it.copy(
-                aiConfig = it.aiConfig.copy(
-                    backgroundScanIntervalMinutes = value.coerceIn(
-                        ScanAlertScheduler.MIN_PERIODIC_INTERVAL_MINUTES,
-                        MAX_BACKGROUND_SCAN_INTERVAL_MINUTES,
-                    )
-                ),
-                saved = false,
-            )
-        }
-    }
-
-    // --- Save ---
+    fun setMinConfluences(value: Int) { _uiState.update { it.copy(aiConfig = it.aiConfig.copy(minConfluences = value.coerceIn(1, 9)), saved = false) } }
+    fun setMinConfidence(value: Int) { _uiState.update { it.copy(aiConfig = it.aiConfig.copy(minConfidence = value.coerceIn(10, 100)), saved = false) } }
+    fun setAlertCooldownMinutes(value: Int) { _uiState.update { it.copy(aiConfig = it.aiConfig.copy(alertCooldownMinutes = value.coerceIn(1, 60)), saved = false) } }
 
     fun save() {
         val state = _uiState.value
@@ -556,8 +400,6 @@ class SettingsViewModel @Inject constructor(
         appPreferences.setRiskConfig(state.riskConfig)
         appPreferences.setAlertConfig(state.alertConfig)
         appPreferences.setDefaultTimeframe(state.defaultTimeframe)
-
-        // Propagate AI config to the decision engine and alert service.
         decisionEngine.updateConfig(
             DecisionConfig(
                 minRequiredConfluences = state.aiConfig.minConfluences,
@@ -570,24 +412,9 @@ class SettingsViewModel @Inject constructor(
             minConfidence = state.aiConfig.minConfidence,
             alertCooldownMinutes = state.aiConfig.alertCooldownMinutes,
         )
-        appPreferences.setBackgroundScanConfig(
-            enabled = state.aiConfig.backgroundScanEnabled,
-            intervalMinutes = state.aiConfig.backgroundScanIntervalMinutes,
-        )
         appPreferences.setTradeProConfig(state.tradeProConfig)
-        scanAlertScheduler.apply(
-            enabled = state.aiConfig.backgroundScanEnabled,
-            intervalMinutes = state.aiConfig.backgroundScanIntervalMinutes,
-        )
-        state.providerApiKeys.forEach { (provider, key) ->
-            appPreferences.setApiKey(provider, key)
-        }
+        state.providerApiKeys.forEach { (provider, key) -> appPreferences.setApiKey(provider, key) }
         appPreferences.setBackendBaseUrl(state.backendBaseUrl)
-
         _uiState.update { it.copy(saved = true) }
-    }
-
-    private companion object {
-        const val MAX_BACKGROUND_SCAN_INTERVAL_MINUTES = 240
     }
 }

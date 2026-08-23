@@ -55,7 +55,6 @@ import com.foxtrader.app.feature.tradepro.presentation.RiskSimulatorScreen
 import com.foxtrader.app.feature.tradepro.presentation.TraderProfileScreen
 import com.foxtrader.app.feature.papertrading.presentation.PaperTradingScreen
 import com.foxtrader.app.feature.portfolio.presentation.PortfolioScreen
-import com.foxtrader.app.feature.scanner.presentation.ScannerScreen
 import com.foxtrader.app.feature.settings.presentation.SettingsScreen
 import com.foxtrader.app.feature.strategies.presentation.StrategiesScreen
 import com.foxtrader.app.feature.strategies.presentation.StrategyBuilderScreen
@@ -78,7 +77,6 @@ object FoxRoutes {
     const val HOME = "home"
     const val CHART = "chart"
     const val MARKETS = "markets"
-    const val SCANNER = "scanner"
     const val STRATEGIES = "strategies"
     const val STRATEGY_BUILDER = "strategy_builder"
     const val PRO_STUDIO = "pro_studio"
@@ -200,14 +198,7 @@ fun FoxNavHost(
                 AlertRulesScreen(onNavigateBack = { navController.popBackStack() })
             }
             composable(FoxRoutes.MARKETS) {
-                ScannerScreen(
-                    onNavigateToOpportunityBoard = { navController.navigate(FoxRoutes.OPPORTUNITY_BOARD) },
-                )
-            }
-            composable(FoxRoutes.SCANNER) {
-                ScannerScreen(
-                    onNavigateToOpportunityBoard = { navController.navigate(FoxRoutes.OPPORTUNITY_BOARD) },
-                )
+                WatchlistScreen(onNavigateBack = { navController.navigate(FoxRoutes.HOME) })
             }
             composable(FoxRoutes.OPPORTUNITY_BOARD) {
                 OpportunityBoardScreen(onNavigateBack = { navController.popBackStack() })

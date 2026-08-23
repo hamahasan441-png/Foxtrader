@@ -8,10 +8,10 @@ import com.foxtrader.app.domain.model.tradepro.TradeOpportunity
 import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.usecase.ai.MtfContextProvider
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
-import com.foxtrader.app.domain.usecase.scanner.ScannerUseCase
 import com.foxtrader.app.domain.usecase.signalintel.ConfirmedBarPolicy
 import com.foxtrader.app.domain.usecase.tradepro.OpportunityScorer
 import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
+import com.foxtrader.app.domain.usecase.watchlist.ActiveWatchlistSymbols
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -23,15 +23,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
-/**
- * Scans the watchlist and ranks every symbol by TRADEPRO setup readiness into a live opportunity
- * board — the framework's command center. HTF context is fetched once per symbol (same source as the
- * chart) so board alignment matches what the trader sees elsewhere. Heavy work runs off the main thread.
- */
+/** Evaluates the persisted watchlist for TRADEPRO setup readiness. */
 @HiltViewModel
 class OpportunityBoardViewModel @Inject constructor(
     private val repository: MarketRepository,
-    private val scannerUseCase: ScannerUseCase,
+    private val activeWatchlistSymbols: ActiveWatchlistSymbols,
     private val signalEngine: TradeProSignalEngine,
     private val scorer: OpportunityScorer,
     private val mtfContextProvider: MtfContextProvider,
@@ -42,9 +38,7 @@ class OpportunityBoardViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(OpportunityBoardUiState())
     val uiState: StateFlow<OpportunityBoardUiState> = _uiState.asStateFlow()
 
-    init {
-        scan()
-    }
+    init { scan() }
 
     fun setTimeframe(timeframe: Timeframe) {
         if (timeframe == _uiState.value.timeframe) return
@@ -62,7 +56,7 @@ class OpportunityBoardViewModel @Inject constructor(
             _uiState.update { it.copy(isScanning = true, error = null) }
             try {
                 val config = appPreferences.tradeProConfig.value
-                val watchlist = scannerUseCase.getWatchlist().filter { it.enabled }.take(MAX_SYMBOLS)
+                val watchlist = activeWatchlistSymbols(MAX_SYMBOLS)
                 var hadSynthetic = false
                 val opportunities = ArrayList<TradeOpportunity>(watchlist.size)
 
@@ -94,12 +88,9 @@ class OpportunityBoardViewModel @Inject constructor(
                 )
                 _uiState.update { it.copy(isScanning = false, board = board, error = null) }
             } catch (cancel: CancellationException) {
-                // Never swallow cancellation: doing so breaks structured
-                // concurrency and surfaces a routine screen-close or
-                // re-run as a spurious on-screen error.
                 throw cancel
             } catch (e: Exception) {
-                _uiState.update { it.copy(isScanning = false, error = e.message ?: "Scan failed.") }
+                _uiState.update { it.copy(isScanning = false, error = e.message ?: "Evaluation failed.") }
             }
         }
     }
