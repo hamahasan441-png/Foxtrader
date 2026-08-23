@@ -40,7 +40,7 @@ import java.util.Locale
 import kotlin.math.abs
 
 /**
- * TradingView/MetaTrader-style visual strategy tester for Backtest Lab.
+ * professional visual strategy tester for Backtest Lab.
  *
  * The canvas is deliberately bound to [BacktestLabUiState.replayCursor]. It never
  * draws a candle after that cursor, and [projectBacktestReplay] withholds an

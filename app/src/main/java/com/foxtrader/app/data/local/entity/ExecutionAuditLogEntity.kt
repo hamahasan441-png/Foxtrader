@@ -6,7 +6,7 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
- * Durable persisted state of a live MT4 order attempt.
+ * Durable persisted state of a live order attempt.
  *
  * One row per idempotency key (each distinct order intent). Recording the latest
  * receipt for a key is what lets us block duplicate submissions and reconcile an

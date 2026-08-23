@@ -7,7 +7,7 @@ package com.foxtrader.app.domain.usecase.risk
  * metadata, not guessed: contract, tick, and point size plus the broker's
  * min/max/step volume constraints determine both whether a position is
  * acceptable and how it is sized. The fields here mirror what a typical broker
- * (e.g. MetaApi / MT4 symbol spec) exposes.
+ * (e.g. a venue symbol specification) exposes.
  */
 data class InstrumentSpec(
     /** Broker symbol, e.g. "EURUSD", "XAUUSD", "BTCUSD". */
@@ -34,7 +34,7 @@ data class InstrumentSpec(
     val stopsLevelPoints: Double = 0.0,
     /** Broker freeze distance for pending-order modification in points. */
     val freezeLevelPoints: Double = 0.0,
-    /** Broker-reported MetaApi order action names; empty means unspecified. */
+    /** Broker-reported order action names; empty means unspecified. */
     val allowedOrderTypes: Set<String> = emptySet(),
     /** Broker-reported expiration modes; empty means unspecified. */
     val allowedExpirationModes: Set<String> = emptySet(),

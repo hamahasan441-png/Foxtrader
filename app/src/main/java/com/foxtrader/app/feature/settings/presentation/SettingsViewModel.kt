@@ -77,12 +77,6 @@ class SettingsViewModel @Inject constructor(
             litConfig = appPreferences.litConfig.value,
             smtConfig = appPreferences.smtConfig.value,
             smsConfig = appPreferences.smsConfig.value,
-            mt4LiveModeEnabled = appPreferences.mt4LiveModeEnabled.value,
-            mt4KillSwitchEngaged = appPreferences.mt4KillSwitch.value,
-            mt4StaleQuoteTimeoutMs = appPreferences.mt4StaleQuoteTimeoutMs.value,
-            mt4ConfirmationTimeoutMs = appPreferences.mt4ConfirmationTimeoutMs.value,
-            mt4MinFreeMargin = appPreferences.mt4MinFreeMargin.value,
-            mt4MaxDailyLoss = appPreferences.mt4MaxDailyLoss.value,
         )
     )
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
@@ -196,38 +190,6 @@ class SettingsViewModel @Inject constructor(
                 saved = false,
             )
         }
-    }
-
-    fun setMt4LiveModeEnabled(enabled: Boolean) {
-        appPreferences.setMt4LiveModeEnabled(enabled)
-        _uiState.update { it.copy(mt4LiveModeEnabled = enabled, saved = false) }
-    }
-
-    fun setMt4KillSwitch(engaged: Boolean) {
-        appPreferences.setMt4KillSwitch(engaged)
-        _uiState.update { it.copy(mt4KillSwitchEngaged = engaged, saved = false) }
-    }
-
-    fun setMt4StaleQuoteTimeoutSec(value: Float) {
-        val ms = (value * 1000f).toLong().coerceIn(500L, 30_000L)
-        appPreferences.setMt4StaleQuoteTimeoutMs(ms)
-        _uiState.update { it.copy(mt4StaleQuoteTimeoutMs = ms, saved = false) }
-    }
-
-    fun setMt4ConfirmationTimeoutSec(value: Float) {
-        val ms = (value * 1000f).toLong().coerceIn(5_000L, 300_000L)
-        appPreferences.setMt4ConfirmationTimeoutMs(ms)
-        _uiState.update { it.copy(mt4ConfirmationTimeoutMs = ms, saved = false) }
-    }
-
-    fun setMt4MinFreeMargin(value: Double) {
-        appPreferences.setMt4MinFreeMargin(value)
-        _uiState.update { it.copy(mt4MinFreeMargin = value, saved = false) }
-    }
-
-    fun setMt4MaxDailyLoss(value: Double) {
-        appPreferences.setMt4MaxDailyLoss(value)
-        _uiState.update { it.copy(mt4MaxDailyLoss = value, saved = false) }
     }
 
     fun setRiskPercent(value: Double) { _uiState.update { it.copy(riskConfig = it.riskConfig.copy(riskPercentPerTrade = value), saved = false) } }

@@ -17,7 +17,6 @@ import com.foxtrader.app.domain.model.MarketDataFreshnessResolver
 import com.foxtrader.app.domain.model.DrawingToolType
 import com.foxtrader.app.domain.model.ReplayState
 import com.foxtrader.app.domain.model.Timeframe
-import com.foxtrader.app.domain.model.BrokerTradeDraft
 import com.foxtrader.app.domain.repository.DrawingRepository
 import com.foxtrader.app.domain.repository.AlertRepository
 import com.foxtrader.app.domain.repository.MarketRepository
@@ -49,7 +48,6 @@ import com.foxtrader.app.domain.usecase.performance.PerformanceProfiler
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.domain.usecase.replay.ReplayEngine
 import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
-import com.foxtrader.app.domain.usecase.execution.BrokerTradeDraftStore
 import com.foxtrader.app.domain.usecase.litx.LitXEngine
 import com.foxtrader.app.domain.usecase.signalintel.ConfirmedBarPolicy
 import com.foxtrader.app.domain.usecase.signalintel.LitEngine
@@ -128,7 +126,6 @@ class ChartViewModel @Inject constructor(
     private val instrumentTypeResolver: InstrumentTypeResolver,
     private val scriptEngine: ScriptEngine,
     private val paperTradingSession: PaperTradingSession,
-    private val brokerTradeDraftStore: BrokerTradeDraftStore,
     profiler: PerformanceProfiler,
     qualityController: AdaptiveQualityController,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
@@ -334,10 +331,8 @@ class ChartViewModel @Inject constructor(
         combine(
             appPreferences.dataProvider,
             appPreferences.apiKeys,
-            appPreferences.metaApiToken,
-            appPreferences.metaApiAccountId,
             dataController.symbolFlow,
-        ) { provider, _, _, _, symbol ->
+        ) { provider, _, symbol ->
             providerRouter.canGoLive(symbol, provider)
         }
             .distinctUntilChanged()
@@ -1480,7 +1475,7 @@ class ChartViewModel @Inject constructor(
      * Switch the primary chart to an explicit provider without mixing the old
      * provider's live route/history buffer into the new feed. The persisted
      * preference is still shared with Scanner/Markets, while the chart state
-     * surfaces the active source so Deriv, MetaTrader and other feeds are
+     * surfaces the active source so Deriv and other feeds are
      * visibly distinct.
      */
     fun onDataProviderChange(provider: DataProvider) {
@@ -1747,30 +1742,6 @@ class ChartViewModel @Inject constructor(
     // ========================================================================
     // LIFECYCLE
     // ========================================================================
-
-    /**
-     * Stages the currently executable TRADEPRO setup for the broker screen.
-     * This never submits an order; it is a short-lived, one-shot draft and the
-     * broker UI still requires its normal review/confirmation/safety gates.
-     */
-    fun stageExecutableBrokerTrade(): Boolean {
-        val setup = _uiState.value.tradeProAnalysis?.setup ?: return false
-        if (!setup.isExecutable || setup.entry <= 0.0 || !setup.entry.isFinite()) return false
-        val sl = setup.stopLoss.takeIf { it.isFinite() && it > 0.0 }
-        val tp = setup.target2.takeIf { it.isFinite() && it > 0.0 }
-        brokerTradeDraftStore.stage(
-            BrokerTradeDraft(
-                symbol = setup.symbol,
-                direction = setup.direction,
-                referenceEntryPrice = setup.entry,
-                stopLoss = sl,
-                takeProfit = tp,
-                source = "TRADEPRO:${setup.stage.name}",
-                confidence = setup.confidence.coerceIn(0, 100),
-            )
-        )
-        return true
-    }
 
     override fun onCleared() {
         multiChartController.cancelAllPanelJobs()

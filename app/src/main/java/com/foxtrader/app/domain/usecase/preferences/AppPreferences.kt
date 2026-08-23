@@ -30,7 +30,6 @@ import com.foxtrader.app.domain.model.LitXConfig
 import com.foxtrader.app.domain.model.LitConfig
 import com.foxtrader.app.domain.model.SmtConfig
 import com.foxtrader.app.domain.model.SmsConfig
-import com.foxtrader.app.domain.model.Mt4AccountProfile
 import com.foxtrader.app.domain.model.tradepro.TradeProConfig
 import com.foxtrader.app.domain.usecase.chart.ChartLayout
 import com.foxtrader.app.domain.usecase.performance.PerformanceMode
@@ -48,7 +47,6 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
-import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -175,47 +173,6 @@ class AppPreferences @Inject constructor(
     private val _tradeProAlertRules = MutableStateFlow<List<AlertRule>>(emptyList())
     val tradeProAlertRules: StateFlow<List<AlertRule>> = _tradeProAlertRules.asStateFlow()
 
-    private val _metaApiToken = MutableStateFlow<String?>(null)
-    val metaApiToken: StateFlow<String?> = _metaApiToken.asStateFlow()
-
-    private val _metaApiAccountId = MutableStateFlow<String?>(null)
-    val metaApiAccountId: StateFlow<String?> = _metaApiAccountId.asStateFlow()
-
-    private val _metaApiLastLogin = MutableStateFlow<Long?>(null)
-    private val _metaApiLastServer = MutableStateFlow<String?>(null)
-    private val _metaApiAccountName = MutableStateFlow<String?>(null)
-
-    /**
-     * Whether live MT4 order execution is enabled. Defaults OFF — the user must
-     * explicitly (and deliberately) enable it from the MT4 account screen after
-     * the safety pipeline is in place. A persisted, user-confirmed setting.
-     */
-    private val _mt4LiveModeEnabled = MutableStateFlow(false)
-    val mt4LiveModeEnabled: StateFlow<Boolean> = _mt4LiveModeEnabled.asStateFlow()
-
-    /**
-     * Emergency kill switch. When true, no live MT4 order may be placed. Set by
-     * the UI's kill switch and cleared only by explicit user action.
-     */
-    private val _mt4KillSwitch = MutableStateFlow(false)
-    val mt4KillSwitch: StateFlow<Boolean> = _mt4KillSwitch.asStateFlow()
-
-    /** Max age (ms) of the reference quote before a live order is rejected. */
-    private val _mt4StaleQuoteTimeoutMs = MutableStateFlow(DEFAULT_MT4_STALE_QUOTE_MS)
-    val mt4StaleQuoteTimeoutMs: StateFlow<Long> = _mt4StaleQuoteTimeoutMs.asStateFlow()
-
-    /** Max age (ms) of the user's order confirmation before it is considered stale. */
-    private val _mt4ConfirmationTimeoutMs = MutableStateFlow(DEFAULT_MT4_CONFIRMATION_MS)
-    val mt4ConfirmationTimeoutMs: StateFlow<Long> = _mt4ConfirmationTimeoutMs.asStateFlow()
-
-    /** Minimum free margin (account currency) required to place a live order; 0 = off. */
-    private val _mt4MinFreeMargin = MutableStateFlow(0.0)
-    val mt4MinFreeMargin: StateFlow<Double> = _mt4MinFreeMargin.asStateFlow()
-
-    /** Ceiling on the day's realized loss (account currency) before live orders block; 0 = off. */
-    private val _mt4MaxDailyLoss = MutableStateFlow(0.0)
-    val mt4MaxDailyLoss: StateFlow<Double> = _mt4MaxDailyLoss.asStateFlow()
-
     init {
         // Load persisted values into StateFlows on init.
         scope.launch {
@@ -303,29 +260,6 @@ class AppPreferences @Inject constructor(
                 _tradeProAlertRules.value = prefs[KEY_TRADEPRO_ALERT_RULES]?.let { raw ->
                     runCatching { json.decodeFromString<List<AlertRule>>(raw) }.getOrDefault(emptyList())
                 } ?: emptyList()
-                _metaApiToken.value = securePrefs.getString(SECURE_KEY_META_API_TOKEN, null)
-                    ?.trim()
-                    ?.takeIf { it.isNotBlank() }
-                _metaApiAccountId.value = securePrefs.getString(SECURE_KEY_META_API_ACCOUNT_ID, null)
-                    ?.trim()
-                    ?.takeIf { it.isNotBlank() }
-                _metaApiLastLogin.value = readMetaApiLastLoginCompat()
-                _metaApiLastServer.value = securePrefs.getString(SECURE_KEY_META_API_LAST_SERVER, null)
-                    ?.trim()
-                    ?.takeIf { it.isNotBlank() }
-                _metaApiAccountName.value = securePrefs.getString(SECURE_KEY_META_API_ACCOUNT_NAME, null)
-                    ?.trim()
-                    ?.takeIf { it.isNotBlank() }
-                _mt4LiveModeEnabled.value = prefs[KEY_MT4_LIVE_MODE] ?: false
-                _mt4KillSwitch.value = prefs[KEY_MT4_KILL_SWITCH] ?: false
-                _mt4StaleQuoteTimeoutMs.value =
-                    (prefs[KEY_MT4_STALE_QUOTE_TIMEOUT] ?: DEFAULT_MT4_STALE_QUOTE_MS)
-                        .coerceIn(MIN_MT4_STALE_QUOTE_MS, MAX_MT4_STALE_QUOTE_MS)
-                _mt4ConfirmationTimeoutMs.value =
-                    (prefs[KEY_MT4_CONFIRMATION_TIMEOUT] ?: DEFAULT_MT4_CONFIRMATION_MS)
-                        .coerceIn(MIN_MT4_CONFIRMATION_MS, MAX_MT4_CONFIRMATION_MS)
-                _mt4MinFreeMargin.value = prefs[KEY_MT4_MIN_FREE_MARGIN] ?: 0.0
-                _mt4MaxDailyLoss.value = prefs[KEY_MT4_MAX_DAILY_LOSS] ?: 0.0
             }
         }
     }
@@ -420,212 +354,6 @@ class AppPreferences @Inject constructor(
         _tradeProAlertRules.value = rules
         scope.launch { context.dataStore.edit { it[KEY_TRADEPRO_ALERT_RULES] = json.encodeToString(rules) } }
     }
-
-    /** Phase 6 password-free account selector profiles, stored encrypted. */
-    fun getSavedBrokerAccounts(): List<Mt4AccountProfile> {
-        val raw = securePrefs.getString(SECURE_KEY_META_API_SAVED_ACCOUNTS, null) ?: return emptyList()
-        return runCatching {
-            json.decodeFromString<List<PersistedBrokerAccount>>(raw).map {
-                Mt4AccountProfile(
-                    login = it.login,
-                    server = it.server,
-                    platform = it.platform,
-                    displayName = it.displayName,
-                    metaApiAccountId = it.metaApiAccountId,
-                )
-            }
-        }.getOrDefault(emptyList())
-    }
-
-    fun upsertSavedBrokerAccount(profile: Mt4AccountProfile) {
-        val next = (getSavedBrokerAccounts().filterNot {
-            it.login == profile.login && it.server.equals(profile.server, ignoreCase = true) &&
-                it.platform.equals(profile.platform, ignoreCase = true)
-        } + profile).takeLast(8)
-        val persisted = next.map { PersistedBrokerAccount(it.login, it.server, it.platform, it.displayName, it.metaApiAccountId) }
-        securePrefs.edit().putString(SECURE_KEY_META_API_SAVED_ACCOUNTS, json.encodeToString(persisted)).apply()
-    }
-
-    fun removeSavedBrokerAccount(profile: Mt4AccountProfile) {
-        val next = getSavedBrokerAccounts().filterNot {
-            it.login == profile.login && it.server.equals(profile.server, ignoreCase = true) &&
-                it.platform.equals(profile.platform, ignoreCase = true)
-        }
-        val persisted = next.map { PersistedBrokerAccount(it.login, it.server, it.platform, it.displayName, it.metaApiAccountId) }
-        securePrefs.edit().putString(SECURE_KEY_META_API_SAVED_ACCOUNTS, json.encodeToString(persisted)).apply()
-    }
-
-    fun setMetaApiLastPlatform(platform: String) {
-        val normalized = platform.trim().lowercase(Locale.ROOT).takeIf { it == "mt4" || it == "mt5" } ?: "mt4"
-        securePrefs.edit().putString(SECURE_KEY_META_API_LAST_PLATFORM, normalized).apply()
-    }
-
-    fun getMetaApiLastPlatform(): String =
-        securePrefs.getString(SECURE_KEY_META_API_LAST_PLATFORM, "mt4")?.lowercase(Locale.ROOT)
-            ?.takeIf { it == "mt4" || it == "mt5" } ?: "mt4"
-
-    /**
-     * Persist the MetaApi auth token to encrypted shared preferences.
-     * This token is used to authenticate REST and WebSocket calls to MetaApi.
-     */
-    fun setMetaApiToken(token: String) {
-        val normalized = token.trim()
-        if (normalized.isBlank()) {
-            _metaApiToken.value = null
-            securePrefs.edit().remove(SECURE_KEY_META_API_TOKEN).apply()
-        } else {
-            _metaApiToken.value = normalized
-            securePrefs.edit().putString(SECURE_KEY_META_API_TOKEN, normalized).apply()
-        }
-    }
-
-    /**
-     * Retrieve the currently stored MetaApi token (null if not set).
-     *
-     * Read directly from the synchronous encrypted prefs rather than the
-     * asynchronously-populated StateFlow so callers (e.g. the MT4 repository at
-     * app start) see the persisted value even before the background load runs.
-     */
-    fun getMetaApiToken(): String? =
-        securePrefs.getString(SECURE_KEY_META_API_TOKEN, null)?.trim()?.takeIf { it.isNotBlank() }
-
-    /**
-     * Persist the MetaApi account ID to encrypted shared preferences.
-     * This allows reconnects to skip the deploy step when the account
-     * has already been provisioned for the current login/server.
-     */
-    fun setMetaApiAccountId(accountId: String?) {
-        val normalized = accountId?.trim()?.takeIf { it.isNotBlank() }
-        _metaApiAccountId.value = normalized
-        if (normalized == null) {
-            securePrefs.edit().remove(SECURE_KEY_META_API_ACCOUNT_ID).apply()
-        } else {
-            securePrefs.edit().putString(SECURE_KEY_META_API_ACCOUNT_ID, normalized).apply()
-        }
-    }
-
-    /** Retrieve the currently cached MetaApi account ID (null if none). */
-    fun getMetaApiAccountId(): String? =
-        securePrefs.getString(SECURE_KEY_META_API_ACCOUNT_ID, null)?.trim()?.takeIf { it.isNotBlank() }
-
-    /** Persist the last connected MT4/MT5 login for prefilling the login form. */
-    fun setMetaApiLastLogin(login: Long?) {
-        val normalized = login?.takeIf { it > 0L }
-        _metaApiLastLogin.value = normalized
-        if (normalized == null) {
-            securePrefs.edit().remove(SECURE_KEY_META_API_LAST_LOGIN).apply()
-        } else {
-            securePrefs.edit().putLong(SECURE_KEY_META_API_LAST_LOGIN, normalized).apply()
-        }
-    }
-
-    /** The MT4/MT5 login used for the most recent connection, or null. */
-    fun getMetaApiLastLogin(): Long? = readMetaApiLastLoginCompat()
-
-    /**
-     * Phase 6 originally persisted this field as Int. Read/migrate that legacy
-     * representation without crashing SharedPreferences with a type mismatch.
-     */
-    private fun readMetaApiLastLoginCompat(): Long? {
-        return try {
-            securePrefs.getLong(SECURE_KEY_META_API_LAST_LOGIN, -1L).takeIf { it > 0L }
-        } catch (_: ClassCastException) {
-            val legacy = runCatching { securePrefs.getInt(SECURE_KEY_META_API_LAST_LOGIN, -1) }
-                .getOrDefault(-1)
-                .takeIf { it > 0 }
-                ?.toLong()
-            if (legacy != null) {
-                securePrefs.edit().remove(SECURE_KEY_META_API_LAST_LOGIN).putLong(SECURE_KEY_META_API_LAST_LOGIN, legacy).apply()
-            }
-            legacy
-        }
-    }
-
-    /** Persist the last connected MT4 server for prefilling the login form. */
-    fun setMetaApiLastServer(server: String?) {
-        val normalized = server?.trim()?.takeIf { it.isNotBlank() }
-        _metaApiLastServer.value = normalized
-        if (normalized == null) {
-            securePrefs.edit().remove(SECURE_KEY_META_API_LAST_SERVER).apply()
-        } else {
-            securePrefs.edit().putString(SECURE_KEY_META_API_LAST_SERVER, normalized).apply()
-        }
-    }
-
-    /** The MT4 server used for the most recent connection, or null. */
-    fun getMetaApiLastServer(): String? =
-        securePrefs.getString(SECURE_KEY_META_API_LAST_SERVER, null)?.trim()?.takeIf { it.isNotBlank() }
-
-    /** Persist the connected account display name for showing in the account screen. */
-    fun setMetaApiAccountName(name: String?) {
-        val normalized = name?.trim()?.takeIf { it.isNotBlank() }
-        _metaApiAccountName.value = normalized
-        if (normalized == null) {
-            securePrefs.edit().remove(SECURE_KEY_META_API_ACCOUNT_NAME).apply()
-        } else {
-            securePrefs.edit().putString(SECURE_KEY_META_API_ACCOUNT_NAME, normalized).apply()
-        }
-    }
-
-    /** The connected account display name, or null. */
-    fun getMetaApiAccountName(): String? =
-        securePrefs.getString(SECURE_KEY_META_API_ACCOUNT_NAME, null)?.trim()?.takeIf { it.isNotBlank() }
-
-    /**
-     * Persisted live-MT4-execution switch. Callers must read this to build the
-     * [com.foxtrader.app.domain.usecase.execution.ExecutionPolicy]; it is the
-     * single persisted "go live" flag.
-     */
-    fun setMt4LiveModeEnabled(enabled: Boolean) {
-        _mt4LiveModeEnabled.value = enabled
-        scope.launch { context.dataStore.edit { it[KEY_MT4_LIVE_MODE] = enabled } }
-    }
-
-    fun isMt4LiveModeEnabled(): Boolean = _mt4LiveModeEnabled.value
-
-    /** Persisted emergency kill switch; true = block all live MT4 orders. */
-    fun setMt4KillSwitch(engaged: Boolean) {
-        _mt4KillSwitch.value = engaged
-        scope.launch { context.dataStore.edit { it[KEY_MT4_KILL_SWITCH] = engaged } }
-    }
-
-    fun isMt4KillSwitchEngaged(): Boolean = _mt4KillSwitch.value
-
-    /** Set the max age (ms) of the reference quote before a live order is rejected. */
-    fun setMt4StaleQuoteTimeoutMs(value: Long) {
-        val clamped = value.coerceIn(MIN_MT4_STALE_QUOTE_MS, MAX_MT4_STALE_QUOTE_MS)
-        _mt4StaleQuoteTimeoutMs.value = clamped
-        scope.launch { context.dataStore.edit { it[KEY_MT4_STALE_QUOTE_TIMEOUT] = clamped } }
-    }
-
-    fun getMt4StaleQuoteTimeoutMs(): Long = _mt4StaleQuoteTimeoutMs.value
-
-    /** Set the max age (ms) of the order confirmation before it is considered stale. */
-    fun setMt4ConfirmationTimeoutMs(value: Long) {
-        val clamped = value.coerceIn(MIN_MT4_CONFIRMATION_MS, MAX_MT4_CONFIRMATION_MS)
-        _mt4ConfirmationTimeoutMs.value = clamped
-        scope.launch { context.dataStore.edit { it[KEY_MT4_CONFIRMATION_TIMEOUT] = clamped } }
-    }
-
-    fun getMt4ConfirmationTimeoutMs(): Long = _mt4ConfirmationTimeoutMs.value
-
-    /** Set the minimum free margin (account currency) required to place a live order; 0 = off. */
-    fun setMt4MinFreeMargin(value: Double) {
-        val normalized = if (value.isFinite()) value.coerceAtLeast(0.0) else 0.0
-        _mt4MinFreeMargin.value = normalized
-        scope.launch { context.dataStore.edit { it[KEY_MT4_MIN_FREE_MARGIN] = normalized } }
-    }
-
-    fun getMt4MinFreeMargin(): Double = _mt4MinFreeMargin.value
-
-    /** Set the daily realized-loss ceiling (account currency) before live orders block; 0 = off. */
-    fun setMt4MaxDailyLoss(value: Double) {
-        val normalized = if (value.isFinite()) value.coerceAtLeast(0.0) else 0.0
-        _mt4MaxDailyLoss.value = normalized
-        scope.launch { context.dataStore.edit { it[KEY_MT4_MAX_DAILY_LOSS] = normalized } }
-    }
-
-    fun getMt4MaxDailyLoss(): Double = _mt4MaxDailyLoss.value
 
     fun setDataProvider(provider: DataProvider) {
         _dataProvider.value = provider
@@ -749,11 +477,6 @@ class AppPreferences @Inject constructor(
         if (!provider.requiresApiKey) return
 
         val normalizedKey = key.trim()
-        // Settings exposes MT4 through the generic provider credential field,
-        // while the broker subsystem uses a dedicated MetaApi-token key. Keep
-        // both views synchronized so selecting/testing MT4 cannot succeed in
-        // one screen yet appear credential-missing to the chart router.
-        if (provider == DataProvider.MT4) setMetaApiToken(normalizedKey)
         val updatedKeys = _apiKeys.value.toMutableMap()
 
         if (normalizedKey.isBlank()) {
@@ -787,10 +510,6 @@ class AppPreferences @Inject constructor(
     fun canGoLive(): Boolean {
         val p = _dataProvider.value
         if (!p.supportsLive || !p.implemented) return false
-        if (p == DataProvider.MT4) {
-            val token = getMetaApiToken() ?: getApiKey(DataProvider.MT4)
-            return !token.isNullOrBlank() && !getMetaApiAccountId().isNullOrBlank()
-        }
         if (p.requiresApiKey && getApiKey(p).isNullOrBlank()) return false
         return true
     }
@@ -881,13 +600,6 @@ class AppPreferences @Inject constructor(
     private companion object {
         const val TAG = "AppPreferences"
         const val SECURE_PREFS_FILE_NAME = "fox_provider_keys"
-        const val SECURE_KEY_META_API_TOKEN = "meta_api_token"
-        const val SECURE_KEY_META_API_ACCOUNT_ID = "meta_api_account_id"
-        const val SECURE_KEY_META_API_LAST_LOGIN = "meta_api_last_login"
-        const val SECURE_KEY_META_API_LAST_SERVER = "meta_api_last_server"
-        const val SECURE_KEY_META_API_ACCOUNT_NAME = "meta_api_account_name"
-        const val SECURE_KEY_META_API_LAST_PLATFORM = "meta_api_last_platform"
-        const val SECURE_KEY_META_API_SAVED_ACCOUNTS = "meta_api_saved_accounts"
         const val MIN_BACKGROUND_SCAN_INTERVAL_MINUTES = 15
         const val MAX_BACKGROUND_SCAN_INTERVAL_MINUTES = 240
         const val DEFAULT_BACKGROUND_SCAN_INTERVAL_MINUTES = 15
@@ -945,19 +657,7 @@ class AppPreferences @Inject constructor(
         val KEY_SMT_CONFIG = stringPreferencesKey("smt_phase13_config")
         val KEY_SMS_CONFIG = stringPreferencesKey("sms_phase13_config")
         val KEY_TRADEPRO_ALERT_RULES = stringPreferencesKey("tradepro_alert_rules")
-        val KEY_MT4_LIVE_MODE = booleanPreferencesKey("mt4_live_mode")
-        val KEY_MT4_KILL_SWITCH = booleanPreferencesKey("mt4_kill_switch")
-        val KEY_MT4_STALE_QUOTE_TIMEOUT = longPreferencesKey("mt4_stale_quote_timeout")
-        val KEY_MT4_CONFIRMATION_TIMEOUT = longPreferencesKey("mt4_confirmation_timeout")
-        val KEY_MT4_MIN_FREE_MARGIN = doublePreferencesKey("mt4_min_free_margin")
-        val KEY_MT4_MAX_DAILY_LOSS = doublePreferencesKey("mt4_max_daily_loss")
 
-        const val DEFAULT_MT4_STALE_QUOTE_MS = 5_000L
-        const val MIN_MT4_STALE_QUOTE_MS = 500L
-        const val MAX_MT4_STALE_QUOTE_MS = 30_000L
-        const val DEFAULT_MT4_CONFIRMATION_MS = 60_000L
-        const val MIN_MT4_CONFIRMATION_MS = 5_000L
-        const val MAX_MT4_CONFIRMATION_MS = 300_000L
     }
 }
 
@@ -987,13 +687,3 @@ data class PersistedMultiChartState(
 ) {
     fun panelSeeds(): List<ChartPanelSeed> = panels.map { ChartPanelSeed(it.symbol, it.timeframe) }
 }
-
-
-@Serializable
-private data class PersistedBrokerAccount(
-    val login: Long,
-    val server: String,
-    val platform: String,
-    val displayName: String,
-    val metaApiAccountId: String? = null,
-)

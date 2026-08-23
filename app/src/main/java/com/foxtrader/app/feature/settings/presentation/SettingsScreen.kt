@@ -176,47 +176,6 @@ fun SettingsScreen(
                 )
             }
 
-            SectionHeader("Live Trading (MT4)")
-            SettingsCard {
-                SwitchSetting("Live mode", state.mt4LiveModeEnabled, viewModel::setMt4LiveModeEnabled)
-                Spacer(Modifier.height(4.dp))
-                Text("Must be ON to place real MT4 orders. Off by default.", style = MaterialTheme.typography.bodySmall, color = FoxNeutral60)
-                if (state.mt4LiveModeEnabled) {
-                    Spacer(Modifier.height(8.dp))
-                    Text("⚠ Live mode is enabled — real orders can be sent to your MT4 broker.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                }
-                Spacer(Modifier.height(12.dp))
-                SwitchSetting("Emergency kill switch", state.mt4KillSwitchEngaged, viewModel::setMt4KillSwitch)
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    if (state.mt4KillSwitchEngaged) "Engaged — all live MT4 orders are blocked." else "Block all live MT4 orders instantly. Keep this in mind while live mode is on.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (state.mt4KillSwitchEngaged) MaterialTheme.colorScheme.error else FoxNeutral60,
-                )
-                Spacer(Modifier.height(12.dp))
-                SliderSetting("Stale quote timeout", (state.mt4StaleQuoteTimeoutMs / 1000f).coerceIn(0.5f, 30f), 0.5f..30f, "s", viewModel::setMt4StaleQuoteTimeoutSec)
-                Spacer(Modifier.height(4.dp))
-                Text("Reject an order if the latest MT4 quote is older than this.", style = MaterialTheme.typography.bodySmall, color = FoxNeutral60)
-                Spacer(Modifier.height(12.dp))
-                SliderSetting("Confirmation timeout", (state.mt4ConfirmationTimeoutMs / 1000f).coerceIn(5f, 300f), 5f..300f, "s", viewModel::setMt4ConfirmationTimeoutSec)
-                Spacer(Modifier.height(4.dp))
-                Text("A confirmed order older than this is rejected; confirm again.", style = MaterialTheme.typography.bodySmall, color = FoxNeutral60)
-                Spacer(Modifier.height(12.dp))
-                Text("Minimum free margin (account currency; 0 = off)", fontSize = 13.sp, color = FoxNeutral60)
-                Spacer(Modifier.height(4.dp))
-                DecimalAmountField(state.mt4MinFreeMargin, viewModel::setMt4MinFreeMargin, Modifier.fillMaxWidth())
-                Spacer(Modifier.height(12.dp))
-                Text("Max daily loss (account currency; 0 = off)", fontSize = 13.sp, color = FoxNeutral60)
-                Spacer(Modifier.height(4.dp))
-                DecimalAmountField(state.mt4MaxDailyLoss, viewModel::setMt4MaxDailyLoss, Modifier.fillMaxWidth())
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Enforced: blocks new live orders when today's realized loss from trades closed via the app meets this threshold. Gross loss is fail-closed. For authoritative broker P&L, check your MT4 terminal.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = FoxNeutral60,
-                )
-            }
-
             SectionHeader("Alerts")
             SettingsCard {
                 SwitchSetting("Sound", state.alertConfig.soundEnabled, viewModel::setSoundEnabled)

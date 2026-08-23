@@ -28,8 +28,7 @@ import javax.inject.Singleton
  *
  * Routing identity and provider transport symbols are deliberately separated.
  * FoxTrader may normalize `BTC/USDT` and `BTCUSDT` to the same internal key, but
- * broker-native identifiers such as Deriv `R_100` or MT4 symbols containing a
- * suffix/prefix must be sent to the provider exactly as the user selected them.
+ * broker-native identifiers such as Deriv `R_100` must be sent to the provider exactly as the user selected it.
  */
 @Singleton
 class ProviderMarketWebSocket @Inject constructor(
@@ -38,7 +37,6 @@ class ProviderMarketWebSocket @Inject constructor(
     private val binanceWebSocket: BinanceWebSocket,
     private val bybitWebSocket: BybitWebSocket,
     private val polygonWebSocket: PolygonWebSocket,
-    private val mt4MarketWebSocket: Mt4MarketWebSocket,
     private val dukascopyWebSocket: DukascopyPollingWebSocket,
     private val derivMarketWebSocket: DerivMarketWebSocket,
     @IoDispatcher io: CoroutineDispatcher,
@@ -185,7 +183,6 @@ class ProviderMarketWebSocket @Inject constructor(
         DataProvider.BINANCE -> binanceWebSocket
         DataProvider.BYBIT -> bybitWebSocket
         DataProvider.POLYGON -> polygonWebSocket
-        DataProvider.MT4 -> mt4MarketWebSocket
         DataProvider.DUKASCOPY -> dukascopyWebSocket
         DataProvider.DERIV -> derivMarketWebSocket
         else -> null
@@ -195,7 +192,6 @@ class ProviderMarketWebSocket @Inject constructor(
         binanceWebSocket,
         bybitWebSocket,
         polygonWebSocket,
-        mt4MarketWebSocket,
         dukascopyWebSocket,
         derivMarketWebSocket,
     )

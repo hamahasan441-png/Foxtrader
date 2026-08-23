@@ -42,7 +42,6 @@ class MarketProviderRouter @Inject constructor(
      * These are not claimed to be an exhaustive instrument directory. They are
      * provider-native examples used to recover from an incompatible symbol when
      * a user switches venues, and to seed provider-aware UI surfaces. Broker
-     * account symbol discovery (notably MT4 suffixes) remains authoritative.
      */
     fun defaultSymbolsFor(provider: DataProvider): List<String> = when (provider) {
         DataProvider.SAMPLE -> listOf("EURUSD", "BTCUSDT", "AAPL")
@@ -59,7 +58,6 @@ class MarketProviderRouter @Inject constructor(
         DataProvider.ALPHA_VANTAGE -> listOf("EURUSD", "AAPL", "MSFT", "NVDA")
         DataProvider.POLYGON -> listOf("AAPL", "MSFT", "NVDA", "TSLA")
         DataProvider.TWELVE_DATA -> listOf("EURUSD", "AAPL", "MSFT", "BTCUSD")
-        DataProvider.MT4 -> listOf("EURUSD", "GBPUSD", "USDJPY", "XAUUSD")
         DataProvider.OANDA,
         DataProvider.ALPACA,
         DataProvider.INTERACTIVE_BROKERS -> emptyList()
@@ -116,8 +114,7 @@ class MarketProviderRouter @Inject constructor(
         // Deriv has provider-native symbols (synthetic indices such as R_100,
         // forex aliases, etc.) that do not fit the generic classifier. When the
         // user explicitly chooses Deriv, let the Deriv API validate the symbol.
-        DataProvider.DERIV,
-        DataProvider.MT4 -> true
+        DataProvider.DERIV -> true
         DataProvider.ALPHA_VANTAGE,
         DataProvider.POLYGON,
         DataProvider.TWELVE_DATA -> asset != MarketAssetClass.UNKNOWN
@@ -127,10 +124,6 @@ class MarketProviderRouter @Inject constructor(
         DataProvider.INTERACTIVE_BROKERS -> asset != MarketAssetClass.UNKNOWN
     }
 
-    private fun credentialsReady(provider: DataProvider): Boolean = when (provider) {
-        DataProvider.MT4 -> !(appPreferences.getMetaApiToken()
-            ?: appPreferences.getApiKey(DataProvider.MT4)).isNullOrBlank() &&
-            !appPreferences.getMetaApiAccountId().isNullOrBlank()
-        else -> !provider.requiresApiKey || !appPreferences.getApiKey(provider).isNullOrBlank()
-    }
+    private fun credentialsReady(provider: DataProvider): Boolean =
+        !provider.requiresApiKey || !appPreferences.getApiKey(provider).isNullOrBlank()
 }

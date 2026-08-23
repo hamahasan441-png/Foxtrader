@@ -55,12 +55,6 @@ data class SettingsUiState(
     val litConfig: LitConfig = LitConfig(),
     val smtConfig: SmtConfig = SmtConfig(),
     val smsConfig: SmsConfig = SmsConfig(),
-    val mt4LiveModeEnabled: Boolean = false,
-    val mt4KillSwitchEngaged: Boolean = false,
-    val mt4StaleQuoteTimeoutMs: Long = 5_000L,
-    val mt4ConfirmationTimeoutMs: Long = 60_000L,
-    val mt4MinFreeMargin: Double = 0.0,
-    val mt4MaxDailyLoss: Double = 0.0,
     val saved: Boolean = false,
 ) {
     val isLoggedIn: Boolean get() = authState == AuthState.AUTHENTICATED
