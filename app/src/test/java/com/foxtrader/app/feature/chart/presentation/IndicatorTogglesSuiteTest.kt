@@ -59,11 +59,11 @@ class IndicatorTogglesSuiteTest {
     }
 
     @Test
-    fun `signal history starts hidden for a clean chart`() {
-        // PR #132 (phase18) intentionally starts the chart clean: the history
-        // lane is opt-in so newly opened charts lead with price action and
-        // arrows instead of a wall of past markers.
-        assertFalse(ChartUiState().showSignalHistory)
+    fun `signal history starts visible for retained live signals`() {
+        // Live-forward signals are intentionally retained on the chart so the
+        // trader can inspect prior confirmed arrows and the forward success-rate
+        // sample. The existing toolbar control can still hide history on demand.
+        assertTrue(ChartUiState().showSignalHistory)
     }
 
     @Test
