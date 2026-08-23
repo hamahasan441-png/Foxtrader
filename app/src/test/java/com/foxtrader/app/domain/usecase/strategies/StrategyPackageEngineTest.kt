@@ -129,6 +129,7 @@ class StrategyPackageEngineTest {
         assertNotNull(analysis.smc.breakerBlocks)
         assertNotNull(analysis.smc.inversionFVGs)
         assertNotNull(analysis.smc.balancedPriceRanges)
+        assertNotNull(analysis.smc.amdPatterns)
         assertNotNull(analysis.sessions)
         assertTrue(analysis.narrative.contains("SMC["))
     }
