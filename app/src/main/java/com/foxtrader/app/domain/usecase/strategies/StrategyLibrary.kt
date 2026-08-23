@@ -280,15 +280,17 @@ class StrategyLibrary @Inject constructor(
     // =========================================================================
     // STRATEGY 4: RSI Mean Reversion
     //
-    // Entry: RSI(14) < 30 (oversold) or > 70 (overbought) with price at/near
-    //        a support/resistance zone (lower Bollinger Band or OB).
+    // Entry: RSI(14) crosses back above 30 after oversold, or back below 70
+    //        after overbought. Waiting for the closed-bar reclaim aligns this
+    //        built-in strategy with the visual builder's "RSI leaving 30/70"
+    //        condition and avoids entering merely because an extreme deepened.
     // Stop:  2×ATR from entry.
     // TP:    Mean (EMA 20) = 2:1+ R:R minimum.
     // =========================================================================
     private fun rsiMeanReversionStrategy() = StrategyDefinition(
         name = "RSI Mean Reversion",
         type = StrategyType.MEAN_REVERSION,
-        description = "RSI(14) oversold/overbought reversal with ATR-adaptive stops targeting the mean.",
+        description = "RSI(14) leaves oversold/overbought on a closed bar, with ATR-adaptive stops targeting the mean.",
         minimumBars = 50,
         function = rsiMeanReversionFunction(),
     )
@@ -302,7 +304,7 @@ class StrategyLibrary @Inject constructor(
         if (atr <= 0.0) return@fn null
         val bar = candles[i]
 
-        if (rsi[i] < 30.0 && rsi[i - 1] >= 30.0) {
+        if (rsi[i - 1] <= 30.0 && rsi[i] > 30.0) {
             val entry = bar.close
             val sl = entry - atr * 2.0
             val tp = ema20[i]
@@ -312,11 +314,11 @@ class StrategyLibrary @Inject constructor(
             return@fn StrategySignal(
                 index = i, timestamp = bar.timestamp, direction = Direction.BULLISH,
                 entry = entry, stopLoss = sl, takeProfit = tp,
-                confidence = (100.0 - rsi[i] * 2).toInt().coerceIn(55, 85),
-                setupType = "RSI_OVERSOLD",
+                confidence = (100.0 - rsi[i - 1] * 2).toInt().coerceIn(55, 85),
+                setupType = "RSI_LEAVE_OVERSOLD",
             )
         }
-        if (rsi[i] > 70.0 && rsi[i - 1] <= 70.0) {
+        if (rsi[i - 1] >= 70.0 && rsi[i] < 70.0) {
             val entry = bar.close
             val sl = entry + atr * 2.0
             val tp = ema20[i]
@@ -326,8 +328,8 @@ class StrategyLibrary @Inject constructor(
             return@fn StrategySignal(
                 index = i, timestamp = bar.timestamp, direction = Direction.BEARISH,
                 entry = entry, stopLoss = sl, takeProfit = tp,
-                confidence = (rsi[i] * 2 - 100.0).toInt().coerceIn(55, 85),
-                setupType = "RSI_OVERBOUGHT",
+                confidence = (rsi[i - 1] * 2 - 100.0).toInt().coerceIn(55, 85),
+                setupType = "RSI_LEAVE_OVERBOUGHT",
             )
         }
         null
