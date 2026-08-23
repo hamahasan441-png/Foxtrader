@@ -7,14 +7,24 @@ import com.foxtrader.app.domain.usecase.backtest.StrategyFunction
 
 /**
  * A named, backtestable strategy with metadata for display and filtering.
+ *
+ * The public [function] is the canonical strategy function wrapped by
+ * [StrategyRuntimeSettingsRegistry]. Keeping the wrapper here is intentional:
+ * every consumer of StrategyLibrary receives the exact same runtime controls,
+ * so chart signals, scanner output and backtests cannot silently use different
+ * direction/confidence/R:R settings.
  */
-data class StrategyDefinition(
+class StrategyDefinition(
     val name: String,
     val type: StrategyType,
     val description: String,
     val minimumBars: Int,
-    val function: StrategyFunction,
-)
+    function: StrategyFunction,
+) {
+    private val baseFunction: StrategyFunction = function
+
+    val function: StrategyFunction = StrategyRuntimeSettingsRegistry.wrap(type, baseFunction)
+}
 
 /**
  * Convert a market bias to a directional enum for strategy alignment checks.
