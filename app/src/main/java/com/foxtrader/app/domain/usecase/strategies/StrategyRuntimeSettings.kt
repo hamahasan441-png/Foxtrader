@@ -9,10 +9,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlin.math.abs
+import kotlin.math.max
 
 /**
- * Runtime controls that are safe to apply to every built-in strategy without
- * forking its entry logic between live chart, scanner and backtest surfaces.
+ * Runtime controls that are safe to apply to every canonical built-in strategy
+ * without forking its entry logic between live-chart and backtest surfaces.
  *
  * Defaults are deliberately neutral: existing historical behaviour is unchanged
  * until the trader explicitly changes a value from the chart-corner gear.
@@ -25,17 +26,29 @@ data class StrategyRuntimeSettings(
     val minimumRiskReward: Double = 0.0,
     val targetRiskReward: Double = 0.0,
 ) {
-    fun sanitized(): StrategyRuntimeSettings = copy(
-        minimumConfidence = minimumConfidence.coerceIn(0, 100),
-        minimumRiskReward = minimumRiskReward
+    fun sanitized(): StrategyRuntimeSettings {
+        val safeMinimumRiskReward = minimumRiskReward
             .takeIf { it.isFinite() }
             ?.coerceIn(0.0, MAX_RISK_REWARD)
-            ?: 0.0,
-        targetRiskReward = targetRiskReward
+            ?: 0.0
+        val requestedTarget = targetRiskReward
             .takeIf { it.isFinite() }
-            ?.let { value -> if (value <= 0.0) 0.0 else value.coerceIn(MIN_TARGET_RISK_REWARD, MAX_RISK_REWARD) }
-            ?: 0.0,
-    )
+            ?.let { value ->
+                if (value <= 0.0) 0.0
+                else value.coerceIn(MIN_TARGET_RISK_REWARD, MAX_RISK_REWARD)
+            }
+            ?: 0.0
+        val safeTargetRiskReward = if (requestedTarget > 0.0 && safeMinimumRiskReward > 0.0) {
+            max(requestedTarget, safeMinimumRiskReward)
+        } else {
+            requestedTarget
+        }
+        return copy(
+            minimumConfidence = minimumConfidence.coerceIn(0, 100),
+            minimumRiskReward = safeMinimumRiskReward,
+            targetRiskReward = safeTargetRiskReward,
+        )
+    }
 
     companion object {
         const val MIN_TARGET_RISK_REWARD = 0.5
@@ -47,10 +60,14 @@ data class StrategyRuntimeSettings(
  * Process-wide canonical strategy settings registry.
  *
  * StrategyDefinition wraps every built-in StrategyFunction through this object,
- * therefore a setting change is observed by every consumer of the canonical
- * definition: live chart, scanner, chart backtest and Backtest Lab. The wrapper
- * reads the latest immutable snapshot on every bar, so definitions do not need
- * to be rebuilt after a gear change.
+ * therefore a setting change is observed by every consumer that actually uses
+ * StrategyLibrary's canonical definition (including live-chart and chart
+ * backtest, plus Backtest-Lab templates that delegate to StrategyLibrary).
+ * Scanner-specific ranking logic remains independent and is intentionally not
+ * claimed as canonical here.
+ *
+ * The wrapper reads the latest immutable snapshot on every bar, so definitions
+ * do not need to be rebuilt after a gear change.
  */
 object StrategyRuntimeSettingsRegistry {
     private val _state = MutableStateFlow<Map<StrategyType, StrategyRuntimeSettings>>(emptyMap())
