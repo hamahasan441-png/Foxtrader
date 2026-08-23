@@ -19,22 +19,12 @@ import kotlin.math.min
 // module-private. Pure draw code - no Compose state - which is what keeps it
 // cheap enough for the 120fps budget.
 //
-// `PERF` (perf pass) The layer previously issued one Compose drawLine + one
-// drawRect per candle: ~2 Canvas calls and several small allocations
-// (Offset/Size/Stroke) per bar, i.e. thousands of calls per frame when zoomed
-// out. It now batches everything into reusable float buffers and issues at
-// most FOUR native Canvas calls per frame:
-//   drawLines(bullish wicks) + drawLines(bearish wicks)
-//   + one drawRect loop replaced by nativeCanvas.drawRect via shared Paint
-// Buffers and Paints are retained across frames — zero allocation on the hot
-// path (matching the header contract) — safe because all drawing happens on
-// the single UI/render thread.
+// `PERF` The layer batches wick coordinates into reusable float buffers and
+// uses native Canvas paints for bodies. This keeps the hot path allocation-free.
 
-// Reusable coordinate buffers (grown geometrically, never shrunk).
 private var bullLineScratch = FloatArray(1024)
 private var bearLineScratch = FloatArray(1024)
 
-// Native paints hoisted once; colors resolved lazily from the theme colors.
 private val bullPaint = Paint().apply { isAntiAlias = false; style = Paint.Style.FILL }
 private val bearPaint = Paint().apply { isAntiAlias = false; style = Paint.Style.FILL }
 private var paintsInitialised = false
@@ -50,15 +40,12 @@ private fun ensureCapacity(buffer: FloatArray, needed: Int): FloatArray =
     if (buffer.size >= needed) buffer
     else FloatArray(Integer.highestOneBit(needed - 1) shl 1)
 
-/** Candle bodies + wicks — the heart of the chart. Viewport-culled.
+/**
+ * Candle bodies + wicks — viewport culled and tuned for phone readability.
  *
- * TradingView-style rendering:
- * - Clean, high-contrast green/red candles
- * - Wider bodies with thinner wicks for clear price action
- * - Doji candles rendered as visible horizontal lines
- * - Body width scales smoothly with zoom level
- * - Below ~3px/bar, candles degrade to single high-low bars (never the
- *   ambiguous "two thin lines" artefact of a body drawn at wick width)
+ * The body now uses a slightly larger share of each bar slot than before while
+ * preserving a visible inter-candle gap. This makes candles easier to read on a
+ * small Android screen without changing viewport math or reducing history depth.
  */
 internal fun DrawScope.drawCandleLayer(
     candles: List<Candle>,
@@ -81,17 +68,6 @@ internal fun DrawScope.drawCandleLayer(
     var bullCount = 0
     var bearCount = 0
 
-    // `RENDER` Below ~3px/bar a body rectangle cannot be drawn distinctly from
-    // its own wick, so the layer switches to a clean single high-low bar per
-    // candle.
-    //
-    // `PERF` Min-max pixel-column downsampling: when multiple bars land on the
-    // same pixel column (deep zoom-out — up to MAX_VISIBLE_BARS = 100k), they
-    // are merged into ONE column line spanning the column's total high-low
-    // range, colored by the column's net direction (first open vs last close).
-    // This is visually lossless at 1px resolution and bounds the emitted line
-    // count by chart width instead of bar count. Everything then goes out in
-    // at most two drawLines calls.
     if (barWidth < THIN_BAR_THRESHOLD_PX) {
         val lineWidth = barWidth.coerceIn(0.5f, 1.5f)
         var colX = Float.NaN
@@ -116,9 +92,8 @@ internal fun DrawScope.drawCandleLayer(
             val cx = viewport.xForIndex(i + 0.5f, cw)
             val yHigh = viewport.yForPrice(c.high, ch)
             val yLow = viewport.yForPrice(c.low, ch)
-            // Same pixel column (within half a px) → merge into the running range.
             if (!colX.isNaN() && cx - colX < 0.5f) {
-                if (yHigh < colHigh) colHigh = yHigh // y grows downward
+                if (yHigh < colHigh) colHigh = yHigh
                 if (yLow > colLow) colLow = yLow
                 colClose = c.close
             } else {
@@ -139,18 +114,13 @@ internal fun DrawScope.drawCandleLayer(
         return
     }
 
-    // TradingView-style proportions:
-    // - Body takes ~80% of the bar slot but always leaves a >=1px gap to the
-    //   next candle so adjacent bodies never fuse into a solid block
-    // - Wick is always thin (1-2px) regardless of zoom
-    val bodyWidth = min(barWidth * 0.8f, barWidth - 1f).coerceAtLeast(2f)
-    val wickWidth = (barWidth * 0.08f).coerceIn(1f, 2.5f)
+    // Slightly larger phone-first proportions. A >=0.8px slot gap remains so
+    // adjacent bodies never visually fuse into one solid block.
+    val bodyWidth = min(barWidth * 0.86f, barWidth - 0.8f).coerceAtLeast(2.4f)
+    val wickWidth = (barWidth * 0.09f).coerceIn(1f, 2.5f)
     val halfBody = bodyWidth / 2f
+    val minBodyHeight = 1.7f
 
-    // Minimum body height so doji and very-small-range candles are visible
-    val minBodyHeight = 1.5f
-
-    // Pass 1: collect wicks per direction (drawn behind bodies).
     for (i in start until end) {
         val c = candles[i]
         val cx = viewport.xForIndex(i + 0.5f, cw)
@@ -169,10 +139,6 @@ internal fun DrawScope.drawCandleLayer(
     if (bullCount > 0) canvas.drawLines(bullPts, 0, bullCount, bullPaint)
     if (bearCount > 0) canvas.drawLines(bearPts, 0, bearCount, bearPaint)
 
-    // Pass 2: bodies. drawRect on the native canvas with a shared Paint avoids
-    // the per-call Offset/Size/SolidColor brush allocations of the Compose
-    // overload while keeping exactly one rect per candle (rects can't batch
-    // into a single call, but the per-call cost is now allocation-free).
     for (i in start until end) {
         val c = candles[i]
         val cx = viewport.xForIndex(i + 0.5f, cw)
@@ -190,9 +156,4 @@ internal fun DrawScope.drawCandleLayer(
     }
 }
 
-/**
- * Bar width (px) below which body+wick rendering is replaced by single-line
- * bars. At 3px there is no visual room for a body rectangle distinct from the
- * wick, so drawing both only produces the "two thin lines" artefact.
- */
 private const val THIN_BAR_THRESHOLD_PX = 3f
