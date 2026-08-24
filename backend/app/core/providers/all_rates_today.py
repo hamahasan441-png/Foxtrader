@@ -5,7 +5,8 @@ rate series rather than exchange OHLCV bars. FoxTrader requests the finest
 documented grouping needed by the selected chart timeframe and aggregates real
 returned samples into OHLC bars. Volume is unavailable and remains 0.0.
 
-The credential is server-side only: ART_API_KEY.
+The credential can be supplied per request by the FoxTrader Android app through
+the backend proxy, or via ART_API_KEY for server-managed deployments.
 """
 
 from __future__ import annotations
@@ -39,12 +40,18 @@ class AllRatesTodayProvider(RESTProvider):
         key = (self._api_key or os.environ.get("ART_API_KEY", "")).strip()
         if not key:
             raise MissingApiKeyError(
-                "AllRatesToday API key is required on the backend (set ART_API_KEY)."
+                "AllRatesToday API key is required. Enter it in FoxTrader Settings or set ART_API_KEY on the backend."
             )
         return key
 
+    def _auth_headers(self) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {self._resolve_key()}",
+            "Accept": "application/json",
+        }
+
     def fetch_currencies(self) -> list[dict[str, str]]:
-        payload = self._get_json(_SYMBOLS_URL)
+        payload = self._get_json(_SYMBOLS_URL, headers=self._auth_headers())
         if not isinstance(payload, dict):
             raise ProviderRequestError("allratestoday returned a malformed symbols payload")
         raw = payload.get("currencies")
@@ -99,10 +106,7 @@ class AllRatesTodayProvider(RESTProvider):
         }
         payload = self._get_json(
             f"{_RATES_URL}?{urlencode(params)}",
-            headers={
-                "Authorization": f"Bearer {self._resolve_key()}",
-                "Accept": "application/json",
-            },
+            headers=self._auth_headers(),
         )
         if isinstance(payload, dict) and payload.get("error"):
             raise ProviderRequestError(f"allratestoday error: {payload.get('error')}")
