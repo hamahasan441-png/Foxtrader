@@ -7,6 +7,7 @@ import com.foxtrader.app.data.repository.DerivRepositoryImpl
 import com.foxtrader.app.data.repository.JournalRepositoryImpl
 import com.foxtrader.app.data.repository.LitXSignalRepositoryImpl
 import com.foxtrader.app.data.repository.MarketRepositoryImpl
+import com.foxtrader.app.data.repository.MarketSymbolDirectoryImpl
 import com.foxtrader.app.data.repository.WatchlistRepositoryImpl
 import com.foxtrader.app.domain.repository.AlertRepository
 import com.foxtrader.app.domain.repository.AuthRepository
@@ -15,6 +16,7 @@ import com.foxtrader.app.domain.repository.DerivRepository
 import com.foxtrader.app.domain.repository.JournalRepository
 import com.foxtrader.app.domain.repository.LitXSignalRepository
 import com.foxtrader.app.domain.repository.MarketRepository
+import com.foxtrader.app.domain.repository.MarketSymbolDirectory
 import com.foxtrader.app.domain.repository.WatchlistRepository
 import dagger.Binds
 import dagger.Module
@@ -22,10 +24,6 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
-/**
- * Binds domain repository interfaces to their data-layer implementations.
- * ViewModels depend only on the interface (testable, swappable).
- */
 @Module
 @InstallIn(SingletonComponent::class)
 abstract class RepositoryModule {
@@ -33,6 +31,10 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindMarketRepository(impl: MarketRepositoryImpl): MarketRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindMarketSymbolDirectory(impl: MarketSymbolDirectoryImpl): MarketSymbolDirectory
 
     @Binds
     @Singleton
