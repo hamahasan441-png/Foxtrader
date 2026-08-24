@@ -6,10 +6,8 @@ client-shaped response dict. Pure and synchronous so it is unit-testable
 without a running server.
 
 Includes a small in-process TTL cache for candles to absorb duplicate/bursty
-client polling of the most-recent window. The cache is keyed by symbol,
-timeframe, window and provider cache namespace. Credentialed providers may
-supply a non-secret cache namespace so one client's authenticated request can
-never satisfy another client's key validation path.
+client polling of the most-recent window. The cache is keyed by
+(symbol, timeframe_label, limit, before_ms) and has a short TTL (a few seconds).
 
 NOTE: This is in-process only. A multi-worker deployment should later move this
 to a shared cache (Redis), same pattern as the rate limiter's own documented
@@ -27,11 +25,16 @@ from app.core.candles import build_candles_response
 from app.core.providers.base import MarketDataProvider
 from app.core.timeframes import parse_timeframe
 
+# Guardrails independent of any single provider.
 MIN_LIMIT = 1
 MAX_LIMIT = 5_000
 DEFAULT_LIMIT = 500
+
+# Short TTL for the most-recent window cache — enough to absorb bursty polling
+# from the same client or multiple tabs, without serving stale historical data.
 CACHE_TTL_SECONDS = 5.0
 
+# In-process TTL cache: key -> (expires_at_monotonic, response_dict)
 _cache: dict[tuple[Any, ...], tuple[float, dict[str, Any]]] = {}
 _cache_lock = threading.RLock()
 
@@ -48,19 +51,12 @@ def _cache_key(
     timeframe_label: str,
     limit: int,
     before_ms: int | None,
-    provider_namespace: str | None = None,
+    provider_name: str | None = None,
 ) -> tuple[Any, ...]:
-    return (symbol, timeframe_label, limit, before_ms, provider_namespace)
-
-
-def _provider_cache_namespace(provider: MarketDataProvider) -> str | None:
-    """Resolve a safe cache namespace without ever storing a raw credential."""
-    namespace = getattr(provider, "cache_namespace", None)
-    if callable(namespace):
-        namespace = namespace()
-    if namespace is not None:
-        return str(namespace)
-    return getattr(provider, "name", None)
+    # Include provider name to avoid cross-provider stale hits if the deployment
+    # ever swaps provider mid-process (rare, but safe). Primary key per task spec
+    # is (symbol, timeframe_label, limit, before_ms).
+    return (symbol, timeframe_label, limit, before_ms, provider_name)
 
 
 def get_candles(
@@ -70,24 +66,34 @@ def get_candles(
     before_ms: int | None,
     provider: MarketDataProvider,
 ) -> dict[str, Any]:
-    """Resolve a candles request into the client's CandlesResponse shape."""
+    """Resolve a candles request into the client's CandlesResponse shape.
+
+    Raises [UnknownTimeframeError] for an unsupported timeframe label so the
+    caller can map it to HTTP 400.
+
+    Results are cached in-process for ``CACHE_TTL_SECONDS`` to absorb duplicate
+    / bursty polling. For multi-worker deployments this should be moved to a
+    shared cache (Redis) — same caveat as the rate limiter.
+    """
     timeframe_minutes = parse_timeframe(timeframe_label)
     safe_limit = clamp_limit(limit)
 
-    # Resolve the provider namespace before cache lookup. Credentialed providers
-    # can validate their key here and provide a one-way fingerprint namespace,
-    # preventing an invalid/missing key from receiving a previous valid hit.
-    provider_namespace = _provider_cache_namespace(provider)
-    key = _cache_key(symbol, timeframe_label, safe_limit, before_ms, provider_namespace)
+    # Attempt cache hit (fast path)
+    key = _cache_key(symbol, timeframe_label, safe_limit, before_ms, getattr(provider, "name", None))
     now = time.monotonic()
     with _cache_lock:
         entry = _cache.get(key)
         if entry is not None:
             expires_at, cached_response = entry
             if now < expires_at:
+                # Return a shallow copy to avoid accidental mutation of cached dict
+                # (callers treat it as read-only, but be defensive).
                 return dict(cached_response)
-            _cache.pop(key, None)
+            else:
+                # Expired — evict
+                _cache.pop(key, None)
 
+    # Cache miss — fetch from provider
     candles = provider.fetch_candles(
         symbol=symbol,
         timeframe_minutes=timeframe_minutes,
@@ -104,12 +110,15 @@ def get_candles(
         source=source,
     )
 
+    # Store in cache
     with _cache_lock:
         _cache[key] = (now + CACHE_TTL_SECONDS, response)
+        # Opportunistic cleanup: if cache grows too large, evict expired entries
+        # (bounded cleanup to avoid unbounded growth in long-running process).
         if len(_cache) > 1000:
             expired_keys = [k for k, (exp, _) in _cache.items() if exp <= now]
-            for expired_key in expired_keys:
-                _cache.pop(expired_key, None)
+            for ek in expired_keys:
+                _cache.pop(ek, None)
 
     return response
 
