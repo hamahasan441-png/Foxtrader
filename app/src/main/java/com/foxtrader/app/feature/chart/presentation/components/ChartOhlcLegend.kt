@@ -3,9 +3,7 @@ package com.foxtrader.app.feature.chart.presentation.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -38,13 +36,12 @@ import java.util.Locale
 import kotlin.math.abs
 
 /**
- * Compact data-window legend for the latest visible bar plus the active-study
- * command row immediately beneath it.
+ * Minimal OHLC data-window overlay.
  *
- * This component already owns the chart's TopStart overlay position, so keeping
- * study controls here gives TradingView-style in-chart settings without adding a
- * second layout layer or shrinking the price canvas. hiltViewModel resolves the
- * same ChartViewModel instance owned by ChartScreen's navigation entry.
+ * The previous version stacked study controls under the OHLC row and covered a
+ * large part of the top-left price action on phones. Study/system settings stay
+ * available from the chart toolbar and Settings; the canvas overlay is now one
+ * compact row only so candles remain readable.
  */
 @Composable
 internal fun ChartOhlcLegend(
@@ -62,11 +59,6 @@ internal fun ChartOhlcLegend(
         ChartIndicatorRuntime.publishSettings(chartState.indicators.settings)
     }
 
-    // Strategy runtime settings live outside IndicatorToggles because they are
-    // shared with scanner/backtest consumers. A gear change therefore needs an
-    // explicit chart recompute; otherwise a paused market could keep stale
-    // strategy arrows until the next tick. updateIndicators deliberately
-    // recomputes even for an identity transform.
     LaunchedEffect(
         strategyRuntimeSettings,
         chartState.indicators.activeStrategy,
@@ -104,25 +96,21 @@ internal fun ChartOhlcLegend(
         trendColor
     }
 
-    Column(
-        modifier = modifier.fillMaxWidth(0.88f),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(FoxNeutral10.copy(alpha = 0.82f))
+            .border(1.dp, FoxNeutral20.copy(alpha = 0.75f), RoundedCornerShape(6.dp))
+            .padding(horizontal = 6.dp, vertical = 3.dp)
+            .semantics { contentDescription = description },
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Row(
-            modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .background(FoxNeutral10.copy(alpha = 0.92f))
-                .border(1.dp, FoxNeutral20, RoundedCornerShape(8.dp))
-                .padding(horizontal = 8.dp, vertical = 5.dp)
-                .semantics { contentDescription = description },
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Value("O", formatPrice(candle.open))
-            Value("H", formatPrice(candle.high), FoxBullishText)
-            Value("L", formatPrice(candle.low), FoxBearishText)
-            Value("C", formatPrice(candle.close), closeColor)
-            Value("Δ", formatPercent(changePct), trendColor)
-            Value("V", formatVolume(candle.volume), FoxNeutral80)
+        Value("O", formatPrice(candle.open))
+        Value("H", formatPrice(candle.high), FoxBullishText)
+        Value("L", formatPrice(candle.low), FoxBearishText)
+        Value("C", formatPrice(candle.close), closeColor)
+        Value("Δ", formatPercent(changePct), trendColor)
+        if (freshness != MarketDataFreshness.LIVE) {
             Text(
                 text = sourceText,
                 color = if (freshness == MarketDataFreshness.SIMULATED) FoxBearishText else FoxNeutral60,
@@ -130,17 +118,12 @@ internal fun ChartOhlcLegend(
                 style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
             )
         }
-
-        ChartStudyCornerControls(
-            toggles = chartState.indicators,
-            onChange = viewModel::updateIndicators,
-        )
     }
 }
 
 @Composable
 private fun Value(label: String, value: String, valueColor: androidx.compose.ui.graphics.Color = FoxNeutral80) {
-    Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(
             text = label,
             color = FoxNeutral60,
@@ -163,13 +146,3 @@ private fun formatPrice(value: Double): String = when {
 }
 
 private fun formatPercent(value: Double): String = String.format(Locale.US, "%+.2f%%", value)
-
-private fun formatVolume(value: Double): String {
-    if (!value.isFinite() || value < 0.0) return "—"
-    return when {
-        abs(value) >= 1_000_000_000.0 -> String.format(Locale.US, "%.1fB", value / 1_000_000_000.0)
-        abs(value) >= 1_000_000.0 -> String.format(Locale.US, "%.1fM", value / 1_000_000.0)
-        abs(value) >= 1_000.0 -> String.format(Locale.US, "%.1fK", value / 1_000.0)
-        else -> String.format(Locale.US, "%.0f", value)
-    }
-}
