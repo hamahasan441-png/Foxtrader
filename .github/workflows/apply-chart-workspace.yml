@@ -1,15 +1,15 @@
 name: Apply chart workspace camera fix
 
 on:
-  push:
-    branches: [integrate/lit-adventure-v2]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
 
 jobs:
   apply:
-    if: github.actor != 'github-actions[bot]'
+    if: github.head_ref == 'integrate/lit-adventure-v2' && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
