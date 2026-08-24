@@ -6,8 +6,8 @@ import com.foxtrader.app.data.repository.DrawingRepositoryImpl
 import com.foxtrader.app.data.repository.DerivRepositoryImpl
 import com.foxtrader.app.data.repository.JournalRepositoryImpl
 import com.foxtrader.app.data.repository.LitXSignalRepositoryImpl
-import com.foxtrader.app.data.repository.MarketRepositoryImpl
 import com.foxtrader.app.data.repository.MarketSymbolDirectoryImpl
+import com.foxtrader.app.data.repository.RoutingMarketRepository
 import com.foxtrader.app.data.repository.WatchlistRepositoryImpl
 import com.foxtrader.app.domain.repository.AlertRepository
 import com.foxtrader.app.domain.repository.AuthRepository
@@ -30,7 +30,7 @@ abstract class RepositoryModule {
 
     @Binds
     @Singleton
-    abstract fun bindMarketRepository(impl: MarketRepositoryImpl): MarketRepository
+    abstract fun bindMarketRepository(impl: RoutingMarketRepository): MarketRepository
 
     @Binds
     @Singleton
