@@ -40,6 +40,21 @@ object SignalIdentity {
         confirmationIndex = confirmationIndex,
     )
 
+    fun rsiOrderFlow(
+        symbol: String,
+        timeframe: Timeframe,
+        timestamp: Long,
+        direction: Direction,
+        confirmationIndex: Int,
+    ): String = methodology(
+        prefix = "rsi_of",
+        symbol = symbol,
+        timeframe = timeframe,
+        timestamp = timestamp,
+        direction = direction,
+        confirmationIndex = confirmationIndex,
+    )
+
     private fun methodology(
         prefix: String,
         symbol: String,

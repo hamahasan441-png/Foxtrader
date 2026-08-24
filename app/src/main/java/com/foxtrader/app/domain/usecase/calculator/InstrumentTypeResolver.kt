@@ -43,7 +43,7 @@ class InstrumentTypeResolver @Inject constructor() {
                     PositionCalculator.InstrumentType.FOREX_STANDARD
                 }
 
-            AssetClass.STOCKS, AssetClass.COMMODITIES ->
+            AssetClass.STOCKS, AssetClass.COMMODITIES, AssetClass.SYNTHETIC, AssetClass.OTHER ->
                 // A share is one unit priced in whole currency, which is what
                 // INDEX_STANDARD already models (contract 1, pip 1).
                 PositionCalculator.InstrumentType.INDEX_STANDARD

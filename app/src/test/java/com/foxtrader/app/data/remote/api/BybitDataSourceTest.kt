@@ -3,6 +3,7 @@ package com.foxtrader.app.data.remote.api
 import com.foxtrader.app.domain.model.Timeframe
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -52,6 +53,47 @@ class BybitDataSourceTest {
     }
 
     @Test
+    fun `discoverSymbols parses spot instruments and normalizes tick size`() = runBlocking {
+        val api = FakeBybitApi(
+            response = BybitKlineResponse(),
+            instrumentResponse = BybitInstrumentResponse(
+                retCode = 0,
+                result = BybitInstrumentResult(
+                    instruments = listOf(
+                        BybitInstrument(
+                            symbol = "BTCUSDT",
+                            baseCoin = "BTC",
+                            quoteCoin = "USDT",
+                            status = "Trading",
+                            priceFilter = BybitPriceFilter(tickSize = "0.01"),
+                        ),
+                        BybitInstrument(
+                            symbol = "ETHUSDT",
+                            baseCoin = "ETH",
+                            quoteCoin = "USDT",
+                            status = "Delisted",
+                            priceFilter = BybitPriceFilter(tickSize = "0.01"),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val dataSource = BybitDataSource(api)
+
+        val symbols = dataSource.discoverSymbols()
+
+        assertEquals(2, symbols.size)
+        val btc = symbols.first { it.providerSymbol == "BTCUSDT" }
+        assertEquals("BTC", btc.baseAsset)
+        assertEquals("USDT", btc.quoteAsset)
+        assertEquals(0.01, btc.tickSize ?: 0.0, 1e-6)
+        assertTrue(btc.isTrading)
+
+        val eth = symbols.first { it.providerSymbol == "ETHUSDT" }
+        assertFalse(eth.isTrading)
+    }
+
+    @Test
     fun `isBybitSymbol accepts common crypto quote suffixes`() {
         val dataSource = BybitDataSource(FakeBybitApi(BybitKlineResponse()))
 
@@ -61,6 +103,7 @@ class BybitDataSourceTest {
 
     private class FakeBybitApi(
         private val response: BybitKlineResponse,
+        private val instrumentResponse: BybitInstrumentResponse = BybitInstrumentResponse(),
     ) : BybitApi {
         var category: String? = null
         var symbol: String? = null
@@ -79,6 +122,13 @@ class BybitDataSourceTest {
             this.interval = interval
             this.limit = limit
             return response
+        }
+
+        override suspend fun getInstrumentsInfo(
+            category: String,
+        ): BybitInstrumentResponse {
+            this.category = category
+            return instrumentResponse
         }
     }
 }

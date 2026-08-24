@@ -1,7 +1,7 @@
 package com.foxtrader.app.domain.model
 
 /**
- * Unified chart signal combining LIT X, TradePro, and SMT signal data
+ * Unified chart signal combining first-class FOXTRADER analysis-system output
  * for display on the chart as live/history markers.
  */
 data class ChartSignal(
@@ -54,6 +54,9 @@ enum class SignalSource {
     SMS,
     TRADEPRO,
     SMT,
+
+    /** Confirmed RSI + candle-derived orderflow-proxy setup. */
+    RSI_ORDERFLOW,
 
     /** Deriv 3-minute fixed-expiry CALL/PUT setup confirmed on a closed M1 bar. */
     BINARY3M,

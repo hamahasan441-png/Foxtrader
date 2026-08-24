@@ -11,6 +11,7 @@ import com.foxtrader.app.domain.model.SignalFusionResult
 import com.foxtrader.app.domain.model.SignalSource
 import com.foxtrader.app.domain.model.tradepro.SetupStage
 import com.foxtrader.app.domain.model.tradepro.TradeProAnalysis
+import com.foxtrader.app.domain.usecase.signalintel.RsiOrderFlowSignalEngine
 import com.foxtrader.app.domain.usecase.signalintel.SignalEvidenceReducer
 import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
 import javax.inject.Inject
@@ -35,6 +36,7 @@ class SignalComputer @Inject constructor(
         strategySignals: List<ChartSignal> = emptyList(),
         litAnalysis: LitAnalysis? = null,
         smsAnalysis: SmsAnalysis? = null,
+        rsiOrderFlowSignals: List<RsiOrderFlowSignalEngine.Signal> = emptyList(),
         latestConfirmedIndex: Int = candles.lastIndex,
         fusion: SignalFusionResult? = null,
     ): List<ChartSignal> {
@@ -153,6 +155,40 @@ class SignalComputer @Inject constructor(
             }
         }
 
+        // RSI Orderflow Candle becomes actionable only on the divergence's
+        // explicit confirmation bar. Unlike context-only SMT markers, these
+        // signals carry causal entry/SL/TP geometry from the shared engine.
+        for (signal in rsiOrderFlowSignals) {
+            val confirmationCandle = candles.getOrNull(signal.confirmationIndex) ?: continue
+            if (signal.timestamp != confirmationCandle.timestamp) continue
+            signals.add(
+                ChartSignal(
+                    id = "rsi_of_${signal.symbol}_${signal.timestamp}_${signal.direction.name}",
+                    source = SignalSource.RSI_ORDERFLOW,
+                    direction = signal.direction,
+                    entry = signal.entry,
+                    sl = signal.stopLoss,
+                    tp = signal.takeProfit,
+                    barIndex = signal.confirmationIndex,
+                    timestamp = signal.timestamp,
+                    confidence = signal.confidence.toDouble(),
+                    isLive = signal.confirmationIndex == latestConfirmedIndex,
+                    label = buildSignalLabel(
+                        "RSI Orderflow",
+                        signal.confidence,
+                        signal.reasons.take(4),
+                    ),
+                    eventKey = SignalIdentity.rsiOrderFlow(
+                        symbol = signal.symbol,
+                        timeframe = signal.timeframe,
+                        timestamp = signal.timestamp,
+                        direction = signal.direction,
+                        confirmationIndex = signal.confirmationIndex,
+                    ),
+                )
+            )
+        }
+
         // SMT divergences become actionable on their confirmation bar, never on
         // the hindsight swing origin.
         for (div in smtDivergences) {
@@ -224,6 +260,7 @@ class SignalComputer @Inject constructor(
         SignalSource.LIT -> 100
         SignalSource.LITX -> 95
         SignalSource.SMS -> 90
+        SignalSource.RSI_ORDERFLOW -> 88
         SignalSource.SMT -> 85
         SignalSource.TRADEPRO -> 80
         SignalSource.BINARY3M -> 70
@@ -235,9 +272,10 @@ class SignalComputer @Inject constructor(
      *
      * LiTX, LiT and SMS share structure/liquidity primitives. They therefore
      * belong to one family and cannot boost one another merely because they are
-     * exposed as different [SignalSource] values. SMT is a divergence family and
-     * TradePro is composite. This mirrors [SignalEvidenceReducer] used by the
-     * upstream fusion layer and prevents UI-only confidence inflation.
+     * exposed as different [SignalSource] values. SMT is a divergence family,
+     * RSI Orderflow is momentum/orderflow-proxy evidence, and TradePro is
+     * composite. This mirrors [SignalEvidenceReducer] used by the upstream
+     * fusion layer and prevents UI-only confidence inflation.
      */
     private fun applyConfluence(
         signals: List<ChartSignal>,
