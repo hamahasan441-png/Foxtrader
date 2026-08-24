@@ -16,28 +16,48 @@ jobs:
         with:
           ref: integrate/lit-adventure-v2
           fetch-depth: 0
-      - uses: actions/setup-java@v4
+
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
+
       - uses: gradle/actions/setup-gradle@v4
-      - name: Apply scoped LiT/LiTX replacement
+
+      - name: Apply scoped LiT Adventure v2 replacement
         run: python3 .github/scripts/apply-lit-v2.py
-      - name: Verify protected newer systems remain
+
+      - name: Enforce LiT-only source diff
         shell: bash
         run: |
           set -euo pipefail
-          test -f app/src/main/java/com/foxtrader/data/remote/api/AllRatesTodayApi.kt
-          test -f app/src/main/java/com/foxtrader/data/remote/api/AllRatesTodayDataSource.kt
-          test -f app/src/main/java/com/foxtrader/domain/strategy/RsiOrderFlowSignalEngine.kt
-          test -f app/src/main/java/com/foxtrader/ui/chart/ApprovedAnalysisSystem.kt
-          grep -q 'AllRatesToday' app/src/main/java/com/foxtrader/data/remote/api/AllRatesTodayDataSource.kt
-      - name: Build and unit test merged project
+          changes="$(git diff --name-only)"
+          if [ -z "$changes" ]; then
+            echo "No LiT Adventure v2 changes were applied"
+            exit 1
+          fi
+
+          unexpected="$(
+            printf '%s\n' "$changes" |
+            grep -Ev '^(app/src/main/java/com/foxtrader/app/domain/usecase/litx/|app/src/main/java/com/foxtrader/app/feature/litx/|app/src/test/java/com/foxtrader/app/domain/usecase/litx/|app/src/test/java/com/foxtrader/app/feature/litx/)' || true
+          )"
+
+          if [ -n "$unexpected" ]; then
+            echo "Unexpected changes outside LiT Adventure v2 scopes:"
+            printf '%s\n' "$unexpected"
+            exit 1
+          fi
+
+          echo "Verified scoped LiT Adventure v2 diff:"
+          printf '%s\n' "$changes"
+
+      - name: Build APK and run unit tests
         shell: bash
         run: |
           set -euo pipefail
           chmod +x gradlew
           ./gradlew --no-daemon assembleDebug testDebugUnitTest
+
       - name: Remove archive and temporary integration machinery
         shell: bash
         run: |
@@ -48,6 +68,7 @@ jobs:
           rm -f .github/workflows/lit-v2-diff.yml
           rm -f .github/workflows/apply-lit-v2.yml
           rm -f .github/workflows/apply-lit-v2-pr.yml
+
       - name: Commit verified integration
         shell: bash
         run: |
@@ -57,7 +78,7 @@ jobs:
           git add -A
           if git diff --cached --quiet; then
             echo 'No changes to commit'
-            exit 0
+            exit 1
           fi
-          git commit -m 'integrate: apply LiT Adventure v2 [skip ci]'
+          git commit -m 'integrate: apply LiT Adventure v2'
           git push origin HEAD:integrate/lit-adventure-v2
