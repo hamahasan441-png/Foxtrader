@@ -62,11 +62,13 @@ class OkxDataSourceTest {
 
     private class FakeOkxApi(
         private val response: OkxCandleResponse,
+        private val instrumentResponse: OkxInstrumentResponse = OkxInstrumentResponse(),
     ) : OkxApi {
         var instId: String? = null
         var bar: String? = null
         var limit: Int? = null
         var after: String? = null
+        var instType: String? = null
 
         override suspend fun getCandles(
             instId: String,
@@ -79,6 +81,11 @@ class OkxDataSourceTest {
             this.limit = limit
             this.after = after
             return response
+        }
+
+        override suspend fun getInstruments(instType: String): OkxInstrumentResponse {
+            this.instType = instType
+            return instrumentResponse
         }
     }
 }

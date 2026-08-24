@@ -68,9 +68,11 @@ class KuCoinDataSourceTest {
 
     private class FakeKuCoinApi(
         private val response: KuCoinCandleResponse,
+        private val symbolsResponse: KuCoinSymbolsResponse = KuCoinSymbolsResponse(),
     ) : KuCoinApi {
         var symbol: String? = null
         var type: String? = null
+        var market: String? = null
 
         override suspend fun getCandles(
             symbol: String,
@@ -79,6 +81,11 @@ class KuCoinDataSourceTest {
             this.symbol = symbol
             this.type = type
             return response
+        }
+
+        override suspend fun getSymbols(market: String?): KuCoinSymbolsResponse {
+            this.market = market
+            return symbolsResponse
         }
     }
 }
