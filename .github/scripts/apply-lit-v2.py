@@ -15,17 +15,14 @@ with zipfile.ZipFile(archive) as z:
             raise SystemExit(f'Unsafe archive member: {info.filename}')
     z.extractall(out)
 
+# Claude's v2 archive uses the app-layer LiTX package layout below. Replace only
+# these superseded LiT Adventure packages so newer provider/RSI/chart work on
+# current main is preserved.
 scopes = [
-    Path('app/src/main/java/com/foxtrader/domain/trading/lit'),
-    Path('app/src/main/java/com/foxtrader/domain/trading/litx'),
-    Path('app/src/main/java/com/foxtrader/domain/model/litx'),
-    Path('app/src/main/java/com/foxtrader/data/local/litx'),
-    Path('app/src/main/java/com/foxtrader/data/repository/litx'),
-    Path('app/src/test/java/com/foxtrader/domain/trading/lit'),
-    Path('app/src/test/java/com/foxtrader/domain/trading/litx'),
-    Path('app/src/test/java/com/foxtrader/domain/model/litx'),
-    Path('app/src/test/java/com/foxtrader/data/local/litx'),
-    Path('app/src/test/java/com/foxtrader/data/repository/litx'),
+    Path('app/src/main/java/com/foxtrader/app/domain/usecase/litx'),
+    Path('app/src/main/java/com/foxtrader/app/feature/litx'),
+    Path('app/src/test/java/com/foxtrader/app/domain/usecase/litx'),
+    Path('app/src/test/java/com/foxtrader/app/feature/litx'),
 ]
 
 def resolve_scope(rel: Path):
@@ -53,9 +50,9 @@ for rel in scopes:
     print(f'REPLACED {rel} FROM {src.relative_to(out)} ({count} files)')
 
 if touched == 0 or replaced_scopes == 0:
-    discovered = [p.relative_to(out).as_posix() for p in out.rglob('*') if p.is_file() and ('/lit/' in p.as_posix().lower() or '/litx/' in p.as_posix().lower())]
-    print('DISCOVERED LIT-LIKE FILES:')
+    discovered = [p.relative_to(out).as_posix() for p in out.rglob('*') if p.is_file() and '/litx/' in p.as_posix().lower()]
+    print('DISCOVERED LITX FILES:')
     for p in discovered[:200]:
         print(p)
-    raise SystemExit('No LiT/LiTX scoped files found in archive; refusing empty replacement')
-print(f'Total archive LiT/LiTX files copied: {touched} across {replaced_scopes} scopes')
+    raise SystemExit('No LiT Adventure v2 scoped files found in archive; refusing empty replacement')
+print(f'Total LiT Adventure v2 files copied: {touched} across {replaced_scopes} scopes')
