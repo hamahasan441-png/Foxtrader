@@ -7,18 +7,22 @@ import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.MarketType
 import com.foxtrader.app.domain.model.ProviderMarketSymbol
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
  * Android-side adapter for the FoxTrader backend's AllRatesToday proxy.
  *
- * The vendor API key intentionally never exists here. The backend owns
- * ART_API_KEY and the APK only talks to the authenticated FoxTrader API.
+ * The user enters the vendor key in Settings. AppPreferences stores it in
+ * encrypted preferences; this adapter reads it only at request time and sends
+ * it to the FoxTrader backend in a dedicated HTTPS header. The key is never
+ * placed in a URL, BuildConfig, source constant, or log message.
  */
 @Singleton
 class AllRatesTodayDataSource @Inject constructor(
     private val api: MarketApi,
+    private val appPreferences: AppPreferences,
 ) {
     suspend fun fetchCandles(
         symbol: String,
@@ -31,6 +35,7 @@ class AllRatesTodayDataSource @Inject constructor(
             timeframe = timeframe.label,
             limit = limit.coerceIn(1, 5_000),
             before = before,
+            apiKey = requireApiKey(),
         )
         requireRealAllRatesToday(response)
         return response.candles
@@ -56,7 +61,7 @@ class AllRatesTodayDataSource @Inject constructor(
     }
 
     suspend fun discoverSymbols(): List<ProviderMarketSymbol> {
-        val response = api.getAllRatesTodaySymbols()
+        val response = api.getAllRatesTodaySymbols(apiKey = requireApiKey())
         check(response.provider.equals("allratestoday", ignoreCase = true)) {
             "Unexpected provider symbol response: ${response.provider}"
         }
@@ -66,6 +71,12 @@ class AllRatesTodayDataSource @Inject constructor(
             .distinctBy { it.providerSymbol }
             .toList()
     }
+
+    private fun requireApiKey(): String =
+        appPreferences.getApiKey(DataProvider.ALL_RATES_TODAY)
+            ?: throw IllegalStateException(
+                "AllRatesToday API key is required. Open Settings → Data Provider, enter the key, and test the connection."
+            )
 
     private fun toMarketSymbol(raw: String): ProviderMarketSymbol? {
         val pair = runCatching { normalizePair(raw) }.getOrNull() ?: return null

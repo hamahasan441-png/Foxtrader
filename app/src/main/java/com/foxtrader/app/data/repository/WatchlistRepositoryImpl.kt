@@ -41,7 +41,8 @@ class WatchlistRepositoryImpl @Inject constructor(
             dao.observeWatchlists(),
             dao.observeAllSymbols(),
             appPreferences.dataProvider,
-        ) { lists, symbols, provider ->
+            appPreferences.apiKeys,
+        ) { lists, symbols, provider, _ ->
             val bySymbolList = symbols.groupBy { it.watchlistId }
             val persisted = lists.map { entity -> entity.toDomain(bySymbolList[entity.id].orEmpty()) }
             val providerSymbols = resolveProviderDirectory(provider)
