@@ -4,12 +4,16 @@ on:
   push:
     branches:
       - integrate/lit-adventure-v2
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
 
 jobs:
   inspect:
+    if: github.event_name == 'push' || github.head_ref == 'integrate/lit-adventure-v2'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
