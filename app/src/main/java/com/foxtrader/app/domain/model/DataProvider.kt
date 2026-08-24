@@ -3,9 +3,9 @@ package com.foxtrader.app.domain.model
 /**
  * Market data providers the app can source candles / live ticks from.
  *
- * API credentials that must remain server-side are deliberately not collected
- * by the Android app. AllRatesToday is proxied through the FoxTrader backend so
- * its ART_API_KEY never ships in the APK.
+ * Provider API credentials are entered in Settings only when required and are
+ * persisted by AppPreferences in encrypted storage. They must never be
+ * hardcoded into BuildConfig, source files, logs, or URLs.
  */
 enum class DataProvider(
     val displayName: String,
@@ -56,10 +56,12 @@ enum class DataProvider(
     ),
     ALL_RATES_TODAY(
         "AllRatesToday",
-        // The vendor refreshes interbank rates roughly every minute. FoxTrader
-        // uses backend REST polling, not a vendor WebSocket.
+        // The vendor exposes authenticated REST live/time-series data. FoxTrader
+        // stores the user-entered key encrypted and forwards it to the backend
+        // proxy over HTTPS; the backend then uses it as the vendor Bearer token.
         supportsLive = true,
-        requiresApiKey = false,
+        requiresApiKey = true,
+        apiKeyLabel = "AllRatesToday API Key",
         implemented = true,
     ),
     INTERACTIVE_BROKERS(
