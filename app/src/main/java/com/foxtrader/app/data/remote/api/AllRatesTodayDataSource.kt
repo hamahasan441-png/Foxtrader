@@ -36,6 +36,12 @@ import javax.inject.Singleton
  * only in the HTTPS Authorization header to allratestoday.com. This path does
  * not depend on the FoxTrader backend, so physical phones never need the
  * emulator-only 10.0.2.2 address for AllRatesToday market data.
+ *
+ * AllRatesToday exposes rate snapshots rather than exchange-native OHLC bars.
+ * FoxTrader therefore converts the observed snapshots into deterministic OHLC
+ * candles while preserving every observed high/low. When a bucket contains one
+ * snapshot only, the previous observed close becomes the next candle open so the
+ * chart remains a true candlestick series instead of a row of flat price marks.
  */
 @Singleton
 class AllRatesTodayDataSource @Inject constructor(
@@ -88,7 +94,7 @@ class AllRatesTodayDataSource @Inject constructor(
             "AllRatesToday returned no rate samples for $base/$quote ${timeframe.label}."
         }
 
-        return aggregate(points, timeframe.minutes)
+        return buildAllRatesTodaySnapshotCandles(points, timeframe.minutes)
             .takeLast(safeLimit)
     }
 
@@ -99,33 +105,15 @@ class AllRatesTodayDataSource @Inject constructor(
             .map { item -> item.code.trim().uppercase() to item.name.trim() }
             .filter { (code, _) -> code.length == ISO_CODE_LENGTH && code.all(Char::isLetter) }
             .distinctBy { it.first }
-            .sortedBy { it.first }
-            .toList()
+            .associate { it }
 
         check(currencies.size >= 2) { "AllRatesToday returned no usable currency directory." }
 
-        return buildList(currencies.size * (currencies.size - 1)) {
-            for ((base, baseName) in currencies) {
-                for ((quote, quoteName) in currencies) {
-                    if (base == quote) continue
-                    val pair = "$base$quote"
-                    add(
-                        ProviderMarketSymbol(
-                            provider = DataProvider.ALL_RATES_TODAY,
-                            providerSymbol = pair,
-                            canonicalSymbol = pair,
-                            displayName = "$base/$quote",
-                            assetClass = AssetClass.FOREX,
-                            marketType = MarketType.SPOT,
-                            baseAsset = base,
-                            quoteAsset = quote,
-                            category = "FX · $baseName / $quoteName",
-                            isTrading = true,
-                        )
-                    )
-                }
-            }
+        val curated = buildAllRatesTodayCuratedSymbols(currencies)
+        check(curated.isNotEmpty()) {
+            "AllRatesToday did not report the major FX symbols required by FoxTrader."
         }
+        return curated
     }
 
     private fun bearerToken(): String = "Bearer ${requireApiKey()}"
@@ -164,11 +152,14 @@ class AllRatesTodayDataSource @Inject constructor(
             .replace("_", "")
             .replace(" ", "")
         require(pair.length == PAIR_LENGTH && pair.all(Char::isLetter)) {
-            "AllRatesToday requires a 6-letter ISO FX pair."
+            "AllRatesToday requires a 6-letter ISO currency or metal pair."
         }
         val base = pair.substring(0, ISO_CODE_LENGTH)
         val quote = pair.substring(ISO_CODE_LENGTH)
-        require(base != quote) { "AllRatesToday base and quote currencies must differ." }
+        require(base != quote) { "AllRatesToday base and quote codes must differ." }
+        require(pair in ALL_RATES_TODAY_ALLOWED_PAIRS) {
+            "AllRatesToday is limited in FoxTrader to major FX and supported metals."
+        }
         return pair
     }
 
@@ -224,26 +215,6 @@ class AllRatesTodayDataSource @Inject constructor(
         }
     }
 
-    private fun aggregate(points: List<Pair<Long, Double>>, timeframeMinutes: Int): List<Candle> {
-        val bucketMs = timeframeMinutes.toLong().coerceAtLeast(1L) * MINUTE_MS
-        return points
-            .groupBy { (timestamp, _) -> (timestamp / bucketMs) * bucketMs }
-            .toSortedMap()
-            .mapNotNull { (bucket, samples) ->
-                val ordered = samples.sortedBy { it.first }
-                val values = ordered.map { it.second }
-                if (values.isEmpty()) return@mapNotNull null
-                Candle(
-                    timestamp = bucket,
-                    open = values.first(),
-                    high = values.maxOrNull() ?: return@mapNotNull null,
-                    low = values.minOrNull() ?: return@mapNotNull null,
-                    close = values.last(),
-                    volume = 0.0,
-                )
-            }
-    }
-
     private companion object {
         const val ALL_RATES_TODAY_BASE_URL = "https://allratestoday.com/"
         const val JSON_MEDIA_TYPE = "application/json"
@@ -253,4 +224,102 @@ class AllRatesTodayDataSource @Inject constructor(
         const val MINUTE_MS = 60_000L
         const val HISTORY_MARGIN_MS = 2L * 24L * 60L * MINUTE_MS
     }
+}
+
+internal val ALL_RATES_TODAY_MAJOR_FX_PAIRS = listOf(
+    "EURUSD",
+    "GBPUSD",
+    "USDJPY",
+    "USDCHF",
+    "USDCAD",
+    "AUDUSD",
+    "NZDUSD",
+)
+
+internal val ALL_RATES_TODAY_METAL_PAIRS = listOf(
+    "XAUUSD",
+    "XAGUSD",
+)
+
+internal val ALL_RATES_TODAY_ALLOWED_PAIRS =
+    (ALL_RATES_TODAY_MAJOR_FX_PAIRS + ALL_RATES_TODAY_METAL_PAIRS).toSet()
+
+/**
+ * Converts snapshot rates into candle bars without inventing intrabar prices.
+ * Observed values define the high/low; previous close only supplies continuity
+ * for the next open when the provider emitted a single snapshot for that bar.
+ */
+internal fun buildAllRatesTodaySnapshotCandles(
+    points: List<Pair<Long, Double>>,
+    timeframeMinutes: Int,
+): List<Candle> {
+    if (points.isEmpty()) return emptyList()
+    val bucketMs = timeframeMinutes.toLong().coerceAtLeast(1L) * 60_000L
+    val buckets = points
+        .asSequence()
+        .filter { (_, rate) -> rate.isFinite() && rate > 0.0 }
+        .distinctBy { it.first }
+        .groupBy { (timestamp, _) -> (timestamp / bucketMs) * bucketMs }
+        .toSortedMap()
+
+    var previousClose: Double? = null
+    return buildList(buckets.size) {
+        for ((bucket, samples) in buckets) {
+            val values = samples.sortedBy { it.first }.map { it.second }
+            if (values.isEmpty()) continue
+
+            val open = previousClose ?: values.first()
+            val close = values.last()
+            val observedHigh = values.maxOrNull() ?: continue
+            val observedLow = values.minOrNull() ?: continue
+            val high = maxOf(open, observedHigh, close)
+            val low = minOf(open, observedLow, close)
+
+            add(
+                Candle(
+                    timestamp = bucket,
+                    open = open,
+                    high = high,
+                    low = low,
+                    close = close,
+                    volume = 0.0,
+                )
+            )
+            previousClose = close
+        }
+    }
+}
+
+/**
+ * AllRatesToday documents currency symbols only. FoxTrader deliberately exposes
+ * the seven major FX pairs plus XAU/XAG against USD when those metal codes are
+ * actually present in the provider directory. Equities are not fabricated.
+ */
+internal fun buildAllRatesTodayCuratedSymbols(
+    currencies: Map<String, String>,
+): List<ProviderMarketSymbol> {
+    val available = currencies
+        .mapKeys { (code, _) -> code.trim().uppercase() }
+        .filterKeys { code -> code.length == 3 && code.all(Char::isLetter) }
+
+    return (ALL_RATES_TODAY_MAJOR_FX_PAIRS + ALL_RATES_TODAY_METAL_PAIRS)
+        .mapNotNull { pair ->
+            val base = pair.take(3)
+            val quote = pair.drop(3)
+            if (base !in available || quote !in available) return@mapNotNull null
+
+            val isMetal = pair in ALL_RATES_TODAY_METAL_PAIRS
+            ProviderMarketSymbol(
+                provider = DataProvider.ALL_RATES_TODAY,
+                providerSymbol = pair,
+                canonicalSymbol = pair,
+                displayName = "$base/$quote",
+                assetClass = if (isMetal) AssetClass.METALS else AssetClass.FOREX,
+                marketType = MarketType.SPOT,
+                baseAsset = base,
+                quoteAsset = quote,
+                category = if (isMetal) "Metals" else "Major FX",
+                isTrading = true,
+            )
+        }
 }

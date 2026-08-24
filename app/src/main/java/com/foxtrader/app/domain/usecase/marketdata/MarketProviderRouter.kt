@@ -17,7 +17,7 @@ class MarketProviderRouter @Inject constructor(
 
     fun supportsSymbol(provider: DataProvider, symbol: String): Boolean {
         if (symbol.isBlank() || !provider.implemented) return false
-        if (provider == DataProvider.ALL_RATES_TODAY) return normalizeIsoPair(symbol) != null
+        if (provider == DataProvider.ALL_RATES_TODAY) return isCuratedAllRatesTodaySymbol(symbol)
         return providerSupportsAsset(provider, classify(symbol))
     }
 
@@ -37,7 +37,7 @@ class MarketProviderRouter @Inject constructor(
         DataProvider.ALPHA_VANTAGE -> listOf("EURUSD", "AAPL", "MSFT", "NVDA")
         DataProvider.POLYGON -> listOf("AAPL", "MSFT", "NVDA", "TSLA")
         DataProvider.TWELVE_DATA -> listOf("EURUSD", "AAPL", "MSFT", "BTCUSD")
-        DataProvider.ALL_RATES_TODAY -> listOf("EURUSD", "GBPUSD", "USDJPY", "EURGBP", "AUDUSD")
+        DataProvider.ALL_RATES_TODAY -> ALL_RATES_TODAY_MAJOR_DEFAULTS
         DataProvider.OANDA,
         DataProvider.ALPACA,
         DataProvider.INTERACTIVE_BROKERS -> emptyList()
@@ -60,7 +60,7 @@ class MarketProviderRouter @Inject constructor(
         if (symbol.isBlank() || preferred == DataProvider.SAMPLE) return null
         if (!preferred.implemented || !preferred.supportsLive || !credentialsReady(preferred)) return null
         if (preferred == DataProvider.ALL_RATES_TODAY) {
-            return preferred.takeIf { normalizeIsoPair(symbol) != null }
+            return preferred.takeIf { isCuratedAllRatesTodaySymbol(symbol) }
         }
         val asset = classify(symbol)
         return if (providerSupportsAsset(preferred, asset)) preferred else null
@@ -79,8 +79,8 @@ class MarketProviderRouter @Inject constructor(
         DataProvider.KUCOIN -> asset == MarketAssetClass.CRYPTO
         DataProvider.DUKASCOPY -> asset == MarketAssetClass.FOREX ||
             asset == MarketAssetClass.METAL || asset == MarketAssetClass.INDEX
-        DataProvider.DERIV,
-        DataProvider.ALL_RATES_TODAY -> true
+        DataProvider.DERIV -> true
+        DataProvider.ALL_RATES_TODAY -> false // handled by the curated symbol policy above
         DataProvider.ALPHA_VANTAGE,
         DataProvider.POLYGON,
         DataProvider.TWELVE_DATA -> asset != MarketAssetClass.UNKNOWN
@@ -93,6 +93,9 @@ class MarketProviderRouter @Inject constructor(
     private fun credentialsReady(provider: DataProvider): Boolean =
         !provider.requiresApiKey || !appPreferences.getApiKey(provider).isNullOrBlank()
 
+    private fun isCuratedAllRatesTodaySymbol(symbol: String): Boolean =
+        normalizeIsoPair(symbol)?.let(ALL_RATES_TODAY_ALLOWED::contains) == true
+
     private fun normalizeIsoPair(symbol: String): String? {
         val pair = symbol.trim().uppercase()
             .replace("/", "")
@@ -100,5 +103,21 @@ class MarketProviderRouter @Inject constructor(
             .replace("_", "")
             .replace(" ", "")
         return pair.takeIf { it.length == 6 && it.all(Char::isLetter) && it.take(3) != it.drop(3) }
+    }
+
+    private companion object {
+        val ALL_RATES_TODAY_MAJOR_DEFAULTS = listOf(
+            "EURUSD",
+            "GBPUSD",
+            "USDJPY",
+            "USDCHF",
+            "USDCAD",
+            "AUDUSD",
+            "NZDUSD",
+        )
+
+        val ALL_RATES_TODAY_ALLOWED = (
+            ALL_RATES_TODAY_MAJOR_DEFAULTS + listOf("XAUUSD", "XAGUSD")
+        ).toSet()
     }
 }

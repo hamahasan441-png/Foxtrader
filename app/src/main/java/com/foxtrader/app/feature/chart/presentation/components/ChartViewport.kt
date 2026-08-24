@@ -128,7 +128,7 @@ class ChartViewport(
         startIndex += velocityBarsPerSec * dt
         velocityBarsPerSec *= FLING_FRICTION.pow(dt)
 
-        val maxStart = max(0f, total - visibleBars)
+        val maxStart = maxFutureStartIndex(total)
         // Hitting a hard bound kills the fling immediately (no rubber-banding).
         if (startIndex <= 0f || startIndex >= maxStart) {
             startIndex = startIndex.coerceIn(0f, maxStart)
@@ -255,13 +255,19 @@ class ChartViewport(
     fun resetToLatest(total: Int, barCount: Float = DEFAULT_VISIBLE_BARS) {
         if (total <= 0) return
         visibleBars = min(barCount, total.toFloat()).coerceAtLeast(MIN_VISIBLE_BARS)
-        startIndex = max(0f, total - visibleBars)
+        startIndex = latestPinnedStartIndex(total)
         stopFling()
     }
 
-    /** Whether the right edge of the viewport is pinned to the newest bar. */
+    /**
+     * Whether the camera is in the normal live-follow position.
+     *
+     * Panning into the deliberate future-space area must turn live-follow off;
+     * otherwise a new tick would snap the latest candle back to the right edge
+     * while the trader is inspecting it near the middle of the screen.
+     */
     fun isAtRightEdge(total: Int, toleranceBars: Float = 1f): Boolean =
-        startIndex + visibleBars >= total - toleranceBars
+        abs(startIndex - latestPinnedStartIndex(total)) <= toleranceBars
 
     /**
      * Preserve the current visual anchor when older history is prepended.
@@ -274,6 +280,21 @@ class ChartViewport(
     fun shiftForPrependedBars(prependedCount: Int) {
         if (prependedCount <= 0) return
         startIndex += prependedCount
+    }
+
+    /** Normal live-follow position: newest data sits at the right edge. */
+    private fun latestPinnedStartIndex(total: Int): Float =
+        max(0f, total.toFloat() - visibleBars)
+
+    /**
+     * Maximum pan into empty future space. At this bound the newest candle is
+     * exactly at the horizontal centre of the chart, giving the trader room to
+     * inspect price action without permitting unbounded empty scrolling.
+     */
+    private fun maxFutureStartIndex(total: Int): Float {
+        if (total <= 0) return 0f
+        val latestIndex = (total - 1).toFloat()
+        return max(0f, latestIndex - visibleBars * LAST_CANDLE_CENTER_FRACTION)
     }
 
     // ========================================================================
@@ -315,7 +336,7 @@ class ChartViewport(
     /** Clamp the viewport to valid bounds. */
     fun clamp(total: Int, minBars: Float = MIN_VISIBLE_BARS, maxBars: Float = MAX_VISIBLE_BARS) {
         visibleBars = visibleBars.coerceIn(minBars, maxBars)
-        val maxStart = max(0f, total - visibleBars)
+        val maxStart = maxFutureStartIndex(total)
         startIndex = startIndex.coerceIn(0f, maxStart)
     }
 
@@ -517,6 +538,9 @@ class ChartViewport(
 
         /** Default window on first layout / after "go to now". */
         const val DEFAULT_VISIBLE_BARS = 80f
+
+        /** Furthest allowed future-space pan places the newest candle at 50% width. */
+        const val LAST_CANDLE_CENTER_FRACTION = 0.5f
 
         /**
          * Per-second velocity retention during a fling (`v *= friction^dt`).

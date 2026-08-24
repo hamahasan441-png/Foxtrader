@@ -184,12 +184,12 @@ class ChartViewportTest {
     // ========================================================================
 
     @Test
-    fun `clamp prevents scrolling past the newest bar`() {
+    fun `clamp stops when newest candle reaches chart centre`() {
         val vp = ChartViewport(startIndex = 5_000f, visibleBars = 100f)
 
         vp.clamp(total = 500)
 
-        assertEquals(400f, vp.startIndex, 0.001f)
+        assertEquals(449f, vp.startIndex, 0.001f)
     }
 
     @Test
@@ -290,7 +290,7 @@ class ChartViewportTest {
         }
 
         assertFalse(vp.isFling)
-        assertEquals(900f, vp.startIndex, 0.001f)
+        assertEquals(949f, vp.startIndex, 0.001f)
     }
 
     @Test
