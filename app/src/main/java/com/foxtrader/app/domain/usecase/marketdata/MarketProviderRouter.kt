@@ -17,6 +17,7 @@ class MarketProviderRouter @Inject constructor(
 
     fun supportsSymbol(provider: DataProvider, symbol: String): Boolean {
         if (symbol.isBlank() || !provider.implemented) return false
+        if (provider == DataProvider.ALL_RATES_TODAY) return normalizeIsoPair(symbol) != null
         return providerSupportsAsset(provider, classify(symbol))
     }
 
@@ -58,6 +59,9 @@ class MarketProviderRouter @Inject constructor(
     ): DataProvider? {
         if (symbol.isBlank() || preferred == DataProvider.SAMPLE) return null
         if (!preferred.implemented || !preferred.supportsLive || !credentialsReady(preferred)) return null
+        if (preferred == DataProvider.ALL_RATES_TODAY) {
+            return preferred.takeIf { normalizeIsoPair(symbol) != null }
+        }
         val asset = classify(symbol)
         return if (providerSupportsAsset(preferred, asset)) preferred else null
     }
@@ -75,8 +79,8 @@ class MarketProviderRouter @Inject constructor(
         DataProvider.KUCOIN -> asset == MarketAssetClass.CRYPTO
         DataProvider.DUKASCOPY -> asset == MarketAssetClass.FOREX ||
             asset == MarketAssetClass.METAL || asset == MarketAssetClass.INDEX
-        DataProvider.DERIV -> true
-        DataProvider.ALL_RATES_TODAY -> asset == MarketAssetClass.FOREX
+        DataProvider.DERIV,
+        DataProvider.ALL_RATES_TODAY -> true
         DataProvider.ALPHA_VANTAGE,
         DataProvider.POLYGON,
         DataProvider.TWELVE_DATA -> asset != MarketAssetClass.UNKNOWN
@@ -88,4 +92,13 @@ class MarketProviderRouter @Inject constructor(
 
     private fun credentialsReady(provider: DataProvider): Boolean =
         !provider.requiresApiKey || !appPreferences.getApiKey(provider).isNullOrBlank()
+
+    private fun normalizeIsoPair(symbol: String): String? {
+        val pair = symbol.trim().uppercase()
+            .replace("/", "")
+            .replace("-", "")
+            .replace("_", "")
+            .replace(" ", "")
+        return pair.takeIf { it.length == 6 && it.all(Char::isLetter) && it.take(3) != it.drop(3) }
+    }
 }
