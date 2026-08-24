@@ -15,12 +15,6 @@ with zipfile.ZipFile(archive) as z:
             raise SystemExit(f'Unsafe archive member: {info.filename}')
     z.extractall(out)
 
-roots = [p.parent for p in out.rglob('settings.gradle.kts') if (p.parent / 'app').is_dir()]
-if not roots:
-    raise SystemExit('No Android project root in archive')
-roots.sort(key=lambda p: (len(p.relative_to(out).parts), str(p)))
-srcroot = roots[0]
-
 scopes = [
     Path('app/src/main/java/com/foxtrader/domain/trading/lit'),
     Path('app/src/main/java/com/foxtrader/domain/trading/litx'),
@@ -34,21 +28,34 @@ scopes = [
     Path('app/src/test/java/com/foxtrader/data/repository/litx'),
 ]
 
-touched = 0
-for rel in scopes:
-    src = srcroot / rel
-    dst = repo / rel
-    if src.exists():
-        if dst.exists():
-            shutil.rmtree(dst)
-        shutil.copytree(src, dst)
-        count = sum(1 for p in src.rglob('*') if p.is_file())
-        touched += count
-        print(f'REPLACED {rel} ({count} files)')
-    elif dst.exists():
-        shutil.rmtree(dst)
-        print(f'DELETED stale scope {rel}')
+def resolve_scope(rel: Path):
+    suffix = rel.as_posix()
+    candidates = [p for p in out.rglob(rel.name) if p.is_dir() and p.as_posix().endswith(suffix)]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda p: (-sum(1 for x in p.rglob('*') if x.is_file()), len(p.parts), str(p)))
+    return candidates[0]
 
-if touched == 0:
-    raise SystemExit('No LiT/LiTX files found in archive; refusing empty replacement')
-print(f'Total archive LiT/LiTX files copied: {touched}')
+touched = 0
+replaced_scopes = 0
+for rel in scopes:
+    src = resolve_scope(rel)
+    dst = repo / rel
+    if src is None:
+        print(f'ARCHIVE SCOPE ABSENT, PRESERVED CURRENT: {rel}')
+        continue
+    if dst.exists():
+        shutil.rmtree(dst)
+    shutil.copytree(src, dst)
+    count = sum(1 for p in src.rglob('*') if p.is_file())
+    touched += count
+    replaced_scopes += 1
+    print(f'REPLACED {rel} FROM {src.relative_to(out)} ({count} files)')
+
+if touched == 0 or replaced_scopes == 0:
+    discovered = [p.relative_to(out).as_posix() for p in out.rglob('*') if p.is_file() and ('/lit/' in p.as_posix().lower() or '/litx/' in p.as_posix().lower())]
+    print('DISCOVERED LIT-LIKE FILES:')
+    for p in discovered[:200]:
+        print(p)
+    raise SystemExit('No LiT/LiTX scoped files found in archive; refusing empty replacement')
+print(f'Total archive LiT/LiTX files copied: {touched} across {replaced_scopes} scopes')
