@@ -5,10 +5,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,7 +21,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -38,9 +38,7 @@ import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxNeutral10
 import com.foxtrader.app.ui.theme.FoxNeutral60
 
-/**
- * Symbol picker dialog — lets the user switch the charted instrument.
- */
+/** Symbol picker dialog with scalable search for provider-native directories. */
 @Composable
 fun SymbolPickerDialog(
     visible: Boolean,
@@ -53,6 +51,11 @@ fun SymbolPickerDialog(
 ) {
     if (!visible) return
     var newSymbol by remember { mutableStateOf("") }
+    var searchQuery by remember { mutableStateOf("") }
+    val filteredSymbols = remember(symbols, searchQuery) {
+        val query = searchQuery.trim().uppercase()
+        if (query.isEmpty()) symbols else symbols.filter { it.contains(query, ignoreCase = true) }
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Column(
@@ -69,12 +72,25 @@ fun SymbolPickerDialog(
                 color = FoxAmber50,
             )
 
-            // Add-symbol row. The field is uppercased on submit so the
-            // repository's normalisation and the display agree.
-            Row(
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 10.dp),
+                singleLine = true,
+                label = { Text("Search symbols", fontSize = 11.sp) },
+                supportingText = {
+                    if (symbols.isNotEmpty()) {
+                        Text("${filteredSymbols.size} / ${symbols.size}", fontSize = 10.sp)
+                    }
+                },
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
@@ -117,7 +133,7 @@ fun SymbolPickerDialog(
                     .padding(top = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                items(symbols, key = { it }) { symbol ->
+                items(filteredSymbols, key = { it }) { symbol ->
                     val isSelected = symbol == selected
                     Row(
                         modifier = Modifier
@@ -135,8 +151,7 @@ fun SymbolPickerDialog(
                             text = symbol,
                             style = MaterialTheme.typography.bodyLarge,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isSelected) FoxAmber50
-                            else MaterialTheme.colorScheme.onSurface,
+                            color = if (isSelected) FoxAmber50 else MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier
                                 .weight(1f)
                                 .padding(vertical = 12.dp),
