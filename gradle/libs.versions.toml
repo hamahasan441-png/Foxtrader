@@ -45,8 +45,8 @@ immutableCollections = "0.3.8"
 datastore = "1.1.1"
 
 # WorkManager (background tasks)
-# 2.10.x includes Android 15/16 scheduling and service-lifecycle hardening.
-work = "2.10.1"
+# Latest 2.10.x maintenance release; stays compatible with the project's AGP 8.5.2.
+work = "2.10.5"
 hiltWork = "1.2.0"
 
 # Security (encrypted storage)
