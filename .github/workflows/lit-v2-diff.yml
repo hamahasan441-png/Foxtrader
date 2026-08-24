@@ -1,0 +1,69 @@
+name: LiT Adventure v2 scoped diff
+
+on:
+  push:
+    branches: [integrate/lit-adventure-v2]
+
+permissions:
+  contents: read
+
+jobs:
+  diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract safely and build scoped diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, stat, zipfile
+          from pathlib import Path, PurePosixPath
+          zpath=Path('Foxtrader-LitAdventure-v2.zip')
+          out=Path(os.environ['RUNNER_TEMP'])/'litv2'
+          out.mkdir(parents=True,exist_ok=True)
+          with zipfile.ZipFile(zpath) as z:
+            for i in z.infolist():
+              p=PurePosixPath(i.filename)
+              mode=(i.external_attr>>16)&0o170000
+              if p.is_absolute() or '..' in p.parts or mode==stat.S_IFLNK:
+                raise SystemExit(f'unsafe archive member: {i.filename}')
+            z.extractall(out)
+          roots=[p.parent for p in out.rglob('settings.gradle.kts') if (p.parent/'app').is_dir()]
+          if not roots: raise SystemExit('Android root not found')
+          roots.sort(key=lambda p: len(p.relative_to(out).parts))
+          root=roots[0]
+          Path('/tmp/archive-root').write_text(str(root))
+          PY
+          ROOT="$(cat /tmp/archive-root)"
+          : > lit-v2.patch
+          for P in \
+            app/src/main/java/com/foxtrader/domain/trading/lit \
+            app/src/main/java/com/foxtrader/domain/trading/litx \
+            app/src/main/java/com/foxtrader/domain/model/litx \
+            app/src/main/java/com/foxtrader/data/local/litx \
+            app/src/main/java/com/foxtrader/data/repository/litx \
+            app/src/test/java/com/foxtrader/domain/trading/lit \
+            app/src/test/java/com/foxtrader/domain/trading/litx \
+            app/src/test/java/com/foxtrader/domain/model/litx \
+            app/src/test/java/com/foxtrader/data/local/litx \
+            app/src/test/java/com/foxtrader/data/repository/litx
+          do
+            diff -ruN "$P" "$ROOT/$P" >> lit-v2.patch || true
+          done
+          find "$ROOT/app/src" -type f | sed "s#^$ROOT/##" | grep -Ei '(lit|adventure)' | sort > archive-lit-files.txt || true
+          find app/src -type f | grep -Ei '(lit|adventure)' | sort > current-lit-files.txt || true
+          grep -RIl --exclude='*.class' --exclude='*.jar' --exclude='*.zip' -Ei '(LitEngine|LitXEngine|LiT Adventure|LitAdventure)' "$ROOT/app/src/main/java" | sed "s#^$ROOT/##" | sort > archive-lit-wiring-files.txt || true
+          grep -RIl -Ei '(LitEngine|LitXEngine|LiT Adventure|LitAdventure)' app/src/main/java | sort > current-lit-wiring-files.txt || true
+          wc -l lit-v2.patch archive-lit-files.txt current-lit-files.txt archive-lit-wiring-files.txt current-lit-wiring-files.txt
+      - name: Upload scoped diff
+        uses: actions/upload-artifact@v4
+        with:
+          name: lit-v2-scoped-diff
+          path: |
+            lit-v2.patch
+            archive-lit-files.txt
+            current-lit-files.txt
+            archive-lit-wiring-files.txt
+            current-lit-wiring-files.txt
+          if-no-files-found: error
