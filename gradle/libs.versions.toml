@@ -45,8 +45,8 @@ immutableCollections = "0.3.8"
 datastore = "1.1.1"
 
 # WorkManager (background tasks)
-# Stable 2.11.2 contains Android 15+ network/service reliability fixes.
-work = "2.11.2"
+# Latest 2.10.x maintenance release; stays compatible with the project's AGP 8.5.2.
+work = "2.10.5"
 hiltWork = "1.2.0"
 
 # Security (encrypted storage)
