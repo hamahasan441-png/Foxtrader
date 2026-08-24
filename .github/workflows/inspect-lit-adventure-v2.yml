@@ -1,0 +1,87 @@
+name: Inspect LiT Adventure v2 archive
+
+on:
+  push:
+    branches:
+      - integrate/lit-adventure-v2
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Safely extract archive
+        id: archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, stat, zipfile
+          from pathlib import Path, PurePosixPath
+
+          archive = Path('Foxtrader-LitAdventure-v2.zip')
+          if not archive.is_file():
+              raise SystemExit('Archive missing')
+          out = Path(os.environ['RUNNER_TEMP']) / 'litv2'
+          out.mkdir(parents=True, exist_ok=True)
+          with zipfile.ZipFile(archive) as z:
+              for info in z.infolist():
+                  p = PurePosixPath(info.filename)
+                  if p.is_absolute() or '..' in p.parts:
+                      raise SystemExit(f'Unsafe archive path: {info.filename}')
+                  mode = (info.external_attr >> 16) & 0o170000
+                  if mode == stat.S_IFLNK:
+                      raise SystemExit(f'Symlink rejected: {info.filename}')
+              z.extractall(out)
+
+          candidates = list(out.rglob('settings.gradle.kts')) + list(out.rglob('settings.gradle'))
+          candidates = [p for p in candidates if (p.parent / 'app').is_dir()]
+          if not candidates:
+              raise SystemExit('No Android project root found in archive')
+          candidates.sort(key=lambda p: (len(p.relative_to(out).parts), str(p)))
+          root = candidates[0].parent
+          print(f'ARCHIVE_ROOT={root}')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'root={root}\n')
+          PY
+
+      - name: Inventory archive and compare current tree
+        shell: bash
+        env:
+          ROOT: ${{ steps.archive.outputs.root }}
+        run: |
+          set -euo pipefail
+          echo '=== ARCHIVE TOP LEVEL ==='
+          find "$ROOT" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort
+          echo '=== FILE COUNT ==='
+          find "$ROOT" -type f | wc -l
+          echo '=== LIT / ADVENTURE FILES ==='
+          find "$ROOT" -type f | grep -Ei '/(lit|adventure|maymadness|smt|rsi|orderflow)' | sed "s#^$ROOT/##" | head -250 || true
+          echo '=== ALLRATESTODAY PRESENCE IN ARCHIVE ==='
+          grep -RIl --exclude='*.class' --exclude='*.jar' --exclude='*.zip' 'AllRatesToday' "$ROOT" | sed "s#^$ROOT/##" | head -100 || true
+          echo '=== DRY RUN REPLACEMENT DIFF (first 300) ==='
+          rsync -ain --delete --exclude='.git/' --exclude='.github/' --exclude='Foxtrader-LitAdventure-v2.zip' "$ROOT/" ./ | head -300 || true
+
+      - name: Build archive project
+        shell: bash
+        env:
+          ROOT: ${{ steps.archive.outputs.root }}
+        run: |
+          set -euo pipefail
+          cd "$ROOT"
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug testDebugUnitTest
