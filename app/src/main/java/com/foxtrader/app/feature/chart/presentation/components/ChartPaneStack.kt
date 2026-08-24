@@ -27,12 +27,13 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.foxtrader.app.domain.usecase.chart.ChartViewportState
 import com.foxtrader.app.feature.chart.presentation.CandleSeries
+import com.foxtrader.app.feature.chart.presentation.ChartDimens
 import com.foxtrader.app.feature.chart.presentation.ImmutableDoubleSeries
 import com.foxtrader.app.feature.chart.presentation.IndicatorToggles
 import com.foxtrader.app.ui.theme.FoxTheme
 import kotlinx.coroutines.flow.StateFlow
 
-/** Bottom study deck for oscillators/volume, locked to the primary viewport. */
+/** Compact bottom study deck, locked to the primary chart viewport. */
 @Composable
 fun ChartPaneStack(
     indicators: IndicatorToggles,
@@ -70,21 +71,21 @@ fun ChartPaneStack(
     val selected = active.firstOrNull { it.key == selectedKey } ?: active.first()
 
     val colors = FoxTheme.colors
-    val shape = RoundedCornerShape(topStart = FoxTheme.shapes.lg, topEnd = FoxTheme.shapes.lg)
+    val shape = RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp)
 
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(max = 168.dp)
+            .heightIn(max = ChartDimens.paneStackMaxHeight)
             .clip(shape)
             .background(colors.surfaceElevated)
             .border(1.dp, colors.borderStrong, shape)
-            .padding(horizontal = FoxTheme.spacing.sm, vertical = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             active.forEach { pane ->
@@ -150,15 +151,30 @@ fun ChartPaneStack(
                 }
 
                 StudyPane.OBV -> obv?.let {
-                    ObvSubChart(obv = it, startIndex = startIndex, visibleBars = visibleBars, canvasHeight = STUDY_CANVAS_HEIGHT)
+                    ObvSubChart(
+                        obv = it,
+                        startIndex = startIndex,
+                        visibleBars = visibleBars,
+                        canvasHeight = STUDY_CANVAS_HEIGHT,
+                    )
                 }
 
                 StudyPane.MFI -> moneyFlowIndex?.let {
-                    MoneyFlowSubChart(mfi = it, startIndex = startIndex, visibleBars = visibleBars, canvasHeight = STUDY_CANVAS_HEIGHT)
+                    MoneyFlowSubChart(
+                        mfi = it,
+                        startIndex = startIndex,
+                        visibleBars = visibleBars,
+                        canvasHeight = STUDY_CANVAS_HEIGHT,
+                    )
                 }
 
                 StudyPane.VOLUME -> if (candles.isNotEmpty()) {
-                    VolumePane(candles = candles, startIndex = startIndex, visibleBars = visibleBars, canvasHeight = STUDY_CANVAS_HEIGHT)
+                    VolumePane(
+                        candles = candles,
+                        startIndex = startIndex,
+                        visibleBars = visibleBars,
+                        canvasHeight = STUDY_CANVAS_HEIGHT,
+                    )
                 }
             }
         }
@@ -174,10 +190,10 @@ private fun StudyTab(label: String, selected: Boolean, onClick: () -> Unit) {
         fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
         color = if (selected) colors.accent else colors.textSecondary,
         modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(7.dp))
             .background(if (selected) colors.accentMuted else colors.surfaceStrong)
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 5.dp),
+            .padding(horizontal = 8.dp, vertical = 3.dp),
     )
 }
 
@@ -191,4 +207,4 @@ private enum class StudyPane(val key: String, val label: String) {
     VOLUME("volume", "Volume"),
 }
 
-private val STUDY_CANVAS_HEIGHT = 88.dp
+private val STUDY_CANVAS_HEIGHT = 64.dp
