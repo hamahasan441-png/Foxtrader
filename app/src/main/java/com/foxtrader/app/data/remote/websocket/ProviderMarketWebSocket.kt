@@ -23,13 +23,7 @@ import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/**
- * Symbol-aware live market-data router.
- *
- * Routing identity and provider transport symbols are deliberately separated.
- * FoxTrader may normalize `BTC/USDT` and `BTCUSDT` to the same internal key, but
- * broker-native identifiers such as Deriv `R_100` must be sent to the provider exactly as the user selected it.
- */
+/** Symbol-aware live market-data router. */
 @Singleton
 class ProviderMarketWebSocket @Inject constructor(
     private val appPreferences: AppPreferences,
@@ -39,13 +33,13 @@ class ProviderMarketWebSocket @Inject constructor(
     private val polygonWebSocket: PolygonWebSocket,
     private val dukascopyWebSocket: DukascopyPollingWebSocket,
     private val derivMarketWebSocket: DerivMarketWebSocket,
+    private val allRatesTodayWebSocket: AllRatesTodayPollingWebSocket,
     @IoDispatcher io: CoroutineDispatcher,
 ) : MarketWebSocket {
 
     private val scope = CoroutineScope(SupervisorJob() + io)
     private val mutex = Mutex()
 
-    /** Internal normalized route key -> concrete transport + exact requested symbol. */
     private data class RouteBinding(
         val socket: MarketWebSocket,
         val requestedSymbol: String,
@@ -95,8 +89,6 @@ class ProviderMarketWebSocket @Inject constructor(
                 val key = providerRouter.canonicalSymbol(tick.symbol) to tick.timeframe
                 val binding = mutex.withLock { routes[key]?.takeIf { it.socket === socket } }
                 if (binding != null) {
-                    // Preserve the exact chart symbol. ChartDataController compares
-                    // this value against its selected symbol before persisting.
                     _ticks.emit(
                         tick.copy(
                             symbol = binding.requestedSymbol,
@@ -152,8 +144,6 @@ class ProviderMarketWebSocket @Inject constructor(
         try {
             target.subscribe(requestedSymbol, key.second)
         } catch (error: Exception) {
-            // Do not leave a dead route installed after a synchronous provider
-            // validation/configuration failure.
             routes.remove(key)
             recomputeConnectionStateLocked()
             throw error
@@ -185,6 +175,7 @@ class ProviderMarketWebSocket @Inject constructor(
         DataProvider.POLYGON -> polygonWebSocket
         DataProvider.DUKASCOPY -> dukascopyWebSocket
         DataProvider.DERIV -> derivMarketWebSocket
+        DataProvider.ALL_RATES_TODAY -> allRatesTodayWebSocket
         else -> null
     }
 
@@ -194,5 +185,6 @@ class ProviderMarketWebSocket @Inject constructor(
         polygonWebSocket,
         dukascopyWebSocket,
         derivMarketWebSocket,
+        allRatesTodayWebSocket,
     )
 }

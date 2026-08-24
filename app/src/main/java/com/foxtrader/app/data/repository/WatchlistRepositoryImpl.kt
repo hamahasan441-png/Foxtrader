@@ -6,8 +6,12 @@ import com.foxtrader.app.data.local.entity.WatchlistSymbolEntity
 import com.foxtrader.app.data.mapper.toDomain
 import com.foxtrader.app.di.IoDispatcher
 import com.foxtrader.app.domain.model.AssetClassifier
+import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.Watchlist
+import com.foxtrader.app.domain.model.WatchlistSymbol
+import com.foxtrader.app.domain.repository.MarketSymbolDirectory
 import com.foxtrader.app.domain.repository.WatchlistRepository
+import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -18,33 +22,75 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/**
- * Room-backed watchlists.
- *
- * Replaces the in-memory `WatchlistManager`, whose `mutableListOf` state was
- * lost on every process death.
- */
+/** Room-backed watchlists plus a non-persistent provider directory overlay. */
 @Singleton
 class WatchlistRepositoryImpl @Inject constructor(
     private val dao: WatchlistDao,
+    private val appPreferences: AppPreferences,
+    private val marketSymbolDirectory: MarketSymbolDirectory,
     @IoDispatcher private val io: CoroutineDispatcher,
 ) : WatchlistRepository {
 
-    /**
-     * Guards read-modify-write sequences (seeding, append, reorder).
-     *
-     * Room gives per-statement atomicity, not per-sequence: two concurrent
-     * `addSymbol` calls could both read the same `maxPosition` and write
-     * duplicate positions, and two callers racing `ensureSeeded` could both
-     * see an empty table and create two default watchlists.
-     */
     private val mutex = Mutex()
+    private val directoryMutex = Mutex()
+    @Volatile private var cachedDirectoryProvider: DataProvider? = null
+    @Volatile private var cachedDirectorySymbols: List<WatchlistSymbol> = emptyList()
 
     override fun observeWatchlists(): Flow<List<Watchlist>> =
-        combine(dao.observeWatchlists(), dao.observeAllSymbols()) { lists, symbols ->
+        combine(
+            dao.observeWatchlists(),
+            dao.observeAllSymbols(),
+            appPreferences.dataProvider,
+        ) { lists, symbols, provider ->
             val bySymbolList = symbols.groupBy { it.watchlistId }
-            lists.map { entity -> entity.toDomain(bySymbolList[entity.id].orEmpty()) }
+            val persisted = lists.map { entity -> entity.toDomain(bySymbolList[entity.id].orEmpty()) }
+            val providerSymbols = resolveProviderDirectory(provider)
+            if (providerSymbols.isEmpty()) {
+                persisted
+            } else {
+                // ChartWatchlistController selects the default watchlist. Overlay
+                // the provider-native directory there without writing thousands
+                // of discovered instruments into Room or mutating user lists.
+                val activeIndex = persisted.indexOfFirst { it.isDefault }
+                    .takeIf { it >= 0 } ?: persisted.indices.firstOrNull()
+                if (activeIndex == null) {
+                    persisted
+                } else {
+                    persisted.toMutableList().also { result ->
+                        val active = result[activeIndex]
+                        result[activeIndex] = active.copy(symbols = providerSymbols)
+                    }
+                }
+            }
         }
+
+    private suspend fun resolveProviderDirectory(provider: DataProvider): List<WatchlistSymbol> {
+        if (provider != DataProvider.ALL_RATES_TODAY) return emptyList()
+        if (cachedDirectoryProvider == provider && cachedDirectorySymbols.isNotEmpty()) {
+            return cachedDirectorySymbols
+        }
+        return directoryMutex.withLock {
+            if (cachedDirectoryProvider == provider && cachedDirectorySymbols.isNotEmpty()) {
+                return@withLock cachedDirectorySymbols
+            }
+            val discovered = marketSymbolDirectory.discover(provider).getOrElse { return@withLock emptyList() }
+            val mapped = discovered
+                .filter { it.isTrading }
+                .map { item ->
+                    WatchlistSymbol(
+                        symbol = item.providerSymbol,
+                        assetClass = item.assetClass,
+                        notes = "${provider.displayName} provider directory",
+                    )
+                }
+                .distinctBy { it.symbol }
+            if (mapped.isNotEmpty()) {
+                cachedDirectoryProvider = provider
+                cachedDirectorySymbols = mapped
+            }
+            mapped
+        }
+    }
 
     override suspend fun ensureSeeded() = withContext(io) {
         mutex.withLock {
@@ -82,7 +128,6 @@ class WatchlistRepositoryImpl @Inject constructor(
         entity.toDomain(emptyList())
     }
 
-    /** The DAO's `isDefault = 0` predicate is what makes the default undeletable. */
     override suspend fun deleteWatchlist(id: String): Boolean = withContext(io) {
         dao.deleteWatchlist(id) > 0
     }
@@ -92,7 +137,6 @@ class WatchlistRepositoryImpl @Inject constructor(
         if (normalized.isEmpty()) return@withContext
         mutex.withLock {
             val existing = dao.getSymbols(watchlistId)
-            // Idempotent: re-adding must not duplicate or reshuffle the list.
             if (existing.any { it.symbol == normalized }) return@withLock
             dao.upsertSymbols(
                 listOf(
@@ -112,8 +156,6 @@ class WatchlistRepositoryImpl @Inject constructor(
     override suspend fun removeSymbol(watchlistId: String, symbol: String) = withContext(io) {
         mutex.withLock {
             dao.deleteSymbol(watchlistId, symbol.trim().uppercase())
-            // Renumber so positions stay dense; a gap would make a later
-            // index-based move target the wrong row.
             val remaining = dao.getSymbols(watchlistId)
             dao.replaceSymbols(
                 watchlistId,
@@ -137,12 +179,6 @@ class WatchlistRepositoryImpl @Inject constructor(
 
     private companion object {
         const val DEFAULT_NAME = "Main"
-
-        /**
-         * Seeded once into the default watchlist. Mirrors the old hardcoded
-         * `ChartUiState.DEFAULT_SYMBOLS`, but is now a starting point the user
-         * can edit rather than a fixed list.
-         */
         val DEFAULT_SYMBOLS = listOf(
             "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD",
             "XAUUSD", "BTCUSDT", "ETHUSDT", "US30", "NAS100",

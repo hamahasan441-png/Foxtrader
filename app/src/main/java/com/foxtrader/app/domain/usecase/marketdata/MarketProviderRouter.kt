@@ -5,14 +5,7 @@ import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/**
- * Symbol-aware provider routing used by both historical and live market data.
- *
- * Provider identity is deliberately strict. The provider selected in Settings
- * is the provider used for history and (when that same provider supports it)
- * live updates. FoxTrader never silently continues one venue's history with a
- * different venue's ticks.
- */
+/** Strict symbol-aware provider routing for historical and live market data. */
 @Singleton
 class MarketProviderRouter @Inject constructor(
     private val appPreferences: AppPreferences,
@@ -22,27 +15,13 @@ class MarketProviderRouter @Inject constructor(
 
     fun classify(symbol: String): MarketAssetClass = MarketSymbolClassifier.classify(symbol)
 
-    /**
-     * True when [provider] is a legitimate venue for [symbol]'s asset class.
-     *
-     * This is intentionally public so Markets/Scanner and symbol pickers can
-     * filter their rows before trying a network request. It prevents a global
-     * mixed-asset watchlist from asking Binance for EURUSD or Dukascopy for a
-     * USDT spot pair and then presenting the resulting synthetic fallback as if
-     * it were a provider problem.
-     */
     fun supportsSymbol(provider: DataProvider, symbol: String): Boolean {
         if (symbol.isBlank() || !provider.implemented) return false
+        if (provider == DataProvider.ALL_RATES_TODAY) return normalizeIsoPair(symbol) != null
         return providerSupportsAsset(provider, classify(symbol))
     }
 
-    /**
-     * Safe starter symbols for each implemented provider.
-     *
-     * These are not claimed to be an exhaustive instrument directory. They are
-     * provider-native examples used to recover from an incompatible symbol when
-     * a user switches venues, and to seed provider-aware UI surfaces. Broker
-     */
+    /** Starter symbols only; provider-native discovery supplies the full directory. */
     fun defaultSymbolsFor(provider: DataProvider): List<String> = when (provider) {
         DataProvider.SAMPLE -> listOf("EURUSD", "BTCUSDT", "AAPL")
         DataProvider.BINANCE,
@@ -58,6 +37,7 @@ class MarketProviderRouter @Inject constructor(
         DataProvider.ALPHA_VANTAGE -> listOf("EURUSD", "AAPL", "MSFT", "NVDA")
         DataProvider.POLYGON -> listOf("AAPL", "MSFT", "NVDA", "TSLA")
         DataProvider.TWELVE_DATA -> listOf("EURUSD", "AAPL", "MSFT", "BTCUSD")
+        DataProvider.ALL_RATES_TODAY -> listOf("EURUSD", "GBPUSD", "USDJPY", "EURGBP", "AUDUSD")
         DataProvider.OANDA,
         DataProvider.ALPACA,
         DataProvider.INTERACTIVE_BROKERS -> emptyList()
@@ -65,14 +45,6 @@ class MarketProviderRouter @Inject constructor(
 
     fun defaultSymbolFor(provider: DataProvider): String? = defaultSymbolsFor(provider).firstOrNull()
 
-    /**
-     * Resolve the historical provider selected by the user.
-     *
-     * Provider identity is strict: FoxTrader must never fetch history from one
-     * venue while the UI badge names another. Unsupported symbols/credentials
-     * are surfaced by that provider's adapter instead of silently falling back
-     * to a different exchange/broker.
-     */
     fun historicalProviderFor(
         symbol: String,
         preferred: DataProvider = appPreferences.dataProvider.value,
@@ -81,19 +53,15 @@ class MarketProviderRouter @Inject constructor(
         return preferred
     }
 
-    /**
-     * Resolve live transport for the explicitly selected provider only.
-     *
-     * A provider without a native live path returns null. This prevents a
-     * historical OKX/KuCoin/REST series, for example, from being continued by
-     * Binance ticks and then analysed as if it were one venue.
-     */
     fun liveProviderFor(
         symbol: String,
         preferred: DataProvider = appPreferences.dataProvider.value,
     ): DataProvider? {
         if (symbol.isBlank() || preferred == DataProvider.SAMPLE) return null
         if (!preferred.implemented || !preferred.supportsLive || !credentialsReady(preferred)) return null
+        if (preferred == DataProvider.ALL_RATES_TODAY) {
+            return preferred.takeIf { normalizeIsoPair(symbol) != null }
+        }
         val asset = classify(symbol)
         return if (providerSupportsAsset(preferred, asset)) preferred else null
     }
@@ -111,10 +79,8 @@ class MarketProviderRouter @Inject constructor(
         DataProvider.KUCOIN -> asset == MarketAssetClass.CRYPTO
         DataProvider.DUKASCOPY -> asset == MarketAssetClass.FOREX ||
             asset == MarketAssetClass.METAL || asset == MarketAssetClass.INDEX
-        // Deriv has provider-native symbols (synthetic indices such as R_100,
-        // forex aliases, etc.) that do not fit the generic classifier. When the
-        // user explicitly chooses Deriv, let the Deriv API validate the symbol.
-        DataProvider.DERIV -> true
+        DataProvider.DERIV,
+        DataProvider.ALL_RATES_TODAY -> true
         DataProvider.ALPHA_VANTAGE,
         DataProvider.POLYGON,
         DataProvider.TWELVE_DATA -> asset != MarketAssetClass.UNKNOWN
@@ -126,4 +92,13 @@ class MarketProviderRouter @Inject constructor(
 
     private fun credentialsReady(provider: DataProvider): Boolean =
         !provider.requiresApiKey || !appPreferences.getApiKey(provider).isNullOrBlank()
+
+    private fun normalizeIsoPair(symbol: String): String? {
+        val pair = symbol.trim().uppercase()
+            .replace("/", "")
+            .replace("-", "")
+            .replace("_", "")
+            .replace(" ", "")
+        return pair.takeIf { it.length == 6 && it.all(Char::isLetter) && it.take(3) != it.drop(3) }
+    }
 }

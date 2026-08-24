@@ -17,6 +17,9 @@ services:
       FOX_CORS_ORIGINS: ${FOX_CORS_ORIGINS:-http://localhost}
       FOX_TWELVE_DATA_KEY: ${FOX_TWELVE_DATA_KEY:-}
       FOX_POLYGON_KEY: ${FOX_POLYGON_KEY:-}
+      # AllRatesToday is server-side only. Supply this from the host secret/env;
+      # never bake it into the image or Android application.
+      ART_API_KEY: ${ART_API_KEY:-}
     volumes:
       - foxtrader-data:/srv/data
 

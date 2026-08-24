@@ -3,30 +3,15 @@ package com.foxtrader.app.domain.model
 /**
  * Market data providers the app can source candles / live ticks from.
  *
- * SAMPLE       — built-in offline sample data (no network)
- * BINANCE      — Binance spot WebSocket + REST (crypto)
- * BYBIT        — Bybit spot REST + WebSocket (crypto)
- * DUKASCOPY    — forex / CFD tick history + near-real-time polling
- * DERIV        — Deriv public Options market-data WebSocket (history + live ticks)
- * ALPHA_VANTAGE — stocks / forex REST
- * POLYGON      — stocks / forex / crypto
- * OANDA        — forex / CFDs
- * ALPACA       — US stocks
- * TWELVE_DATA  — multi-asset REST
- * INTERACTIVE_BROKERS — multi-asset via gateway
- *
- * [implemented] marks whether the provider actually has a working fetch path.
- * Several entries below are declared for the roadmap but have no data-source
- * implementation; Settings must not accept an API key for those, and the
- * repository must fail loudly rather than silently falling back to synthetic
- * data while the user believes they are seeing their broker's prices.
+ * API credentials that must remain server-side are deliberately not collected
+ * by the Android app. AllRatesToday is proxied through the FoxTrader backend so
+ * its ART_API_KEY never ships in the APK.
  */
 enum class DataProvider(
     val displayName: String,
     val supportsLive: Boolean,
     val requiresApiKey: Boolean,
     val apiKeyLabel: String? = null,
-    /** True only when a real candle-fetch path exists for this provider. */
     val implemented: Boolean = false,
 ) {
     SAMPLE("Sample Data", supportsLive = false, requiresApiKey = false, implemented = true),
@@ -34,13 +19,7 @@ enum class DataProvider(
     BYBIT("Bybit", supportsLive = true, requiresApiKey = false, implemented = true),
     OKX("OKX", supportsLive = false, requiresApiKey = false, implemented = true),
     KUCOIN("KuCoin", supportsLive = false, requiresApiKey = false, implemented = true),
-    // Dukascopy forex/CFD tick history + near-real-time polling transport.
-    // Freshness is surfaced independently, so a stale polling feed is never
-    // presented as current just because the provider is selected.
     DUKASCOPY("Dukascopy", supportsLive = true, requiresApiKey = false, implemented = true),
-    // Public Deriv market data does not require account authentication. Keep this
-    // separate from the authenticated native Deriv trading session so chart
-    // subscriptions can never replace or downgrade a live trading WebSocket.
     DERIV("Deriv", supportsLive = true, requiresApiKey = false, implemented = true),
     ALPHA_VANTAGE(
         "Alpha Vantage",
@@ -51,7 +30,6 @@ enum class DataProvider(
     ),
     POLYGON(
         "Polygon.io",
-        // REST aggregates and authenticated minute-aggregate WebSocket are wired.
         supportsLive = true,
         requiresApiKey = true,
         apiKeyLabel = "Polygon.io API Key",
@@ -71,11 +49,17 @@ enum class DataProvider(
     ),
     TWELVE_DATA(
         "Twelve Data",
-        // REST candles are implemented, but no Twelve Data streaming socket is
-        // wired into ProviderMarketWebSocket yet. Do not advertise live mode.
         supportsLive = false,
         requiresApiKey = true,
         apiKeyLabel = "Twelve Data API Key",
+        implemented = true,
+    ),
+    ALL_RATES_TODAY(
+        "AllRatesToday",
+        // The vendor refreshes interbank rates roughly every minute. FoxTrader
+        // uses backend REST polling, not a vendor WebSocket.
+        supportsLive = true,
+        requiresApiKey = false,
         implemented = true,
     ),
     INTERACTIVE_BROKERS(
@@ -87,7 +71,6 @@ enum class DataProvider(
     ;
 
     companion object {
-        /** Providers a user can actually select and get real data from. */
         fun implemented(): List<DataProvider> = entries.filter { it.implemented }
     }
 }
