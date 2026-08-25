@@ -126,13 +126,8 @@ class DukascopyPollingWebSocket @Inject constructor(
                 markFailure(pair, failures)
             }
 
-            val targetCycleMs = if (failedThisCycle) {
-                maxOf(pollIntervalMs(timeframe), failureBackoffMs(failures))
-            } else {
-                pollIntervalMs(timeframe)
-            }
             val elapsedMs = (System.nanoTime() - cycleStartedNanos).coerceAtLeast(0L) / 1_000_000L
-            delay((targetCycleMs - elapsedMs).coerceAtLeast(0L))
+            delay(nextDelayMs(timeframe, failedThisCycle, failures, elapsedMs))
         }
     }
 
@@ -169,6 +164,20 @@ class DukascopyPollingWebSocket @Inject constructor(
         Timeframe.W1,
         Timeframe.MN,
         -> HEALTHY_POLL_INTERVAL_MS
+    }
+
+    internal fun nextDelayMs(
+        timeframe: Timeframe,
+        failedThisCycle: Boolean,
+        failures: Int,
+        elapsedMs: Long,
+    ): Long {
+        val targetCycleMs = if (failedThisCycle) {
+            maxOf(pollIntervalMs(timeframe), failureBackoffMs(failures))
+        } else {
+            pollIntervalMs(timeframe)
+        }
+        return (targetCycleMs - elapsedMs.coerceAtLeast(0L)).coerceAtLeast(0L)
     }
 
     internal fun failureBackoffMs(failures: Int): Long = minOf(
