@@ -3,6 +3,8 @@ name: V6 Inspect
 on:
   push:
     branches: ["integrate/v6"]
+  pull_request:
+    branches: ["main"]
   workflow_dispatch:
 
 permissions:
@@ -28,7 +30,6 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Inspect and safely extract v6
-        id: inspect
         shell: bash
         run: |
           set -euo pipefail
@@ -52,21 +53,17 @@ jobs:
           roots=[]
           for p in out.rglob('settings.gradle.kts'):
               r=p.parent
-              if (r/'gradlew').exists() and (r/'app').exists():
-                  roots.append(r)
+              if (r/'gradlew').exists() and (r/'app').exists(): roots.append(r)
           if not roots:
               for p in out.rglob('settings.gradle'):
                   r=p.parent
-                  if (r/'gradlew').exists() and (r/'app').exists():
-                      roots.append(r)
-          roots=sorted(set(roots), key=lambda p: (len(p.parts), str(p)))
-          if not roots:
-              raise SystemExit('No Android project root found in Foxtrader-v6.zip')
+                  if (r/'gradlew').exists() and (r/'app').exists(): roots.append(r)
+          roots=sorted(set(roots), key=lambda p:(len(p.parts), str(p)))
+          if not roots: raise SystemExit('No Android project root found in Foxtrader-v6.zip')
           root=roots[0]
-          print('V6_PROJECT_ROOT=' + str(root))
-          with open(os.environ['GITHUB_ENV'],'a') as fh:
-              fh.write('V6_PROJECT_ROOT='+str(root)+'\n')
-          print('ZIP entries:', sum(1 for _ in ZipFile(z).infolist()))
+          print('V6_PROJECT_ROOT='+str(root))
+          with open(os.environ['GITHUB_ENV'],'a') as fh: fh.write('V6_PROJECT_ROOT='+str(root)+'\n')
+          print('ZIP entries:', len(ZipFile(z).infolist()))
           print('Candidate roots:', *roots[:10], sep='\n - ')
           PY
 
@@ -74,9 +71,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "=== v6 project root ==="
-          echo "$V6_PROJECT_ROOT"
-          echo "=== dry-run delta (first 500 lines) ==="
           rsync -ain --delete --checksum \
             --exclude='.git/' \
             --exclude='.github/workflows/' \
