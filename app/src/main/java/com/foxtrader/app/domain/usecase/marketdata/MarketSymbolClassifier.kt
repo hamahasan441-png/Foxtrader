@@ -44,6 +44,8 @@ object MarketSymbolClassifier {
     private val INDEX_SYMBOLS = setOf(
         "US30", "DJI", "DJ30", "SPX", "SP500", "US500", "NAS100", "NDX", "USTEC",
         "GER40", "DE40", "DAX", "UK100", "FTSE", "JP225", "NIKKEI", "AUS200",
+        // Exact Dukascopy archive identifiers exposed by its native directory.
+        "USA30IDX", "USA500IDX", "USATECHIDX", "DEUIDX", "GBRIDX", "JPNIDX", "AUSIDX", "HKGIDX",
     )
     private val FIAT_CODES = setOf(
         "USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD", "SEK", "NOK",

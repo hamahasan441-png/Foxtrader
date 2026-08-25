@@ -22,6 +22,8 @@ class DukascopyDataSourceTest {
             tickDecoder = DukascopyTickDecoder(),
             lzmaDecompressor = LzmaDecompressor(),
             tickAggregator = TickAggregator(),
+            candleDecoder = DukascopyCandleDecoder(),
+            instrumentCatalog = DukascopyInstrumentCatalog(),
         )
     }
 
@@ -51,5 +53,13 @@ class DukascopyDataSourceTest {
         assertEquals("EURUSD", dataSource.normalizeSymbol("EUR/USD"))
         assertEquals("BTCUSD", dataSource.normalizeSymbol("BTC-USD"))
         assertEquals("GBPUSD", dataSource.normalizeSymbol("gbp_usd"))
+    }
+
+    @Test
+    fun `index aliases resolve to exact Dukascopy archive symbols`() {
+        assertEquals("USA30IDXUSD", dataSource.normalizeSymbol("US30"))
+        assertEquals("USATECHIDXUSD", dataSource.normalizeSymbol("NAS100"))
+        assertEquals("USA500IDXUSD", dataSource.normalizeSymbol("SPX500"))
+        assertEquals("DEUIDXEUR", dataSource.normalizeSymbol("GER40"))
     }
 }

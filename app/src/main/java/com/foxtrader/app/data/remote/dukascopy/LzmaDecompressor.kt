@@ -1,6 +1,5 @@
 package com.foxtrader.app.data.remote.dukascopy
 
-import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -39,6 +38,7 @@ class LzmaDecompressor @Inject constructor() {
             val rem = propByte / 9
             val lp = rem % 5
             val pb = rem / 5
+            if (lc !in 0..8 || lp !in 0..4 || pb !in 0..4 || lc + lp > 4) return ByteArray(0)
 
             val buffer = ByteBuffer.wrap(compressed).order(ByteOrder.LITTLE_ENDIAN)
             buffer.position(1)
@@ -47,6 +47,7 @@ class LzmaDecompressor @Inject constructor() {
                 dictSize = 1 shl 12
             }
             val uncompressedSize = buffer.long
+            if (uncompressedSize > MAX_OUTPUT_BYTES) return ByteArray(0)
 
             val decoder = LzmaStreamDecoder(
                 data = compressed,
@@ -56,6 +57,7 @@ class LzmaDecompressor @Inject constructor() {
                 pb = pb,
                 dictSize = dictSize,
                 uncompressedSize = uncompressedSize,
+                maxOutputSize = MAX_OUTPUT_BYTES,
             )
             decoder.decode()
         } catch (_: Exception) {
@@ -71,6 +73,7 @@ class LzmaDecompressor @Inject constructor() {
         private val pb: Int,
         private val dictSize: Int,
         private val uncompressedSize: Long,
+        private val maxOutputSize: Long,
     ) {
         private var dataPos = headerOffset
         private var code: Long = 0L
@@ -202,6 +205,7 @@ class LzmaDecompressor @Inject constructor() {
             var dictPos = 0
 
             fun appendByte(b: Byte) {
+                check(outSize.toLong() < maxOutputSize) { "LZMA output exceeds safety limit" }
                 out.write(b.toInt() and 0xFF)
                 dict[dictPos] = b
                 dictPos = (dictPos + 1) % dictCapacity
@@ -324,5 +328,6 @@ class LzmaDecompressor @Inject constructor() {
         const val NUM_STATES = 12
         const val NUM_FULL_DISTANCES = 128
         const val NUM_END_POS_STATES = 14
+        const val MAX_OUTPUT_BYTES = 32L * 1024L * 1024L
     }
 }

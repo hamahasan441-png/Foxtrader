@@ -17,6 +17,9 @@ class MarketSymbolClassifierTest {
         assertEquals(MarketAssetClass.METAL, MarketSymbolClassifier.classify("XAUUSD"))
         assertEquals(MarketAssetClass.CRYPTO, MarketSymbolClassifier.classify("BTCUSDT"))
         assertEquals(MarketAssetClass.INDEX, MarketSymbolClassifier.classify("NAS100"))
+        assertEquals(MarketAssetClass.INDEX, MarketSymbolClassifier.classify("USA30IDXUSD"))
+        assertEquals(MarketAssetClass.INDEX, MarketSymbolClassifier.classify("USATECHIDXUSD"))
+        assertEquals(MarketAssetClass.INDEX, MarketSymbolClassifier.classify("DEUIDXEUR"))
         assertEquals(MarketAssetClass.STOCK, MarketSymbolClassifier.classify("AAPL"))
     }
 

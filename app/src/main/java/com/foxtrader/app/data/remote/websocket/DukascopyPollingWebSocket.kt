@@ -84,10 +84,12 @@ class DukascopyPollingWebSocket @Inject constructor(
         var failures = 0
 
         while (kotlin.coroutines.coroutineContext.isActive) {
+            var failedThisCycle = false
             try {
                 val latest = dataSource.fetchCandles(symbol, timeframe, POLL_FETCH_BARS).lastOrNull()
                 if (latest == null) {
                     failures++
+                    failedThisCycle = true
                     markFailure(pair, failures)
                 } else {
                     failures = 0
@@ -114,9 +116,15 @@ class DukascopyPollingWebSocket @Inject constructor(
                 throw cancel
             } catch (_: Exception) {
                 failures++
+                failedThisCycle = true
                 markFailure(pair, failures)
             }
-            delay(pollIntervalMs(timeframe))
+            val delayMs = if (failedThisCycle) {
+                maxOf(pollIntervalMs(timeframe), failureBackoffMs(failures))
+            } else {
+                pollIntervalMs(timeframe)
+            }
+            delay(delayMs)
         }
     }
 
@@ -143,12 +151,17 @@ class DukascopyPollingWebSocket @Inject constructor(
     }
 
     private fun pollIntervalMs(timeframe: Timeframe): Long = when (timeframe) {
-        Timeframe.M1 -> 10_000L
+        Timeframe.M1 -> 15_000L
         Timeframe.M5, Timeframe.M15 -> 15_000L
         Timeframe.M30, Timeframe.H1 -> 30_000L
         Timeframe.H4 -> 60_000L
         Timeframe.D1, Timeframe.W1, Timeframe.MN -> 120_000L
     }
+
+    internal fun failureBackoffMs(failures: Int): Long = minOf(
+        FAILURE_BACKOFF_BASE_MS * (1L shl (failures - 1).coerceIn(0, 5)),
+        FAILURE_BACKOFF_MAX_MS,
+    )
 
     private fun canonical(symbol: String): String = symbol.trim().uppercase()
         .replace("/", "")
@@ -161,5 +174,7 @@ class DukascopyPollingWebSocket @Inject constructor(
         const val FAILURES_BEFORE_STALE = 2
         const val FAILURES_BEFORE_ERROR = 4
         const val DATA_FRESHNESS_GRACE_MS = 120_000L
+        const val FAILURE_BACKOFF_BASE_MS = 5_000L
+        const val FAILURE_BACKOFF_MAX_MS = 120_000L
     }
 }

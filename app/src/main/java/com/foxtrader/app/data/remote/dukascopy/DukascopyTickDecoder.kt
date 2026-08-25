@@ -41,7 +41,7 @@ class DukascopyTickDecoder @Inject constructor() {
      *         is ignored. Empty input yields an empty list.
      */
     fun decode(decompressed: ByteArray, hourStartMs: Long, pointValue: Double): List<Tick> {
-        if (decompressed.isEmpty()) return emptyList()
+        if (decompressed.isEmpty() || !pointValue.isFinite() || pointValue <= 0.0) return emptyList()
 
         val recordCount = decompressed.size / RECORD_SIZE
         if (recordCount == 0) return emptyList()
@@ -49,6 +49,7 @@ class DukascopyTickDecoder @Inject constructor() {
         val buffer = ByteBuffer.wrap(decompressed).order(ByteOrder.BIG_ENDIAN)
         val ticks = ArrayList<Tick>(recordCount)
 
+        var lastOffset = -1
         for (i in 0 until recordCount) {
             val base = i * RECORD_SIZE
             buffer.position(base)
@@ -57,6 +58,18 @@ class DukascopyTickDecoder @Inject constructor() {
             val bidPoints = buffer.int
             val askVolume = buffer.float
             val bidVolume = buffer.float
+
+            // Corrupt/truncated provider records must not manufacture an
+            // executable candle. Equal offsets remain valid: Dukascopy can
+            // publish multiple quote changes within the same millisecond.
+            if (msOffset !in 0 until HOUR_MILLIS || msOffset < lastOffset ||
+                askPoints <= 0 || bidPoints <= 0 || askPoints < bidPoints ||
+                !askVolume.isFinite() || !bidVolume.isFinite() ||
+                askVolume < 0.0f || bidVolume < 0.0f
+            ) {
+                continue
+            }
+            lastOffset = msOffset
 
             ticks.add(
                 Tick(
@@ -75,5 +88,6 @@ class DukascopyTickDecoder @Inject constructor() {
     private companion object {
         /** Size of a single Dukascopy tick record in bytes. */
         const val RECORD_SIZE = 20
+        const val HOUR_MILLIS = 3_600_000
     }
 }
