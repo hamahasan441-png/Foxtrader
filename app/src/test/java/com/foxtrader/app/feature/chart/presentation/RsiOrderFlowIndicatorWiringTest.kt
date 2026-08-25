@@ -23,4 +23,21 @@ class RsiOrderFlowIndicatorWiringTest {
   IndicatorReadinessCatalog.status(ChartStudyId.RSI_ORDER_FLOW, 25, ChartBarMode.TIME).level,
         )
     }
+
+    @Test
+    fun `chart gear controls the executable arrow risk and quality config`() {
+        val settings = RsiOrderFlowStudySettings(
+            minStrength = 67,
+            riskLookback = 21,
+            stopBufferRangeMultiple = 0.4,
+            rewardRisk = 2.75,
+        )
+
+        val config = settings.toSignalEngineConfig()
+
+        assertEquals(67, config.minStrength)
+        assertEquals(21, config.riskLookback)
+        assertEquals(0.4, config.stopBufferRangeMultiple, 0.000_001)
+        assertEquals(2.75, config.rewardRisk, 0.000_001)
+    }
 }

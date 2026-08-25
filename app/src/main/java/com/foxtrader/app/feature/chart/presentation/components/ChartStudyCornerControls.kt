@@ -8,9 +8,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -48,10 +50,13 @@ import com.foxtrader.app.feature.chart.presentation.KeltnerStudySettings
 import com.foxtrader.app.feature.chart.presentation.MacdStudySettings
 import com.foxtrader.app.feature.chart.presentation.MfiStudySettings
 import com.foxtrader.app.feature.chart.presentation.ParabolicSarStudySettings
+import com.foxtrader.app.feature.chart.presentation.ProductionAnalysisSystem
 import com.foxtrader.app.feature.chart.presentation.RsiOrderFlowStudySettings
 import com.foxtrader.app.feature.chart.presentation.RsiStudySettings
 import com.foxtrader.app.feature.chart.presentation.StochasticStudySettings
 import com.foxtrader.app.feature.chart.presentation.SuperTrendStudySettings
+import com.foxtrader.app.feature.chart.presentation.productionAnalysisSystem
+import com.foxtrader.app.feature.chart.presentation.withProductionAnalysisSystem
 import com.foxtrader.app.ui.theme.FoxTheme
 import java.util.Locale
 
@@ -182,9 +187,12 @@ private fun StudySettingsCard(
         color = colors.surfaceElevated.copy(alpha = 0.98f),
         tonalElevation = 6.dp,
         shadowElevation = 6.dp,
-        modifier = Modifier.width(286.dp),
+        modifier = Modifier.width(286.dp).heightIn(max = 460.dp),
     ) {
-        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Column(
+            modifier = Modifier.padding(10.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = id.title,
@@ -240,6 +248,7 @@ private fun StudySettingsCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = colors.textSecondary,
                     )
+                    SignalArrowNote()
                     ResetButton { onLitXConfigChange(LitXConfig.preset(litXConfig.profile, enabled = true)) }
                 }
 
@@ -276,6 +285,7 @@ private fun StudySettingsCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = colors.textSecondary,
                     )
+                    SignalArrowNote()
                     ResetButton { onLitConfigChange(LitConfig.preset(litConfig.profile)) }
                 }
 
@@ -301,6 +311,7 @@ private fun StudySettingsCard(
                     IntStepper("Min confidence", smtConfig.minConfidence, 50, 95) { value ->
                         onSmtConfigChange(smtConfig.copy(minConfidence = value).sanitized())
                     }
+                    SignalArrowNote()
                     ResetButton { onSmtConfigChange(SmtConfig.preset(smtConfig.profile)) }
                 }
 
@@ -383,6 +394,19 @@ DoubleStepper("Min RSI difference", settings.rsiOrderFlow.minRsiDifference, 0.5,
 DoubleStepper("Min flow difference", settings.rsiOrderFlow.minFlowDifference, 0.5, 0.0, 50.0) { value ->
     updateSettings(onChange) { it.copy(rsiOrderFlow = it.rsiOrderFlow.copy(minFlowDifference = value).sanitized()) }
 }
+IntStepper("Signal strength", settings.rsiOrderFlow.minStrength, 0, 100) { value ->
+    updateSettings(onChange) { it.copy(rsiOrderFlow = it.rsiOrderFlow.copy(minStrength = value).sanitized()) }
+}
+IntStepper("Risk lookback", settings.rsiOrderFlow.riskLookback, 1, 250) { value ->
+    updateSettings(onChange) { it.copy(rsiOrderFlow = it.rsiOrderFlow.copy(riskLookback = value).sanitized()) }
+}
+DoubleStepper("Stop range buffer", settings.rsiOrderFlow.stopBufferRangeMultiple, 0.05, 0.0, 5.0) { value ->
+    updateSettings(onChange) { it.copy(rsiOrderFlow = it.rsiOrderFlow.copy(stopBufferRangeMultiple = value).sanitized()) }
+}
+DoubleStepper("Reward : risk", settings.rsiOrderFlow.rewardRisk, 0.25, 0.25, 10.0) { value ->
+    updateSettings(onChange) { it.copy(rsiOrderFlow = it.rsiOrderFlow.copy(rewardRisk = value).sanitized()) }
+}
+SignalArrowNote()
 ResetButton { updateSettings(onChange) { it.copy(rsiOrderFlow = RsiOrderFlowStudySettings()) } }
                 }
 
@@ -686,9 +710,41 @@ private inline fun updateSettings(
     onChange { toggles -> toggles.copy(settings = transform(toggles.settings).sanitized()) }
 }
 
+@Composable
+private fun SignalArrowNote() {
+    Text(
+        text = "BUY/SELL arrows: confirmed candle close only · locked · non-repaint",
+        style = MaterialTheme.typography.bodySmall,
+        color = FoxTheme.colors.accent,
+    )
+}
+
 private data class ActiveStudy(val id: StudyControlId, val label: String)
 
 private fun activeStudies(t: IndicatorToggles): List<ActiveStudy> = buildList {
+    // A production system enables several internal primitives. Present one
+    // canonical chip so the chart remains compact and the gear edits the
+    // actual system rather than an implementation detail.
+    when (t.productionAnalysisSystem()) {
+        ProductionAnalysisSystem.LIT_ADVENTURE -> {
+            add(ActiveStudy(StudyControlId.LITX, "LiT Adventure"))
+            return@buildList
+        }
+        ProductionAnalysisSystem.LIT_MAY_MADNESS -> {
+            add(ActiveStudy(StudyControlId.LIT, "LiT May Madness"))
+            return@buildList
+        }
+        ProductionAnalysisSystem.SMT -> {
+            add(ActiveStudy(StudyControlId.SMT, "SMT"))
+            return@buildList
+        }
+        ProductionAnalysisSystem.RSI_ORDERFLOW_CANDLE -> {
+            add(ActiveStudy(StudyControlId.RSI_ORDER_FLOW, "RSI Orderflow Candle"))
+            return@buildList
+        }
+        null -> Unit
+    }
+
     if (t.ema) add(ActiveStudy(StudyControlId.EMA, "EMA ${t.settings.ema.sanitized().fastPeriod}/${t.settings.ema.sanitized().slowPeriod}"))
     if (t.bollinger) add(ActiveStudy(StudyControlId.BOLLINGER, "BB"))
     if (t.superTrend) add(ActiveStudy(StudyControlId.SUPER_TREND, "SuperTrend"))
@@ -752,14 +808,14 @@ private fun removeStudy(
         StudyControlId.LIQUIDITY -> t.copy(liquidity = false)
         StudyControlId.SESSIONS -> t.copy(sessions = false)
         StudyControlId.STRUCTURE -> t.copy(structure = false)
-        StudyControlId.LITX -> t.copy(litX = false)
-        StudyControlId.LIT -> t.copy(lit = false)
+        StudyControlId.LITX -> t.withProductionAnalysisSystem(null)
+        StudyControlId.LIT -> t.withProductionAnalysisSystem(null)
         StudyControlId.SMS -> t.copy(sms = false)
-        StudyControlId.SMT -> t.copy(smt = false)
+        StudyControlId.SMT -> t.withProductionAnalysisSystem(null)
         StudyControlId.TRADE_PRO -> t.copy(tradePro = false)
         StudyControlId.BINARY_3M -> t.copy(binary3m = false)
         StudyControlId.RSI -> t.copy(rsi = false)
-        StudyControlId.RSI_ORDER_FLOW -> t.copy(rsiOrderFlow = false)
+        StudyControlId.RSI_ORDER_FLOW -> t.withProductionAnalysisSystem(null)
         StudyControlId.MACD -> t.copy(macd = false)
         StudyControlId.VOLUME -> t.copy(volume = false)
         StudyControlId.STOCHASTIC -> t.copy(stochastic = false)
@@ -778,7 +834,7 @@ private enum class StudyControlId(val title: String) {
     PIVOTS("Pivot Points"), VOLUME_PROFILE("Volume Profile"), MARKET_PROFILE("Market Profile"),
     SUPPORT_RESISTANCE("Support / Resistance"), FIBONACCI("Auto Fibonacci"), CONFLUENCE("Confluence"),
     ORDER_BLOCKS("Order Blocks"), FVG("Fair Value Gaps"), LIQUIDITY("Liquidity"), SESSIONS("Sessions"),
-    STRUCTURE("Market Structure"), LITX("LiTX"), LIT("LiT"), SMS("SMS"), SMT("SMT"),
+    STRUCTURE("Market Structure"), LITX("LiT Adventure"), LIT("LiT May Madness"), SMS("SMS"), SMT("SMT"),
     TRADE_PRO("TradePro"), BINARY_3M("Deriv 3m"), RSI("RSI settings"),
     RSI_ORDER_FLOW("RSI OrderFlow settings"), MACD("MACD settings"), VOLUME("Volume"),
     STOCHASTIC("Stochastic settings"), OBV("OBV"), MFI("MFI settings"), STRATEGY("Strategy settings"),

@@ -47,7 +47,15 @@ class ChartStudySettingsTest {
         val value = RsiOrderFlowStudySettings(
             minPivotSeparation = 50,
             maxPivotSeparation = 2,
+            minStrength = 500,
+            riskLookback = 0,
+            stopBufferRangeMultiple = Double.NaN,
+            rewardRisk = Double.POSITIVE_INFINITY,
         ).sanitized()
         assertTrue(value.maxPivotSeparation >= value.minPivotSeparation)
+        assertTrue(value.minStrength in 0..100)
+        assertTrue(value.riskLookback >= 1)
+        assertTrue(value.stopBufferRangeMultiple.isFinite())
+        assertTrue(value.rewardRisk.isFinite())
     }
 }

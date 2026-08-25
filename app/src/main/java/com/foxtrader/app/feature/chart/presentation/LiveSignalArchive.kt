@@ -5,6 +5,17 @@ import com.foxtrader.app.domain.model.ChartSignal
 import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.SignalSource
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.model.LitConfig
+import com.foxtrader.app.domain.model.LitXConfig
+import com.foxtrader.app.domain.model.SmtConfig
+
+/** Exact rule-set identity for one retained signal archive. */
+data class LiveSignalConfiguration(
+    val indicators: IndicatorToggles = IndicatorToggles(),
+    val litXConfig: LitXConfig = LitXConfig(),
+    val litConfig: LitConfig = LitConfig(),
+    val smtConfig: SmtConfig = SmtConfig(),
+)
 
 /**
  * Context boundary for live-forward signal retention.
@@ -17,6 +28,7 @@ data class LiveSignalContext(
     val symbol: String,
     val timeframe: Timeframe,
     val barMode: ChartBarMode,
+    val configuration: LiveSignalConfiguration = LiveSignalConfiguration(),
 ) {
     val normalizedSymbol: String = symbol.trim().uppercase().ifBlank { "UNKNOWN" }
 }

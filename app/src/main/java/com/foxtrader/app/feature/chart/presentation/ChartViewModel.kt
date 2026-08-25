@@ -62,6 +62,7 @@ import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
 import com.foxtrader.app.domain.usecase.strategies.LiveStrategyEngine
 import com.foxtrader.app.domain.usecase.strategies.StrategyLibrary
 import com.foxtrader.app.domain.model.ChartSignal
+import com.foxtrader.app.domain.model.SignalIdentity
 import com.foxtrader.app.domain.model.SignalSource
 import com.foxtrader.app.domain.model.StrategyType
 import com.foxtrader.app.domain.model.StrategyBlueprint
@@ -143,6 +144,16 @@ class ChartViewModel @Inject constructor(
     private val historicalBacktestRunner = HistoricalBacktestRunner(backtestEngine)
     private val liveSignalArchive = LiveSignalArchive()
     private val liveSignalPerformanceEvaluator = LiveSignalPerformanceEvaluator()
+
+    /**
+     * Causal history for LiT Adventure / May Madness. Those engines expose the
+     * latest snapshot, so a prefix scan is required to reconstruct old arrows
+     * when a system is first added to an already-loaded chart.
+     */
+    private val productionHistoryLock = Any()
+    private var productionHistoryKey: ProductionHistoryKey? = null
+    private var productionHistoryScannedThrough = -1
+    private val productionHistorySignals = LinkedHashMap<String, ChartSignal>()
 
     /**
      * Independent, bounded cleanup scope. viewModelScope is already cancelled
@@ -368,9 +379,7 @@ class ChartViewModel @Inject constructor(
                 }
             }
             .launchIn(viewModelScope)
-        // Phase 13 settings are live. Changing LiTX/LiT/SMT/SMS must
-        // recompute a paused chart too; otherwise the UI would persist a value
-        // that has no visible effect until the next market tick.
+        // Chart-corner settings are live in both normal and replay modes.
         combine(
             appPreferences.litXConfig,
             appPreferences.litConfig,
@@ -380,7 +389,12 @@ class ChartViewModel @Inject constructor(
             .distinctUntilChanged()
             .onEach {
                 try {
-                    dataController.processMergedCandles(preferIncremental = false)
+                    val replay = replayEngine.state.value
+                    if (replay.isActive) {
+                        processReplayFrame(replay)
+                    } else {
+                        dataController.processMergedCandles(preferIncremental = false)
+                    }
                 } catch (cancel: CancellationException) {
                     throw cancel
                 } catch (_: Exception) {
@@ -569,8 +583,10 @@ class ChartViewModel @Inject constructor(
             emptyList()
         }
 
-        val litXConfig = appPreferences.litXConfig.value
-        val needLitX = litXConfig.enabled && (ind.litX || ind.tradePro)
+        // The chart selector is authoritative. A stale global enabled=false
+        // value from an older build must never leave a visible study dormant.
+        val litXConfig = appPreferences.litXConfig.value.copy(enabled = true).sanitized()
+        val needLitX = ind.litX || ind.tradePro
         val needLit = ind.lit || ind.tradePro
         val needSms = ind.sms || ind.tradePro
         val needSmt = (ind.smt || ind.tradePro) && barMode.preservesTimeAxis
@@ -648,6 +664,25 @@ class ChartViewModel @Inject constructor(
                 }
             }
         } else emptyList()
+
+        // Backfill previously confirmed LiT arrows. Each bar is evaluated only
+        // through its own closed prefix, so later data cannot create, move or
+        // delete an earlier marker (non-repaint by construction).
+        val productionHistory = if ((ind.litX || ind.lit) && signalCandles.isNotEmpty()) {
+            withContext(defaultDispatcher) {
+                scanProductionSignalHistory(
+                    indicators = ind,
+                    symbol = symbol,
+                    timeframe = timeframe,
+                    barMode = barMode,
+                    candles = signalCandles,
+                    litXConfig = litXConfig,
+                    litConfig = appPreferences.litConfig.value.sanitized(),
+                )
+            }
+        } else {
+            emptyList()
+        }
 
         val fused = signalFusionEngine.fuse(
             tradePro = tradeProBase,
@@ -756,11 +791,7 @@ class ChartViewModel @Inject constructor(
             emptyList()
         }
 
-        val chartStrategySignals = if (binary3mSignals.isEmpty()) {
-            strategySignals
-        } else {
-            strategySignals + binary3mSignals
-        }
+        val chartStrategySignals = productionHistory + strategySignals + binary3mSignals
 
         // Drop stale frames: a newer computation (e.g. from a rapid indicator
         // toggle) has already started, so publishing this older result would
@@ -798,6 +829,12 @@ class ChartViewModel @Inject constructor(
             symbol = symbol.trim().uppercase(),
             timeframe = timeframe,
             barMode = barMode,
+            configuration = LiveSignalConfiguration(
+                indicators = ind,
+                litXConfig = litXConfig,
+                litConfig = appPreferences.litConfig.value.sanitized(),
+                smtConfig = appPreferences.smtConfig.value.sanitized(),
+            ),
         )
         val retainedSignals = liveSignalArchive.merge(
             context = liveSignalContext,
@@ -864,8 +901,8 @@ class ChartViewModel @Inject constructor(
         // receive only the revealed prefix. MTF/peer engines (TradePro/SMT) are
         // deliberately suppressed here until every auxiliary series is bounded
         // to the same historical clock.
-        val litXConfig = appPreferences.litXConfig.value
-        val litXAnalysis = if (ind.litX && litXConfig.enabled) {
+        val litXConfig = appPreferences.litXConfig.value.copy(enabled = true).sanitized()
+        val litXAnalysis = if (ind.litX) {
             withContext(defaultDispatcher) {
                 containedOrNull { litXEngine.analyze(symbol, timeframe, candles, litXConfig) }
             }
@@ -899,6 +936,22 @@ class ChartViewModel @Inject constructor(
                 }
             }
         } else emptyList()
+
+        val productionHistory = if ((ind.litX || ind.lit) && candles.isNotEmpty()) {
+            withContext(defaultDispatcher) {
+                scanProductionSignalHistory(
+                    indicators = ind,
+                    symbol = symbol,
+                    timeframe = timeframe,
+                    barMode = current.barMode,
+                    candles = candles,
+                    litXConfig = litXConfig,
+                    litConfig = appPreferences.litConfig.value.sanitized(),
+                )
+            }
+        } else {
+            emptyList()
+        }
 
         val strategySignals = when {
             ind.allStrategies -> withContext(defaultDispatcher) {
@@ -975,7 +1028,7 @@ class ChartViewModel @Inject constructor(
             tradeProAnalysis = null,
             smtDivergences = emptyList(),
             candles = candles,
-            strategySignals = strategySignals + binary3mSignals,
+            strategySignals = productionHistory + strategySignals + binary3mSignals,
             litAnalysis = litAnalysis,
             smsAnalysis = smsAnalysis,
             rsiOrderFlowSignals = rsiOrderFlowSignals,
@@ -993,6 +1046,147 @@ class ChartViewModel @Inject constructor(
             litAnalysis = litAnalysis,
             smsAnalysis = smsAnalysis,
         )
+    }
+
+    /**
+     * Reconstruct historical LiT signals without look-ahead. Every candidate is
+     * evaluated on the candle prefix that was available at that moment, then
+     * retained under a stable event identity. The cache is bounded and scans
+     * only newly revealed bars after first activation.
+     */
+    private fun scanProductionSignalHistory(
+        indicators: IndicatorToggles,
+        symbol: String,
+        timeframe: Timeframe,
+        barMode: ChartBarMode,
+        candles: List<Candle>,
+        litXConfig: LitXConfig,
+        litConfig: LitConfig,
+    ): List<ChartSignal> = synchronized(productionHistoryLock) {
+        if (candles.isEmpty() || (!indicators.litX && !indicators.lit)) {
+            return@synchronized emptyList()
+        }
+
+        val key = ProductionHistoryKey(
+            provider = _uiState.value.dataProvider,
+            symbol = symbol.trim().uppercase(),
+            timeframe = timeframe,
+            barMode = barMode,
+            firstTimestamp = candles.first().timestamp,
+            litXEnabled = indicators.litX,
+            litEnabled = indicators.lit,
+            litXConfig = litXConfig.copy(enabled = true).sanitized(),
+            litConfig = litConfig.sanitized(),
+        )
+        if (productionHistoryKey != key) {
+            productionHistoryKey = key
+            productionHistoryScannedThrough = -1
+            productionHistorySignals.clear()
+        }
+
+        val lastIndex = candles.lastIndex
+        if (lastIndex > productionHistoryScannedThrough) {
+            val firstWanted = (lastIndex - PRODUCTION_HISTORY_SCAN_BARS + 1).coerceAtLeast(0)
+            val scanFrom = maxOf(productionHistoryScannedThrough + 1, firstWanted)
+            for (confirmationIndex in scanFrom..lastIndex) {
+                val contextStart = (confirmationIndex - PRODUCTION_HISTORY_CONTEXT_BARS + 1).coerceAtLeast(0)
+                val prefix = candles.subList(contextStart, confirmationIndex + 1)
+
+                if (indicators.litX) {
+                    containedOrNull {
+                        litXEngine.analyze(symbol, timeframe, prefix, key.litXConfig)
+                    }?.signal
+                        ?.takeIf {
+                            it.confirmationIndex == prefix.lastIndex &&
+                                it.timestamp == candles[confirmationIndex].timestamp
+                        }
+                        ?.let { signal ->
+                            val marker = ChartSignal(
+                                id = "litx_${signal.timestamp}",
+                                source = SignalSource.LITX,
+                                direction = signal.direction,
+                                entry = signal.entry,
+                                sl = signal.stopLoss,
+                                tp = signal.takeProfit1,
+                                barIndex = confirmationIndex,
+                                timestamp = signal.timestamp,
+                                confidence = signal.confidence.score.toDouble() / 100.0,
+                                isLive = false,
+                                label = compactSignalLabel(
+                                    "LiT Adventure",
+                                    signal.confidence.score,
+                                    signal.confirmations,
+                                ),
+                                variant = signal.confirmations
+                                    .firstOrNull { it.startsWith("MODE_") }
+                                    ?.removePrefix("MODE_"),
+                                eventKey = SignalIdentity.litX(
+                                    symbol = signal.symbol,
+                                    timeframe = signal.timeframe,
+                                    timestamp = signal.timestamp,
+                                    direction = signal.direction,
+                                    confirmationIndex = confirmationIndex,
+                                ),
+                            )
+                            productionHistorySignals.putIfAbsent(marker.eventKey ?: marker.id, marker)
+                        }
+                }
+
+                if (indicators.lit) {
+                    containedOrNull {
+                        litEngine.analyze(symbol, timeframe, prefix, key.litConfig)
+                    }?.signal
+                        ?.takeIf {
+                            it.confirmationIndex == prefix.lastIndex &&
+                                it.timestamp == candles[confirmationIndex].timestamp
+                        }
+                        ?.let { signal ->
+                            val marker = ChartSignal(
+                                id = "lit_${signal.symbol}_${signal.timestamp}_${signal.direction}",
+                                source = SignalSource.LIT,
+                                direction = signal.direction,
+                                entry = signal.entry,
+                                sl = signal.stopLoss,
+                                tp = signal.takeProfit,
+                                barIndex = confirmationIndex,
+                                timestamp = signal.timestamp,
+                                confidence = signal.confidence.toDouble() / 100.0,
+                                isLive = false,
+                                label = compactSignalLabel(
+                                    "LiT May Madness",
+                                    signal.confidence,
+                                    signal.confirmations,
+                                ),
+                                eventKey = SignalIdentity.lit(
+                                    symbol = signal.symbol,
+                                    timeframe = signal.timeframe,
+                                    timestamp = signal.timestamp,
+                                    direction = signal.direction,
+                                    confirmationIndex = confirmationIndex,
+                                ),
+                            )
+                            productionHistorySignals.putIfAbsent(marker.eventKey ?: marker.id, marker)
+                        }
+                }
+            }
+            productionHistoryScannedThrough = lastIndex
+            while (productionHistorySignals.size > PRODUCTION_HISTORY_MAX_SIGNALS) {
+                val oldest = productionHistorySignals.keys.firstOrNull() ?: break
+                productionHistorySignals.remove(oldest)
+            }
+        }
+
+        productionHistorySignals.values
+            .asSequence()
+            .filter { it.barIndex <= lastIndex }
+            .map { it.copy(isLive = it.barIndex == lastIndex) }
+            .sortedBy { it.barIndex }
+            .toList()
+    }
+
+    private fun compactSignalLabel(name: String, confidence: Int, confirmations: List<String>): String {
+        val reasons = confirmations.take(3).joinToString(" · ")
+        return if (reasons.isBlank()) "$name $confidence" else "$name $confidence · $reasons"
     }
 
     /**
@@ -1458,36 +1652,35 @@ class ChartViewModel @Inject constructor(
         }
     }
 
-fun currentLitXConfig(): LitXConfig = appPreferences.litXConfig.value
-fun currentLitConfig(): LitConfig = appPreferences.litConfig.value
-fun currentSmtConfig(): SmtConfig = appPreferences.smtConfig.value
-fun currentSmsConfig(): SmsConfig = appPreferences.smsConfig.value
+    fun currentLitXConfig(): LitXConfig = appPreferences.litXConfig.value.copy(enabled = true).sanitized()
+    fun currentLitConfig(): LitConfig = appPreferences.litConfig.value.sanitized()
+    fun currentSmtConfig(): SmtConfig = appPreferences.smtConfig.value.sanitized()
+    fun currentSmsConfig(): SmsConfig = appPreferences.smsConfig.value.sanitized()
 
-fun updateLitXConfig(config: LitXConfig) {
-    appPreferences.setLitXConfig(config.sanitized())
-}
-
-fun updateLitConfig(config: LitConfig) {
-    appPreferences.setLitConfig(config.sanitized())
-}
-
-fun updateSmtConfig(config: SmtConfig) {
-    appPreferences.setSmtConfig(config.sanitized())
-}
-
-fun updateSmsConfig(config: SmsConfig) {
-    appPreferences.setSmsConfig(config.sanitized())
-}
-
-fun updateIndicators(transform: (IndicatorToggles) -> IndicatorToggles) {
-    val current = _uiState.value.indicators
-    val updated = transform(current)
-    // The chart toggle is authoritative now that LiT Adventure no longer has
-    // a global Settings enable switch. Never let a stale persisted disabled
-    // flag make an enabled on-chart study silently produce no arrows.
-    if (!current.litX && updated.litX && !appPreferences.litXConfig.value.enabled) {
-        appPreferences.setLitXConfig(appPreferences.litXConfig.value.copy(enabled = true).sanitized())
+    fun updateLitXConfig(config: LitXConfig) {
+        appPreferences.setLitXConfig(config.copy(enabled = true).sanitized())
     }
+
+    fun updateLitConfig(config: LitConfig) {
+        appPreferences.setLitConfig(config.sanitized())
+    }
+
+    fun updateSmtConfig(config: SmtConfig) {
+        appPreferences.setSmtConfig(config.sanitized())
+    }
+
+    fun updateSmsConfig(config: SmsConfig) {
+        appPreferences.setSmsConfig(config.sanitized())
+    }
+
+    fun updateIndicators(transform: (IndicatorToggles) -> IndicatorToggles) {
+        val current = _uiState.value.indicators
+        val updated = transform(current)
+        // The chart toggle is authoritative now that LiT Adventure no longer
+        // has a global Settings enable switch.
+        if (!current.litX && updated.litX && !appPreferences.litXConfig.value.enabled) {
+            appPreferences.setLitXConfig(appPreferences.litXConfig.value.copy(enabled = true).sanitized())
+        }
         if (current.confluence != updated.confluence) { aiCoordinator.lastAiCandlesHash = 0L }
         if (current.smt != updated.smt) {
             smtContextKey = null
@@ -1842,6 +2035,18 @@ fun updateIndicators(transform: (IndicatorToggles) -> IndicatorToggles) {
         val function: com.foxtrader.app.domain.usecase.backtest.StrategyFunction,
     )
 
+    private data class ProductionHistoryKey(
+        val provider: DataProvider,
+        val symbol: String,
+        val timeframe: Timeframe,
+        val barMode: ChartBarMode,
+        val firstTimestamp: Long,
+        val litXEnabled: Boolean,
+        val litEnabled: Boolean,
+        val litXConfig: LitXConfig,
+        val litConfig: LitConfig,
+    )
+
     private companion object {
         const val BINARY3M_MAX_CHART_SIGNALS = 24
         const val DEFAULT_REPLAY_TAIL_BARS = 120
@@ -1853,6 +2058,12 @@ fun updateIndicators(transform: (IndicatorToggles) -> IndicatorToggles) {
         const val CHART_BACKTEST_MAX_VISIBLE_BARS = 20_000
         const val MILLIS_PER_DAY = 86_400_000L
         const val WEBSOCKET_CLEANUP_TIMEOUT_MS = 2_000L
+        // Twelve hours of M1 bars (or materially more context on higher TFs)
+        // gives the trader a useful visual accuracy sample without turning an
+        // on-chart toggle into an unbounded full-database backtest.
+        const val PRODUCTION_HISTORY_SCAN_BARS = 720
+        const val PRODUCTION_HISTORY_CONTEXT_BARS = 640
+        const val PRODUCTION_HISTORY_MAX_SIGNALS = 160
         /** Bars sampled when deriving an automatic Renko brick from volatility. */
         const val RENKO_AUTO_ATR_WINDOW = 100
 
