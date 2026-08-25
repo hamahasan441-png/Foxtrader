@@ -92,10 +92,11 @@ class LitPrefixNonRepaintTest {
         displacementAtrMultiple = 0.8,
         swingLeftBars = 2,
         swingRightBars = 2,
-        breakMode = LitBreakMode.SHADOW,
+        breakMode = LitBreakMode.BODY,
         maxIdmToBosBars = 30,
         maxBosToChochBars = 36,
         maxPoiAgeBars = 80,
+        followDeeperPoiCandle = false,
         hiddenShadowMaxAtrFraction = 1.0,
         stopAtrBuffer = 0.02,
     )
