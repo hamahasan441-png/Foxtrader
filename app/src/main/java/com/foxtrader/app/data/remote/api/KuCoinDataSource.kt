@@ -1,6 +1,8 @@
 package com.foxtrader.app.data.remote.api
 
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.DataProvider
+import com.foxtrader.app.domain.model.ProviderMarketSymbol
 import com.foxtrader.app.domain.model.Timeframe
 import javax.inject.Inject
 
@@ -53,6 +55,31 @@ class KuCoinDataSource @Inject constructor(
             .filter { it.timestamp < beforeTimestamp }
             .sortedBy { it.timestamp }
             .takeLast(limit)
+    }
+
+    /** Load KuCoin's authoritative public spot directory. */
+    suspend fun discoverSymbols(): List<ProviderMarketSymbol> {
+        val response = kuCoinApi.getSymbols()
+        if (response.code != "200000") {
+            throw IllegalStateException("KuCoin: ${response.msg.ifBlank { "code ${response.code}" }}")
+        }
+        return response.data
+            .asSequence()
+            .mapNotNull { symbol ->
+                ProviderSymbolNormalization.cryptoSpot(
+                    provider = DataProvider.KUCOIN,
+                    providerSymbol = symbol.symbol,
+                    baseAsset = symbol.baseCurrency,
+                    quoteAsset = symbol.quoteCurrency,
+                    displayName = symbol.name,
+                    tickSizeText = symbol.priceIncrement,
+                    category = symbol.market,
+                    isTrading = symbol.enableTrading,
+                )
+            }
+            .distinctBy { it.providerSymbol }
+            .sortedBy { it.providerSymbol }
+            .toList()
     }
 
     /**

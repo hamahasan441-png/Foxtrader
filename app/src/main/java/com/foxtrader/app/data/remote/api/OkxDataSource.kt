@@ -1,6 +1,8 @@
 package com.foxtrader.app.data.remote.api
 
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.DataProvider
+import com.foxtrader.app.domain.model.ProviderMarketSymbol
 import com.foxtrader.app.domain.model.Timeframe
 import javax.inject.Inject
 
@@ -55,6 +57,30 @@ class OkxDataSource @Inject constructor(
             .filter { it.timestamp < beforeTimestamp }
             .sortedBy { it.timestamp }
             .takeLast(limit.coerceIn(1, 300))
+    }
+
+    /** Load OKX's authoritative public spot instrument directory. */
+    suspend fun discoverSymbols(): List<ProviderMarketSymbol> {
+        val response = okxApi.getInstruments(instType = "SPOT")
+        if (response.code != "0") {
+            throw IllegalStateException("OKX: ${response.msg.ifBlank { "code ${response.code}" }}")
+        }
+        return response.data
+            .asSequence()
+            .mapNotNull { instrument ->
+                ProviderSymbolNormalization.cryptoSpot(
+                    provider = DataProvider.OKX,
+                    providerSymbol = instrument.instId,
+                    baseAsset = instrument.baseCcy,
+                    quoteAsset = instrument.quoteCcy,
+                    tickSizeText = instrument.tickSz,
+                    category = instrument.instType,
+                    isTrading = instrument.state.equals("live", ignoreCase = true),
+                )
+            }
+            .distinctBy { it.providerSymbol }
+            .sortedBy { it.providerSymbol }
+            .toList()
     }
 
     /**
