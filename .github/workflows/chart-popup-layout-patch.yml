@@ -1,0 +1,133 @@
+name: Apply chart popup leak and layout patch
+
+on:
+  push:
+    branches:
+      - fix/chart-popup-leak-fullscreen-price-20260825
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/chart-popup-leak-fullscreen-price-20260825
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Apply source patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          chart = Path('app/src/main/java/com/foxtrader/app/feature/chart/presentation/ChartScreen.kt')
+          text = chart.read_text()
+
+          def replace_once(old, new, label):
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly 1 match, found {count}')
+              text = text.replace(old, new, 1)
+
+          replace_once('import androidx.compose.foundation.layout.size\n', 'import androidx.compose.foundation.layout.size\nimport androidx.compose.foundation.layout.statusBarsPadding\n', 'statusBarsPadding import')
+          replace_once('import androidx.compose.material3.DropdownMenu\nimport androidx.compose.material3.DropdownMenuItem\n', '', 'popup imports')
+          replace_once(
+              '                onProviderChange = viewModel::onDataProviderChange,\n',
+              '                onProviderClick = {\n                    activeMenu = if (activeMenu == ChartMenu.PROVIDER) ChartMenu.NONE else ChartMenu.PROVIDER\n                },\n',
+              'top bar provider callback',
+          )
+
+          anchor = '''        // --- Expandable panels (only one visible at a time) ---\n        // Timeframe dropdown\n'''
+          provider_panel = '''        // --- Expandable panels (only one visible at a time) ---\n        // Provider picker is deliberately inline instead of Material3 DropdownMenu.\n        // LeakCanary traced a detached Compose PopupLayout retained by the attached\n        // AndroidComposeView. Keeping this selector in the normal composition\n        // removes the separate popup window/lifecycle entirely.\n        AnimatedVisibility(\n            visible = !immersive && activeMenu == ChartMenu.PROVIDER,\n            enter = expandVertically(),\n            exit = shrinkVertically(),\n        ) {\n            ProviderPickerPanel(\n                selected = state.dataProvider,\n                onSelect = { provider ->\n                    viewModel.onDataProviderChange(provider)\n                    activeMenu = ChartMenu.NONE\n                },\n            )\n        }\n\n        // Timeframe dropdown\n'''
+          replace_once(anchor, provider_panel, 'provider inline panel')
+
+          replace_once(
+              '    onProviderChange: (DataProvider) -> Unit,\n',
+              '    onProviderClick: () -> Unit,\n',
+              'ChartTopBar provider signature',
+          )
+          replace_once('    var providerMenuExpanded by remember { mutableStateOf(false) }\n', '', 'provider popup state')
+          replace_once(
+              '''        Box {\n            Text(\n                text = providerShortLabel(state.dataProvider),\n                color = MaterialTheme.colorScheme.onSurfaceVariant,\n                fontWeight = FontWeight.SemiBold,\n                style = MaterialTheme.typography.labelSmall,\n                modifier = Modifier\n                    .clip(RoundedCornerShape(4.dp))\n                    .background(MaterialTheme.colorScheme.surfaceVariant)\n                    .clickable(role = Role.Button) { providerMenuExpanded = true }\n                    .padding(horizontal = 7.dp, vertical = 4.dp),\n            )\n            DropdownMenu(\n                expanded = providerMenuExpanded,\n                onDismissRequest = { providerMenuExpanded = false },\n            ) {\n                providerGroups().forEach { (group, providers) ->\n                    Text(\n                        text = group,\n                        style = MaterialTheme.typography.labelSmall,\n                        color = FoxNeutral60,\n                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),\n                    )\n                    providers.forEach { provider ->\n                        DropdownMenuItem(\n                            text = { Text(provider.displayName) },\n                            onClick = {\n                                providerMenuExpanded = false\n                                onProviderChange(provider)\n                            },\n                            enabled = provider != state.dataProvider,\n                        )\n                    }\n                }\n            }\n        }\n''',
+              '''        Text(\n            text = providerShortLabel(state.dataProvider),\n            color = if (false) FoxAmber50 else MaterialTheme.colorScheme.onSurfaceVariant,\n            fontWeight = FontWeight.SemiBold,\n            style = MaterialTheme.typography.labelSmall,\n            modifier = Modifier\n                .clip(RoundedCornerShape(4.dp))\n                .background(MaterialTheme.colorScheme.surfaceVariant)\n                .clickable(role = Role.Button, onClick = onProviderClick)\n                .padding(horizontal = 7.dp, vertical = 4.dp),\n        )\n''',
+              'provider DropdownMenu block',
+          )
+          # Remove the deliberately neutral placeholder expression introduced above;
+          # keeping this second replacement explicit makes the first large anchor safer.
+          replace_once('color = if (false) FoxAmber50 else MaterialTheme.colorScheme.onSurfaceVariant,', 'color = MaterialTheme.colorScheme.onSurfaceVariant,', 'provider color cleanup')
+
+          replace_once(
+              '            .fillMaxWidth()\n            .background(MaterialTheme.colorScheme.surface)\n            .padding(\n                horizontal = ChartDimens.topBarHorizontalPadding,',
+              '            .fillMaxWidth()\n            .background(MaterialTheme.colorScheme.surface)\n            .statusBarsPadding()\n            .padding(\n                horizontal = ChartDimens.topBarHorizontalPadding,',
+              'top bar status inset',
+          )
+
+          replace_once(
+              'private enum class ChartMenu {\n    NONE, TIMEFRAME, BAR_MODE, INDICATORS, BACKTEST, DRAWING, MULTI_CHART\n}\n',
+              'private enum class ChartMenu {\n    NONE, PROVIDER, TIMEFRAME, BAR_MODE, INDICATORS, BACKTEST, DRAWING, MULTI_CHART\n}\n',
+              'ChartMenu provider entry',
+          )
+
+          provider_fn_anchor = '''/** Group the native Deriv source separately from general market feeds. */\nprivate fun providerGroups(): List<Pair<String, List<DataProvider>>> {\n'''
+          provider_fn = '''@OptIn(ExperimentalLayoutApi::class)\n@Composable\nprivate fun ProviderPickerPanel(\n    selected: DataProvider,\n    onSelect: (DataProvider) -> Unit,\n) {\n    Column(\n        modifier = Modifier\n            .fillMaxWidth()\n            .background(MaterialTheme.colorScheme.surface)\n            .padding(horizontal = 10.dp, vertical = 6.dp),\n        verticalArrangement = Arrangement.spacedBy(5.dp),\n    ) {\n        providerGroups().forEach { (group, providers) ->\n            Text(\n                text = group,\n                style = MaterialTheme.typography.labelSmall,\n                color = FoxNeutral60,\n            )\n            FlowRow(\n                horizontalArrangement = Arrangement.spacedBy(5.dp),\n                verticalArrangement = Arrangement.spacedBy(5.dp),\n            ) {\n                providers.forEach { provider ->\n                    val isSelected = provider == selected\n                    Text(\n                        text = provider.displayName,\n                        color = if (isSelected) FoxAmber50 else MaterialTheme.colorScheme.onSurfaceVariant,\n                        style = MaterialTheme.typography.labelSmall,\n                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,\n                        modifier = Modifier\n                            .clip(RoundedCornerShape(6.dp))\n                            .background(\n                                if (isSelected) MaterialTheme.colorScheme.primaryContainer\n                                else MaterialTheme.colorScheme.surfaceVariant\n                            )\n                            .clickable(enabled = !isSelected) { onSelect(provider) }\n                            .padding(horizontal = 10.dp, vertical = 7.dp),\n                    )\n                }\n            }\n        }\n    }\n}\n\n/** Group the native Deriv source separately from general market feeds. */\nprivate fun providerGroups(): List<Pair<String, List<DataProvider>>> {\n'''
+          replace_once(provider_fn_anchor, provider_fn, 'ProviderPickerPanel insertion')
+
+          if 'DropdownMenu' in text or 'Popup(' in text:
+              raise SystemExit('ChartScreen still contains popup-backed menu APIs')
+          chart.write_text(text)
+
+          nav = Path('app/src/main/java/com/foxtrader/app/ui/navigation/FoxNavHost.kt')
+          nav_text = nav.read_text()
+          if 'import androidx.compose.foundation.layout.calculateBottomPadding\n' not in nav_text:
+              nav_text = nav_text.replace(
+                  'import androidx.compose.foundation.layout.padding\n',
+                  'import androidx.compose.foundation.layout.calculateBottomPadding\nimport androidx.compose.foundation.layout.padding\n',
+                  1,
+              )
+          old = '            modifier = Modifier.padding(innerPadding),\n'
+          new = '''            // The root Scaffold already knows the bottom navigation height.\n            // On the chart destination we consume only that bottom inset here;\n            // ChartTopBar owns the status-bar inset itself. This avoids reserving\n            // a second empty top band above the price workspace while remaining\n            // safe on cutout devices.\n            modifier = if (currentRoute == FoxRoutes.CHART) {\n                Modifier.padding(bottom = innerPadding.calculateBottomPadding())\n            } else {\n                Modifier.padding(innerPadding)\n            },\n'''
+          if nav_text.count(old) != 1:
+              raise SystemExit(f'NavHost padding anchor expected once, found {nav_text.count(old)}')
+          nav_text = nav_text.replace(old, new, 1)
+          nav.write_text(nav_text)
+          PY
+
+      - name: Verify leak/layout contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          chart=app/src/main/java/com/foxtrader/app/feature/chart/presentation/ChartScreen.kt
+          nav=app/src/main/java/com/foxtrader/app/ui/navigation/FoxNavHost.kt
+          ! grep -q 'DropdownMenu' "$chart"
+          ! grep -q 'providerMenuExpanded' "$chart"
+          grep -q 'ProviderPickerPanel' "$chart"
+          grep -q 'statusBarsPadding' "$chart"
+          grep -q 'calculateBottomPadding' "$nav"
+
+      - name: Run unit tests
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
+
+      - name: Build debug APK
+        run: ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Commit tested patch and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/chart-popup-layout-patch.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/com/foxtrader/app/feature/chart/presentation/ChartScreen.kt \
+                  app/src/main/java/com/foxtrader/app/ui/navigation/FoxNavHost.kt \
+                  .github/workflows/chart-popup-layout-patch.yml
+          git commit -m 'fix(chart): remove popup leak and reclaim price workspace'
+          git push origin HEAD:fix/chart-popup-leak-fullscreen-price-20260825
