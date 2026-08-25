@@ -27,7 +27,11 @@ import kotlin.math.abs
  * rules before a trade signal is allowed to leave the domain layer.
  */
 @Singleton
-class LitProStructureDetector @Inject constructor() {
+class LitProStructureDetector @Inject constructor(
+    private val equalLevels: EqualLevelDetector,
+) {
+
+    constructor() : this(EqualLevelDetector())
 
     private enum class SwingType { HIGH, LOW }
     private enum class BreakType { BOS, CHOCH }
@@ -197,7 +201,87 @@ class LitProStructureDetector @Inject constructor() {
         )
     }
 
+    /**
+     * Locate the inducement pool that was swept ahead of [event].
+     *
+     * Two sources, tried in order of how much resting liquidity they represent:
+     *
+     * 1. An **EQH/EQL shelf** — two or more pivots printed at effectively the
+     *    same price. A flat ceiling draws breakout entries and stacks their
+     *    stops in one place, so it is the larger pool and the one price is
+     *    actually reaching for. This source is new; the detector previously
+     *    could not see a shelf at all.
+     * 2. A **single swing point**, the original behaviour, kept as the fallback
+     *    for the (common) case where no shelf formed.
+     *
+     * The shelf is preferred only when it was swept *and* sits at least as far
+     * into the direction of travel as the single-swing candidate. A shelf below
+     * the nearest swing low is not the inducement for a bullish move — price
+     * would have taken the nearer pool first — so preferring it would misreport
+     * which liquidity was actually collected.
+     */
     private fun findInducement(
+        candles: List<Candle>,
+        swings: List<Swing>,
+        event: BreakEvent,
+        cfg: LitConfig,
+    ): LitLevel? {
+        val single = findSingleSwingInducement(candles, swings, event, cfg)
+        val shelf = findEqualLevelInducement(candles, swings, event, cfg)
+        if (shelf == null) return single
+        if (single == null) return shelf
+        // Prefer the shelf only when it is the outer (further) pool.
+        val shelfIsOuter = when (event.direction) {
+            Direction.BULLISH -> shelf.price <= single.price
+            Direction.BEARISH -> shelf.price >= single.price
+        }
+        return if (shelfIsOuter) shelf else single
+    }
+
+    private fun findEqualLevelInducement(
+        candles: List<Candle>,
+        swings: List<Swing>,
+        event: BreakEvent,
+        cfg: LitConfig,
+    ): LitLevel? {
+        val atr = averageRange(candles, event.confirmationIndex) ?: return null
+        val tolerance = atr * EqualLevelDetector.DEFAULT_TOLERANCE_ATR_FRACTION
+        if (tolerance <= 0.0) return null
+
+        val wanted = if (event.direction == Direction.BULLISH) SwingType.LOW else SwingType.HIGH
+        val earliest = (event.confirmationIndex - cfg.maxIdmToBosBars - cfg.maxBosToChochBars)
+            .coerceAtLeast(0)
+        // Only pivots already confirmed before the event may contribute, so the
+        // shelf cannot be assembled out of bars the event could not have seen.
+        val pivots = swings
+            .filter { it.type == wanted && it.confirmationIndex < event.confirmationIndex }
+            .map { it.index }
+
+        val clusters = equalLevels.detect(
+            candles = candles,
+            pivots = pivots,
+            direction = event.direction,
+            tolerance = tolerance,
+        )
+        val cluster = equalLevels.mostRecentBefore(clusters, event.confirmationIndex)
+            ?.takeIf { it.confirmationIndex >= earliest }
+            ?: return null
+
+        val sweepIndex = (cluster.confirmationIndex until event.confirmationIndex).firstOrNull { index ->
+            isSweepAndReclaim(candles[index], cluster.level, event.direction)
+        } ?: return null
+
+        return LitLevel(
+            type = LitEventType.IDM,
+            direction = event.direction,
+            price = cluster.level,
+            originIndex = cluster.firstIndex,
+            confirmationIndex = sweepIndex,
+            swept = true,
+        )
+    }
+
+    private fun findSingleSwingInducement(
         candles: List<Candle>,
         swings: List<Swing>,
         event: BreakEvent,

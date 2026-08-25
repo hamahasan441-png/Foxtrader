@@ -68,6 +68,12 @@ class SignalComputer @Inject constructor(
                     confidence = signal.confidence.score.toDouble(),
                     isLive = barIndex == latestConfirmedIndex,
                     label = buildSignalLabel("LiTX", signal.confidence.score, signal.confirmations),
+                    // Carried from the MODE_* confirmation the engine stamps on
+                    // every signal, so outcome statistics can be partitioned by
+                    // the rule set that produced them.
+                    variant = signal.confirmations
+                        .firstOrNull { it.startsWith("MODE_") }
+                        ?.removePrefix("MODE_"),
                     eventKey = SignalIdentity.litX(
                         symbol = signal.symbol,
                         timeframe = signal.timeframe,

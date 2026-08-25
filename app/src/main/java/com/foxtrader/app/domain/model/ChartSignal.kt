@@ -29,6 +29,19 @@ data class ChartSignal(
      * legacy IDs consumed by UI/tests/persistence.
      */
     val eventKey: String? = null,
+    /**
+     * Machine-readable rule-set identity within [source] — the LiT Adventure
+     * mode that produced a LITX signal, for example.
+     *
+     * Deliberately separate from [label]: label is prose for the history panel
+     * and is free to change wording, while accuracy is grouped on this. Grouping
+     * statistics on a display string would silently re-partition every stored
+     * result the first time someone reworded a label.
+     *
+     * Null means "the source has only one rule set", which is true of every
+     * source except LITX.
+     */
+    val variant: String? = null,
 ) {
     /** Risk (entry → stop) in price units, or null when no stop is defined. */
     val risk: Double? get() = if (sl == 0.0) null else kotlin.math.abs(entry - sl)

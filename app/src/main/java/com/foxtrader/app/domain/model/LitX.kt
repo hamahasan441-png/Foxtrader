@@ -217,6 +217,66 @@ data class LitXSignalRecord(
 // ============================================================================
 
 /**
+ * LiT Adventure execution modes.
+ *
+ * A mode is NOT a preset. [SignalProfile] already varies thresholds (how strict)
+ * against one fixed rule set. A mode varies **which rules apply at all** — which
+ * confluences are mandatory, which POI kinds are admissible, and whether entry
+ * comes from a retest or from continuation. Two modes on the same candles can
+ * therefore disagree about whether a setup exists, not merely about its grade.
+ *
+ * All modes share the one core engine and the same causal boundary: a signal is
+ * still emitted only on the newest confirmed bar, and no mode may read data
+ * after its own confirmation index. Modes change selectivity, never causality.
+ */
+@Serializable
+enum class LitXMode(val label: String, val description: String) {
+    /**
+     * Maximum-conviction sniper. Every confluence is mandatory and the entry
+     * must be a true in-band tap: sweep, displacement-confirmed MSS, an
+     * institutional POI (mitigation block or order block — a fair value gap is
+     * not accepted as a standalone origin), directional premium/discount, HTF
+     * agreement, and a kill-zone session. Expect very few signals.
+     */
+    SNIPER(
+        "Sniper",
+        "All confluences mandatory, in-band entry only, no FVG-only origins.",
+    ),
+
+    /**
+     * The repository's established structure-led behaviour: sweep -> shift ->
+     * POI retest, with fair value gaps admissible as an origin and a near-band
+     * retest tolerated. This is the historical LiT Adventure rule set.
+     */
+    PRECISION(
+        "Precision",
+        "Structure-led sweep to shift to POI retest; FVG origins allowed.",
+    ),
+
+    /**
+     * Displacement-led continuation. Requires a strong, aligned impulse and a
+     * confirmed shift, but does NOT require price to return into the POI band —
+     * entry is taken on continuation, so the premium/discount gate is dropped
+     * (a momentum entry is by definition not at a discount).
+     */
+    MOMENTUM(
+        "Momentum",
+        "Impulse-led continuation; no retest requirement, no zone gate.",
+    ),
+
+    /**
+     * Liquidity-led reversal. Anchored on the sweep and the premium/discount
+     * side rather than on trend agreement, so a counter-trend turn is
+     * admissible: HTF alignment is not required and a plain CHOCH is accepted
+     * without displacement corroboration. The POI retest stays mandatory.
+     */
+    SWEEP_REVERSAL(
+        "Sweep Reversal",
+        "Liquidity-led counter-trend turn; CHOCH accepted, retest mandatory.",
+    ),
+}
+
+/**
  * User-configurable LIT X behaviour. Persisted as a JSON string in DataStore.
  *
  * Enabled is true by default so the on-chart LiTX switch is authoritative on a
@@ -244,6 +304,13 @@ data class LitXConfig(
     val maxSweepToShiftBars: Int = 12,
     /** Maximum bars allowed between confirmed shift and first POI retest. */
     val maxShiftToRetestBars: Int = 14,
+    /**
+     * Which LiT Adventure rule set to run. Appended last so every existing
+     * positional construction and every previously persisted JSON payload
+     * continues to deserialize into [LitXMode.PRECISION], the historical
+     * behaviour.
+     */
+    val mode: LitXMode = LitXMode.PRECISION,
 ) {
     fun sanitized(): LitXConfig = copy(
         minRiskReward = minRiskReward.coerceIn(1.0, 5.0),
@@ -258,6 +325,44 @@ data class LitXConfig(
             SignalProfile.SCALPING -> LitXConfig(enabled, LitXGrade.A, 1.8, false, 1.10, profile, true, false, 70, 7, 8)
             SignalProfile.INTRADAY -> LitXConfig(enabled, LitXGrade.A, 2.0, true, 1.20, profile, true, true, 75, 12, 14)
             SignalProfile.SWING -> LitXConfig(enabled, LitXGrade.A_PLUS, 2.3, true, 1.35, profile, true, true, 80, 18, 22)
+        }
+
+        /**
+         * Mode preset layered on top of a profile preset.
+         *
+         * The mode owns the structural gates (applied inside the engine); the
+         * fields set here are only the score/grade floors that make each mode's
+         * selectivity coherent with its rule set. Sniper raises the bar because
+         * it demands every confluence; Sweep Reversal lowers the trend-related
+         * requirement because counter-trend entries cannot satisfy it.
+         */
+        fun preset(
+            mode: LitXMode,
+            profile: SignalProfile = SignalProfile.INTRADAY,
+            enabled: Boolean = true,
+        ): LitXConfig {
+            val base = preset(profile, enabled).copy(mode = mode)
+            return when (mode) {
+                LitXMode.SNIPER -> base.copy(
+                    minGrade = LitXGrade.A_PLUS,
+                    minConfidenceScore = (base.minConfidenceScore + 8).coerceAtMost(95),
+                    minRiskReward = maxOf(base.minRiskReward, 2.5),
+                    requireStrongMss = true,
+                    requireHtfAlignment = true,
+                    requireDirectionalZone = true,
+                )
+                LitXMode.PRECISION -> base
+                LitXMode.MOMENTUM -> base.copy(
+                    requireStrongMss = true,
+                    requireDirectionalZone = false,
+                    displacementAtrMultiple = maxOf(base.displacementAtrMultiple, 1.5),
+                )
+                LitXMode.SWEEP_REVERSAL -> base.copy(
+                    requireStrongMss = false,
+                    requireHtfAlignment = false,
+                    requireDirectionalZone = true,
+                )
+            }.sanitized()
         }
     }
 }

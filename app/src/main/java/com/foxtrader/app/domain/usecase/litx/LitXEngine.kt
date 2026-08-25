@@ -9,6 +9,7 @@ import com.foxtrader.app.domain.model.LiquidityPool
 import com.foxtrader.app.domain.model.LiquidityType
 import com.foxtrader.app.domain.model.LitXAnalysis
 import com.foxtrader.app.domain.model.LitXConfig
+import com.foxtrader.app.domain.model.LitXMode
 import com.foxtrader.app.domain.model.LitXSignal
 import com.foxtrader.app.domain.model.LitXStage
 import com.foxtrader.app.domain.model.OrderBlock
@@ -77,6 +78,67 @@ class LitXEngine @Inject constructor(
         val maxShiftToRetestBars: Int,
     )
 
+    /**
+     * The structural gates a [LitXMode] applies. Everything here answers
+     * "which conditions are mandatory", never "how strict is the threshold" —
+     * thresholds stay in [LitXConfig] / [ProfileRules].
+     *
+     * Read this table as the definition of the modes; the validation block below
+     * only applies it.
+     *
+     * | gate | SNIPER | PRECISION | MOMENTUM | SWEEP_REVERSAL |
+     * |---|---|---|---|---|
+     * | liquidity sweep required     | yes | yes | no  | yes |
+     * | POI retest required          | yes | yes | no  | yes |
+     * | in-band tap (not near-band)  | yes | no  | n/a | no  |
+     * | FVG admissible as POI origin | no  | yes | yes | yes |
+     * | aligned displacement required| yes | no  | yes | no  |
+     * | kill-zone session required   | yes | no  | no  | no  |
+     */
+    private data class ModeRules(
+        val requireSweep: Boolean,
+        val requireRetest: Boolean,
+        val requireInBandTap: Boolean,
+        val allowFvgPoi: Boolean,
+        val requireAlignedDisplacement: Boolean,
+        val requireKillZone: Boolean,
+    )
+
+    private fun modeRules(mode: LitXMode): ModeRules = when (mode) {
+        LitXMode.SNIPER -> ModeRules(
+            requireSweep = true,
+            requireRetest = true,
+            requireInBandTap = true,
+            allowFvgPoi = false,
+            requireAlignedDisplacement = true,
+            requireKillZone = true,
+        )
+        LitXMode.PRECISION -> ModeRules(
+            requireSweep = true,
+            requireRetest = true,
+            requireInBandTap = false,
+            allowFvgPoi = true,
+            requireAlignedDisplacement = false,
+            requireKillZone = false,
+        )
+        LitXMode.MOMENTUM -> ModeRules(
+            requireSweep = false,
+            requireRetest = false,
+            requireInBandTap = false,
+            allowFvgPoi = true,
+            requireAlignedDisplacement = true,
+            requireKillZone = false,
+        )
+        LitXMode.SWEEP_REVERSAL -> ModeRules(
+            requireSweep = true,
+            requireRetest = true,
+            requireInBandTap = false,
+            allowFvgPoi = true,
+            requireAlignedDisplacement = false,
+            requireKillZone = false,
+        )
+    }
+
     fun analyze(
         symbol: String,
         timeframe: Timeframe,
@@ -94,6 +156,7 @@ class LitXEngine @Inject constructor(
         }
 
         val cfg = config.sanitized()
+        val rules = modeRules(cfg.mode)
         val effectiveDisplacementAtr = cfg.displacementAtrMultiple
         val effectiveMinRr = cfg.minRiskReward
         val effectiveMinConfidence = cfg.minConfidenceScore
@@ -172,10 +235,15 @@ class LitXEngine @Inject constructor(
         }
         val sweepIndex = sweep?.sweepIndex ?: -1
         val shiftKnowledgeIndex = if (shift.present) shift.breakIndex + STRUCTURE_RIGHT_BARS else -1
-        val orderedShift = shift.present && sweep != null &&
-            sweepIndex >= 0 && shift.breakIndex >= sweepIndex &&
-            shift.breakIndex - sweepIndex <= effectiveSweepToShift &&
-            shiftKnowledgeIndex <= candles.lastIndex
+        // A sweep, when present, must still precede the shift within the
+        // profile window. Modes that are not liquidity-led (MOMENTUM) may
+        // confirm a shift without one; modes that are led by liquidity may not.
+        val sweepOrdered = sweep != null && sweepIndex >= 0 &&
+            shift.breakIndex >= sweepIndex &&
+            shift.breakIndex - sweepIndex <= effectiveSweepToShift
+        val orderedShift = shift.present &&
+            shiftKnowledgeIndex <= candles.lastIndex &&
+            (!rules.requireSweep || sweepOrdered)
         val shiftConfirmed = orderedShift && shift.direction == intended &&
             (!cfg.requireStrongMss || shift.isStrong)
 
@@ -191,6 +259,7 @@ class LitXEngine @Inject constructor(
                 mitigationBlocks = mitigationBlocks,
                 minOriginIndex = sweep?.sweepIndex ?: setupStartIndex,
                 shiftIndex = shift.breakIndex,
+                allowFvg = rules.allowFvgPoi,
             )
         } else {
             null
@@ -210,8 +279,13 @@ class LitXEngine @Inject constructor(
         val isFreshRetest = retestAfterShift && firstRetestIndex == candles.lastIndex
 
         // --- Entry validation: has price returned into the ordered POI? ---
+        // MOMENTUM does not use a retest at all, so scoring it as a failed
+        // retest (30) would penalise the mode for a rule it does not run.
+        // It gets a neutral 60 instead: no evidence for, no evidence against.
+        // The factor is not free -- MOMENTUM pays for it by requiring aligned
+        // displacement, which PRECISION does not.
         val retestScore = if (poi == null || !isFreshRetest) {
-            30
+            if (!rules.requireRetest && poi != null) NEUTRAL_RETEST_SCORE else 30
         } else {
             // Continuous score based on how far price sits from the POI band,
             // normalised by volatility, instead of three hard buckets. Inside
@@ -259,14 +333,31 @@ class LitXEngine @Inject constructor(
             bullish -> zone.currentZone == PriceZoneKind.DISCOUNT
             else -> zone.currentZone == PriceZoneKind.PREMIUM
         }
-        // A validated LIT X setup requires the full institutional sequence: a
-        // recent liquidity sweep, a confirmed market shift in our direction,
-        // a post-shift POI retest, a real structural target meeting minimum
-        // R:R, and a grade above the filter.
         val htfDirectionAligned = (bullish && effHtfBias == Bias.BULLISH) ||
             (!bullish && effHtfBias == Bias.BEARISH)
-        val validated = shiftConfirmed && poiTapped && isFreshRetest && rr.valid &&
-            rr.riskReward >= effectiveMinRr && retestScore >= 70 &&
+        val displacementAligned = displacement != null && displacement.direction == intended
+        val inBandTap = poi != null && price in poi.low..poi.high
+        val killZone = isKillZone(sessions, candles.lastIndex)
+
+        // The trigger bar. Retest modes fire on the first POI tap; MOMENTUM
+        // fires on the bar the shift itself becomes knowable. Both are pinned
+        // to candles.lastIndex, so every mode keeps the one-shot, right-edge,
+        // non-repainting emission contract -- a mode can change how selective
+        // the engine is, never when it is allowed to know something.
+        val entryTrigger = if (rules.requireRetest) {
+            isFreshRetest && poiTapped
+        } else {
+            shiftConfirmed && shiftKnowledgeIndex == candles.lastIndex
+        }
+
+        // A validated LiT Adventure setup requires the gates its active mode
+        // declares (see ModeRules), plus the shared geometry and grade floors.
+        val validated = shiftConfirmed && poi != null && rr.valid && entryTrigger &&
+            rr.riskReward >= effectiveMinRr &&
+            (!rules.requireRetest || retestScore >= 70) &&
+            (!rules.requireInBandTap || inBandTap) &&
+            (!rules.requireAlignedDisplacement || displacementAligned) &&
+            (!rules.requireKillZone || killZone) &&
             (!cfg.requireHtfAlignment || htfDirectionAligned) &&
             (!cfg.requireDirectionalZone || directionalZoneAligned) &&
             confidence.score >= effectiveMinConfidence &&
@@ -287,15 +378,23 @@ class LitXEngine @Inject constructor(
                 entry = rr.entry, stopLoss = rr.stopLoss,
                 takeProfit1 = rr.takeProfit1, takeProfit2 = rr.takeProfit2,
                 riskReward = rr.riskReward, confidence = confidence, zone = zone,
-                rationale = buildRationale(bullish, shift.isStrong, sweep != null, poi, zone?.currentZone),
+                rationale = buildRationale(
+                    cfg.mode, bullish, shift.isStrong, sweep != null,
+                    rules.requireRetest, poi, zone?.currentZone,
+                ),
                 timestamp = now,
                 confirmationIndex = candles.lastIndex,
                 confirmations = buildList {
-                    add("LIQUIDITY_SWEEP")
+                    // Configuration traceability: a stored signal must be
+                    // attributable to the rule set that produced it, otherwise
+                    // per-mode accuracy cannot be measured after the fact.
+                    add("MODE_${cfg.mode.name}")
+                    if (sweep != null) add("LIQUIDITY_SWEEP")
                     add(if (shift.isStrong) "MSS" else "CHOCH")
                     if (displacement?.direction == intended) add("DISPLACEMENT")
                     poi?.kind?.let { add(it.uppercase().replace(' ', '_')) }
-                    add("POI_RETEST")
+                    if (rules.requireRetest) add("POI_RETEST") else add("CONTINUATION_ENTRY")
+                    if (rules.requireKillZone && killZone) add("KILL_ZONE")
                     if (directionalZoneAligned) add("PREMIUM_DISCOUNT")
                     add("RR_${"%.2f".format(rr.riskReward)}")
                 },
@@ -310,7 +409,7 @@ class LitXEngine @Inject constructor(
             displacement = displacement, mitigationBlocks = mitigationBlocks,
             premiumDiscount = zone, signal = signal,
             narrative = signal?.rationale
-                ?: "Institutional pipeline at ${stage.name.lowercase().replace('_', ' ')}; " +
+                ?: "${cfg.mode.label}: pipeline at ${stage.name.lowercase().replace('_', ' ')}; " +
                 "conditions not yet sufficient for an ${cfg.minGrade.name} setup.",
             timestamp = now,
         )
@@ -436,6 +535,7 @@ class LitXEngine @Inject constructor(
         mitigationBlocks: List<com.foxtrader.app.domain.model.MitigationBlock>,
         minOriginIndex: Int,
         shiftIndex: Int,
+        allowFvg: Boolean,
     ): Poi? {
         val dir = if (bullish) Direction.BULLISH else Direction.BEARISH
         mitigationBlocks
@@ -463,6 +563,10 @@ class LitXEngine @Inject constructor(
                     availableIndex = it.startIndex + 1,
                 )
             }
+        // SNIPER refuses an unmitigated gap as a standalone institutional
+        // origin: it is the weakest of the three POI kinds (quality 65 vs
+        // 78/88) and carries no order-flow evidence of participation.
+        if (!allowFvg) return null
         val fvgType = if (bullish) FvgType.BULLISH else FvgType.BEARISH
         fvgs
             .filter { it.type == fvgType && !it.filled && it.index >= minOriginIndex }
@@ -520,9 +624,11 @@ class LitXEngine @Inject constructor(
     }
 
     private fun buildRationale(
+        mode: LitXMode,
         bullish: Boolean,
         strongShift: Boolean,
         swept: Boolean,
+        retestEntry: Boolean,
         poi: Poi?,
         zone: PriceZoneKind?,
     ): String {
@@ -531,7 +637,8 @@ class LitXEngine @Inject constructor(
         val sweepTxt = if (swept) "liquidity swept, " else ""
         val poiTxt = poi?.kind?.let { "$it POI" } ?: "structural POI"
         val zoneTxt = zone?.name?.lowercase()?.let { " in $it" } ?: ""
-        return "$dir: $sweepTxt$shiftTxt, entry from $poiTxt$zoneTxt."
+        val entryTxt = if (retestEntry) "entry from" else "continuation entry off"
+        return "${mode.label} $dir: $sweepTxt$shiftTxt, $entryTxt $poiTxt$zoneTxt."
     }
 
     private fun profileRules(profile: com.foxtrader.app.domain.model.SignalProfile): ProfileRules = when (profile) {
@@ -550,6 +657,9 @@ class LitXEngine @Inject constructor(
         // Continuous retest scoring: in-band max, decaying per volatility unit.
         // 92 - 22*1.0 = 70 keeps the ~1-vol near-band cutoff at the validation gate.
         const val RETEST_MAX_SCORE = 92
+
+        // Applied when the active mode does not evaluate retests at all.
+        const val NEUTRAL_RETEST_SCORE = 60
         const val RETEST_DECAY_PER_VOL = 22.0
 
         // Higher-timeframe trend proxy (same-series fallback when no HTF supplied).
