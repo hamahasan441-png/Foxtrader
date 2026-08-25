@@ -50,6 +50,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.AlertPriority
 import com.foxtrader.app.domain.model.DataProvider
+import com.foxtrader.app.domain.model.LitBreakMode
 import com.foxtrader.app.domain.model.LitXGrade
 import com.foxtrader.app.domain.model.PositionSizingMethod
 import com.foxtrader.app.domain.model.SignalProfile
@@ -59,6 +60,12 @@ import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxNeutral10
 import com.foxtrader.app.ui.theme.FoxNeutral60
 import com.foxtrader.app.ui.theme.FoxSuccess
+
+private val LIT_ADVENTURE_MODES = linkedMapOf(
+    "Fast Scalp" to SignalProfile.SCALPING,
+    "Balanced Trade" to SignalProfile.INTRADAY,
+    "Power Trade" to SignalProfile.SWING,
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -92,7 +99,7 @@ fun SettingsScreen(
             SectionHeader("Workspace")
             SettingsCard {
                 Text(
-                    "Desk setup and FoxTrader Pro live under More. Risk, data and privacy stay here.",
+                    "Desk setup and FoxTrader Pro live under More. Risk, data, signal engines and privacy stay here.",
                     style = MaterialTheme.typography.bodySmall,
                     color = FoxNeutral60,
                 )
@@ -198,7 +205,7 @@ fun SettingsScreen(
                 SliderSetting("Signal Cooldown", state.aiConfig.alertCooldownMinutes.toFloat(), 1f..60f, " min") { viewModel.setAlertCooldownMinutes(it.toInt()) }
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "AI settings apply to decision quality and alert cooldown only. Periodic scanner alerts are not part of this app.",
+                    "AI settings apply to decision quality and alert cooldown only.",
                     style = MaterialTheme.typography.bodySmall,
                     color = FoxNeutral60,
                 )
@@ -277,28 +284,74 @@ fun SettingsScreen(
                 Text(stringResource(R.string.settings_perf_cache_note), style = MaterialTheme.typography.bodySmall, color = FoxNeutral60)
             }
 
-            SectionHeader("TRADEPRO")
+            SectionHeader("Chart Indicators")
             SettingsCard {
-                SliderSetting("Stop (points)", state.tradeProConfig.stopPoints.toFloat(), 1f..10f, " pt") { viewModel.setTradeProStopPoints(it.toDouble()) }
+                Text(
+                    "Every chart indicator is available from the chart's Indicators button in every LiT Adventure mode. " +
+                        "Enable it there; active studies expose their normal parameters from the ⚙ chip. " +
+                        "RSI Orderflow advanced divergence thresholds are also visible in the indicator panel.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = FoxNeutral60,
+                )
+            }
+
+            SectionHeader("TRADEPRO — Execution")
+            SettingsCard {
+                DecimalSetting("Point size", state.tradeProConfig.pointSize, viewModel::setTradeProPointSize)
                 Spacer(Modifier.height(8.dp))
-                SliderSetting("T1 target (points)", state.tradeProConfig.target1Points.toFloat(), 1f..20f, " pt") { viewModel.setTradeProTarget1(it.toDouble()) }
+                SliderSetting("Stop", state.tradeProConfig.stopPoints.toFloat(), 0.5f..20f, " pt") { viewModel.setTradeProStopPoints(it.toDouble()) }
                 Spacer(Modifier.height(8.dp))
-                SliderSetting("T2 target (points)", state.tradeProConfig.target2Points.toFloat(), 2f..40f, " pt") { viewModel.setTradeProTarget2(it.toDouble()) }
+                SliderSetting("T1 target", state.tradeProConfig.target1Points.toFloat(), 0.5f..40f, " pt") { viewModel.setTradeProTarget1(it.toDouble()) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("T2 target", state.tradeProConfig.target2Points.toFloat(), 1f..80f, " pt") { viewModel.setTradeProTarget2(it.toDouble()) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Runner target", state.tradeProConfig.runnerPoints.toFloat(), 1f..120f, " pt") { viewModel.setTradeProRunner(it.toDouble()) }
                 Spacer(Modifier.height(8.dp))
                 SliderSetting("Contracts", state.tradeProConfig.contracts.toFloat(), 1f..20f, "") { viewModel.setTradeProContracts(it.toInt()) }
                 Spacer(Modifier.height(8.dp))
-                SliderSetting("Max daily loss (points)", state.tradeProConfig.maxDailyLossPoints.toFloat(), 5f..100f, "") { viewModel.setTradeProMaxDailyLoss(it.toDouble()) }
-                Spacer(Modifier.height(12.dp))
+                SliderSetting("Max risk / trade", state.tradeProConfig.maxRiskPoints.toFloat(), 1f..100f, " pt") { viewModel.setTradeProMaxRisk(it.toDouble()) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Imbalance ratio", state.tradeProConfig.imbalanceRatio.toFloat(), 1f..10f, "x") { viewModel.setTradeProImbalanceRatio(it.toDouble()) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Acceptance bars", state.tradeProConfig.acceptanceMinBars.toFloat(), 1f..10f, "") { viewModel.setTradeProAcceptanceBars(it.toInt()) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Swing lookback", state.tradeProConfig.swingLookback.toFloat(), 1f..20f, " bars") { viewModel.setTradeProSwingLookback(it.toInt()) }
+            }
+
+            SectionHeader("TRADEPRO — Regime & Edge Protection")
+            SettingsCard {
                 SwitchSetting("Trend filter (avoid chop)", state.tradeProConfig.useTrendFilter, viewModel::setTradeProTrendFilter)
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Efficiency ratio period", state.tradeProConfig.efficiencyRatioPeriod.toFloat(), 5f..120f, " bars") { viewModel.setTradeProEfficiencyPeriod(it.toInt()) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Minimum efficiency", (state.tradeProConfig.minEfficiencyRatio * 100).toFloat(), 0f..100f, "%") { viewModel.setTradeProMinEfficiency(it / 100.0) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Trend EMA", state.tradeProConfig.trendEmaPeriod.toFloat(), 2f..200f, "") { viewModel.setTradeProTrendEmaPeriod(it.toInt()) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Trend slope lookback", state.tradeProConfig.trendSlopeLookback.toFloat(), 1f..80f, " bars") { viewModel.setTradeProTrendSlopeLookback(it.toInt()) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Max consecutive losses", state.tradeProConfig.maxConsecutiveLosses.toFloat(), 1f..10f, "") { viewModel.setTradeProMaxConsecutiveLosses(it.toInt()) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Max daily loss", state.tradeProConfig.maxDailyLossPoints.toFloat(), 1f..200f, " pt") { viewModel.setTradeProMaxDailyLoss(it.toDouble()) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Minimum plan compliance", state.tradeProConfig.minCompliancePercent.toFloat(), 0f..100f, "%") { viewModel.setTradeProMinCompliance(it.toDouble()) }
             }
 
             SectionHeader(stringResource(R.string.settings_litx_title))
             SettingsCard {
                 SwitchSetting(stringResource(R.string.settings_litx_enable), state.litXConfig.enabled, viewModel::setLitXEnabled)
                 Spacer(Modifier.height(12.dp))
-                DropdownSetting("Signal profile", state.litXConfig.profile.name, SignalProfile.entries.map { it.name }) { selected ->
-                    SignalProfile.entries.firstOrNull { it.name == selected }?.let(viewModel::setLitXProfile)
-                }
+                DropdownSetting(
+                    "LiT Adventure mode",
+                    state.litXConfig.adventureModeLabel,
+                    LIT_ADVENTURE_MODES.keys.toList(),
+                ) { label -> LIT_ADVENTURE_MODES[label]?.let(viewModel::setLitXProfile) }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Fast Scalp = 68+ · Balanced Trade = 80+ · Power Trade = 90+. All use confirmed closed-bar signals.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = FoxNeutral60,
+                )
                 Spacer(Modifier.height(12.dp))
                 DropdownSetting("Minimum grade", state.litXConfig.minGrade.name, listOf(LitXGrade.A_PLUS.name, LitXGrade.A.name, LitXGrade.B.name)) { n ->
                     LitXGrade.entries.firstOrNull { it.name == n }?.let(viewModel::setLitXMinGrade)
@@ -321,7 +374,7 @@ fun SettingsScreen(
                 SliderSetting("Max shift → retest bars", state.litXConfig.maxShiftToRetestBars.toFloat(), 3f..40f, "") { viewModel.setLitXShiftToRetest(it.toInt()) }
             }
 
-            SectionHeader("LIT — Liquidity / Inducement")
+            SectionHeader("LiT May Madness — Core")
             SettingsCard {
                 DropdownSetting("Preset", state.litConfig.profile.name, SignalProfile.entries.map { it.name }) { n -> SignalProfile.entries.firstOrNull { it.name == n }?.let(viewModel::setLitProfile) }
                 Spacer(Modifier.height(8.dp))
@@ -329,7 +382,7 @@ fun SettingsScreen(
                 Spacer(Modifier.height(8.dp))
                 SwitchSetting("Require premium/discount alignment", state.litConfig.requireDirectionalZone, viewModel::setLitDirectionalZone)
                 Spacer(Modifier.height(8.dp))
-                SliderSetting("Setup lookback", state.litConfig.setupLookback.toFloat(), 20f..120f, " bars") { viewModel.setLitSetupLookback(it.toInt()) }
+                SliderSetting("Setup lookback", state.litConfig.setupLookback.toFloat(), 20f..180f, " bars") { viewModel.setLitSetupLookback(it.toInt()) }
                 Spacer(Modifier.height(8.dp))
                 SliderSetting("Max sweep → shift", state.litConfig.maxSweepToShiftBars.toFloat(), 3f..30f, " bars") { viewModel.setLitSweepToShift(it.toInt()) }
                 Spacer(Modifier.height(8.dp))
@@ -338,6 +391,33 @@ fun SettingsScreen(
                 SliderSetting("Minimum R:R", state.litConfig.minRiskReward.toFloat(), 1f..5f, "R") { viewModel.setLitMinRr(it.toDouble()) }
                 Spacer(Modifier.height(8.dp))
                 SliderSetting("Displacement ATR", state.litConfig.displacementAtrMultiple.toFloat(), 0.8f..3f, "x") { viewModel.setLitDisplacement(it.toDouble()) }
+            }
+
+            SectionHeader("LiT May Madness — Structure Advanced")
+            SettingsCard {
+                SliderSetting("Swing left", state.litConfig.swingLeftBars.toFloat(), 2f..8f, " bars") { viewModel.setLitSwingLeft(it.toInt()) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Swing right / confirmation", state.litConfig.swingRightBars.toFloat(), 2f..8f, " bars") { viewModel.setLitSwingRight(it.toInt()) }
+                Spacer(Modifier.height(8.dp))
+                DropdownSetting("Break confirmation", state.litConfig.breakMode.name, LitBreakMode.entries.map { it.name }) { name ->
+                    LitBreakMode.entries.firstOrNull { it.name == name }?.let(viewModel::setLitBreakMode)
+                }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Max IDM → BOS", state.litConfig.maxIdmToBosBars.toFloat(), 3f..30f, " bars") { viewModel.setLitMaxIdmToBos(it.toInt()) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Max BOS → CHOCH", state.litConfig.maxBosToChochBars.toFloat(), 3f..36f, " bars") { viewModel.setLitMaxBosToChoch(it.toInt()) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Max POI age", state.litConfig.maxPoiAgeBars.toFloat(), 4f..80f, " bars") { viewModel.setLitMaxPoiAge(it.toInt()) }
+                Spacer(Modifier.height(8.dp))
+                SwitchSetting("Allow inside-bar mother candle", state.litConfig.allowInsideBarMother, viewModel::setLitAllowInsideBarMother)
+                Spacer(Modifier.height(8.dp))
+                SwitchSetting("Follow deeper POI candle", state.litConfig.followDeeperPoiCandle, viewModel::setLitFollowDeeperPoi)
+                Spacer(Modifier.height(8.dp))
+                SwitchSetting("Require SCOB", state.litConfig.requireScob, viewModel::setLitRequireScob)
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Hidden shadow max ATR", (state.litConfig.hiddenShadowMaxAtrFraction * 100).toFloat(), 5f..100f, "%") { viewModel.setLitHiddenShadowMaxAtr(it / 100.0) }
+                Spacer(Modifier.height(8.dp))
+                SliderSetting("Stop ATR buffer", (state.litConfig.stopAtrBuffer * 100).toFloat(), 2f..75f, "%") { viewModel.setLitStopAtrBuffer(it / 100.0) }
             }
 
             SectionHeader("SMT — Divergence")
@@ -468,6 +548,19 @@ private fun SliderSetting(
 }
 
 @Composable
+private fun DecimalSetting(
+    label: String,
+    value: Double,
+    onValueChange: (Double) -> Unit,
+) {
+    Column {
+        Text(label, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+        Spacer(Modifier.height(4.dp))
+        DecimalAmountField(value = value, onValueChange = onValueChange, modifier = Modifier.fillMaxWidth())
+    }
+}
+
+@Composable
 private fun DecimalAmountField(
     value: Double,
     onValueChange: (Double) -> Unit,
@@ -482,7 +575,7 @@ private fun DecimalAmountField(
         value = text,
         onValueChange = { newText ->
             text = newText
-            onValueChange(newText.toDoubleOrNull() ?: 0.0)
+            newText.toDoubleOrNull()?.let(onValueChange)
         },
         modifier = modifier,
         singleLine = true,
@@ -493,7 +586,7 @@ private fun DecimalAmountField(
 private fun formatDecimal(value: Double): String {
     if (value <= 0.0) return "0"
     if (value == value.toLong().toDouble()) return value.toLong().toString()
-    return "%.2f".format(value).trimEnd('0').trimEnd('.')
+    return "%.6f".format(value).trimEnd('0').trimEnd('.')
 }
 
 private fun formatSliderValue(value: Float, suffix: String): String {

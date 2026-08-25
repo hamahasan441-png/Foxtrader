@@ -8,6 +8,7 @@ import com.foxtrader.app.domain.model.AlertConfig
 import com.foxtrader.app.domain.model.AlertPriority
 import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.DecisionConfig
+import com.foxtrader.app.domain.model.LitBreakMode
 import com.foxtrader.app.domain.model.LitConfig
 import com.foxtrader.app.domain.model.LitXConfig
 import com.foxtrader.app.domain.model.LitXGrade
@@ -239,6 +240,17 @@ class SettingsViewModel @Inject constructor(
     fun setLitShiftToRetest(v: Int) = updateLit { it.copy(maxShiftToRetestBars = v) }
     fun setLitMinRr(v: Double) = updateLit { it.copy(minRiskReward = v) }
     fun setLitDisplacement(v: Double) = updateLit { it.copy(displacementAtrMultiple = v) }
+    fun setLitSwingLeft(v: Int) = updateLit { it.copy(swingLeftBars = v) }
+    fun setLitSwingRight(v: Int) = updateLit { it.copy(swingRightBars = v) }
+    fun setLitBreakMode(v: LitBreakMode) = updateLit { it.copy(breakMode = v) }
+    fun setLitMaxIdmToBos(v: Int) = updateLit { it.copy(maxIdmToBosBars = v) }
+    fun setLitMaxBosToChoch(v: Int) = updateLit { it.copy(maxBosToChochBars = v) }
+    fun setLitMaxPoiAge(v: Int) = updateLit { it.copy(maxPoiAgeBars = v) }
+    fun setLitAllowInsideBarMother(v: Boolean) = updateLit { it.copy(allowInsideBarMother = v) }
+    fun setLitFollowDeeperPoi(v: Boolean) = updateLit { it.copy(followDeeperPoiCandle = v) }
+    fun setLitRequireScob(v: Boolean) = updateLit { it.copy(requireScob = v) }
+    fun setLitHiddenShadowMaxAtr(v: Double) = updateLit { it.copy(hiddenShadowMaxAtrFraction = v) }
+    fun setLitStopAtrBuffer(v: Double) = updateLit { it.copy(stopAtrBuffer = v) }
 
     private fun updateSmt(transform: (SmtConfig) -> SmtConfig) {
         val cfg = transform(_uiState.value.smtConfig).sanitized()
@@ -344,12 +356,28 @@ class SettingsViewModel @Inject constructor(
         _uiState.update { it.copy(litXConfig = cfg, saved = false) }
     }
 
-    fun setTradeProStopPoints(value: Double) { _uiState.update { it.copy(tradeProConfig = it.tradeProConfig.copy(stopPoints = value.coerceIn(1.0, 10.0)), saved = false) } }
-    fun setTradeProTarget1(value: Double) { _uiState.update { it.copy(tradeProConfig = it.tradeProConfig.copy(target1Points = value.coerceIn(1.0, 20.0)), saved = false) } }
-    fun setTradeProTarget2(value: Double) { _uiState.update { it.copy(tradeProConfig = it.tradeProConfig.copy(target2Points = value.coerceIn(2.0, 40.0)), saved = false) } }
-    fun setTradeProContracts(value: Int) { _uiState.update { it.copy(tradeProConfig = it.tradeProConfig.copy(contracts = value.coerceIn(1, 20)), saved = false) } }
-    fun setTradeProMaxDailyLoss(value: Double) { _uiState.update { it.copy(tradeProConfig = it.tradeProConfig.copy(maxDailyLossPoints = value.coerceIn(5.0, 100.0)), saved = false) } }
-    fun setTradeProTrendFilter(enabled: Boolean) { _uiState.update { it.copy(tradeProConfig = it.tradeProConfig.copy(useTrendFilter = enabled), saved = false) } }
+    private fun updateTradePro(transform: (com.foxtrader.app.domain.model.tradepro.TradeProConfig) -> com.foxtrader.app.domain.model.tradepro.TradeProConfig) {
+        _uiState.update { state -> state.copy(tradeProConfig = transform(state.tradeProConfig), saved = false) }
+    }
+
+    fun setTradeProPointSize(value: Double) = updateTradePro { it.copy(pointSize = value.coerceIn(0.000001, 1_000.0)) }
+    fun setTradeProStopPoints(value: Double) = updateTradePro { it.copy(stopPoints = value.coerceIn(0.1, 100.0)) }
+    fun setTradeProTarget1(value: Double) = updateTradePro { it.copy(target1Points = value.coerceIn(0.1, 200.0)) }
+    fun setTradeProTarget2(value: Double) = updateTradePro { it.copy(target2Points = value.coerceIn(0.1, 400.0)) }
+    fun setTradeProRunner(value: Double) = updateTradePro { it.copy(runnerPoints = value.coerceIn(0.1, 1_000.0)) }
+    fun setTradeProContracts(value: Int) = updateTradePro { it.copy(contracts = value.coerceIn(1, 100)) }
+    fun setTradeProMaxRisk(value: Double) = updateTradePro { it.copy(maxRiskPoints = value.coerceIn(0.1, 1_000.0)) }
+    fun setTradeProImbalanceRatio(value: Double) = updateTradePro { it.copy(imbalanceRatio = value.coerceIn(1.0, 20.0)) }
+    fun setTradeProAcceptanceBars(value: Int) = updateTradePro { it.copy(acceptanceMinBars = value.coerceIn(1, 20)) }
+    fun setTradeProSwingLookback(value: Int) = updateTradePro { it.copy(swingLookback = value.coerceIn(1, 50)) }
+    fun setTradeProTrendFilter(enabled: Boolean) = updateTradePro { it.copy(useTrendFilter = enabled) }
+    fun setTradeProEfficiencyPeriod(value: Int) = updateTradePro { it.copy(efficiencyRatioPeriod = value.coerceIn(2, 500)) }
+    fun setTradeProMinEfficiency(value: Double) = updateTradePro { it.copy(minEfficiencyRatio = value.coerceIn(0.0, 1.0)) }
+    fun setTradeProTrendEmaPeriod(value: Int) = updateTradePro { it.copy(trendEmaPeriod = value.coerceIn(2, 500)) }
+    fun setTradeProTrendSlopeLookback(value: Int) = updateTradePro { it.copy(trendSlopeLookback = value.coerceIn(1, 200)) }
+    fun setTradeProMaxConsecutiveLosses(value: Int) = updateTradePro { it.copy(maxConsecutiveLosses = value.coerceIn(1, 20)) }
+    fun setTradeProMaxDailyLoss(value: Double) = updateTradePro { it.copy(maxDailyLossPoints = value.coerceIn(0.1, 10_000.0)) }
+    fun setTradeProMinCompliance(value: Double) = updateTradePro { it.copy(minCompliancePercent = value.coerceIn(0.0, 100.0)) }
 
     fun setMinConfluences(value: Int) { _uiState.update { it.copy(aiConfig = it.aiConfig.copy(minConfluences = value.coerceIn(1, 9)), saved = false) } }
     fun setMinConfidence(value: Int) { _uiState.update { it.copy(aiConfig = it.aiConfig.copy(minConfidence = value.coerceIn(10, 100)), saved = false) } }
