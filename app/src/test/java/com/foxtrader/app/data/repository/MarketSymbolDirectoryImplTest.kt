@@ -5,6 +5,7 @@ import com.foxtrader.app.data.remote.api.BinanceDataSource
 import com.foxtrader.app.data.remote.api.BybitDataSource
 import com.foxtrader.app.data.remote.api.KuCoinDataSource
 import com.foxtrader.app.data.remote.api.OkxDataSource
+import com.foxtrader.app.data.remote.dukascopy.DukascopyDataSource
 import com.foxtrader.app.domain.model.AssetClass
 import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.MarketType
@@ -25,8 +26,9 @@ class MarketSymbolDirectoryImplTest {
     private val bybit = mockk<BybitDataSource>()
     private val kuCoin = mockk<KuCoinDataSource>()
     private val okx = mockk<OkxDataSource>()
+    private val dukascopy = mockk<DukascopyDataSource>()
     private val deriv = mockk<DerivRepository>()
-    private val directory = MarketSymbolDirectoryImpl(allRates, binance, bybit, kuCoin, okx, deriv)
+    private val directory = MarketSymbolDirectoryImpl(allRates, binance, bybit, kuCoin, okx, dukascopy, deriv)
 
     @Test
     fun `routes every native directory to its selected provider`() = runBlocking {
@@ -35,13 +37,14 @@ class MarketSymbolDirectoryImplTest {
         coEvery { bybit.discoverSymbols() } returns listOf(symbol(DataProvider.BYBIT, "ETHUSDT"))
         coEvery { kuCoin.discoverSymbols() } returns listOf(symbol(DataProvider.KUCOIN, "SOL-USDT"))
         coEvery { okx.discoverSymbols() } returns listOf(symbol(DataProvider.OKX, "XRP-USDT"))
+        coEvery { dukascopy.discoverSymbols() } returns listOf(symbol(DataProvider.DUKASCOPY, "EURUSD"))
 
         assertEquals("EURUSD", directory.discover(DataProvider.ALL_RATES_TODAY).getOrThrow().single().providerSymbol)
         assertEquals("BTCUSDT", directory.discover(DataProvider.BINANCE).getOrThrow().single().providerSymbol)
         assertEquals("ETHUSDT", directory.discover(DataProvider.BYBIT).getOrThrow().single().providerSymbol)
         assertEquals("SOL-USDT", directory.discover(DataProvider.KUCOIN).getOrThrow().single().providerSymbol)
         assertEquals("XRP-USDT", directory.discover(DataProvider.OKX).getOrThrow().single().providerSymbol)
-        assertEquals(emptyList<ProviderMarketSymbol>(), directory.discover(DataProvider.DUKASCOPY).getOrThrow())
+        assertEquals("EURUSD", directory.discover(DataProvider.DUKASCOPY).getOrThrow().single().providerSymbol)
     }
 
     @Test

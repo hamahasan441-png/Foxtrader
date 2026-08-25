@@ -125,4 +125,37 @@ class DukascopyTickDecoderTest {
         assertEquals(750L, ticks[1].timestampMs)   // 500 + 250
         assertEquals(1.11, ticks[1].ask, 0.0000001)
     }
+
+    @Test
+    fun `decode rejects corrupt time price spread and volume records`() {
+        val payload = encode(
+            records = listOf(
+                intArrayOf(-1, 110_000, 109_000),
+                intArrayOf(100, 109_000, 110_000),
+                intArrayOf(200, 111_000, 110_000),
+                intArrayOf(150, 112_000, 111_000),
+            ),
+            volumes = listOf(
+                floatArrayOf(1.0f, 1.0f),
+                floatArrayOf(1.0f, 1.0f),
+                floatArrayOf(2.0f, 2.0f),
+                floatArrayOf(1.0f, 1.0f),
+            ),
+        )
+
+        val ticks = decoder.decode(payload, hourStartMs = 1_000L, pointValue = 100_000.0)
+
+        assertEquals(1, ticks.size)
+        assertEquals(1_200L, ticks.single().timestampMs)
+    }
+
+    @Test
+    fun `decode rejects invalid price divisor`() {
+        val payload = encode(
+            records = listOf(intArrayOf(0, 110_000, 109_000)),
+            volumes = listOf(floatArrayOf(1.0f, 1.0f)),
+        )
+        assertTrue(decoder.decode(payload, 0L, 0.0).isEmpty())
+        assertTrue(decoder.decode(payload, 0L, Double.NaN).isEmpty())
+    }
 }

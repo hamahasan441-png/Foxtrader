@@ -39,4 +39,15 @@ class LzmaDecompressorTest {
         // Must not crash, returns byte array
         assertTrue(result.isEmpty() || result.isNotEmpty())
     }
+
+    @Test
+    fun `decompress rejects oversized declared output before allocation`() {
+        val payload = ByteBuffer.allocate(13).order(ByteOrder.LITTLE_ENDIAN).apply {
+            put(0x5D.toByte())
+            putInt(1 shl 23)
+            putLong(64L * 1024L * 1024L)
+        }.array()
+
+        assertTrue(decompressor.decompress(payload).isEmpty())
+    }
 }

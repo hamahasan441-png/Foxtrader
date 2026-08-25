@@ -5,6 +5,7 @@ import com.foxtrader.app.data.remote.api.BinanceDataSource
 import com.foxtrader.app.data.remote.api.BybitDataSource
 import com.foxtrader.app.data.remote.api.KuCoinDataSource
 import com.foxtrader.app.data.remote.api.OkxDataSource
+import com.foxtrader.app.data.remote.dukascopy.DukascopyDataSource
 import com.foxtrader.app.domain.model.AssetClass
 import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.MarketType
@@ -24,6 +25,7 @@ class MarketSymbolDirectoryImpl @Inject constructor(
     private val bybit: BybitDataSource,
     private val kuCoin: KuCoinDataSource,
     private val okx: OkxDataSource,
+    private val dukascopy: DukascopyDataSource,
     private val deriv: DerivRepository,
 ) : MarketSymbolDirectory {
     override suspend fun discover(provider: DataProvider): Result<List<ProviderMarketSymbol>> =
@@ -34,6 +36,7 @@ class MarketSymbolDirectoryImpl @Inject constructor(
                 DataProvider.BYBIT -> bybit.discoverSymbols()
                 DataProvider.KUCOIN -> kuCoin.discoverSymbols()
                 DataProvider.OKX -> okx.discoverSymbols()
+                DataProvider.DUKASCOPY -> dukascopy.discoverSymbols()
                 DataProvider.DERIV -> deriv.activeSymbols().getOrThrow()
                     .mapNotNull { it.toProviderMarketSymbol() }
                     .distinctBy { it.providerSymbol }
