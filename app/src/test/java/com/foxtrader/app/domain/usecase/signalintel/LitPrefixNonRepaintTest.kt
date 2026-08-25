@@ -1,8 +1,11 @@
 package com.foxtrader.app.domain.usecase.signalintel
 
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.LitBreakMode
 import com.foxtrader.app.domain.model.LitConfig
+import com.foxtrader.app.domain.model.LitPoiZone
+import com.foxtrader.app.domain.model.LitStage
 import com.foxtrader.app.domain.model.LitXConfig
 import com.foxtrader.app.domain.model.LitXGrade
 import com.foxtrader.app.domain.model.LitXMode
@@ -168,8 +171,13 @@ class LitPrefixNonRepaintTest {
         for (seed in 0 until SERIES_COUNT) {
             val series = walk(seed)
             for (end in WARMUP..series.size) {
-                val window = series.subList(0, end)
-                val analysis = engine.analyze(SYMBOL, Timeframe.M15, window, litConfig)
+                var window = series.subList(0, end)
+                var analysis = engine.analyze(SYMBOL, Timeframe.M15, window, litConfig)
+                val readyPoi = analysis.context.poi
+                if (analysis.signal == null && analysis.stage == LitStage.POI_READY && readyPoi != null) {
+                    window = window + retestCandle(window.last(), readyPoi)
+                    analysis = engine.analyze(SYMBOL, Timeframe.M15, window, litConfig)
+                }
                 val signal = analysis.signal
                 if (signal == null) {
                     stages.merge(analysis.stage.name, 1, Int::plus)
@@ -253,6 +261,23 @@ class LitPrefixNonRepaintTest {
             s.direction, s.confirmationIndex, s.sweepIndex, s.shiftIndex,
             s.entry, s.stopLoss, s.takeProfit, s.confidence, s.confirmations.sorted(),
         ).joinToString("|")
+
+    /** Adds one causal future bar that mitigates a POI already confirmed by the engine. */
+    private fun retestCandle(previous: Candle, poi: LitPoiZone): Candle {
+        val span = (poi.high - poi.low).coerceAtLeast(0.000_001)
+        val (open, close) = when (poi.direction) {
+            Direction.BULLISH -> poi.low + span * 0.20 to poi.low + span * 0.35
+            Direction.BEARISH -> poi.high - span * 0.20 to poi.high - span * 0.35
+        }
+        return Candle(
+            timestamp = previous.timestamp + 900_000L,
+            open = open,
+            high = poi.high,
+            low = poi.low,
+            close = close,
+            volume = previous.volume,
+        )
+    }
 
     /**
      * Deterministic random walk with periodic impulses and pullbacks, so the
