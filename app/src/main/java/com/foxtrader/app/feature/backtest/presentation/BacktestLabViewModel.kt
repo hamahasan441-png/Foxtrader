@@ -10,6 +10,7 @@ import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.model.Direction
+import com.foxtrader.app.domain.model.LitXMode
 import com.foxtrader.app.domain.model.StrategySignal
 import com.foxtrader.app.domain.model.StrategyType
 import com.foxtrader.app.domain.model.Timeframe
@@ -18,13 +19,17 @@ import com.foxtrader.app.domain.sdk.script.ScriptEngine
 import com.foxtrader.app.domain.usecase.backtest.AiScoredBacktestEngine
 import com.foxtrader.app.domain.usecase.backtest.BacktestAnalyticsEngine
 import com.foxtrader.app.domain.usecase.backtest.BacktestEngine
+import com.foxtrader.app.domain.usecase.backtest.LitXModeComparisonRunner
 import com.foxtrader.app.domain.usecase.backtest.StrategyFunction
+import com.foxtrader.app.domain.usecase.ai.MtfContextProvider
 import com.foxtrader.app.domain.usecase.binary.BinaryBacktestEngine
 import com.foxtrader.app.domain.usecase.calculator.InstrumentTypeResolver
 import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
 import com.foxtrader.app.domain.usecase.strategies.StrategyLibrary
+import com.foxtrader.app.domain.usecase.signalintel.RsiOrderFlowSignalEngine
+import com.foxtrader.app.domain.usecase.smt.SmtSignalEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -54,9 +59,13 @@ class BacktestLabViewModel @Inject constructor(
     private val binaryBacktestEngine: BinaryBacktestEngine,
     private val aiScoredBacktestEngine: AiScoredBacktestEngine,
     private val analyticsEngine: BacktestAnalyticsEngine,
+    private val litXModeComparisonRunner: LitXModeComparisonRunner,
     private val instrumentTypeResolver: InstrumentTypeResolver,
     private val tradeProEngine: TradeProSignalEngine,
     private val strategyLibrary: StrategyLibrary,
+    private val rsiOrderFlowSignalEngine: RsiOrderFlowSignalEngine,
+    private val smtSignalEngine: SmtSignalEngine,
+    private val mtfContextProvider: MtfContextProvider,
     private val scriptEngine: ScriptEngine,
     private val appPreferences: AppPreferences,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
@@ -98,7 +107,17 @@ class BacktestLabViewModel @Inject constructor(
     }
 
     fun setSymbol(symbol: String) {
-        _uiState.update { it.copy(symbol = symbol, result = null, binaryResult = null, analyticsReport = null, error = null) }
+        _uiState.update {
+            it.copy(
+                symbol = symbol,
+                result = null,
+                binaryResult = null,
+                analyticsReport = null,
+                error = null,
+                modeComparisonReport = null,
+                modeComparisonError = null,
+            )
+        }
     }
 
     fun setDataProvider(provider: DataProvider) {
@@ -112,6 +131,8 @@ class BacktestLabViewModel @Inject constructor(
                 binaryResult = null,
                 analyticsReport = null,
                 error = null,
+                modeComparisonReport = null,
+                modeComparisonError = null,
             )
         }
     }
@@ -119,7 +140,15 @@ class BacktestLabViewModel @Inject constructor(
     fun setTimeframe(timeframe: Timeframe) {
         _uiState.update { state ->
             val resolved = if (state.isBinary3m) Timeframe.M1 else timeframe
-            state.copy(timeframe = resolved, result = null, binaryResult = null, analyticsReport = null, error = null)
+            state.copy(
+                timeframe = resolved,
+                result = null,
+                binaryResult = null,
+                analyticsReport = null,
+                error = null,
+                modeComparisonReport = null,
+                modeComparisonError = null,
+            )
         }
     }
 
@@ -138,6 +167,8 @@ class BacktestLabViewModel @Inject constructor(
                 binaryResult = null,
                 analyticsReport = null,
                 error = null,
+                modeComparisonReport = null,
+                modeComparisonError = null,
             )
         }
     }
@@ -152,12 +183,23 @@ class BacktestLabViewModel @Inject constructor(
                 binaryResult = null,
                 analyticsReport = null,
                 error = null,
+                modeComparisonReport = null,
+                modeComparisonError = null,
             )
         }
     }
 
     fun setRiskPercent(value: Double) {
-        _uiState.update { it.copy(riskPercent = value.coerceIn(0.1, 5.0), result = null, binaryResult = null, analyticsReport = null) }
+        _uiState.update {
+            it.copy(
+                riskPercent = value.coerceIn(0.1, 5.0),
+                result = null,
+                binaryResult = null,
+                analyticsReport = null,
+                modeComparisonReport = null,
+                modeComparisonError = null,
+            )
+        }
     }
 
     fun setBinaryPayoutRatio(value: Double) {
@@ -194,6 +236,7 @@ class BacktestLabViewModel @Inject constructor(
     }
 
     fun runBacktest() {
+        if (_uiState.value.isComparingModes) return
         replayJob?.cancel()
         replayJob = null
         viewModelScope.launch {
@@ -265,7 +308,20 @@ class BacktestLabViewModel @Inject constructor(
                     // crypto/gold/index P&L is not computed as a forex lot.
                     contractSize = instrumentTypeResolver.resolve(state.symbol).contractSize.toInt(),
                 )
-                val strategy = buildStrategy(state)
+                val correlatedCandles = if (state.strategy == BacktestStrategyTemplate.SMT) {
+                    mtfContextProvider.getCorrelatedContext(
+                        symbol = state.symbol,
+                        timeframe = state.timeframe,
+                        refreshMissing = true,
+                    ).also { peers ->
+                        require(peers.isNotEmpty()) {
+                            "SMT requires at least one real correlated peer series for ${state.symbol} ${state.timeframe.label}."
+                        }
+                    }
+                } else {
+                    emptyMap()
+                }
+                val strategy = buildStrategy(state, correlatedCandles)
 
                 val result = withContext(defaultDispatcher) {
                     if (state.aiScoringEnabled) {
@@ -314,6 +370,76 @@ class BacktestLabViewModel @Inject constructor(
                     it.copy(
                         isRunning = false,
                         error = e.message ?: "Backtest failed.",
+                    )
+                }
+            }
+        }
+    }
+
+    /** Run every LiT Adventure mode against one identical, verified candle set. */
+    fun runLitModeComparison() {
+        val initial = _uiState.value
+        if (!initial.canCompareLitModes || initial.isRunning || initial.isComparingModes) return
+
+        viewModelScope.launch {
+            val state = _uiState.value
+            _uiState.update {
+                it.copy(
+                    isComparingModes = true,
+                    modeComparisonCompleted = 0,
+                    modeComparisonTotal = LitXMode.entries.size,
+                    modeComparisonReport = null,
+                    modeComparisonError = null,
+                )
+            }
+            try {
+                repository.refreshCandles(state.symbol, state.timeframe, BACKTEST_REFRESH_BARS).getOrThrow()
+                val sourced = repository.getSourcedCandles(state.symbol, state.timeframe)
+                if (state.dataProvider != DataProvider.SAMPLE) {
+                    require(sourced.source == CandleSource.LIVE) {
+                        "Fresh ${state.dataProvider.displayName} data is required for mode comparison; synthetic fallback is not allowed."
+                    }
+                }
+                require(sourced.candles.size >= MIN_REQUIRED_BARS) {
+                    "Need at least $MIN_REQUIRED_BARS candles for LiT mode comparison. Got ${sourced.candles.size}."
+                }
+                val config = BacktestConfig(
+                    initialBalance = state.initialBalance,
+                    riskPercent = state.riskPercent,
+                    executionMode = BacktestExecutionMode.NEXT_BAR_OPEN,
+                    contractSize = instrumentTypeResolver.resolve(state.symbol).contractSize.toInt(),
+                )
+                val report = withContext(defaultDispatcher) {
+                    litXModeComparisonRunner(
+                        candles = sourced.candles,
+                        symbol = state.symbol,
+                        timeframe = state.timeframe,
+                        backtestConfig = config,
+                        baseConfig = appPreferences.litXConfig.value,
+                        onProgress = { completed, total ->
+                            _uiState.update {
+                                it.copy(
+                                    modeComparisonCompleted = completed,
+                                    modeComparisonTotal = total,
+                                )
+                            }
+                        },
+                    )
+                }
+                _uiState.update {
+                    it.copy(
+                        isComparingModes = false,
+                        modeComparisonReport = report,
+                        modeComparisonError = null,
+                    )
+                }
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (error: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isComparingModes = false,
+                        modeComparisonError = error.message ?: "LiT mode comparison failed.",
                     )
                 }
             }
@@ -403,7 +529,10 @@ class BacktestLabViewModel @Inject constructor(
     private fun initialReplayCursor(candles: List<Candle>): Int =
         (VISUAL_REPLAY_WARMUP_BARS - 1).coerceIn(0, candles.lastIndex.coerceAtLeast(0))
 
-    private fun buildStrategy(state: BacktestLabUiState): StrategyFunction {
+    private fun buildStrategy(
+        state: BacktestLabUiState,
+        correlatedCandles: Map<String, List<Candle>> = emptyMap(),
+    ): StrategyFunction {
         val blueprint = state.selectedBlueprint
         if (blueprint != null) {
             val compiled = scriptEngine.compileBlueprint(blueprint)
@@ -428,6 +557,19 @@ class BacktestLabViewModel @Inject constructor(
                 state.symbol,
                 state.timeframe,
             ).function
+            BacktestStrategyTemplate.LIT_MAY_MADNESS -> strategyLibrary.get(
+                StrategyType.LIT,
+                state.symbol,
+                state.timeframe,
+            ).function
+            BacktestStrategyTemplate.SMT -> smtSignalEngine.strategyFunction(
+                primarySymbol = state.symbol,
+                correlatedCandles = correlatedCandles,
+            )
+            BacktestStrategyTemplate.RSI_ORDERFLOW -> rsiOrderFlowSignalEngine.strategyFunction(
+                symbol = state.symbol,
+                timeframe = state.timeframe,
+            )
         }
     }
 

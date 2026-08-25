@@ -61,6 +61,7 @@ import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.EquityPoint
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.backtest.BacktestAnalyticsReport
+import com.foxtrader.app.domain.usecase.backtest.LitXModeComparisonRunner
 import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxBearishText
 import com.foxtrader.app.ui.theme.FoxBullishText
@@ -93,7 +94,10 @@ fun BacktestLabScreen(
                     IconButton(onClick = onNavigateToRiskSimulator) {
                         Icon(Icons.Default.Casino, contentDescription = "Monte Carlo risk simulator", tint = FoxAmber50)
                     }
-                    IconButton(onClick = viewModel::runBacktest, enabled = !state.isRunning) {
+                    IconButton(
+                        onClick = viewModel::runBacktest,
+                        enabled = !state.isRunning && !state.isComparingModes,
+                    ) {
                         Icon(Icons.Default.Refresh, contentDescription = "Run backtest", tint = FoxAmber50)
                     }
                 },
@@ -118,7 +122,7 @@ fun BacktestLabScreen(
 
             Button(
                 onClick = viewModel::runBacktest,
-                enabled = !state.isRunning,
+                enabled = !state.isRunning && !state.isComparingModes,
                 modifier = Modifier.fillMaxWidth().height(48.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = FoxAmber50),
             ) {
@@ -127,6 +131,31 @@ fun BacktestLabScreen(
                     color = MaterialTheme.colorScheme.onPrimary,
                     fontWeight = FontWeight.Bold,
                 )
+            }
+
+            if (state.canCompareLitModes) {
+                Button(
+                    onClick = viewModel::runLitModeComparison,
+                    enabled = !state.isRunning && !state.isComparingModes,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = FoxNeutral15),
+                ) {
+                    Text(
+                        text = if (state.isComparingModes) {
+                            "Comparing LiT modes ${state.modeComparisonCompleted}/${state.modeComparisonTotal}…"
+                        } else {
+                            "Compare LiT Adventure Modes"
+                        },
+                        color = FoxAmber50,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                state.modeComparisonError?.let { message ->
+                    LabCard {
+                        Text(message, color = FoxBearishText, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+                state.modeComparisonReport?.let(::LitModeComparisonCard)
             }
 
             if (state.hasReplayData && !state.isRunning) {
@@ -205,21 +234,11 @@ private fun ConfigurationCard(
         Spacer(Modifier.height(12.dp))
         Text("Strategy Template", fontSize = 12.sp, color = FoxNeutral60)
         ChipRow(
-            items = BacktestStrategyTemplate.entries,
+            items = BacktestStrategyTemplate.primaryEntries,
             selected = state.strategy.takeIf { state.selectedBlueprintId == null },
             label = { it.displayName },
             onSelect = viewModel::setStrategy,
         )
-        if (state.strategyBlueprints.isNotEmpty()) {
-            Spacer(Modifier.height(10.dp))
-            Text("My Builder Strategies", fontSize = 12.sp, color = FoxNeutral60)
-            ChipRow(
-                items = state.strategyBlueprints,
-                selected = state.selectedBlueprint,
-                label = { it.name },
-                onSelect = { viewModel.setBlueprint(it.id) },
-            )
-        }
         Spacer(Modifier.height(6.dp))
         Text(
             text = state.selectedStrategyDescription,
@@ -357,6 +376,76 @@ private fun ResultContent(result: BacktestResult, analytics: BacktestAnalyticsRe
     AnalyticsCard(analytics)
     AiComparisonCard(result)
     RecentTradesCard(result)
+}
+
+@Composable
+private fun LitModeComparisonCard(report: LitXModeComparisonRunner.ComparisonReport) {
+    LabCard {
+        SectionTitle("LiT Adventure Mode Comparison")
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = "${report.symbol} ${report.timeframe.label} • ${report.barsAnalyzed} closed bars • identical costs and thresholds",
+            color = FoxNeutral60,
+            fontSize = 11.sp,
+        )
+        Spacer(Modifier.height(8.dp))
+        if (report.inconclusive) {
+            Text(
+                text = "Inconclusive: no mode reached ${LitXModeComparisonRunner.MIN_TRADES_FOR_COMPARISON} trades. No winner is declared.",
+                color = FoxAmber50,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+        } else {
+            Text(
+                text = "Evidence winner: ${report.winner?.label}",
+                color = FoxBullishText,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+
+        Spacer(Modifier.height(8.dp))
+        report.comparison.forEach { outcome ->
+            val metrics = outcome.result.metrics
+            val winner = report.winner == outcome.mode
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 7.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = outcome.mode.label + if (winner) " • WINNER" else "",
+                        color = if (winner) FoxBullishText else MaterialTheme.colorScheme.onSurface,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = if (outcome.sampleIsAdequate) "Ranked" else "Need more trades",
+                        color = if (outcome.sampleIsAdequate) FoxBullishText else FoxNeutral60,
+                        fontSize = 11.sp,
+                    )
+                }
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    text = "${metrics.totalTrades} trades • WR ${percent(metrics.winRate)} • PF ${ratio(metrics.profitFactor)} • " +
+                        "Exp ${money2(metrics.expectancy)} • DD ${percent(metrics.maxDrawdownPercent)}",
+                    color = FoxNeutral60,
+                    fontSize = 11.sp,
+                )
+            }
+        }
+        Text(
+            text = "Ranking excludes thin samples and uses profit factor, then expectancy. Walk-forward and Monte Carlo remain available per mode.",
+            color = FoxNeutral60,
+            fontSize = 10.sp,
+        )
+    }
 }
 
 @Composable

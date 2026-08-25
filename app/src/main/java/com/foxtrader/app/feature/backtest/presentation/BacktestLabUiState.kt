@@ -8,6 +8,7 @@ import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.StrategyBlueprint
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.backtest.BacktestAnalyticsReport
+import com.foxtrader.app.domain.usecase.backtest.LitXModeComparisonRunner
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 
@@ -34,13 +35,30 @@ enum class BacktestStrategyTemplate(
             "structural stop, trend-filtered.",
     ),
     LITX(
-        displayName = "LIT X Institutional",
-        description = "Sweep → market shift (CHOCH/MSS) → POI retest, gated by an 11-factor score.",
+        displayName = "LiT Adventure",
+        description = "LiT Adventure: sweep → market shift (CHOCH/MSS) → POI retest with selectable execution modes.",
+    ),
+    LIT_MAY_MADNESS(
+        displayName = "LiT May Madness",
+        description = "Canonical IDM → BOS → CHOCH → displacement → POI/SCOB first-retest execution.",
+    ),
+    SMT(
+        displayName = "SMT",
+        description = "Confirmed divergence against real correlated peer history with causal 2R execution geometry.",
+    ),
+    RSI_ORDERFLOW(
+        displayName = "RSI Orderflow Candle",
+        description = "Confirmed RSI/orderflow-proxy divergence with provider-volume coverage disclosed explicitly.",
     ),
     DERIV_BINARY_3M(
         displayName = "Deriv Binary 3m Precision",
         description = "M1 closed-bar EMA/ADX pullback-reclaim setup; enters next bar and settles after 3 minutes. Non-repainting and fixed-expiry backtestable.",
-    ),
+    );
+
+    companion object {
+        /** The only built-in methodologies exposed in FoxTrader's primary Lab. */
+        val primaryEntries = listOf(LITX, LIT_MAY_MADNESS, SMT, RSI_ORDERFLOW)
+    }
 }
 
 /** Immutable UI state for the Backtesting Lab screen. */
@@ -49,7 +67,7 @@ data class BacktestLabUiState(
     val symbol: String = "EURUSD",
     val timeframe: Timeframe = Timeframe.H1,
     val dataProvider: DataProvider = DataProvider.DUKASCOPY,
-    val strategy: BacktestStrategyTemplate = BacktestStrategyTemplate.RSI_MEAN_REVERSION,
+    val strategy: BacktestStrategyTemplate = BacktestStrategyTemplate.LITX,
     /** Non-null when a saved visual-builder strategy is selected. */
     val selectedBlueprintId: String? = null,
     val strategyBlueprints: ImmutableList<StrategyBlueprint> = persistentListOf(),
@@ -68,11 +86,17 @@ data class BacktestLabUiState(
     val replayCandles: ImmutableList<Candle> = persistentListOf(),
     val replayCursor: Int = 0,
     val replayPlaying: Boolean = false,
+    val isComparingModes: Boolean = false,
+    val modeComparisonCompleted: Int = 0,
+    val modeComparisonTotal: Int = 0,
+    val modeComparisonReport: LitXModeComparisonRunner.ComparisonReport? = null,
+    val modeComparisonError: String? = null,
 ) {
     val hasResult: Boolean get() = result != null || binaryResult != null
     val hasReplayData: Boolean get() = hasResult && replayCandles.isNotEmpty()
     val replayProgress: Double get() = if (replayCandles.size <= 1) 0.0 else replayCursor.coerceIn(0, replayCandles.lastIndex).toDouble() / replayCandles.lastIndex.toDouble()
     val isBinary3m: Boolean get() = selectedBlueprintId == null && strategy == BacktestStrategyTemplate.DERIV_BINARY_3M
+    val canCompareLitModes: Boolean get() = selectedBlueprintId == null && strategy == BacktestStrategyTemplate.LITX
     val selectedBlueprint: StrategyBlueprint?
         get() = selectedBlueprintId?.let { id -> strategyBlueprints.firstOrNull { it.id == id } }
 
