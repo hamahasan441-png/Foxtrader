@@ -19,5 +19,9 @@ internal fun RsiOrderFlowStudySettings.toSignalEngineConfig(): RsiOrderFlowSigna
             minFlowDifference = safe.minFlowDifference,
             includeHidden = safe.includeHidden,
         ),
+        minStrength = safe.minStrength,
+        riskLookback = safe.riskLookback,
+        stopBufferRangeMultiple = safe.stopBufferRangeMultiple,
+        rewardRisk = safe.rewardRisk,
     )
 }

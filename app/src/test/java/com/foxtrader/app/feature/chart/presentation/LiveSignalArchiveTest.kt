@@ -7,6 +7,7 @@ import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.SignalSource
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.model.LitConfig
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -110,6 +111,25 @@ class LiveSignalArchiveTest {
         val other = context.copy(symbol = "BTCUSD")
 
         assertTrue(archive.liveSnapshot(other, candles).isEmpty())
+        assertEquals(1, archive.liveSnapshot(context, candles).size)
+    }
+
+    @Test
+    fun `different chart gear configuration never mixes retained arrows`() {
+        val archive = LiveSignalArchive()
+        val candles = candles(5)
+        archive.merge(
+            context,
+            listOf(signal("old-rules", 3, candles[3].timestamp, true)),
+            candles,
+        )
+        val editedRules = context.copy(
+            configuration = context.configuration.copy(
+                litConfig = LitConfig(minConfidence = 90),
+            ),
+        )
+
+        assertTrue(archive.liveSnapshot(editedRules, candles).isEmpty())
         assertEquals(1, archive.liveSnapshot(context, candles).size)
     }
 

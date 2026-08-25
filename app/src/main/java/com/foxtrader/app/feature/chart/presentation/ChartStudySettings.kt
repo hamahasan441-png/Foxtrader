@@ -79,6 +79,10 @@ data class RsiOrderFlowStudySettings(
     val minRsiDifference: Double = 2.0,
     val minFlowDifference: Double = 3.0,
     val includeHidden: Boolean = false,
+    val minStrength: Int = 40,
+    val riskLookback: Int = 14,
+    val stopBufferRangeMultiple: Double = 0.25,
+    val rewardRisk: Double = 2.0,
 ) {
     fun sanitized(): RsiOrderFlowStudySettings {
         val minSep = minPivotSeparation.coerceIn(1, 250)
@@ -92,6 +96,10 @@ data class RsiOrderFlowStudySettings(
             maxPivotSeparation = maxPivotSeparation.coerceIn(minSep, 500),
             minRsiDifference = finiteOr(minRsiDifference, 2.0).coerceIn(0.0, 50.0),
             minFlowDifference = finiteOr(minFlowDifference, 3.0).coerceIn(0.0, 50.0),
+            minStrength = minStrength.coerceIn(0, 100),
+            riskLookback = riskLookback.coerceIn(1, 250),
+            stopBufferRangeMultiple = finiteOr(stopBufferRangeMultiple, 0.25).coerceIn(0.0, 5.0),
+            rewardRisk = finiteOr(rewardRisk, 2.0).coerceIn(0.25, 10.0),
         )
     }
 }

@@ -175,14 +175,14 @@ fun ChartScreen(
     // Keep the default price canvas clean: current/live confirmations remain
     // visible, while historical strategy markers appear only when the trader
     // explicitly enables Signal History from the chart toolbar.
-    val visibleSignals = remember(state.signals, state.showSignalHistory, state.candles.size) {
+    val visibleSignals = remember(state.signals, state.showSignalHistory, displayCandles.size) {
         if (state.showSignalHistory) {
             state.signals
         } else {
             // Keep the canvas clean but do not hide every confirmed arrow the
             // instant the next candle opens. The bounded trail makes signal
             // engines visibly auditable without enabling full Signal History.
-            val recentCutoff = (state.candles.size - 120).coerceAtLeast(0)
+            val recentCutoff = (displayCandles.size - 120).coerceAtLeast(0)
             state.signals
                 .filter { it.isLive || it.barIndex >= recentCutoff }
                 .takeLast(24)
@@ -1566,3 +1566,4 @@ private fun BiasBadge(bias: Bias) {
 
 private fun formatPrice(price: Double): String =
     if (price >= 1000) String.format("%,.2f", price) else String.format("%.5f", price)
+
