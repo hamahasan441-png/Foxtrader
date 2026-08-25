@@ -50,22 +50,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.AlertPriority
 import com.foxtrader.app.domain.model.DataProvider
-import com.foxtrader.app.domain.model.LitBreakMode
-import com.foxtrader.app.domain.model.LitXGrade
 import com.foxtrader.app.domain.model.PositionSizingMethod
-import com.foxtrader.app.domain.model.SignalProfile
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.performance.PerformanceMode
 import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxNeutral10
 import com.foxtrader.app.ui.theme.FoxNeutral60
 import com.foxtrader.app.ui.theme.FoxSuccess
-
-private val LIT_ADVENTURE_MODES = linkedMapOf(
-    "Fast Scalp" to SignalProfile.SCALPING,
-    "Balanced Trade" to SignalProfile.INTRADAY,
-    "Power Trade" to SignalProfile.SWING,
-)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -287,9 +278,7 @@ fun SettingsScreen(
             SectionHeader("Chart Indicators")
             SettingsCard {
                 Text(
-                    "Every chart indicator is available from the chart's Indicators button in every LiT Adventure mode. " +
-                        "Enable it there; active studies expose their normal parameters from the ⚙ chip. " +
-                        "RSI Orderflow advanced divergence thresholds are also visible in the indicator panel.",
+                    "Add indicators and signal engines from the chart. Every active study exposes a small ⚙ chip directly on the chart for presets and parameters; × removes it. Confirmed arrows are closed-bar signals and remain locked once observed.",
                     style = MaterialTheme.typography.bodySmall,
                     color = FoxNeutral60,
                 )
@@ -335,131 +324,6 @@ fun SettingsScreen(
                 SliderSetting("Max daily loss", state.tradeProConfig.maxDailyLossPoints.toFloat(), 1f..200f, " pt") { viewModel.setTradeProMaxDailyLoss(it.toDouble()) }
                 Spacer(Modifier.height(8.dp))
                 SliderSetting("Minimum plan compliance", state.tradeProConfig.minCompliancePercent.toFloat(), 0f..100f, "%") { viewModel.setTradeProMinCompliance(it.toDouble()) }
-            }
-
-            SectionHeader(stringResource(R.string.settings_litx_title))
-            SettingsCard {
-                SwitchSetting(stringResource(R.string.settings_litx_enable), state.litXConfig.enabled, viewModel::setLitXEnabled)
-                Spacer(Modifier.height(12.dp))
-                DropdownSetting(
-                    "LiT Adventure mode",
-                    state.litXConfig.adventureModeLabel,
-                    LIT_ADVENTURE_MODES.keys.toList(),
-                ) { label -> LIT_ADVENTURE_MODES[label]?.let(viewModel::setLitXProfile) }
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "Fast Scalp = 68+ · Balanced Trade = 80+ · Power Trade = 90+. All use confirmed closed-bar signals.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = FoxNeutral60,
-                )
-                Spacer(Modifier.height(12.dp))
-                DropdownSetting("Minimum grade", state.litXConfig.minGrade.name, listOf(LitXGrade.A_PLUS.name, LitXGrade.A.name, LitXGrade.B.name)) { n ->
-                    LitXGrade.entries.firstOrNull { it.name == n }?.let(viewModel::setLitXMinGrade)
-                }
-                Spacer(Modifier.height(12.dp))
-                SwitchSetting(stringResource(R.string.settings_litx_require_htf), state.litXConfig.requireHtfAlignment, viewModel::setLitXRequireHtf)
-                Spacer(Modifier.height(8.dp))
-                SwitchSetting("Require displacement-confirmed MSS", state.litXConfig.requireStrongMss, viewModel::setLitXRequireStrongMss)
-                Spacer(Modifier.height(8.dp))
-                SwitchSetting("Require premium/discount alignment", state.litXConfig.requireDirectionalZone, viewModel::setLitXRequireDirectionalZone)
-                Spacer(Modifier.height(8.dp))
-                SliderSetting("Minimum confidence", state.litXConfig.minConfidenceScore.toFloat(), 50f..95f, "%") { viewModel.setLitXMinConfidence(it.toInt()) }
-                Spacer(Modifier.height(8.dp))
-                SliderSetting(stringResource(R.string.settings_litx_min_rr), state.litXConfig.minRiskReward.toFloat(), 1f..5f, "R") { viewModel.setLitXMinRiskReward(it.toDouble()) }
-                Spacer(Modifier.height(8.dp))
-                SliderSetting("Displacement ATR", state.litXConfig.displacementAtrMultiple.toFloat(), 0.8f..3f, "x") { viewModel.setLitXDisplacement(it.toDouble()) }
-                Spacer(Modifier.height(8.dp))
-                SliderSetting("Max sweep → shift bars", state.litXConfig.maxSweepToShiftBars.toFloat(), 3f..30f, "") { viewModel.setLitXSweepToShift(it.toInt()) }
-                Spacer(Modifier.height(8.dp))
-                SliderSetting("Max shift → retest bars", state.litXConfig.maxShiftToRetestBars.toFloat(), 3f..40f, "") { viewModel.setLitXShiftToRetest(it.toInt()) }
-            }
-
-            SectionHeader("LiT May Madness — Core")
-            SettingsCard {
-                DropdownSetting("Preset", state.litConfig.profile.name, SignalProfile.entries.map { it.name }) { n -> SignalProfile.entries.firstOrNull { it.name == n }?.let(viewModel::setLitProfile) }
-                Spacer(Modifier.height(8.dp))
-                SliderSetting("Minimum confidence", state.litConfig.minConfidence.toFloat(), 50f..95f, "%") { viewModel.setLitMinConfidence(it.toInt()) }
-                Spacer(Modifier.height(8.dp))
-                SwitchSetting("Require premium/discount alignment", state.litConfig.requireDirectionalZone, viewModel::setLitDirectionalZone)
-                Spacer(Modifier.height(8.dp))
-                SliderSetting("Setup lookback", state.litConfig.setupLookback.toFloat(), 20f..180f, " bars") { viewModel.setLitSetupLookback(it.toInt()) }
-                Spacer(Modifier.height(8.dp))
-                SliderSetting("Max sweep → shift", state.litConfig.maxSweepToShiftBars.toFloat(), 3f..30f, " bars") { viewModel.setLitSweepToShift(it.toInt()) }
-                Spacer(Modifier.height(8.dp))
-                SliderSetting("Max shift → retest", state.litConfig.maxShiftToRetestBars.toFloat(), 3f..40f, " bars") { viewModel.setLitShiftToRetest(it.toInt()) }
-                Spacer(Modifier.height(8.dp))
-                SliderSetting("Minimum R:R", state.litConfig.minRiskReward.toFloat(), 1f..5f, "R") { viewModel.setLitMinRr(it.toDouble()) }
-                Spacer(Modifier.height(8.dp))
-                SliderSetting("Displacement ATR", state.litConfig.displacementAtrMultiple.toFloat(), 0.8f..3f, "x") { viewModel.setLitDisplacement(it.toDouble()) }
-            }
-
-            SectionHeader("LiT May Madness — Structure Advanced")
-            SettingsCard {
-                SliderSetting("Swing left", state.litConfig.swingLeftBars.toFloat(), 2f..8f, " bars") { viewModel.setLitSwingLeft(it.toInt()) }
-                Spacer(Modifier.height(8.dp))
-                SliderSetting("Swing right / confirmation", state.litConfig.swingRightBars.toFloat(), 2f..8f, " bars") { viewModel.setLitSwingRight(it.toInt()) }
-                Spacer(Modifier.height(8.dp))
-                DropdownSetting("Break confirmation", state.litConfig.breakMode.name, LitBreakMode.entries.map { it.name }) { name ->
-                    LitBreakMode.entries.firstOrNull { it.name == name }?.let(viewModel::setLitBreakMode)
-                }
-                Spacer(Modifier.height(8.dp))
-                SliderSetting("Max IDM → BOS", state.litConfig.maxIdmToBosBars.toFloat(), 3f..30f, " bars") { viewModel.setLitMaxIdmToBos(it.toInt()) }
-                Spacer(Modifier.height(8.dp))
-                SliderSetting("Max BOS → CHOCH", state.litConfig.maxBosToChochBars.toFloat(), 3f..36f, " bars") { viewModel.setLitMaxBosToChoch(it.toInt()) }
-                Spacer(Modifier.height(8.dp))
-                SliderSetting("Max POI age", state.litConfig.maxPoiAgeBars.toFloat(), 4f..80f, " bars") { viewModel.setLitMaxPoiAge(it.toInt()) }
-                Spacer(Modifier.height(8.dp))
-                SwitchSetting("Allow inside-bar mother candle", state.litConfig.allowInsideBarMother, viewModel::setLitAllowInsideBarMother)
-                Spacer(Modifier.height(8.dp))
-                SwitchSetting("Follow deeper POI candle", state.litConfig.followDeeperPoiCandle, viewModel::setLitFollowDeeperPoi)
-                Spacer(Modifier.height(8.dp))
-                SwitchSetting("Require SCOB", state.litConfig.requireScob, viewModel::setLitRequireScob)
-                Spacer(Modifier.height(8.dp))
-                SliderSetting("Hidden shadow max ATR", (state.litConfig.hiddenShadowMaxAtrFraction * 100).toFloat(), 5f..100f, "%") { viewModel.setLitHiddenShadowMaxAtr(it / 100.0) }
-                Spacer(Modifier.height(8.dp))
-                SliderSetting("Stop ATR buffer", (state.litConfig.stopAtrBuffer * 100).toFloat(), 2f..75f, "%") { viewModel.setLitStopAtrBuffer(it / 100.0) }
-            }
-
-            SectionHeader("SMT — Divergence")
-            SettingsCard {
-                DropdownSetting("Preset", state.smtConfig.profile.name, SignalProfile.entries.map { it.name }) { n -> SignalProfile.entries.firstOrNull { it.name == n }?.let(viewModel::setSmtProfile) }
-                Spacer(Modifier.height(8.dp))
-                SliderSetting("Comparison period", state.smtConfig.period.toFloat(), 40f..600f, " bars") { viewModel.setSmtPeriod(it.toInt()) }
-                Spacer(Modifier.height(8.dp))
-                SliderSetting("Swing confirmation", state.smtConfig.swingLookback.toFloat(), 1f..10f, " bars") { viewModel.setSmtSwingLookback(it.toInt()) }
-                Spacer(Modifier.height(8.dp))
-                SliderSetting("Minimum correlation", (state.smtConfig.minCorrelation * 100).toFloat(), 10f..95f, "%") { viewModel.setSmtMinCorrelation(it / 100.0) }
-                Spacer(Modifier.height(8.dp))
-                SliderSetting("Max timestamp skew", (state.smtConfig.maxTimestampSkewFraction * 100).toFloat(), 0f..50f, "% bar") { viewModel.setSmtMaxSkewFraction(it / 100.0) }
-                Spacer(Modifier.height(8.dp))
-                SliderSetting("Swing sync tolerance", state.smtConfig.maxSwingSyncBars.toFloat(), 1f..12f, " bars") { viewModel.setSmtSyncBars(it.toInt()) }
-                Spacer(Modifier.height(8.dp))
-                SliderSetting("Max signal age", state.smtConfig.maxSignalAgeBars.toFloat(), 1f..80f, " bars") { viewModel.setSmtMaxAge(it.toInt()) }
-                Spacer(Modifier.height(8.dp))
-                SliderSetting("Minimum divergence strength", (state.smtConfig.minDivergenceStrength * 100).toFloat(), 1f..100f, "%") { viewModel.setSmtMinStrength(it / 100.0) }
-                Spacer(Modifier.height(8.dp))
-                SliderSetting("Minimum confidence", state.smtConfig.minConfidence.toFloat(), 50f..95f, "%") { viewModel.setSmtMinConfidence(it.toInt()) }
-            }
-
-            SectionHeader("SMS — Smart Money Structure")
-            SettingsCard {
-                DropdownSetting("Preset", state.smsConfig.profile.name, SignalProfile.entries.map { it.name }) { n -> SignalProfile.entries.firstOrNull { it.name == n }?.let(viewModel::setSmsProfile) }
-                Spacer(Modifier.height(8.dp))
-                SliderSetting("Swing confirmation", state.smsConfig.swingBars.toFloat(), 2f..12f, " bars") { viewModel.setSmsSwingBars(it.toInt()) }
-                Spacer(Modifier.height(8.dp))
-                SliderSetting("Displacement ATR", state.smsConfig.displacementAtrMultiple.toFloat(), 0.8f..3f, "x") { viewModel.setSmsDisplacement(it.toDouble()) }
-                Spacer(Modifier.height(8.dp))
-                SliderSetting("Max displacement gap", state.smsConfig.maxDisplacementGapBars.toFloat(), 1f..20f, " bars") { viewModel.setSmsGap(it.toInt()) }
-                Spacer(Modifier.height(8.dp))
-                SliderSetting("Max sweep → shift", state.smsConfig.maxSweepToShiftBars.toFloat(), 2f..30f, " bars") { viewModel.setSmsSweepToShift(it.toInt()) }
-                Spacer(Modifier.height(8.dp))
-                SliderSetting("Max signal age", state.smsConfig.maxSignalAgeBars.toFloat(), 1f..20f, " bars") { viewModel.setSmsMaxAge(it.toInt()) }
-                Spacer(Modifier.height(8.dp))
-                SliderSetting("Minimum confidence", state.smsConfig.minConfidence.toFloat(), 50f..95f, "%") { viewModel.setSmsMinConfidence(it.toInt()) }
-                Spacer(Modifier.height(8.dp))
-                SwitchSetting("Require liquidity sweep", state.smsConfig.requireLiquiditySweep, viewModel::setSmsRequireSweep)
-                Spacer(Modifier.height(8.dp))
-                SwitchSetting("Require displacement for CHOCH/MSS", state.smsConfig.requireDisplacementForChoch, viewModel::setSmsRequireDisplacement)
             }
 
             SectionHeader("General")

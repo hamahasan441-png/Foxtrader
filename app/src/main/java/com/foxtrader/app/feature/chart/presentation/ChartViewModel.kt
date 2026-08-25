@@ -12,6 +12,10 @@ import com.foxtrader.app.domain.model.ChartBarMode
 import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.Direction
+import com.foxtrader.app.domain.model.LitConfig
+import com.foxtrader.app.domain.model.LitXConfig
+import com.foxtrader.app.domain.model.SmsConfig
+import com.foxtrader.app.domain.model.SmtConfig
 import com.foxtrader.app.domain.model.MarketDataFreshness
 import com.foxtrader.app.domain.model.MarketDataFreshnessResolver
 import com.foxtrader.app.domain.model.DrawingToolType
@@ -1454,9 +1458,36 @@ class ChartViewModel @Inject constructor(
         }
     }
 
-    fun updateIndicators(transform: (IndicatorToggles) -> IndicatorToggles) {
-        val current = _uiState.value.indicators
-        val updated = transform(current)
+fun currentLitXConfig(): LitXConfig = appPreferences.litXConfig.value
+fun currentLitConfig(): LitConfig = appPreferences.litConfig.value
+fun currentSmtConfig(): SmtConfig = appPreferences.smtConfig.value
+fun currentSmsConfig(): SmsConfig = appPreferences.smsConfig.value
+
+fun updateLitXConfig(config: LitXConfig) {
+    appPreferences.setLitXConfig(config.sanitized())
+}
+
+fun updateLitConfig(config: LitConfig) {
+    appPreferences.setLitConfig(config.sanitized())
+}
+
+fun updateSmtConfig(config: SmtConfig) {
+    appPreferences.setSmtConfig(config.sanitized())
+}
+
+fun updateSmsConfig(config: SmsConfig) {
+    appPreferences.setSmsConfig(config.sanitized())
+}
+
+fun updateIndicators(transform: (IndicatorToggles) -> IndicatorToggles) {
+    val current = _uiState.value.indicators
+    val updated = transform(current)
+    // The chart toggle is authoritative now that LiT Adventure no longer has
+    // a global Settings enable switch. Never let a stale persisted disabled
+    // flag make an enabled on-chart study silently produce no arrows.
+    if (!current.litX && updated.litX && !appPreferences.litXConfig.value.enabled) {
+        appPreferences.setLitXConfig(appPreferences.litXConfig.value.copy(enabled = true).sanitized())
+    }
         if (current.confluence != updated.confluence) { aiCoordinator.lastAiCandlesHash = 0L }
         if (current.smt != updated.smt) {
             smtContextKey = null

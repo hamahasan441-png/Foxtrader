@@ -106,8 +106,7 @@ fun IndicatorPanel(
             ) {
                 Text("INDICATORS & SIGNALS", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    text = "All studies stay available in Fast Scalp, Balanced Trade and Power Trade. " +
-                        "Enable technical studies here and use each active ⚙ chip for its normal parameters.",
+                    text = "Add a study here, then use its small on-chart ⚙ chip to edit presets and parameters. The picker stays selection-only.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -186,17 +185,10 @@ fun IndicatorPanel(
                     onToggle = guardedToggle,
                 )
 
-                if (toggles.rsiOrderFlow) {
-                    RsiOrderFlowAdvancedSettings(
-                        toggles = toggles,
-                        onToggle = guardedToggle,
-                    )
-                }
-
                 Text(
                     text = "Readiness is informational: incompatible studies remain visible instead of disappearing. " +
                         "Time-axis studies require standard time candles; Deriv 3m requires Deriv + M1. " +
-                        "Signal-engine thresholds and LiT modes are persisted in app Settings.",
+                        "All editable study and signal-engine controls live on the active chart ⚙ card.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
