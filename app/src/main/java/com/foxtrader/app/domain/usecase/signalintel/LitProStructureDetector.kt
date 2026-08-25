@@ -28,8 +28,10 @@ import kotlin.math.abs
  */
 @Singleton
 class LitProStructureDetector @Inject constructor(
-    private val equalLevels: EqualLevelDetector = EqualLevelDetector(),
+    private val equalLevels: EqualLevelDetector,
 ) {
+
+    constructor() : this(EqualLevelDetector())
 
     private enum class SwingType { HIGH, LOW }
     private enum class BreakType { BOS, CHOCH }
