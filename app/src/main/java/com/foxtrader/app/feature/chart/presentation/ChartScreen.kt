@@ -87,6 +87,7 @@ import com.foxtrader.app.ui.theme.FoxWarning
 import com.foxtrader.app.feature.chart.presentation.components.CandleChart
 import com.foxtrader.app.feature.chart.presentation.components.ChartAnalysisSheet
 import com.foxtrader.app.feature.chart.presentation.components.ChartOhlcLegend
+import com.foxtrader.app.feature.chart.presentation.components.ChartStudyCornerControls
 import com.foxtrader.app.feature.chart.presentation.components.DrawingManagerDialog
 import com.foxtrader.app.feature.chart.presentation.components.DrawingPalette
 import com.foxtrader.app.feature.chart.presentation.components.IndicatorPanel
@@ -175,8 +176,18 @@ fun ChartScreen(
     // Keep the default price canvas clean: current/live confirmations remain
     // visible, while historical strategy markers appear only when the trader
     // explicitly enables Signal History from the chart toolbar.
-    val visibleSignals = remember(state.signals, state.showSignalHistory) {
-        if (state.showSignalHistory) state.signals else state.signals.filter { it.isLive }
+    val visibleSignals = remember(state.signals, state.showSignalHistory, state.candles.size) {
+        if (state.showSignalHistory) {
+            state.signals
+        } else {
+            // Keep the canvas clean but do not hide every confirmed arrow the
+            // instant the next candle opens. The bounded trail makes signal
+            // engines visibly auditable without enabling full Signal History.
+            val recentCutoff = (state.candles.size - 120).coerceAtLeast(0)
+            state.signals
+                .filter { it.isLive || it.barIndex >= recentCutoff }
+                .takeLast(24)
+        }
     }
 
     val visibleBacktestMarkers = remember(
@@ -444,6 +455,21 @@ fun ChartScreen(
                             modifier = Modifier
                                 .align(Alignment.TopStart)
                                 .padding(8.dp),
+                        )
+                        ChartStudyCornerControls(
+                            toggles = state.indicators,
+                            onChange = viewModel::updateIndicators,
+                            litXConfig = viewModel.currentLitXConfig(),
+                            litConfig = viewModel.currentLitConfig(),
+                            smtConfig = viewModel.currentSmtConfig(),
+                            smsConfig = viewModel.currentSmsConfig(),
+                            onLitXConfigChange = viewModel::updateLitXConfig,
+                            onLitConfigChange = viewModel::updateLitConfig,
+                            onSmtConfigChange = viewModel::updateSmtConfig,
+                            onSmsConfigChange = viewModel::updateSmsConfig,
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(start = 8.dp, top = 40.dp, end = 72.dp),
                         )
                         if (!replayState.isActive && state.showSignalHistory && state.liveSignalStats.totalObserved > 0) {
                             com.foxtrader.app.feature.chart.presentation.components.LiveSignalPerformanceOverlay(

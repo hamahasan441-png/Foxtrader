@@ -30,6 +30,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.foxtrader.app.domain.model.LitConfig
+import com.foxtrader.app.domain.model.LitXConfig
+import com.foxtrader.app.domain.model.LitXMode
+import com.foxtrader.app.domain.model.SignalProfile
+import com.foxtrader.app.domain.model.SmsConfig
+import com.foxtrader.app.domain.model.SmtConfig
 import com.foxtrader.app.domain.usecase.strategies.StrategyRuntimeSettings
 import com.foxtrader.app.domain.usecase.strategies.StrategyRuntimeSettingsRegistry
 import com.foxtrader.app.feature.chart.presentation.BollingerStudySettings
@@ -61,6 +67,14 @@ import java.util.Locale
 fun ChartStudyCornerControls(
     toggles: IndicatorToggles,
     onChange: ((IndicatorToggles) -> IndicatorToggles) -> Unit,
+    litXConfig: LitXConfig = LitXConfig(),
+    litConfig: LitConfig = LitConfig(),
+    smtConfig: SmtConfig = SmtConfig(),
+    smsConfig: SmsConfig = SmsConfig(),
+    onLitXConfigChange: (LitXConfig) -> Unit = {},
+    onLitConfigChange: (LitConfig) -> Unit = {},
+    onSmtConfigChange: (SmtConfig) -> Unit = {},
+    onSmsConfigChange: (SmsConfig) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val active = remember(toggles) { activeStudies(toggles) }
@@ -92,6 +106,14 @@ fun ChartStudyCornerControls(
                 id = id,
                 toggles = toggles,
                 onChange = onChange,
+                litXConfig = litXConfig,
+                litConfig = litConfig,
+                smtConfig = smtConfig,
+                smsConfig = smsConfig,
+                onLitXConfigChange = onLitXConfigChange,
+                onLitConfigChange = onLitConfigChange,
+                onSmtConfigChange = onSmtConfigChange,
+                onSmsConfigChange = onSmsConfigChange,
                 onClose = { editing = null },
             )
         }
@@ -142,6 +164,14 @@ private fun StudySettingsCard(
     id: StudyControlId,
     toggles: IndicatorToggles,
     onChange: ((IndicatorToggles) -> IndicatorToggles) -> Unit,
+    litXConfig: LitXConfig,
+    litConfig: LitConfig,
+    smtConfig: SmtConfig,
+    smsConfig: SmsConfig,
+    onLitXConfigChange: (LitXConfig) -> Unit,
+    onLitConfigChange: (LitConfig) -> Unit,
+    onSmtConfigChange: (SmtConfig) -> Unit,
+    onSmsConfigChange: (SmsConfig) -> Unit,
     onClose: () -> Unit,
 ) {
     val colors = FoxTheme.colors
@@ -172,6 +202,133 @@ private fun StudySettingsCard(
             }
 
             when (id) {
+                StudyControlId.LITX -> {
+                    SignalProfileSelector("Preset", litXConfig.profile) { profile ->
+                        onLitXConfigChange(LitXConfig.preset(profile, enabled = true))
+                    }
+                    LitXModeSelector(litXConfig.mode) { mode ->
+                        onLitXConfigChange(
+                            LitXConfig.preset(mode = mode, profile = litXConfig.profile, enabled = true)
+                        )
+                    }
+                    IntStepper("Min confidence", litXConfig.minConfidenceScore, 50, 95) { value ->
+                        onLitXConfigChange(litXConfig.copy(enabled = true, minConfidenceScore = value).sanitized())
+                    }
+                    DoubleStepper("Min R:R", litXConfig.minRiskReward, 0.1, 1.0, 5.0) { value ->
+                        onLitXConfigChange(litXConfig.copy(enabled = true, minRiskReward = value).sanitized())
+                    }
+                    DoubleStepper("Displacement", litXConfig.displacementAtrMultiple, 0.05, 0.8, 3.0) { value ->
+                        onLitXConfigChange(litXConfig.copy(enabled = true, displacementAtrMultiple = value).sanitized())
+                    }
+                    ToggleRow("Require HTF alignment", litXConfig.requireHtfAlignment) { enabled ->
+                        onLitXConfigChange(litXConfig.copy(enabled = true, requireHtfAlignment = enabled).sanitized())
+                    }
+                    ToggleRow("Require displacement MSS", litXConfig.requireStrongMss) { enabled ->
+                        onLitXConfigChange(litXConfig.copy(enabled = true, requireStrongMss = enabled).sanitized())
+                    }
+                    ToggleRow("Require premium/discount", litXConfig.requireDirectionalZone) { enabled ->
+                        onLitXConfigChange(litXConfig.copy(enabled = true, requireDirectionalZone = enabled).sanitized())
+                    }
+                    IntStepper("Sweep → shift", litXConfig.maxSweepToShiftBars, 3, 30) { value ->
+                        onLitXConfigChange(litXConfig.copy(enabled = true, maxSweepToShiftBars = value).sanitized())
+                    }
+                    IntStepper("Shift → retest", litXConfig.maxShiftToRetestBars, 3, 40) { value ->
+                        onLitXConfigChange(litXConfig.copy(enabled = true, maxShiftToRetestBars = value).sanitized())
+                    }
+                    Text(
+                        text = "Logic modes: Sweep Reversal, Precision, Momentum and Sniper. Each emits only after its own closed-bar structural gates pass.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textSecondary,
+                    )
+                    ResetButton { onLitXConfigChange(LitXConfig.preset(litXConfig.profile, enabled = true)) }
+                }
+
+                StudyControlId.LIT -> {
+                    SignalProfileSelector("Preset", litConfig.profile) { profile ->
+                        onLitConfigChange(LitConfig.preset(profile))
+                    }
+                    IntStepper("Min confidence", litConfig.minConfidence, 50, 95) { value ->
+                        onLitConfigChange(litConfig.copy(minConfidence = value).sanitized())
+                    }
+                    DoubleStepper("Min R:R", litConfig.minRiskReward, 0.1, 1.0, 5.0) { value ->
+                        onLitConfigChange(litConfig.copy(minRiskReward = value).sanitized())
+                    }
+                    DoubleStepper("Displacement", litConfig.displacementAtrMultiple, 0.05, 0.8, 3.0) { value ->
+                        onLitConfigChange(litConfig.copy(displacementAtrMultiple = value).sanitized())
+                    }
+                    IntStepper("Setup lookback", litConfig.setupLookback, 20, 180) { value ->
+                        onLitConfigChange(litConfig.copy(setupLookback = value).sanitized())
+                    }
+                    IntStepper("Swing left", litConfig.swingLeftBars, 2, 8) { value ->
+                        onLitConfigChange(litConfig.copy(swingLeftBars = value).sanitized())
+                    }
+                    IntStepper("Swing right", litConfig.swingRightBars, 2, 8) { value ->
+                        onLitConfigChange(litConfig.copy(swingRightBars = value).sanitized())
+                    }
+                    ToggleRow("Require premium/discount", litConfig.requireDirectionalZone) { enabled ->
+                        onLitConfigChange(litConfig.copy(requireDirectionalZone = enabled).sanitized())
+                    }
+                    ToggleRow("Require SCOB", litConfig.requireScob) { enabled ->
+                        onLitConfigChange(litConfig.copy(requireScob = enabled).sanitized())
+                    }
+                    Text(
+                        text = "Hard sequence: pullback → IDM sweep/reclaim → BOS → CHOCH + displacement → POI/SCOB → first retest.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textSecondary,
+                    )
+                    ResetButton { onLitConfigChange(LitConfig.preset(litConfig.profile)) }
+                }
+
+                StudyControlId.SMT -> {
+                    SignalProfileSelector("Preset", smtConfig.profile) { profile ->
+                        onSmtConfigChange(SmtConfig.preset(profile))
+                    }
+                    IntStepper("Comparison period", smtConfig.period, 40, 600) { value ->
+                        onSmtConfigChange(smtConfig.copy(period = value).sanitized())
+                    }
+                    IntStepper("Swing confirmation", smtConfig.swingLookback, 1, 10) { value ->
+                        onSmtConfigChange(smtConfig.copy(swingLookback = value).sanitized())
+                    }
+                    DoubleStepper("Min correlation", smtConfig.minCorrelation, 0.05, 0.10, 0.95) { value ->
+                        onSmtConfigChange(smtConfig.copy(minCorrelation = value).sanitized())
+                    }
+                    DoubleStepper("Min divergence", smtConfig.minDivergenceStrength, 0.01, 0.01, 1.0) { value ->
+                        onSmtConfigChange(smtConfig.copy(minDivergenceStrength = value).sanitized())
+                    }
+                    IntStepper("Max signal age", smtConfig.maxSignalAgeBars, 1, 80) { value ->
+                        onSmtConfigChange(smtConfig.copy(maxSignalAgeBars = value).sanitized())
+                    }
+                    IntStepper("Min confidence", smtConfig.minConfidence, 50, 95) { value ->
+                        onSmtConfigChange(smtConfig.copy(minConfidence = value).sanitized())
+                    }
+                    ResetButton { onSmtConfigChange(SmtConfig.preset(smtConfig.profile)) }
+                }
+
+                StudyControlId.SMS -> {
+                    SignalProfileSelector("Preset", smsConfig.profile) { profile ->
+                        onSmsConfigChange(SmsConfig.preset(profile))
+                    }
+                    IntStepper("Swing confirmation", smsConfig.swingBars, 2, 12) { value ->
+                        onSmsConfigChange(smsConfig.copy(swingBars = value).sanitized())
+                    }
+                    DoubleStepper("Displacement", smsConfig.displacementAtrMultiple, 0.05, 0.8, 3.0) { value ->
+                        onSmsConfigChange(smsConfig.copy(displacementAtrMultiple = value).sanitized())
+                    }
+                    IntStepper("Sweep → shift", smsConfig.maxSweepToShiftBars, 2, 30) { value ->
+                        onSmsConfigChange(smsConfig.copy(maxSweepToShiftBars = value).sanitized())
+                    }
+                    IntStepper("Min confidence", smsConfig.minConfidence, 50, 95) { value ->
+                        onSmsConfigChange(smsConfig.copy(minConfidence = value).sanitized())
+                    }
+                    ToggleRow("Require liquidity sweep", smsConfig.requireLiquiditySweep) { enabled ->
+                        onSmsConfigChange(smsConfig.copy(requireLiquiditySweep = enabled).sanitized())
+                    }
+                    ToggleRow("Require displacement", smsConfig.requireDisplacementForChoch) { enabled ->
+                        onSmsConfigChange(smsConfig.copy(requireDisplacementForChoch = enabled).sanitized())
+                    }
+                    ResetButton { onSmsConfigChange(SmsConfig.preset(smsConfig.profile)) }
+                }
+
                 StudyControlId.EMA -> {
                     IntStepper("Fast", settings.ema.fastPeriod, 1, 500) { value ->
                         updateSettings(onChange) { it.copy(ema = it.ema.copy(fastPeriod = value).sanitized()) }
@@ -214,7 +371,19 @@ private fun StudySettingsCard(
                     ToggleRow("Hidden divergence", settings.rsiOrderFlow.includeHidden) { enabled ->
                         updateSettings(onChange) { it.copy(rsiOrderFlow = it.rsiOrderFlow.copy(includeHidden = enabled)) }
                     }
-                    ResetButton { updateSettings(onChange) { it.copy(rsiOrderFlow = RsiOrderFlowStudySettings()) } }
+IntStepper("Min pivot separation", settings.rsiOrderFlow.minPivotSeparation, 1, 250) { value ->
+    updateSettings(onChange) { it.copy(rsiOrderFlow = it.rsiOrderFlow.copy(minPivotSeparation = value).sanitized()) }
+}
+IntStepper("Max pivot separation", settings.rsiOrderFlow.maxPivotSeparation, settings.rsiOrderFlow.minPivotSeparation, 500) { value ->
+    updateSettings(onChange) { it.copy(rsiOrderFlow = it.rsiOrderFlow.copy(maxPivotSeparation = value).sanitized()) }
+}
+DoubleStepper("Min RSI difference", settings.rsiOrderFlow.minRsiDifference, 0.5, 0.0, 50.0) { value ->
+    updateSettings(onChange) { it.copy(rsiOrderFlow = it.rsiOrderFlow.copy(minRsiDifference = value).sanitized()) }
+}
+DoubleStepper("Min flow difference", settings.rsiOrderFlow.minFlowDifference, 0.5, 0.0, 50.0) { value ->
+    updateSettings(onChange) { it.copy(rsiOrderFlow = it.rsiOrderFlow.copy(minFlowDifference = value).sanitized()) }
+}
+ResetButton { updateSettings(onChange) { it.copy(rsiOrderFlow = RsiOrderFlowStudySettings()) } }
                 }
 
                 StudyControlId.MACD -> {
@@ -391,6 +560,68 @@ private fun StudySettingsCard(
                         color = colors.textSecondary,
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SignalProfileSelector(
+    label: String,
+    selected: SignalProfile,
+    onSelect: (SignalProfile) -> Unit,
+) {
+    val colors = FoxTheme.colors
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            SignalProfile.entries.forEach { profile ->
+                val active = profile == selected
+                Text(
+                    text = when (profile) {
+                        SignalProfile.SCALPING -> "Scalp"
+                        SignalProfile.INTRADAY -> "Intraday"
+                        SignalProfile.SWING -> "Power"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (active) colors.accent else colors.textSecondary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (active) colors.accentMuted else colors.surface)
+                        .clickable { onSelect(profile) }
+                        .padding(horizontal = 8.dp, vertical = 5.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LitXModeSelector(selected: LitXMode, onSelect: (LitXMode) -> Unit) {
+    val colors = FoxTheme.colors
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("Logic", style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            LitXMode.entries.forEach { mode ->
+                val active = mode == selected
+                Text(
+                    text = mode.label,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (active) colors.accent else colors.textSecondary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (active) colors.accentMuted else colors.surface)
+                        .clickable { onSelect(mode) }
+                        .padding(horizontal = 8.dp, vertical = 5.dp),
+                )
             }
         }
     }
