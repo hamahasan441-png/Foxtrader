@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -41,8 +42,6 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -218,7 +217,9 @@ fun ChartScreen(
                 onAlertsClick = onNavigateToAlerts,
                 onCalculatorClick = viewModel::openCalculator,
                 onSymbolClick = viewModel::openSymbolPicker,
-                onProviderChange = viewModel::onDataProviderChange,
+                onProviderClick = {
+                    activeMenu = if (activeMenu == ChartMenu.PROVIDER) ChartMenu.NONE else ChartMenu.PROVIDER
+                },
                 onLiveToggle = viewModel::toggleLive,
                 onToggleAnalysis = { analysisExpanded = !analysisExpanded },
             )
@@ -252,6 +253,24 @@ fun ChartScreen(
         }
 
         // --- Expandable panels (only one visible at a time) ---
+        // Provider picker is deliberately inline instead of Material3 DropdownMenu.
+        // LeakCanary traced a detached Compose PopupLayout retained by the attached
+        // AndroidComposeView. Keeping this selector in the normal composition
+        // removes the separate popup window/lifecycle entirely.
+        AnimatedVisibility(
+            visible = !immersive && activeMenu == ChartMenu.PROVIDER,
+            enter = expandVertically(),
+            exit = shrinkVertically(),
+        ) {
+            ProviderPickerPanel(
+                selected = state.dataProvider,
+                onSelect = { provider ->
+                    viewModel.onDataProviderChange(provider)
+                    activeMenu = ChartMenu.NONE
+                },
+            )
+        }
+
         // Timeframe dropdown
         AnimatedVisibility(
             visible = !immersive && activeMenu == ChartMenu.TIMEFRAME,
@@ -687,11 +706,10 @@ private fun ChartTopBar(
     onAlertsClick: () -> Unit,
     onCalculatorClick: () -> Unit,
     onSymbolClick: () -> Unit,
-    onProviderChange: (DataProvider) -> Unit,
+    onProviderClick: () -> Unit,
     onLiveToggle: () -> Unit,
     onToggleAnalysis: () -> Unit,
 ) {
-    var providerMenuExpanded by remember { mutableStateOf(false) }
     val currentSymbolDescription = stringResource(R.string.chart_current_symbol_cd, state.symbol)
     val live = connectionState == ConnectionState.CONNECTED &&
         state.dataFreshness == MarketDataFreshness.LIVE
@@ -721,6 +739,7 @@ private fun ChartTopBar(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
+            .statusBarsPadding()
             .padding(
                 horizontal = ChartDimens.topBarHorizontalPadding,
                 vertical = ChartDimens.topBarVerticalPadding,
@@ -750,42 +769,17 @@ private fun ChartTopBar(
                 .padding(horizontal = 10.dp, vertical = 5.dp)
                 .semantics { contentDescription = currentSymbolDescription },
         )
-        Box {
-            Text(
-                text = providerShortLabel(state.dataProvider),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontWeight = FontWeight.SemiBold,
-                style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .clickable(role = Role.Button) { providerMenuExpanded = true }
-                    .padding(horizontal = 7.dp, vertical = 4.dp),
-            )
-            DropdownMenu(
-                expanded = providerMenuExpanded,
-                onDismissRequest = { providerMenuExpanded = false },
-            ) {
-                providerGroups().forEach { (group, providers) ->
-                    Text(
-                        text = group,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = FoxNeutral60,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
-                    )
-                    providers.forEach { provider ->
-                        DropdownMenuItem(
-                            text = { Text(provider.displayName) },
-                            onClick = {
-                                providerMenuExpanded = false
-                                onProviderChange(provider)
-                            },
-                            enabled = provider != state.dataProvider,
-                        )
-                    }
-                }
-            }
-        }
+        Text(
+            text = providerShortLabel(state.dataProvider),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = FontWeight.SemiBold,
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .clickable(role = Role.Button, onClick = onProviderClick)
+                .padding(horizontal = 7.dp, vertical = 4.dp),
+        )
         BiasBadge(state.bias)
         Text(
             text = liveLabel,
@@ -860,6 +854,51 @@ private fun ChartTopBar(
  */
 private fun providerShortLabel(provider: DataProvider): String = provider.displayName
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ProviderPickerPanel(
+    selected: DataProvider,
+    onSelect: (DataProvider) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        providerGroups().forEach { (group, providers) ->
+            Text(
+                text = group,
+                style = MaterialTheme.typography.labelSmall,
+                color = FoxNeutral60,
+            )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                providers.forEach { provider ->
+                    val isSelected = provider == selected
+                    Text(
+                        text = provider.displayName,
+                        color = if (isSelected) FoxAmber50 else MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(
+                                if (isSelected) MaterialTheme.colorScheme.primaryContainer
+                                else MaterialTheme.colorScheme.surfaceVariant
+                            )
+                            .clickable(enabled = !isSelected) { onSelect(provider) }
+                            .padding(horizontal = 10.dp, vertical = 7.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
 /** Group the native Deriv source separately from general market feeds. */
 private fun providerGroups(): List<Pair<String, List<DataProvider>>> {
     val implemented = DataProvider.implemented()
@@ -870,7 +909,7 @@ private fun providerGroups(): List<Pair<String, List<DataProvider>>> {
 }
 
 private enum class ChartMenu {
-    NONE, TIMEFRAME, BAR_MODE, INDICATORS, BACKTEST, DRAWING, MULTI_CHART
+    NONE, PROVIDER, TIMEFRAME, BAR_MODE, INDICATORS, BACKTEST, DRAWING, MULTI_CHART
 }
 
 /**
