@@ -155,7 +155,9 @@ fun BacktestLabScreen(
                         Text(message, color = FoxBearishText, style = MaterialTheme.typography.bodyMedium)
                     }
                 }
-                state.modeComparisonReport?.let(::LitModeComparisonCard)
+                state.modeComparisonReport?.let { report ->
+                    LitModeComparisonCard(report)
+                }
             }
 
             if (state.hasReplayData && !state.isRunning) {
