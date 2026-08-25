@@ -30,7 +30,7 @@ import kotlinx.coroutines.yield
  *
  * ## Replay fidelity
  *
- * The strategy function hands the engine `candles[start..index]` and accepts the
+ * The strategy function hands the engine a trailing candle prefix and accepts the
  * result only when `confirmationIndex == index` — i.e. only a signal the engine
  * would have emitted live, on that bar, with no later bar visible. This is the
  * same right-edge contract `LitPrefixNonRepaintTest` pins, so a backtest here
