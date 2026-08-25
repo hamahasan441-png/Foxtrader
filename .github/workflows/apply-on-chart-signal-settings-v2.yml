@@ -1,0 +1,104 @@
+name: One-shot on-chart signal settings v2
+
+on:
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Make patch anchors indentation tolerant
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          p = Path('scripts/apply_on_chart_signal_settings_patch.py')
+          s = p.read_text()
+          old = '''def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"patch anchor {label!r} expected once, found {count}")
+              return text.replace(old, new, 1)
+          '''
+          new = '''def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count == 1:
+                  return text.replace(old, new, 1)
+              if count > 1:
+                  raise SystemExit(f"patch anchor {label!r} expected once, found {count}")
+
+              # Most Kotlin anchors are written with textwrap.dedent so tolerate
+              # only leading indentation differences while keeping all tokens exact.
+              import re
+              old_lines = old.splitlines(keepends=True)
+              pattern_parts = []
+              for line in old_lines:
+                  body = line.lstrip(' \\t')
+                  if body.strip():
+                      pattern_parts.append(r'[ \\t]*' + re.escape(body))
+                  else:
+                      pattern_parts.append(re.escape(body))
+              pattern = ''.join(pattern_parts)
+              matches = list(re.finditer(pattern, text))
+              if len(matches) != 1:
+                  raise SystemExit(f"patch anchor {label!r} indentation fallback found {len(matches)}")
+              match = matches[0]
+              first_line = match.group(0).splitlines()[0]
+              base_indent = first_line[:len(first_line) - len(first_line.lstrip(' \\t'))]
+              new_lines = new.splitlines(keepends=True)
+              replacement = ''.join(
+                  (base_indent + line if line.strip() else line)
+                  for line in new_lines
+              )
+              return text[:match.start()] + replacement + text[match.end():]
+          '''
+          if old not in s:
+              raise SystemExit('replace_once function anchor not found')
+          p.write_text(s.replace(old, new, 1))
+          PY
+
+      - name: Apply source patch
+        run: python3 scripts/apply_on_chart_signal_settings_patch.py
+
+      - name: Validate UI contract
+        run: |
+          ! grep -q 'SectionHeader("LiT May Madness' app/src/main/java/com/foxtrader/app/feature/settings/presentation/SettingsScreen.kt
+          ! grep -q 'SectionHeader("SMT — Divergence")' app/src/main/java/com/foxtrader/app/feature/settings/presentation/SettingsScreen.kt
+          grep -q 'ChartStudyCornerControls(' app/src/main/java/com/foxtrader/app/feature/chart/presentation/ChartScreen.kt
+          grep -q 'StudyControlId.LITX ->' app/src/main/java/com/foxtrader/app/feature/chart/presentation/components/ChartStudyCornerControls.kt
+          grep -q 'LitXModeSelector' app/src/main/java/com/foxtrader/app/feature/chart/presentation/components/ChartStudyCornerControls.kt
+          grep -q 'recentCutoff' app/src/main/java/com/foxtrader/app/feature/chart/presentation/ChartScreen.kt
+
+      - name: Unit tests
+        run: chmod +x ./gradlew && ./gradlew :app:testDebugUnitTest --stacktrace --no-daemon --no-configuration-cache
+
+      - name: Build debug APK
+        run: ./gradlew :app:assembleDebug --stacktrace --no-daemon --no-configuration-cache
+
+      - name: Commit tested source changes
+        run: |
+          rm -f scripts/apply_on_chart_signal_settings_patch.py
+          rm -f .github/workflows/apply-on-chart-signal-settings.yml
+          rm -f .github/workflows/apply-on-chart-signal-settings-pr.yml
+          rm -f .github/workflows/apply-on-chart-signal-settings-v2.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: move signal settings onto chart and surface confirmed arrows"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
