@@ -16,6 +16,12 @@ enum class ChartStudyId(
     PARABOLIC_SAR("Parabolic SAR", 2),
     RSI("RSI", 15),
     RSI_ORDER_FLOW("RSI OrderFlow", 25, contextHint = "OHLCV delta/CVD proxy"),
+    PIVOT_SWEEP_DIVERGENCE(
+        "Pivot Sweep Divergence",
+        40,
+        requiresTimeAxis = true,
+        contextHint = "needs a completed prior trading day",
+    ),
     MACD("MACD", 35),
     STOCHASTIC("Stochastic", 15),
     BOLLINGER("Bollinger", 20),
@@ -125,6 +131,14 @@ object IndicatorReadinessCatalog {
         ChartStudyId.RSI_ORDER_FLOW ->
             max(settings.rsiOrderFlow.rsiPeriod, settings.rsiOrderFlow.flowPeriod) +
                 settings.rsiOrderFlow.pivotLeft + settings.rsiOrderFlow.pivotRight + 1
+        ChartStudyId.PIVOT_SWEEP_DIVERGENCE ->
+            maxOf(
+                settings.pivotSweepDivergence.rsiPeriod,
+                settings.pivotSweepDivergence.flowPeriod,
+                settings.pivotSweepDivergence.atrPeriod,
+            ) + settings.pivotSweepDivergence.pivotLeft +
+                settings.pivotSweepDivergence.pivotRight +
+                settings.pivotSweepDivergence.minPivotSeparation + 1
         ChartStudyId.MACD -> max(settings.macd.fastPeriod, settings.macd.slowPeriod) + settings.macd.signalPeriod
         ChartStudyId.STOCHASTIC -> max(settings.stochastic.kPeriod, settings.stochastic.dPeriod) + 1
         ChartStudyId.BOLLINGER -> settings.bollinger.period

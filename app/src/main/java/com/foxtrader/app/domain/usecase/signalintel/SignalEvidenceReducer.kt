@@ -50,6 +50,7 @@ class SignalEvidenceReducer @Inject constructor() {
         SignalSource.SMS -> Family.STRUCTURE_LIQUIDITY
         SignalSource.SMT -> Family.DIVERGENCE
         SignalSource.RSI_ORDERFLOW -> Family.MOMENTUM_ORDERFLOW
+        SignalSource.PIVOT_SWEEP_DIVERGENCE -> Family.COMPOSITE
         SignalSource.TRADEPRO -> Family.COMPOSITE
         SignalSource.BINARY3M,
         SignalSource.STRATEGY -> Family.OTHER

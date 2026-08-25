@@ -22,6 +22,7 @@ class ProductionAnalysisSystemTest {
             lit = true,
             smt = true,
             rsiOrderFlow = true,
+            pivotSweepDivergence = true,
             allStrategies = true,
             activeStrategy = StrategyType.BREAKOUT,
             settings = customSettings,
@@ -40,6 +41,7 @@ class ProductionAnalysisSystemTest {
         assertFalse(result.lit)
         assertFalse(result.smt)
         assertFalse(result.rsiOrderFlow)
+        assertFalse(result.pivotSweepDivergence)
 
         // Every independent indicator/engine/strategy choice survives.
         assertTrue(result.tradePro)
@@ -58,6 +60,7 @@ class ProductionAnalysisSystemTest {
             ProductionAnalysisSystem.LIT_MAY_MADNESS to { t: IndicatorToggles -> t.lit },
             ProductionAnalysisSystem.SMT to { t: IndicatorToggles -> t.smt },
             ProductionAnalysisSystem.RSI_ORDERFLOW_CANDLE to { t: IndicatorToggles -> t.rsiOrderFlow },
+            ProductionAnalysisSystem.PIVOT_SWEEP_DIVERGENCE to { t: IndicatorToggles -> t.pivotSweepDivergence },
         )
 
         mappings.forEach { (system, isExpectedActive) ->
@@ -75,6 +78,7 @@ class ProductionAnalysisSystemTest {
             lit = true,
             smt = true,
             rsiOrderFlow = true,
+            pivotSweepDivergence = true,
             tradePro = true,
             binary3m = true,
             ema = true,
@@ -86,6 +90,7 @@ class ProductionAnalysisSystemTest {
         assertFalse(result.lit)
         assertFalse(result.smt)
         assertFalse(result.rsiOrderFlow)
+        assertFalse(result.pivotSweepDivergence)
         assertNull(result.productionAnalysisSystem())
 
         assertTrue(result.tradePro)

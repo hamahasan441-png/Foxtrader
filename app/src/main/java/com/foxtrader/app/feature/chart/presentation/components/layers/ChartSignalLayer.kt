@@ -261,6 +261,7 @@ internal fun DrawScope.drawSignalMarkers(
                 SignalSource.TRADEPRO -> "TP"
                 SignalSource.SMT -> "SMT"
                 SignalSource.RSI_ORDERFLOW -> "ROF"
+                SignalSource.PIVOT_SWEEP_DIVERGENCE -> "PSD"
                 SignalSource.BINARY3M -> "B3"
                 SignalSource.STRATEGY -> "ST"
             }

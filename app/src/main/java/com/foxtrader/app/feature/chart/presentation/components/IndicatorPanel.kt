@@ -120,6 +120,9 @@ fun IndicatorPanel(
                         StudyItem("RSI Orderflow Candle", ChartStudyId.RSI_ORDER_FLOW, toggles.rsiOrderFlow) { t ->
                             t.copy(rsiOrderFlow = !t.rsiOrderFlow)
                         },
+                        StudyItem("Pivot Sweep Divergence", ChartStudyId.PIVOT_SWEEP_DIVERGENCE, toggles.pivotSweepDivergence) { t ->
+                            t.copy(pivotSweepDivergence = !t.pivotSweepDivergence)
+                        },
                         StudyItem("SMS", ChartStudyId.SMS, toggles.sms) { t -> t.withSmsSuite(!t.sms) },
                         StudyItem("TradePro", ChartStudyId.TRADE_PRO, toggles.tradePro) { t -> t.withTradeProSuite(!t.tradePro) },
                         StudyItem("Deriv 3m", ChartStudyId.BINARY_3M, toggles.binary3m) { t ->

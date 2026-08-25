@@ -58,4 +58,26 @@ class ChartStudySettingsTest {
         assertTrue(value.stopBufferRangeMultiple.isFinite())
         assertTrue(value.rewardRisk.isFinite())
     }
+
+    @Test
+    fun `PSD sanitizer keeps causal risk and rejection controls finite`() {
+        val value = PivotSweepDivergenceStudySettings(
+            minPivotSeparation = 50,
+            maxPivotSeparation = 2,
+            minSweepAtr = Double.NaN,
+            minRejectionWickFraction = 9.0,
+            minCloseLocation = Double.NEGATIVE_INFINITY,
+            rewardRisk = Double.POSITIVE_INFINITY,
+            sessionOffsetMinutes = 5_000,
+            maxSignals = 0,
+        ).sanitized()
+
+        assertTrue(value.maxPivotSeparation >= value.minPivotSeparation)
+        assertTrue(value.minSweepAtr.isFinite())
+        assertTrue(value.minRejectionWickFraction in 0.0..1.0)
+        assertTrue(value.minCloseLocation in 0.5..1.0)
+        assertTrue(value.rewardRisk.isFinite())
+        assertTrue(value.sessionOffsetMinutes in -720..840)
+        assertTrue(value.maxSignals >= 20)
+    }
 }

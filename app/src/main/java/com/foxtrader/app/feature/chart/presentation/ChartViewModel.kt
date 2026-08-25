@@ -56,6 +56,7 @@ import com.foxtrader.app.domain.usecase.litx.LitXEngine
 import com.foxtrader.app.domain.usecase.signalintel.ConfirmedBarPolicy
 import com.foxtrader.app.domain.usecase.signalintel.LitEngine
 import com.foxtrader.app.domain.usecase.signalintel.RsiOrderFlowSignalEngine
+import com.foxtrader.app.domain.usecase.signalintel.PivotSweepDivergenceEngine
 import com.foxtrader.app.domain.usecase.signalintel.SmsEngine
 import com.foxtrader.app.domain.usecase.signalintel.SignalFusionEngine
 import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
@@ -123,6 +124,7 @@ class ChartViewModel @Inject constructor(
     private val signalFusionEngine: SignalFusionEngine,
     private val smtDivergenceDetector: SmtDivergenceDetector,
     private val rsiOrderFlowSignalEngine: RsiOrderFlowSignalEngine,
+    private val pivotSweepDivergenceEngine: PivotSweepDivergenceEngine,
     private val heikinAshiTransformer: HeikinAshiTransformer,
     private val candleRenkoBuilder: CandleRenkoBuilder,
     private val signalComputer: SignalComputer,
@@ -665,6 +667,30 @@ class ChartViewModel @Inject constructor(
             }
         } else emptyList()
 
+        // PSD derives every level from the previous completed trading day and
+        // receives the same hard closed-bar prefix as the other signal engines.
+        // It returns the complete bounded history, so old arrows remain on the
+        // chart while a newly confirmed event alone is marked live.
+        val pivotSweepDivergenceSignals: List<ChartSignal> = if (
+            ind.pivotSweepDivergence &&
+            barMode == ChartBarMode.TIME &&
+            timeframe.minutes < Timeframe.D1.minutes &&
+            signalCandles.isNotEmpty()
+        ) {
+            withContext(defaultDispatcher) {
+                containedOrDefault(emptyList()) {
+                    pivotSweepDivergenceEngine.analyze(
+                        symbol = symbol,
+                        timeframe = timeframe,
+                        candles = signalCandles,
+                        config = ind.settings.pivotSweepDivergence.toEngineConfig(),
+                    ).signals.map { signal ->
+                        signal.toChartSignal(latestConfirmedIndex)
+                    }
+                }
+            }
+        } else emptyList()
+
         // Backfill previously confirmed LiT arrows. Each bar is evaluated only
         // through its own closed prefix, so later data cannot create, move or
         // delete an earlier marker (non-repaint by construction).
@@ -791,7 +817,7 @@ class ChartViewModel @Inject constructor(
             emptyList()
         }
 
-        val chartStrategySignals = productionHistory + strategySignals + binary3mSignals
+        val chartStrategySignals = productionHistory + pivotSweepDivergenceSignals + strategySignals + binary3mSignals
 
         // Drop stale frames: a newer computation (e.g. from a rapid indicator
         // toggle) has already started, so publishing this older result would
@@ -937,6 +963,23 @@ class ChartViewModel @Inject constructor(
             }
         } else emptyList()
 
+        val pivotSweepDivergenceSignals: List<ChartSignal> = if (
+            ind.pivotSweepDivergence &&
+            current.barMode == ChartBarMode.TIME &&
+            timeframe.minutes < Timeframe.D1.minutes
+        ) {
+            withContext(defaultDispatcher) {
+                containedOrDefault(emptyList()) {
+                    pivotSweepDivergenceEngine.analyze(
+                        symbol = symbol,
+                        timeframe = timeframe,
+                        candles = candles,
+                        config = ind.settings.pivotSweepDivergence.toEngineConfig(),
+                    ).signals.map { signal -> signal.toChartSignal(candles.lastIndex) }
+                }
+            }
+        } else emptyList()
+
         val productionHistory = if ((ind.litX || ind.lit) && candles.isNotEmpty()) {
             withContext(defaultDispatcher) {
                 scanProductionSignalHistory(
@@ -1028,7 +1071,7 @@ class ChartViewModel @Inject constructor(
             tradeProAnalysis = null,
             smtDivergences = emptyList(),
             candles = candles,
-            strategySignals = productionHistory + strategySignals + binary3mSignals,
+            strategySignals = productionHistory + pivotSweepDivergenceSignals + strategySignals + binary3mSignals,
             litAnalysis = litAnalysis,
             smsAnalysis = smsAnalysis,
             rsiOrderFlowSignals = rsiOrderFlowSignals,
@@ -2074,3 +2117,26 @@ class ChartViewModel @Inject constructor(
         const val RENKO_AUTO_MIN_PRICE_FRACTION = 0.0001
     }
 }
+
+private fun PivotSweepDivergenceEngine.Signal.toChartSignal(latestConfirmedIndex: Int): ChartSignal =
+    ChartSignal(
+        id = "psd_${symbol}_${timestamp}_${direction.name}_${levelName.name}",
+        source = SignalSource.PIVOT_SWEEP_DIVERGENCE,
+        direction = direction,
+        entry = entry,
+        sl = stopLoss,
+        tp = takeProfit,
+        barIndex = confirmationIndex,
+        timestamp = timestamp,
+        confidence = confidence.toDouble(),
+        isLive = confirmationIndex == latestConfirmedIndex,
+        label = "PSD ${levelName.name} · ${reasons.take(4).joinToString(" · ")}",
+        eventKey = SignalIdentity.pivotSweepDivergence(
+            symbol = symbol,
+            timeframe = timeframe,
+            timestamp = timestamp,
+            direction = direction,
+            confirmationIndex = confirmationIndex,
+        ),
+        variant = mode.name,
+    )

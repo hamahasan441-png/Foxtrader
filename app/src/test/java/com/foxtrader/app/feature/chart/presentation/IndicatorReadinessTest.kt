@@ -55,4 +55,21 @@ class IndicatorReadinessTest {
             IndicatorReadinessCatalog.status(ChartStudyId.LIT, 50, ChartBarMode.TIME).level,
         )
     }
+
+    @Test
+    fun `PSD exposes time-axis and previous-day requirements`() {
+        val incompatible = IndicatorReadinessCatalog.status(
+            ChartStudyId.PIVOT_SWEEP_DIVERGENCE,
+            500,
+            ChartBarMode.RENKO,
+        )
+        val ready = IndicatorReadinessCatalog.status(
+            ChartStudyId.PIVOT_SWEEP_DIVERGENCE,
+            500,
+            ChartBarMode.TIME,
+        )
+
+        assertEquals(IndicatorReadinessLevel.INCOMPATIBLE, incompatible.level)
+        assertTrue(ready.label.contains("prior trading day"))
+    }
 }

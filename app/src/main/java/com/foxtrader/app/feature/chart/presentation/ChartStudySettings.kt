@@ -15,6 +15,7 @@ data class ChartStudySettings(
     val ema: EmaStudySettings = EmaStudySettings(),
     val rsi: RsiStudySettings = RsiStudySettings(),
     val rsiOrderFlow: RsiOrderFlowStudySettings = RsiOrderFlowStudySettings(),
+    val pivotSweepDivergence: PivotSweepDivergenceStudySettings = PivotSweepDivergenceStudySettings(),
     val macd: MacdStudySettings = MacdStudySettings(),
     val bollinger: BollingerStudySettings = BollingerStudySettings(),
     val superTrend: SuperTrendStudySettings = SuperTrendStudySettings(),
@@ -29,6 +30,7 @@ data class ChartStudySettings(
         ema = ema.sanitized(),
         rsi = rsi.sanitized(),
         rsiOrderFlow = rsiOrderFlow.sanitized(),
+        pivotSweepDivergence = pivotSweepDivergence.sanitized(),
         macd = macd.sanitized(),
         bollinger = bollinger.sanitized(),
         superTrend = superTrend.sanitized(),
@@ -39,6 +41,63 @@ data class ChartStudySettings(
         parabolicSar = parabolicSar.sanitized(),
         mfi = mfi.sanitized(),
     )
+}
+
+enum class PivotSweepDivergenceMode { FAST, PRECISION, POWER }
+
+@Immutable
+data class PivotSweepDivergenceStudySettings(
+    val mode: PivotSweepDivergenceMode = PivotSweepDivergenceMode.PRECISION,
+    val rsiPeriod: Int = 14,
+    val flowPeriod: Int = 14,
+    val flowSmoothing: Int = 5,
+    val pivotLeft: Int = 3,
+    val pivotRight: Int = 3,
+    val minPivotSeparation: Int = 5,
+    val maxPivotSeparation: Int = 80,
+    val minRsiDifference: Double = 2.0,
+    val minFlowDifference: Double = 3.0,
+    val atrPeriod: Int = 14,
+    val minSweepAtr: Double = 0.15,
+    val minRejectionWickFraction: Double = 0.40,
+    val minCloseLocation: Double = 0.60,
+    val structureLookback: Int = 5,
+    val maxConfirmBars: Int = 4,
+    val displacementAtrMultiple: Double = 0.80,
+    val stopBufferAtr: Double = 0.25,
+    val rewardRisk: Double = 2.0,
+    val minScore: Int = 75,
+    val cooldownBars: Int = 8,
+    val sessionOffsetMinutes: Int = 0,
+    val maxSignals: Int = 160,
+) {
+    fun sanitized(): PivotSweepDivergenceStudySettings {
+        val minSep = minPivotSeparation.coerceIn(1, 250)
+        return copy(
+            rsiPeriod = rsiPeriod.coerceIn(2, MAX_PERIOD),
+            flowPeriod = flowPeriod.coerceIn(2, MAX_PERIOD),
+            flowSmoothing = flowSmoothing.coerceIn(1, 100),
+            pivotLeft = pivotLeft.coerceIn(1, 25),
+            pivotRight = pivotRight.coerceIn(1, 25),
+            minPivotSeparation = minSep,
+            maxPivotSeparation = maxPivotSeparation.coerceIn(minSep, 500),
+            minRsiDifference = finiteOr(minRsiDifference, 2.0).coerceIn(0.0, 50.0),
+            minFlowDifference = finiteOr(minFlowDifference, 3.0).coerceIn(0.0, 50.0),
+            atrPeriod = atrPeriod.coerceIn(2, MAX_PERIOD),
+            minSweepAtr = finiteOr(minSweepAtr, 0.15).coerceIn(0.0, 3.0),
+            minRejectionWickFraction = finiteOr(minRejectionWickFraction, 0.40).coerceIn(0.0, 1.0),
+            minCloseLocation = finiteOr(minCloseLocation, 0.60).coerceIn(0.50, 1.0),
+            structureLookback = structureLookback.coerceIn(1, 100),
+            maxConfirmBars = maxConfirmBars.coerceIn(0, 30),
+            displacementAtrMultiple = finiteOr(displacementAtrMultiple, 0.80).coerceIn(0.0, 5.0),
+            stopBufferAtr = finiteOr(stopBufferAtr, 0.25).coerceIn(0.0, 5.0),
+            rewardRisk = finiteOr(rewardRisk, 2.0).coerceIn(0.25, 10.0),
+            minScore = minScore.coerceIn(0, 100),
+            cooldownBars = cooldownBars.coerceIn(0, 250),
+            sessionOffsetMinutes = sessionOffsetMinutes.coerceIn(-720, 840),
+            maxSignals = maxSignals.coerceIn(20, 500),
+        )
+    }
 }
 
 @Immutable
