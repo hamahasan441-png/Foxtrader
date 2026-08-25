@@ -145,7 +145,16 @@ fun FoxNavHost(
         NavHost(
             navController = navController,
             startDestination = FoxRoutes.HOME,
-            modifier = Modifier.padding(innerPadding),
+            // The root Scaffold already knows the bottom navigation height.
+            // On the chart destination we consume only that bottom inset here;
+            // ChartTopBar owns the status-bar inset itself. This avoids reserving
+            // a second empty top band above the price workspace while remaining
+            // safe on cutout devices.
+            modifier = if (currentRoute == FoxRoutes.CHART) {
+                Modifier.padding(bottom = innerPadding.calculateBottomPadding())
+            } else {
+                Modifier.padding(innerPadding)
+            },
         ) {
             composable(FoxRoutes.HOME) {
                 HomeScreen(
