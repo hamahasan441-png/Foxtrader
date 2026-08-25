@@ -1,6 +1,7 @@
 package com.foxtrader.app.domain.usecase.signalintel
 
 import com.foxtrader.app.domain.model.Candle
+import com.foxtrader.app.domain.model.LitBreakMode
 import com.foxtrader.app.domain.model.LitConfig
 import com.foxtrader.app.domain.model.LitXConfig
 import com.foxtrader.app.domain.model.LitXGrade
@@ -82,6 +83,23 @@ class LitPrefixNonRepaintTest {
         mode = LitXMode.PRECISION,
     )
 
+    /** Permissive but production-sanitized settings for exercising LiT Pro. */
+    private val litConfig = LitConfig(
+        minConfidence = 50,
+        requireDirectionalZone = false,
+        setupLookback = 180,
+        minRiskReward = 1.0,
+        displacementAtrMultiple = 0.8,
+        swingLeftBars = 2,
+        swingRightBars = 2,
+        breakMode = LitBreakMode.SHADOW,
+        maxIdmToBosBars = 30,
+        maxBosToChochBars = 36,
+        maxPoiAgeBars = 80,
+        hiddenShadowMaxAtrFraction = 1.0,
+        stopAtrBuffer = 0.02,
+    )
+
     // ---------------------------------------------------------------- LiT X
 
     @Test
@@ -148,7 +166,7 @@ class LitPrefixNonRepaintTest {
             val series = walk(seed)
             for (end in WARMUP..series.size) {
                 val window = series.subList(0, end)
-                val signal = engine.analyze(SYMBOL, Timeframe.M15, window, LitConfig()).signal
+                val signal = engine.analyze(SYMBOL, Timeframe.M15, window, litConfig).signal
                     ?: continue
                 emitted++
                 assertEquals(
@@ -168,7 +186,7 @@ class LitPrefixNonRepaintTest {
         for (seed in 0 until SERIES_COUNT) {
             val series = walk(seed)
             for (end in WARMUP..series.size) {
-                val signal = engine.analyze(SYMBOL, Timeframe.M15, series.subList(0, end), LitConfig())
+                val signal = engine.analyze(SYMBOL, Timeframe.M15, series.subList(0, end), litConfig)
                     .signal ?: continue
                 // The documented chronology: sweep precedes shift precedes
                 // confirmation. Any inversion means the sequence gate let an
@@ -204,7 +222,7 @@ class LitPrefixNonRepaintTest {
 
     private fun accumulate(engine: LitEngine, series: List<Candle>): List<String> =
         (WARMUP..series.size).mapNotNull { end ->
-            engine.analyze(SYMBOL, Timeframe.M15, series.subList(0, end), LitConfig())
+            engine.analyze(SYMBOL, Timeframe.M15, series.subList(0, end), litConfig)
                 .signal?.let(::fingerprint)
         }
 
