@@ -50,6 +50,8 @@ import com.foxtrader.app.feature.chart.presentation.KeltnerStudySettings
 import com.foxtrader.app.feature.chart.presentation.MacdStudySettings
 import com.foxtrader.app.feature.chart.presentation.MfiStudySettings
 import com.foxtrader.app.feature.chart.presentation.ParabolicSarStudySettings
+import com.foxtrader.app.feature.chart.presentation.PivotSweepDivergenceMode
+import com.foxtrader.app.feature.chart.presentation.PivotSweepDivergenceStudySettings
 import com.foxtrader.app.feature.chart.presentation.ProductionAnalysisSystem
 import com.foxtrader.app.feature.chart.presentation.RsiOrderFlowStudySettings
 import com.foxtrader.app.feature.chart.presentation.RsiStudySettings
@@ -410,6 +412,78 @@ SignalArrowNote()
 ResetButton { updateSettings(onChange) { it.copy(rsiOrderFlow = RsiOrderFlowStudySettings()) } }
                 }
 
+                StudyControlId.PIVOT_SWEEP_DIVERGENCE -> {
+                    PsdModeSelector(settings.pivotSweepDivergence.mode) { mode ->
+                        updateSettings(onChange) {
+                            it.copy(pivotSweepDivergence = it.pivotSweepDivergence.copy(mode = mode))
+                        }
+                    }
+                    IntStepper("Min quality score", settings.pivotSweepDivergence.minScore, 0, 100) { value ->
+                        updateSettings(onChange) { it.copy(pivotSweepDivergence = it.pivotSweepDivergence.copy(minScore = value)) }
+                    }
+                    IntStepper("RSI period", settings.pivotSweepDivergence.rsiPeriod, 2, 500) { value ->
+                        updateSettings(onChange) { it.copy(pivotSweepDivergence = it.pivotSweepDivergence.copy(rsiPeriod = value)) }
+                    }
+                    IntStepper("Flow period", settings.pivotSweepDivergence.flowPeriod, 2, 500) { value ->
+                        updateSettings(onChange) { it.copy(pivotSweepDivergence = it.pivotSweepDivergence.copy(flowPeriod = value)) }
+                    }
+                    IntStepper("Flow smoothing", settings.pivotSweepDivergence.flowSmoothing, 1, 100) { value ->
+                        updateSettings(onChange) { it.copy(pivotSweepDivergence = it.pivotSweepDivergence.copy(flowSmoothing = value)) }
+                    }
+                    IntStepper("Pivot left", settings.pivotSweepDivergence.pivotLeft, 1, 25) { value ->
+                        updateSettings(onChange) { it.copy(pivotSweepDivergence = it.pivotSweepDivergence.copy(pivotLeft = value)) }
+                    }
+                    IntStepper("Pivot right", settings.pivotSweepDivergence.pivotRight, 1, 25) { value ->
+                        updateSettings(onChange) { it.copy(pivotSweepDivergence = it.pivotSweepDivergence.copy(pivotRight = value)) }
+                    }
+                    DoubleStepper("Min RSI divergence", settings.pivotSweepDivergence.minRsiDifference, 0.5, 0.0, 50.0) { value ->
+                        updateSettings(onChange) { it.copy(pivotSweepDivergence = it.pivotSweepDivergence.copy(minRsiDifference = value)) }
+                    }
+                    DoubleStepper("Min flow divergence", settings.pivotSweepDivergence.minFlowDifference, 0.5, 0.0, 50.0) { value ->
+                        updateSettings(onChange) { it.copy(pivotSweepDivergence = it.pivotSweepDivergence.copy(minFlowDifference = value)) }
+                    }
+                    IntStepper("ATR period", settings.pivotSweepDivergence.atrPeriod, 2, 500) { value ->
+                        updateSettings(onChange) { it.copy(pivotSweepDivergence = it.pivotSweepDivergence.copy(atrPeriod = value)) }
+                    }
+                    DoubleStepper("Min sweep ATR", settings.pivotSweepDivergence.minSweepAtr, 0.05, 0.0, 3.0) { value ->
+                        updateSettings(onChange) { it.copy(pivotSweepDivergence = it.pivotSweepDivergence.copy(minSweepAtr = value)) }
+                    }
+                    DoubleStepper("Min rejection wick", settings.pivotSweepDivergence.minRejectionWickFraction, 0.05, 0.0, 1.0) { value ->
+                        updateSettings(onChange) { it.copy(pivotSweepDivergence = it.pivotSweepDivergence.copy(minRejectionWickFraction = value)) }
+                    }
+                    DoubleStepper("Close location", settings.pivotSweepDivergence.minCloseLocation, 0.05, 0.5, 1.0) { value ->
+                        updateSettings(onChange) { it.copy(pivotSweepDivergence = it.pivotSweepDivergence.copy(minCloseLocation = value)) }
+                    }
+                    IntStepper("Structure lookback", settings.pivotSweepDivergence.structureLookback, 1, 100) { value ->
+                        updateSettings(onChange) { it.copy(pivotSweepDivergence = it.pivotSweepDivergence.copy(structureLookback = value)) }
+                    }
+                    IntStepper("Confirm window", settings.pivotSweepDivergence.maxConfirmBars, 0, 30) { value ->
+                        updateSettings(onChange) { it.copy(pivotSweepDivergence = it.pivotSweepDivergence.copy(maxConfirmBars = value)) }
+                    }
+                    DoubleStepper("Displacement ATR", settings.pivotSweepDivergence.displacementAtrMultiple, 0.05, 0.0, 5.0) { value ->
+                        updateSettings(onChange) { it.copy(pivotSweepDivergence = it.pivotSweepDivergence.copy(displacementAtrMultiple = value)) }
+                    }
+                    DoubleStepper("Stop ATR buffer", settings.pivotSweepDivergence.stopBufferAtr, 0.05, 0.0, 5.0) { value ->
+                        updateSettings(onChange) { it.copy(pivotSweepDivergence = it.pivotSweepDivergence.copy(stopBufferAtr = value)) }
+                    }
+                    DoubleStepper("Reward : risk", settings.pivotSweepDivergence.rewardRisk, 0.25, 0.25, 10.0) { value ->
+                        updateSettings(onChange) { it.copy(pivotSweepDivergence = it.pivotSweepDivergence.copy(rewardRisk = value)) }
+                    }
+                    IntStepper("Cooldown bars", settings.pivotSweepDivergence.cooldownBars, 0, 250) { value ->
+                        updateSettings(onChange) { it.copy(pivotSweepDivergence = it.pivotSweepDivergence.copy(cooldownBars = value)) }
+                    }
+                    IntStepper("Session UTC offset", settings.pivotSweepDivergence.sessionOffsetMinutes, -720, 840, 60) { value ->
+                        updateSettings(onChange) { it.copy(pivotSweepDivergence = it.pivotSweepDivergence.copy(sessionOffsetMinutes = value)) }
+                    }
+                    Text(
+                        text = "BUY: PDL/S1/S2 sweep. SELL: PDH/R1/R2 sweep. Previous completed day only; regular dual divergence only.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textSecondary,
+                    )
+                    SignalArrowNote()
+                    ResetButton { updateSettings(onChange) { it.copy(pivotSweepDivergence = PivotSweepDivergenceStudySettings()) } }
+                }
+
                 StudyControlId.MACD -> {
                     IntStepper("Fast", settings.macd.fastPeriod, 1, 500) { value ->
                         updateSettings(onChange) { it.copy(macd = it.macd.copy(fastPeriod = value).sanitized()) }
@@ -652,8 +726,13 @@ private fun LitXModeSelector(selected: LitXMode, onSelect: (LitXMode) -> Unit) {
 }
 
 @Composable
-private fun IntStepper(label: String, value: Int, min: Int, max: Int, onValue: (Int) -> Unit) {
-    SettingRow(label, value.toString(), { onValue((value - 1).coerceAtLeast(min)) }, { onValue((value + 1).coerceAtMost(max)) })
+private fun IntStepper(label: String, value: Int, min: Int, max: Int, step: Int = 1, onValue: (Int) -> Unit) {
+    SettingRow(
+        label,
+        value.toString(),
+        { onValue((value - step.coerceAtLeast(1)).coerceAtLeast(min)) },
+        { onValue((value + step.coerceAtLeast(1)).coerceAtMost(max)) },
+    )
 }
 
 @Composable
@@ -719,6 +798,32 @@ private fun SignalArrowNote() {
     )
 }
 
+@Composable
+private fun PsdModeSelector(
+    selected: PivotSweepDivergenceMode,
+    onSelected: (PivotSweepDivergenceMode) -> Unit,
+) {
+    val colors = FoxTheme.colors
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("Signal mode", style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
+        Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            PivotSweepDivergenceMode.entries.forEach { mode ->
+                Text(
+                    text = mode.name,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = if (selected == mode) colors.accent else colors.textSecondary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (selected == mode) colors.accentMuted else colors.surfaceStrong)
+                        .clickable { onSelected(mode) }
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                )
+            }
+        }
+    }
+}
+
 private data class ActiveStudy(val id: StudyControlId, val label: String)
 
 private fun activeStudies(t: IndicatorToggles): List<ActiveStudy> = buildList {
@@ -740,6 +845,10 @@ private fun activeStudies(t: IndicatorToggles): List<ActiveStudy> = buildList {
         }
         ProductionAnalysisSystem.RSI_ORDERFLOW_CANDLE -> {
             add(ActiveStudy(StudyControlId.RSI_ORDER_FLOW, "RSI Orderflow Candle"))
+            return@buildList
+        }
+        ProductionAnalysisSystem.PIVOT_SWEEP_DIVERGENCE -> {
+            add(ActiveStudy(StudyControlId.PIVOT_SWEEP_DIVERGENCE, "Pivot Sweep Divergence"))
             return@buildList
         }
         null -> Unit
@@ -773,6 +882,7 @@ private fun activeStudies(t: IndicatorToggles): List<ActiveStudy> = buildList {
     if (t.binary3m) add(ActiveStudy(StudyControlId.BINARY_3M, "Deriv 3m"))
     if (t.rsi) add(ActiveStudy(StudyControlId.RSI, "RSI ${t.settings.rsi.sanitized().period}"))
     if (t.rsiOrderFlow) add(ActiveStudy(StudyControlId.RSI_ORDER_FLOW, "RSI OF"))
+    if (t.pivotSweepDivergence) add(ActiveStudy(StudyControlId.PIVOT_SWEEP_DIVERGENCE, "PSD"))
     if (t.macd) add(ActiveStudy(StudyControlId.MACD, "MACD"))
     if (t.volume) add(ActiveStudy(StudyControlId.VOLUME, "Volume"))
     if (t.stochastic) add(ActiveStudy(StudyControlId.STOCHASTIC, "Stoch"))
@@ -816,6 +926,7 @@ private fun removeStudy(
         StudyControlId.BINARY_3M -> t.copy(binary3m = false)
         StudyControlId.RSI -> t.copy(rsi = false)
         StudyControlId.RSI_ORDER_FLOW -> t.withProductionAnalysisSystem(null)
+        StudyControlId.PIVOT_SWEEP_DIVERGENCE -> t.withProductionAnalysisSystem(null)
         StudyControlId.MACD -> t.copy(macd = false)
         StudyControlId.VOLUME -> t.copy(volume = false)
         StudyControlId.STOCHASTIC -> t.copy(stochastic = false)
@@ -836,7 +947,9 @@ private enum class StudyControlId(val title: String) {
     ORDER_BLOCKS("Order Blocks"), FVG("Fair Value Gaps"), LIQUIDITY("Liquidity"), SESSIONS("Sessions"),
     STRUCTURE("Market Structure"), LITX("LiT Adventure"), LIT("LiT May Madness"), SMS("SMS"), SMT("SMT"),
     TRADE_PRO("TradePro"), BINARY_3M("Deriv 3m"), RSI("RSI settings"),
-    RSI_ORDER_FLOW("RSI OrderFlow settings"), MACD("MACD settings"), VOLUME("Volume"),
+    RSI_ORDER_FLOW("RSI OrderFlow settings"),
+    PIVOT_SWEEP_DIVERGENCE("Pivot Sweep Divergence settings"),
+    MACD("MACD settings"), VOLUME("Volume"),
     STOCHASTIC("Stochastic settings"), OBV("OBV"), MFI("MFI settings"), STRATEGY("Strategy settings"),
     CUSTOM_STRATEGY("Custom strategy"), ALL_STRATEGIES("All strategies"),
 }

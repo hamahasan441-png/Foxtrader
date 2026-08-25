@@ -53,11 +53,6 @@ class SignalComputer @Inject constructor(
             val barIndex = signal.confirmationIndex.takeIf { it in candles.indices }
                 ?: latestConfirmedIndex.takeIf { it in candles.indices }
                 ?: candles.lastIndex
-            val rawMode = signal.confirmations
-                .firstOrNull { it.startsWith("MODE_") }
-                ?.removePrefix("MODE_")
-            val adventureVariant = litAdventureVariant(rawMode)
-            val adventureLabel = litAdventureLabel(adventureVariant)
             signals.add(
                 ChartSignal(
                     // Preserve the legacy public/chart ID contract. Semantic
@@ -72,13 +67,13 @@ class SignalComputer @Inject constructor(
                     timestamp = signal.timestamp,
                     confidence = signal.confidence.score.toDouble(),
                     isLive = barIndex == latestConfirmedIndex,
-                    label = buildSignalLabel("LiTX $adventureLabel", signal.confidence.score, signal.confirmations),
-                    // Production LiT Adventure profiles map their internal
-                    // structural rule set to the three trader-facing indicator
-                    // variants. This makes history/outcome statistics separate
-                    // Fast Scalp, Balanced Trade and Power Trade instead of
-                    // exposing implementation names such as SWEEP_REVERSAL.
-                    variant = adventureVariant,
+                    label = buildSignalLabel("LiTX", signal.confidence.score, signal.confirmations),
+                    // Carried from the MODE_* confirmation the engine stamps on
+                    // every signal, so outcome statistics can be partitioned by
+                    // the rule set that produced them.
+                    variant = signal.confirmations
+                        .firstOrNull { it.startsWith("MODE_") }
+                        ?.removePrefix("MODE_"),
                     eventKey = SignalIdentity.litX(
                         symbol = signal.symbol,
                         timeframe = signal.timeframe,
@@ -272,6 +267,7 @@ class SignalComputer @Inject constructor(
         SignalSource.LITX -> 95
         SignalSource.SMS -> 90
         SignalSource.RSI_ORDERFLOW -> 88
+        SignalSource.PIVOT_SWEEP_DIVERGENCE -> 92
         SignalSource.SMT -> 85
         SignalSource.TRADEPRO -> 80
         SignalSource.BINARY3M -> 70
@@ -346,24 +342,6 @@ class SignalComputer @Inject constructor(
             Direction.BULLISH -> sl < entry && tp > entry
             Direction.BEARISH -> sl > entry && tp < entry
         }
-    }
-
-    private fun litAdventureVariant(rawMode: String?): String? = when (rawMode) {
-        "SWEEP_REVERSAL" -> "FAST_SCALP"
-        "PRECISION" -> "BALANCED_TRADE"
-        "SNIPER" -> "POWER_TRADE"
-        "MOMENTUM" -> "FAST_SCALP_MOMENTUM"
-        null -> null
-        else -> rawMode
-    }
-
-    private fun litAdventureLabel(variant: String?): String = when (variant) {
-        "FAST_SCALP" -> "Fast Scalp"
-        "BALANCED_TRADE" -> "Balanced"
-        "POWER_TRADE" -> "Power"
-        "FAST_SCALP_MOMENTUM" -> "Fast Momentum"
-        null -> "Signal"
-        else -> variant.replace('_', ' ')
     }
 
     private fun buildSignalLabel(name: String, score: Int, confirmations: List<String>): String {

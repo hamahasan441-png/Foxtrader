@@ -71,6 +71,9 @@ enum class SignalSource {
     /** Confirmed RSI + candle-derived orderflow-proxy setup. */
     RSI_ORDERFLOW,
 
+    /** Previous-day pivot sweep/reclaim + confirmed dual divergence setup. */
+    PIVOT_SWEEP_DIVERGENCE,
+
     /** Deriv 3-minute fixed-expiry CALL/PUT setup confirmed on a closed M1 bar. */
     BINARY3M,
 
