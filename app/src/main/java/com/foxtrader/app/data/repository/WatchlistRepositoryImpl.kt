@@ -33,8 +33,7 @@ class WatchlistRepositoryImpl @Inject constructor(
 
     private val mutex = Mutex()
     private val directoryMutex = Mutex()
-    @Volatile private var cachedDirectoryProvider: DataProvider? = null
-    @Volatile private var cachedDirectorySymbols: List<WatchlistSymbol> = emptyList()
+    private val cachedDirectories = mutableMapOf<DirectoryCacheKey, List<WatchlistSymbol>>()
 
     override fun observeWatchlists(): Flow<List<Watchlist>> =
         combine(
@@ -45,7 +44,7 @@ class WatchlistRepositoryImpl @Inject constructor(
         ) { lists, symbols, provider, _ ->
             val bySymbolList = symbols.groupBy { it.watchlistId }
             val persisted = lists.map { entity -> entity.toDomain(bySymbolList[entity.id].orEmpty()) }
-            val providerSymbols = resolveProviderDirectory(provider)
+            val providerSymbols = withContext(io) { resolveProviderDirectory(provider) }
             if (providerSymbols.isEmpty()) {
                 persisted
             } else {
@@ -66,17 +65,20 @@ class WatchlistRepositoryImpl @Inject constructor(
         }
 
     private suspend fun resolveProviderDirectory(provider: DataProvider): List<WatchlistSymbol> {
-        if (provider != DataProvider.ALL_RATES_TODAY) return emptyList()
-        if (cachedDirectoryProvider == provider && cachedDirectorySymbols.isNotEmpty()) {
-            return cachedDirectorySymbols
-        }
+        if (!provider.implemented || provider == DataProvider.SAMPLE) return emptyList()
+        val cacheKey = DirectoryCacheKey(
+            provider = provider,
+            credentialFingerprint = if (provider.requiresApiKey) {
+                appPreferences.getApiKey(provider).orEmpty().hashCode()
+            } else {
+                0
+            },
+        )
         return directoryMutex.withLock {
-            if (cachedDirectoryProvider == provider && cachedDirectorySymbols.isNotEmpty()) {
-                return@withLock cachedDirectorySymbols
-            }
+            cachedDirectories[cacheKey]?.let { return@withLock it }
             val discovered = marketSymbolDirectory.discover(provider).getOrElse { return@withLock emptyList() }
             val mapped = discovered
-                .filter { it.isTrading }
+                .filter { it.provider == provider && it.isTrading }
                 .map { item ->
                     WatchlistSymbol(
                         symbol = item.providerSymbol,
@@ -86,8 +88,11 @@ class WatchlistRepositoryImpl @Inject constructor(
                 }
                 .distinctBy { it.symbol }
             if (mapped.isNotEmpty()) {
-                cachedDirectoryProvider = provider
-                cachedDirectorySymbols = mapped
+                // A changed API credential must not reuse a directory fetched
+                // under the old entitlement. Keep only the current key for the
+                // provider while retaining other providers for quick switching.
+                cachedDirectories.keys.removeAll { it.provider == provider && it != cacheKey }
+                cachedDirectories[cacheKey] = mapped
             }
             mapped
         }
@@ -185,4 +190,9 @@ class WatchlistRepositoryImpl @Inject constructor(
             "XAUUSD", "BTCUSDT", "ETHUSDT", "US30", "NAS100",
         )
     }
+
+    private data class DirectoryCacheKey(
+        val provider: DataProvider,
+        val credentialFingerprint: Int,
+    )
 }

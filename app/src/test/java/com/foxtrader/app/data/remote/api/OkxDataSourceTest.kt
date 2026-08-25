@@ -1,8 +1,10 @@
 package com.foxtrader.app.data.remote.api
 
+import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.Timeframe
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -49,6 +51,45 @@ class OkxDataSourceTest {
 
         assertTrue(error != null)
         assertEquals("OKX: rate limited", error?.message)
+    }
+
+    @Test
+    fun `discoverSymbols preserves OKX instId and live state`() = runBlocking {
+        val api = FakeOkxApi(
+            response = OkxCandleResponse(),
+            instrumentResponse = OkxInstrumentResponse(
+                data = listOf(
+                    OkxInstrument(
+                        instType = "SPOT",
+                        instId = "BTC-USDT",
+                        baseCcy = "BTC",
+                        quoteCcy = "USDT",
+                        tickSz = "0.1",
+                        state = "live",
+                    ),
+                    OkxInstrument(
+                        instType = "SPOT",
+                        instId = "ETH-USDT",
+                        baseCcy = "ETH",
+                        quoteCcy = "USDT",
+                        tickSz = "0.01",
+                        state = "suspend",
+                    ),
+                ),
+            ),
+        )
+
+        val symbols = OkxDataSource(api).discoverSymbols()
+
+        assertEquals("SPOT", api.instType)
+        assertEquals(2, symbols.size)
+        val btc = symbols.first { it.providerSymbol == "BTC-USDT" }
+        assertEquals(DataProvider.OKX, btc.provider)
+        assertEquals("BTCUSDT", btc.canonicalSymbol)
+        assertEquals(0.1, btc.tickSize ?: 0.0, 1e-9)
+        assertEquals(1, btc.pricePrecision)
+        assertTrue(btc.isTrading)
+        assertFalse(symbols.first { it.providerSymbol == "ETH-USDT" }.isTrading)
     }
 
     @Test

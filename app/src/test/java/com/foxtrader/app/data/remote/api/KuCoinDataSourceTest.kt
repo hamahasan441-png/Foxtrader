@@ -1,8 +1,10 @@
 package com.foxtrader.app.data.remote.api
 
+import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.Timeframe
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -55,6 +57,47 @@ class KuCoinDataSourceTest {
 
         assertTrue(error != null)
         assertEquals("KuCoin: invalid symbol", error?.message)
+    }
+
+    @Test
+    fun `discoverSymbols preserves KuCoin ids and normalizes spot metadata`() = runBlocking {
+        val api = FakeKuCoinApi(
+            response = KuCoinCandleResponse(),
+            symbolsResponse = KuCoinSymbolsResponse(
+                data = listOf(
+                    KuCoinSymbol(
+                        symbol = "BTC-USDT",
+                        name = "BTC-USDT",
+                        baseCurrency = "BTC",
+                        quoteCurrency = "USDT",
+                        market = "USDS",
+                        priceIncrement = "0.01",
+                        enableTrading = true,
+                    ),
+                    KuCoinSymbol(
+                        symbol = "ETH-USDT",
+                        baseCurrency = "ETH",
+                        quoteCurrency = "USDT",
+                        priceIncrement = "0.001",
+                        enableTrading = false,
+                    ),
+                ),
+            ),
+        )
+
+        val symbols = KuCoinDataSource(api).discoverSymbols()
+
+        assertEquals(null, api.market)
+        assertEquals(2, symbols.size)
+        val btc = symbols.first { it.providerSymbol == "BTC-USDT" }
+        assertEquals(DataProvider.KUCOIN, btc.provider)
+        assertEquals("BTCUSDT", btc.canonicalSymbol)
+        assertEquals("BTC", btc.baseAsset)
+        assertEquals("USDT", btc.quoteAsset)
+        assertEquals(0.01, btc.tickSize ?: 0.0, 1e-9)
+        assertEquals(2, btc.pricePrecision)
+        assertTrue(btc.isTrading)
+        assertFalse(symbols.first { it.providerSymbol == "ETH-USDT" }.isTrading)
     }
 
     @Test
