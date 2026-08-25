@@ -285,6 +285,7 @@ class ChartViewModel @Inject constructor(
         dataController.observeMarket()
         observeDrawings()
         dataController.observeWebSocketTicks()
+        dataController.observeLiveRecovery()
         multiChartController.observePersistedMultiChartPreferences()
         multiChartController.syncMultiChartPanelsToPrimary()
         webSocket.connectionState
