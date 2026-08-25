@@ -312,6 +312,18 @@ data class LitXConfig(
      */
     val mode: LitXMode = LitXMode.PRECISION,
 ) {
+    /**
+     * User-facing three-mode LiT Adventure identity. The app already persists
+     * [SignalProfile], so this keeps the new indicator modes backward-compatible
+     * with existing settings while giving each profile a distinct rule package.
+     */
+    val adventureModeLabel: String
+        get() = when (profile) {
+            SignalProfile.SCALPING -> "Fast Scalp"
+            SignalProfile.INTRADAY -> "Balanced Trade"
+            SignalProfile.SWING -> "Power Trade"
+        }
+
     fun sanitized(): LitXConfig = copy(
         minRiskReward = minRiskReward.coerceIn(1.0, 5.0),
         displacementAtrMultiple = displacementAtrMultiple.coerceIn(0.8, 3.0),
@@ -321,10 +333,61 @@ data class LitXConfig(
     )
 
     companion object {
+        /**
+         * Production LiT Adventure indicator presets.
+         *
+         * FAST SCALP: closed-bar liquidity reversal + displacement/MSS, relaxed
+         * HTF/zone gates, 68 score floor for earlier entries.
+         * BALANCED TRADE: full sweep -> MSS -> POI retest with HTF/zone alignment.
+         * POWER TRADE: sniper structure, in-band institutional POI, kill-zone,
+         * HTF alignment and a 90 score floor for only maximum-conviction arrows.
+         *
+         * All three are evaluated by the same causal engine and therefore keep
+         * identical non-repaint/live/replay semantics.
+         */
         fun preset(profile: SignalProfile, enabled: Boolean = true): LitXConfig = when (profile) {
-            SignalProfile.SCALPING -> LitXConfig(enabled, LitXGrade.A, 1.8, false, 1.10, profile, true, false, 70, 7, 8)
-            SignalProfile.INTRADAY -> LitXConfig(enabled, LitXGrade.A, 2.0, true, 1.20, profile, true, true, 75, 12, 14)
-            SignalProfile.SWING -> LitXConfig(enabled, LitXGrade.A_PLUS, 2.3, true, 1.35, profile, true, true, 80, 18, 22)
+            SignalProfile.SCALPING -> LitXConfig(
+                enabled = enabled,
+                minGrade = LitXGrade.B,
+                minRiskReward = 1.6,
+                requireHtfAlignment = false,
+                displacementAtrMultiple = 1.05,
+                profile = profile,
+                requireStrongMss = true,
+                requireDirectionalZone = false,
+                minConfidenceScore = 68,
+                maxSweepToShiftBars = 6,
+                maxShiftToRetestBars = 7,
+                mode = LitXMode.SWEEP_REVERSAL,
+            )
+            SignalProfile.INTRADAY -> LitXConfig(
+                enabled = enabled,
+                minGrade = LitXGrade.A,
+                minRiskReward = 2.0,
+                requireHtfAlignment = true,
+                displacementAtrMultiple = 1.20,
+                profile = profile,
+                requireStrongMss = true,
+                requireDirectionalZone = true,
+                minConfidenceScore = 80,
+                maxSweepToShiftBars = 12,
+                maxShiftToRetestBars = 14,
+                mode = LitXMode.PRECISION,
+            )
+            SignalProfile.SWING -> LitXConfig(
+                enabled = enabled,
+                minGrade = LitXGrade.A_PLUS,
+                minRiskReward = 2.5,
+                requireHtfAlignment = true,
+                displacementAtrMultiple = 1.50,
+                profile = profile,
+                requireStrongMss = true,
+                requireDirectionalZone = true,
+                minConfidenceScore = 90,
+                maxSweepToShiftBars = 14,
+                maxShiftToRetestBars = 16,
+                mode = LitXMode.SNIPER,
+            )
         }
 
         /**
