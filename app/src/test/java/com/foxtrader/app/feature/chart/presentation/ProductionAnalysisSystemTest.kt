@@ -1,5 +1,6 @@
 package com.foxtrader.app.feature.chart.presentation
 
+import com.foxtrader.app.domain.model.StrategyType
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -8,8 +9,12 @@ import org.junit.Test
 class ProductionAnalysisSystemTest {
 
     @Test
-    fun `selecting adventure clears unrelated public engines but keeps required internals`() {
-        val legacy = IndicatorToggles(
+    fun `selecting adventure preserves independent studies and settings`() {
+        val customSettings = ChartStudySettings(
+            ema = EmaStudySettings(fastPeriod = 9, slowPeriod = 34),
+            rsi = RsiStudySettings(period = 7),
+        )
+        val existing = IndicatorToggles(
             ema = true,
             macd = true,
             tradePro = true,
@@ -17,10 +22,13 @@ class ProductionAnalysisSystemTest {
             lit = true,
             smt = true,
             rsiOrderFlow = true,
+            pivotSweepDivergence = true,
             allStrategies = true,
+            activeStrategy = StrategyType.BREAKOUT,
+            settings = customSettings,
         )
 
-        val result = legacy.withProductionAnalysisSystem(ProductionAnalysisSystem.LIT_ADVENTURE)
+        val result = existing.withProductionAnalysisSystem(ProductionAnalysisSystem.LIT_ADVENTURE)
 
         assertTrue(result.litX)
         assertTrue(result.structure)
@@ -28,18 +36,25 @@ class ProductionAnalysisSystemTest {
         assertTrue(result.fairValueGaps)
         assertTrue(result.liquidity)
         assertTrue(result.sessions)
+
+        // Only the mutually-exclusive canonical flags are switched.
         assertFalse(result.lit)
         assertFalse(result.smt)
         assertFalse(result.rsiOrderFlow)
-        assertFalse(result.tradePro)
-        assertFalse(result.binary3m)
-        assertFalse(result.ema)
-        assertFalse(result.macd)
-        assertFalse(result.allStrategies)
+        assertFalse(result.pivotSweepDivergence)
+
+        // Every independent indicator/engine/strategy choice survives.
+        assertTrue(result.tradePro)
+        assertTrue(result.binary3m)
+        assertTrue(result.ema)
+        assertTrue(result.macd)
+        assertTrue(result.allStrategies)
+        assertTrue(result.activeStrategy == StrategyType.BREAKOUT)
+        assertTrue(result.settings == customSettings)
     }
 
     @Test
-    fun `selecting each canonical system activates exactly one primary engine`() {
+    fun `selecting each canonical system activates exactly one canonical engine`() {
         val mappings = listOf(
             ProductionAnalysisSystem.LIT_ADVENTURE to { t: IndicatorToggles -> t.litX },
             ProductionAnalysisSystem.LIT_MAY_MADNESS to { t: IndicatorToggles -> t.lit },
@@ -49,14 +64,15 @@ class ProductionAnalysisSystemTest {
         )
 
         mappings.forEach { (system, isExpectedActive) ->
-            val result = IndicatorToggles().withProductionAnalysisSystem(system)
+            val result = IndicatorToggles(ema = true).withProductionAnalysisSystem(system)
             assertTrue(isExpectedActive(result))
             assertTrue(result.productionAnalysisSystem() == system)
+            assertTrue("technical study must survive system switch", result.ema)
         }
     }
 
     @Test
-    fun `off clears every legacy selectable system`() {
+    fun `off clears only canonical engines and preserves chart studies`() {
         val result = IndicatorToggles(
             litX = true,
             lit = true,
@@ -65,17 +81,29 @@ class ProductionAnalysisSystemTest {
             pivotSweepDivergence = true,
             tradePro = true,
             binary3m = true,
-            activeStrategy = com.foxtrader.app.domain.model.StrategyType.BREAKOUT,
+            ema = true,
+            activeStrategy = StrategyType.BREAKOUT,
             allStrategies = true,
         ).withProductionAnalysisSystem(null)
 
-        assertFalse(result.anyActive)
+        assertFalse(result.litX)
+        assertFalse(result.lit)
+        assertFalse(result.smt)
+        assertFalse(result.rsiOrderFlow)
+        assertFalse(result.pivotSweepDivergence)
         assertNull(result.productionAnalysisSystem())
+
+        assertTrue(result.tradePro)
+        assertTrue(result.binary3m)
+        assertTrue(result.ema)
+        assertTrue(result.activeStrategy == StrategyType.BREAKOUT)
+        assertTrue(result.allStrategies)
+        assertTrue(result.anyActive)
     }
 
     @Test
-    fun `ambiguous legacy multi-system state is not reported as one system`() {
-        val legacy = IndicatorToggles(litX = true, smt = true)
-        assertNull(legacy.productionAnalysisSystem())
+    fun `ambiguous multi-system state is not reported as one system`() {
+        val multi = IndicatorToggles(litX = true, smt = true)
+        assertNull(multi.productionAnalysisSystem())
     }
 }

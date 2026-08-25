@@ -1,10 +1,12 @@
 package com.foxtrader.app.feature.chart.presentation
 
 /**
- * The only analysis systems exposed by the production FOXTRADER chart.
+ * Canonical FoxTrader signal engines.
  *
- * Existing engine names remain internal implementation details while the UI and
- * execution boundary use the canonical product names defined here.
+ * These names identify primary signal methodologies; they do not own or erase
+ * chart studies. Technical indicators, SMC overlays and volume/profile studies
+ * remain independent so every LiT Adventure mode can be combined with the same
+ * indicator stack.
  */
 enum class ProductionAnalysisSystem(val label: String) {
     LIT_ADVENTURE("LiT Adventure"),
@@ -14,13 +16,7 @@ enum class ProductionAnalysisSystem(val label: String) {
     PIVOT_SWEEP_DIVERGENCE("Pivot Sweep Divergence"),
 }
 
-/**
- * Resolve the currently selected production system.
- *
- * Legacy builds allowed multiple unrelated studies to be enabled at once. If a
- * legacy state contains more than one approved primary engine, report no single
- * selection instead of inventing an ordering.
- */
+/** Resolve a single selected canonical engine when the state is unambiguous. */
 fun IndicatorToggles.productionAnalysisSystem(): ProductionAnalysisSystem? {
     val selected = listOfNotNull(
         ProductionAnalysisSystem.LIT_ADVENTURE.takeIf { litX },
@@ -33,32 +29,31 @@ fun IndicatorToggles.productionAnalysisSystem(): ProductionAnalysisSystem? {
 }
 
 /**
- * Replace the public analysis selection atomically.
+ * Switch the canonical primary engine without destroying unrelated studies.
  *
- * LiT Adventure is backed by the repository's existing LiTX engine and LiT May
- * Madness by the existing confirmed-bar LiT Pro engine. Their lower-level SMC
- * primitives stay enabled internally where those engines require them, but they
- * are not separate selectable systems. SMT similarly keeps its structure and
- * liquidity prerequisites internal.
- *
- * Starting from a fresh [IndicatorToggles] also clears all legacy public studies,
- * arbitrary strategy selections and binary/TradePro/SMS toggles so stale state
- * cannot silently run a fifth system behind the production selector.
+ * The legacy implementation rebuilt [IndicatorToggles] from scratch, which
+ * silently disabled EMA/MACD/SMC/profile studies whenever the user changed the
+ * analysis system. That made indicator availability depend on the active mode.
+ * This implementation clears only the five mutually-exclusive canonical engine
+ * flags and preserves every other chart choice and its [ChartStudySettings].
  */
 fun IndicatorToggles.withProductionAnalysisSystem(
     system: ProductionAnalysisSystem?,
 ): IndicatorToggles {
-    val clean = IndicatorToggles(
-        smcVisualMode = smcVisualMode,
-        settings = settings,
+    val preserved = copy(
+        litX = false,
+        lit = false,
+        smt = false,
+        rsiOrderFlow = false,
+        pivotSweepDivergence = false,
     )
 
     return when (system) {
-        ProductionAnalysisSystem.LIT_ADVENTURE -> clean.withLitXSuite(true)
-        ProductionAnalysisSystem.LIT_MAY_MADNESS -> clean.withLitSuite(true)
-        ProductionAnalysisSystem.SMT -> clean.withSmtSuite(true)
-        ProductionAnalysisSystem.RSI_ORDERFLOW_CANDLE -> clean.copy(rsiOrderFlow = true)
-        ProductionAnalysisSystem.PIVOT_SWEEP_DIVERGENCE -> clean.copy(pivotSweepDivergence = true)
-        null -> clean
+        ProductionAnalysisSystem.LIT_ADVENTURE -> preserved.withLitXSuite(true)
+        ProductionAnalysisSystem.LIT_MAY_MADNESS -> preserved.withLitSuite(true)
+        ProductionAnalysisSystem.SMT -> preserved.withSmtSuite(true)
+        ProductionAnalysisSystem.RSI_ORDERFLOW_CANDLE -> preserved.copy(rsiOrderFlow = true)
+        ProductionAnalysisSystem.PIVOT_SWEEP_DIVERGENCE -> preserved.copy(pivotSweepDivergence = true)
+        null -> preserved
     }
 }
