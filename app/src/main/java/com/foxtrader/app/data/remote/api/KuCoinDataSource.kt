@@ -81,14 +81,11 @@ class KuCoinDataSource @Inject constructor(
         )
     }
 
-    private fun normalizeSymbol(symbol: String): String {
-        val s = symbol.uppercase().replace("/", "-")
-        if (s.contains("-")) return s
-        for (q in listOf("USDT", "USDC", "USD", "BTC", "ETH", "EUR", "DAI")) {
-            if (s.endsWith(q) && s.length > q.length) return s.dropLast(q.length) + "-" + q
-        }
-        return s
-    }
+    // Delegated to the shared splitter: the previous inline copy matched USD
+    // before BUSD/TUSD/FDUSD and mis-split those pairs. See
+    // [CryptoSymbolNormalizer] for the full rationale.
+    private fun normalizeSymbol(symbol: String): String =
+        CryptoSymbolNormalizer.toDashPair(symbol)
 
     private fun timeframeToType(tf: Timeframe): String = when (tf) {
         Timeframe.M1 -> "1min"

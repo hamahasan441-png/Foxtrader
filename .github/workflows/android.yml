@@ -48,17 +48,14 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      - name: Build debug APK
-        run: ./gradlew :app:assembleDebug --stacktrace --no-daemon --no-configuration-cache
-
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: foxtrader-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
-          retention-days: 30
-
+      # Tests run BEFORE the APK is built and uploaded.
+      #
+      # Previously assembleDebug ran first and the artifact was uploaded
+      # immediately, so a commit that broke the unit tests still published a
+      # downloadable APK. The job went red afterwards, but by then an untested
+      # build was already sitting in the artifacts list waiting to be installed.
+      # Failing here means no APK is produced at all, which is the correct
+      # outcome: an artifact should be evidence that the suite passed.
       - name: Run unit tests
         run: ./gradlew :app:testDebugUnitTest --stacktrace --no-daemon --no-configuration-cache
 
@@ -69,3 +66,14 @@ jobs:
           name: unit-test-reports
           path: app/build/reports/tests/
           retention-days: 7
+
+      - name: Build debug APK
+        run: ./gradlew :app:assembleDebug --stacktrace --no-daemon --no-configuration-cache
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: foxtrader-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 30
