@@ -31,6 +31,11 @@ import javax.inject.Singleton
  * crypto exchanges, so this adapter polls a tiny recent window and emits only a
  * changed latest candle. The chart separately computes freshness and labels a
  * stale feed DELAYED/CACHED instead of pretending it is live.
+ *
+ * Healthy subscriptions target a five-second poll cadence on every timeframe.
+ * The fetch duration is subtracted from the sleep so a two-second HTTP request
+ * does not accidentally turn a five-second cadence into seven seconds. Failed
+ * cycles retain bounded exponential backoff to avoid hammering the provider.
  */
 @Singleton
 class DukascopyPollingWebSocket @Inject constructor(
@@ -84,6 +89,7 @@ class DukascopyPollingWebSocket @Inject constructor(
         var failures = 0
 
         while (kotlin.coroutines.coroutineContext.isActive) {
+            val cycleStartedNanos = System.nanoTime()
             var failedThisCycle = false
             try {
                 val latest = dataSource.fetchCandles(symbol, timeframe, POLL_FETCH_BARS).lastOrNull()
@@ -119,12 +125,9 @@ class DukascopyPollingWebSocket @Inject constructor(
                 failedThisCycle = true
                 markFailure(pair, failures)
             }
-            val delayMs = if (failedThisCycle) {
-                maxOf(pollIntervalMs(timeframe), failureBackoffMs(failures))
-            } else {
-                pollIntervalMs(timeframe)
-            }
-            delay(delayMs)
+
+            val elapsedMs = (System.nanoTime() - cycleStartedNanos).coerceAtLeast(0L) / 1_000_000L
+            delay(nextDelayMs(timeframe, failedThisCycle, failures, elapsedMs))
         }
     }
 
@@ -150,12 +153,31 @@ class DukascopyPollingWebSocket @Inject constructor(
         }
     }
 
-    private fun pollIntervalMs(timeframe: Timeframe): Long = when (timeframe) {
-        Timeframe.M1 -> 15_000L
-        Timeframe.M5, Timeframe.M15 -> 15_000L
-        Timeframe.M30, Timeframe.H1 -> 30_000L
-        Timeframe.H4 -> 60_000L
-        Timeframe.D1, Timeframe.W1, Timeframe.MN -> 120_000L
+    internal fun pollIntervalMs(timeframe: Timeframe): Long = when (timeframe) {
+        Timeframe.M1,
+        Timeframe.M5,
+        Timeframe.M15,
+        Timeframe.M30,
+        Timeframe.H1,
+        Timeframe.H4,
+        Timeframe.D1,
+        Timeframe.W1,
+        Timeframe.MN,
+        -> HEALTHY_POLL_INTERVAL_MS
+    }
+
+    internal fun nextDelayMs(
+        timeframe: Timeframe,
+        failedThisCycle: Boolean,
+        failures: Int,
+        elapsedMs: Long,
+    ): Long {
+        val targetCycleMs = if (failedThisCycle) {
+            maxOf(pollIntervalMs(timeframe), failureBackoffMs(failures))
+        } else {
+            pollIntervalMs(timeframe)
+        }
+        return (targetCycleMs - elapsedMs.coerceAtLeast(0L)).coerceAtLeast(0L)
     }
 
     internal fun failureBackoffMs(failures: Int): Long = minOf(
@@ -174,6 +196,7 @@ class DukascopyPollingWebSocket @Inject constructor(
         const val FAILURES_BEFORE_STALE = 2
         const val FAILURES_BEFORE_ERROR = 4
         const val DATA_FRESHNESS_GRACE_MS = 120_000L
+        const val HEALTHY_POLL_INTERVAL_MS = 5_000L
         const val FAILURE_BACKOFF_BASE_MS = 5_000L
         const val FAILURE_BACKOFF_MAX_MS = 120_000L
     }
