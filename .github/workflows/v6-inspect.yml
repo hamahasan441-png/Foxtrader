@@ -83,14 +83,16 @@ jobs:
           echo "Changed/deleted candidates: $(wc -l < /tmp/v6-rsync-diff.txt)"
           grep -E '^(>f\+|>fc|\*deleting)' /tmp/v6-rsync-diff.txt || true
 
-      - name: Repair known v6 KDoc parse blocker
+      - name: Repair known v6 compile blockers
         shell: bash
         run: |
           set -euo pipefail
-          FILE="$V6_PROJECT_ROOT/app/src/main/java/com/foxtrader/app/domain/usecase/backtest/LitXModeComparisonRunner.kt"
-          python3 - "$FILE" <<'PY'
+          KDOC_FILE="$V6_PROJECT_ROOT/app/src/main/java/com/foxtrader/app/domain/usecase/backtest/LitXModeComparisonRunner.kt"
+          STRUCTURE_FILE="$V6_PROJECT_ROOT/app/src/main/java/com/foxtrader/app/domain/usecase/signalintel/LitProStructureDetector.kt"
+          python3 - "$KDOC_FILE" "$STRUCTURE_FILE" <<'PY'
           from pathlib import Path
           import sys
+
           p = Path(sys.argv[1])
           s = p.read_text()
           old = '* The strategy function hands the engine `candles[start..index]` and accepts the\n'
@@ -98,8 +100,25 @@ jobs:
           if old not in s:
               raise SystemExit('Expected v6 KDoc parse blocker not found; refusing an unverified patch')
           p.write_text(s.replace(old, new, 1))
+
+          p = Path(sys.argv[2])
+          s = p.read_text()
+          old = '''class LitProStructureDetector @Inject constructor(
+              private val equalLevels: EqualLevelDetector = EqualLevelDetector(),
+          ) {
+          '''
+          new = '''class LitProStructureDetector @Inject constructor(
+              private val equalLevels: EqualLevelDetector,
+          ) {
+
+              constructor() : this(EqualLevelDetector())
+          '''
+          if old not in s:
+              raise SystemExit('Expected v6 LitProStructureDetector constructor blocker not found; refusing an unverified patch')
+          p.write_text(s.replace(old, new, 1))
           PY
-          nl -ba "$FILE" | sed -n '28,40p'
+          nl -ba "$KDOC_FILE" | sed -n '28,40p'
+          nl -ba "$STRUCTURE_FILE" | sed -n '24,42p'
 
       - name: Validate Gradle wrapper
         shell: bash
