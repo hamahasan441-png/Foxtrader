@@ -26,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
@@ -46,9 +47,10 @@ import com.foxtrader.app.feature.chart.presentation.IndicatorToggles
  * chart stack. Every production indicator remains visible here regardless of the
  * active LiT Adventure profile.
  *
- * Study parameter editing stays on the TradingView-style active-study chips
- * rendered inside the chart (gear icon). This panel owns discoverability and
- * enable/disable state; [ChartStudyCornerControls] owns the actual parameters.
+ * Technical study parameters are edited from the TradingView-style active-study
+ * gear chips on the chart. The RSI Orderflow advanced divergence thresholds are
+ * additionally exposed here because the compact gear card previously omitted
+ * them. Signal-engine parameters remain in the app Settings screen.
  */
 @Suppress("UNUSED_PARAMETER")
 @OptIn(ExperimentalLayoutApi::class)
@@ -105,7 +107,7 @@ fun IndicatorPanel(
                 Text("INDICATORS & SIGNALS", style = MaterialTheme.typography.titleMedium)
                 Text(
                     text = "All studies stay available in Fast Scalp, Balanced Trade and Power Trade. " +
-                        "Enable a study here; use its ⚙ chip on the chart for parameters.",
+                        "Enable technical studies here and use each active ⚙ chip for its normal parameters.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -184,9 +186,17 @@ fun IndicatorPanel(
                     onToggle = guardedToggle,
                 )
 
+                if (toggles.rsiOrderFlow) {
+                    RsiOrderFlowAdvancedSettings(
+                        toggles = toggles,
+                        onToggle = guardedToggle,
+                    )
+                }
+
                 Text(
                     text = "Readiness is informational: incompatible studies remain visible instead of disappearing. " +
-                        "Time-axis studies require standard time candles; Deriv 3m requires Deriv + M1.",
+                        "Time-axis studies require standard time candles; Deriv 3m requires Deriv + M1. " +
+                        "Signal-engine thresholds and LiT modes are persisted in app Settings.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -240,6 +250,111 @@ private fun IndicatorCategory(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun RsiOrderFlowAdvancedSettings(
+    toggles: IndicatorToggles,
+    onToggle: (((IndicatorToggles) -> IndicatorToggles) -> Unit),
+) {
+    val cfg = toggles.settings.rsiOrderFlow.sanitized()
+    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Text(
+            text = "RSI Orderflow · Advanced",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            text = "These divergence thresholds were previously runtime-only and are now editable on screen.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        InlineIntSetting("Min pivot separation", cfg.minPivotSeparation, 1, 250) { value ->
+            onToggle { t ->
+                val next = t.settings.rsiOrderFlow.copy(minPivotSeparation = value).sanitized()
+                t.copy(settings = t.settings.copy(rsiOrderFlow = next).sanitized())
+            }
+        }
+        InlineIntSetting("Max pivot separation", cfg.maxPivotSeparation, cfg.minPivotSeparation, 500) { value ->
+            onToggle { t ->
+                val next = t.settings.rsiOrderFlow.copy(maxPivotSeparation = value).sanitized()
+                t.copy(settings = t.settings.copy(rsiOrderFlow = next).sanitized())
+            }
+        }
+        InlineDoubleSetting("Min RSI difference", cfg.minRsiDifference, 0.5, 0.0, 50.0) { value ->
+            onToggle { t ->
+                val next = t.settings.rsiOrderFlow.copy(minRsiDifference = value).sanitized()
+                t.copy(settings = t.settings.copy(rsiOrderFlow = next).sanitized())
+            }
+        }
+        InlineDoubleSetting("Min flow difference", cfg.minFlowDifference, 0.5, 0.0, 50.0) { value ->
+            onToggle { t ->
+                val next = t.settings.rsiOrderFlow.copy(minFlowDifference = value).sanitized()
+                t.copy(settings = t.settings.copy(rsiOrderFlow = next).sanitized())
+            }
+        }
+    }
+}
+
+@Composable
+private fun InlineIntSetting(
+    label: String,
+    value: Int,
+    min: Int,
+    max: Int,
+    onValue: (Int) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+        FilterChip(
+            selected = false,
+            onClick = { onValue((value - 1).coerceAtLeast(min)) },
+            enabled = value > min,
+            label = { Text("−") },
+        )
+        Text(value.toString(), style = MaterialTheme.typography.labelMedium)
+        FilterChip(
+            selected = false,
+            onClick = { onValue((value + 1).coerceAtMost(max)) },
+            enabled = value < max,
+            label = { Text("+") },
+        )
+    }
+}
+
+@Composable
+private fun InlineDoubleSetting(
+    label: String,
+    value: Double,
+    step: Double,
+    min: Double,
+    max: Double,
+    onValue: (Double) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+        FilterChip(
+            selected = false,
+            onClick = { onValue((value - step).coerceAtLeast(min)) },
+            enabled = value > min,
+            label = { Text("−") },
+        )
+        Text("%.1f".format(value), style = MaterialTheme.typography.labelMedium)
+        FilterChip(
+            selected = false,
+            onClick = { onValue((value + step).coerceAtMost(max)) },
+            enabled = value < max,
+            label = { Text("+") },
+        )
     }
 }
 
