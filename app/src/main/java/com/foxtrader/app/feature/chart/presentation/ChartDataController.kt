@@ -71,6 +71,15 @@ internal class ChartDataController(
     private val explicitGenerationLock = Any()
     private var explicitProcessingGeneration: Long = 0L
 
+    /** Reject duplicate/late provider events before they can reach Room. */
+    private val liveTickGate = LiveTickGate()
+
+    /** Detects a real reconnect without treating the first connection as recovery. */
+    private val liveRecoveryGate = LiveRecoveryGate()
+
+    /** At most one REST gap repair may be active for the primary series. */
+    private var liveRecoveryJob: Job? = null
+
     private data class EmissionKey(
         val source: CandleSource,
         val size: Int,
@@ -110,19 +119,51 @@ internal class ChartDataController(
     fun observeWebSocketTicks() {
         webSocket.ticks
             .onEach { tick ->
-                if (tick.symbol == symbolFlow.value && tick.timeframe == timeframeFlow.value) {
-                    scope.launch {
-                        try {
-                            onUpsertTick(tick.symbol, tick.timeframe, tick.candle, tick.provider)
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (_: Exception) {
-                            // A later tick supersedes a transient write failure.
-                        }
+                if (tick.symbol == symbolFlow.value &&
+                    tick.timeframe == timeframeFlow.value &&
+                    liveTickGate.accept(tick)
+                ) {
+                    try {
+                        // Keep writes in flow order. Launching one child per tick
+                        // allowed an older Room write to finish after a newer one.
+                        onUpsertTick(tick.symbol, tick.timeframe, tick.candle, tick.provider)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        // A later tick or reconnect snapshot retries safely.
                     }
                 }
             }
             .launchIn(scope)
+    }
+
+    /**
+     * Backfill candles missed while a transport was reconnecting. The initial
+     * CONNECTED state does not trigger a second startup refresh; only a stream
+     * that was healthy and then interrupted is repaired.
+     */
+    fun observeLiveRecovery() {
+        webSocket.connectionState
+            .onEach { state ->
+                if (liveRecoveryGate.onState(state)) scheduleLiveGapRecovery()
+            }
+            .launchIn(scope)
+    }
+
+    private fun scheduleLiveGapRecovery() {
+        liveRecoveryJob?.cancel()
+        val symbol = symbolFlow.value
+        val timeframe = timeframeFlow.value
+        liveRecoveryJob = scope.launch {
+            try {
+                repository.refreshCandles(symbol, timeframe)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Streaming remains usable; the next reconnect or manual
+                // refresh gets another opportunity to repair the gap.
+            }
+        }
     }
 
     /**
@@ -387,6 +428,10 @@ internal class ChartDataController(
 
     fun resetPrimaryChartContext() {
         marketProcessingJob?.cancel()
+        liveRecoveryJob?.cancel()
+        liveRecoveryJob = null
+        liveTickGate.reset()
+        liveRecoveryGate.reset()
         synchronized(explicitGenerationLock) { explicitProcessingGeneration += 1L }
         currentObservedCandles = SourcedCandles.EMPTY
         clearPrependedHistory()
