@@ -162,12 +162,19 @@ class LitPrefixNonRepaintTest {
     fun `lit may madness emits only on the newest confirmed bar`() {
         val engine = litEngine()
         var emitted = 0
+        val stages = mutableMapOf<String, Int>()
+        val narratives = mutableMapOf<String, Int>()
         for (seed in 0 until SERIES_COUNT) {
             val series = walk(seed)
             for (end in WARMUP..series.size) {
                 val window = series.subList(0, end)
-                val signal = engine.analyze(SYMBOL, Timeframe.M15, window, litConfig).signal
-                    ?: continue
+                val analysis = engine.analyze(SYMBOL, Timeframe.M15, window, litConfig)
+                val signal = analysis.signal
+                if (signal == null) {
+                    stages.merge(analysis.stage.name, 1, Int::plus)
+                    narratives.merge(analysis.narrative, 1, Int::plus)
+                    continue
+                }
                 emitted++
                 assertEquals(
                     "LiT May Madness anchored a signal off the right edge (seed=$seed bars=$end)",
@@ -176,7 +183,14 @@ class LitPrefixNonRepaintTest {
                 )
             }
         }
-        assertTrue("fixture produced no LiT May Madness signals; test is vacuous", emitted > 0)
+        val dominantRejections = narratives.entries
+            .sortedByDescending { it.value }
+            .take(5)
+            .joinToString { "${it.value}x ${it.key}" }
+        assertTrue(
+            "fixture produced no LiT May Madness signals; stages=$stages; reasons=$dominantRejections",
+            emitted > 0,
+        )
     }
 
     @Test
