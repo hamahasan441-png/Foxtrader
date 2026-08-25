@@ -81,7 +81,17 @@ jobs:
             --exclude='local.properties' \
             "$V6_PROJECT_ROOT/" ./ | tee /tmp/v6-rsync-diff.txt
           echo "Changed/deleted candidates: $(wc -l < /tmp/v6-rsync-diff.txt)"
-          head -n 500 /tmp/v6-rsync-diff.txt
+          grep -E '^(>f\+|>fc|\*deleting)' /tmp/v6-rsync-diff.txt || true
+
+      - name: Print v6 parse blocker
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILE="$V6_PROJECT_ROOT/app/src/main/java/com/foxtrader/app/domain/usecase/backtest/LitXModeComparisonRunner.kt"
+          echo "=== LitXModeComparisonRunner.kt ==="
+          nl -ba "$FILE" | sed -n '1,180p'
+          echo "=== ENGINEERING_LOG_V6.md ==="
+          test -f "$V6_PROJECT_ROOT/ENGINEERING_LOG_V6.md" && sed -n '1,240p' "$V6_PROJECT_ROOT/ENGINEERING_LOG_V6.md" || true
 
       - name: Validate Gradle wrapper
         shell: bash
