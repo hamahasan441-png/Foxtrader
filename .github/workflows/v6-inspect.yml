@@ -1,0 +1,132 @@
+name: V6 Inspect
+
+on:
+  push:
+    branches: ["integrate/v6"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-v6:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Inspect and safely extract v6
+        id: inspect
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f Foxtrader-v6.zip
+          rm -rf /tmp/fox-v6 && mkdir -p /tmp/fox-v6
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          import os
+          z = Path('Foxtrader-v6.zip')
+          out = Path('/tmp/fox-v6')
+          with ZipFile(z) as f:
+              bad=[]
+              for i in f.infolist():
+                  p=Path(i.filename)
+                  if p.is_absolute() or '..' in p.parts:
+                      bad.append(i.filename)
+              if bad:
+                  raise SystemExit('Unsafe ZIP paths: ' + repr(bad[:20]))
+              f.extractall(out)
+          roots=[]
+          for p in out.rglob('settings.gradle.kts'):
+              r=p.parent
+              if (r/'gradlew').exists() and (r/'app').exists():
+                  roots.append(r)
+          if not roots:
+              for p in out.rglob('settings.gradle'):
+                  r=p.parent
+                  if (r/'gradlew').exists() and (r/'app').exists():
+                      roots.append(r)
+          roots=sorted(set(roots), key=lambda p: (len(p.parts), str(p)))
+          if not roots:
+              raise SystemExit('No Android project root found in Foxtrader-v6.zip')
+          root=roots[0]
+          print('V6_PROJECT_ROOT=' + str(root))
+          with open(os.environ['GITHUB_ENV'],'a') as fh:
+              fh.write('V6_PROJECT_ROOT='+str(root)+'\n')
+          print('ZIP entries:', sum(1 for _ in ZipFile(z).infolist()))
+          print('Candidate roots:', *roots[:10], sep='\n - ')
+          PY
+
+      - name: V6 vs current repository diff summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== v6 project root ==="
+          echo "$V6_PROJECT_ROOT"
+          echo "=== dry-run delta (first 500 lines) ==="
+          rsync -ain --delete --checksum \
+            --exclude='.git/' \
+            --exclude='.github/workflows/' \
+            --exclude='Foxtrader-v6.zip' \
+            --exclude='.gradle/' \
+            --exclude='.idea/' \
+            --exclude='**/build/' \
+            --exclude='local.properties' \
+            "$V6_PROJECT_ROOT/" ./ | tee /tmp/v6-rsync-diff.txt
+          echo "Changed/deleted candidates: $(wc -l < /tmp/v6-rsync-diff.txt)"
+          head -n 500 /tmp/v6-rsync-diff.txt
+
+      - name: Validate Gradle wrapper
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$V6_PROJECT_ROOT"
+          test -f gradle/wrapper/gradle-wrapper.properties
+          test -f gradle/wrapper/gradle-wrapper.jar
+          chmod +x gradlew
+          ./gradlew --version
+
+      - name: Build Debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$V6_PROJECT_ROOT"
+          ./gradlew --no-daemon --stacktrace assembleDebug
+
+      - name: Unit Tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$V6_PROJECT_ROOT"
+          ./gradlew --no-daemon --stacktrace testDebugUnitTest
+
+      - name: Android Lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$V6_PROJECT_ROOT"
+          ./gradlew --no-daemon --stacktrace lintDebug
+
+      - name: Upload inspection artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v6-inspection
+          if-no-files-found: ignore
+          path: |
+            /tmp/v6-rsync-diff.txt
+            ${{ env.V6_PROJECT_ROOT }}/app/build/reports/
+            ${{ env.V6_PROJECT_ROOT }}/app/build/outputs/apk/debug/*.apk
