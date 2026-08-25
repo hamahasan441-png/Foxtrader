@@ -83,15 +83,23 @@ jobs:
           echo "Changed/deleted candidates: $(wc -l < /tmp/v6-rsync-diff.txt)"
           grep -E '^(>f\+|>fc|\*deleting)' /tmp/v6-rsync-diff.txt || true
 
-      - name: Print v6 parse blocker
+      - name: Repair known v6 KDoc parse blocker
         shell: bash
         run: |
           set -euo pipefail
           FILE="$V6_PROJECT_ROOT/app/src/main/java/com/foxtrader/app/domain/usecase/backtest/LitXModeComparisonRunner.kt"
-          echo "=== LitXModeComparisonRunner.kt ==="
-          nl -ba "$FILE" | sed -n '1,180p'
-          echo "=== ENGINEERING_LOG_V6.md ==="
-          test -f "$V6_PROJECT_ROOT/ENGINEERING_LOG_V6.md" && sed -n '1,240p' "$V6_PROJECT_ROOT/ENGINEERING_LOG_V6.md" || true
+          python3 - "$FILE" <<'PY'
+          from pathlib import Path
+          import sys
+          p = Path(sys.argv[1])
+          s = p.read_text()
+          old = '* The strategy function hands the engine `candles[start..index]` and accepts the\n'
+          new = '* The strategy function hands the engine a trailing candle slice ending at the current index and accepts the\n'
+          if old not in s:
+              raise SystemExit('Expected v6 KDoc parse blocker not found; refusing an unverified patch')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          nl -ba "$FILE" | sed -n '28,40p'
 
       - name: Validate Gradle wrapper
         shell: bash
