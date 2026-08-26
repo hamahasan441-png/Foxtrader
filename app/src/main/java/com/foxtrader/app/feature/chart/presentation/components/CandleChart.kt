@@ -46,6 +46,7 @@ import com.foxtrader.app.domain.usecase.analysis.SupportResistanceDetector
 import com.foxtrader.app.domain.usecase.chart.ChartScaleMode
 import com.foxtrader.app.domain.usecase.chart.ChartViewportState
 import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
+import com.foxtrader.app.domain.usecase.signalintel.ValueAreaLiquidityRejectionEngine
 import com.foxtrader.app.feature.chart.presentation.CandleSeries
 import com.foxtrader.app.feature.chart.presentation.ChartDimens
 import com.foxtrader.app.feature.chart.presentation.ImmutableDoubleSeries
@@ -79,6 +80,7 @@ import com.foxtrader.app.feature.chart.presentation.components.layers.drawTimeAx
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawLitXSignals
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawSmtDivergences
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawSignalMarkers
+import com.foxtrader.app.feature.chart.presentation.components.layers.drawValueAreaLiquidityProfile
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawBacktestMarkers
 import com.foxtrader.app.ui.theme.FoxNeutral0
 import kotlin.math.max
@@ -161,6 +163,7 @@ fun CandleChart(
     drawings: ImmutableList<com.foxtrader.app.domain.model.ChartDrawing> = persistentListOf(),
     volumeProfile: com.foxtrader.app.domain.model.VolumeProfile? = null,
     marketProfile: MarketProfile.ProfileResult? = null,
+    valueAreaLiquidityProfile: ValueAreaLiquidityRejectionEngine.ProfileSnapshot? = null,
     supportResistanceZones: ImmutableList<SupportResistanceDetector.SRZone> = persistentListOf(),
     autoFibLevels: ImmutableList<FibonacciEngine.FibLevel> = persistentListOf(),
     autoFibDirection: Direction? = null,
@@ -625,6 +628,12 @@ fun CandleChart(
         if (indicators.marketProfile && marketProfile != null && quality.volumeProfile) {
             clipRect(right = cw, bottom = ch) {
                 drawMarketProfile(marketProfile, viewport, cw, ch)
+            }
+        }
+
+        if (indicators.valueAreaLiquidityRejection && valueAreaLiquidityProfile != null && quality.volumeProfile) {
+            clipRect(right = cw, bottom = ch) {
+                drawValueAreaLiquidityProfile(valueAreaLiquidityProfile, viewport, cw, ch, pivotLabelPaint)
             }
         }
 

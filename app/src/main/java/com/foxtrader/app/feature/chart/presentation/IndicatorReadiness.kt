@@ -22,6 +22,12 @@ enum class ChartStudyId(
         requiresTimeAxis = true,
         contextHint = "needs a completed prior trading day",
     ),
+    VALUE_AREA_LIQUIDITY_REJECTION(
+        "Value Area Liquidity Rejection",
+        64,
+        requiresTimeAxis = true,
+        contextHint = "needs a completed prior session",
+    ),
     MACD("MACD", 35),
     STOCHASTIC("Stochastic", 15),
     BOLLINGER("Bollinger", 20),
@@ -139,6 +145,13 @@ object IndicatorReadinessCatalog {
             ) + settings.pivotSweepDivergence.pivotLeft +
                 settings.pivotSweepDivergence.pivotRight +
                 settings.pivotSweepDivergence.minPivotSeparation + 1
+        ChartStudyId.VALUE_AREA_LIQUIDITY_REJECTION ->
+            maxOf(
+                settings.valueAreaLiquidityRejection.minPreviousSessionBars * 2,
+                settings.valueAreaLiquidityRejection.atrPeriod +
+                    settings.valueAreaLiquidityRejection.liquidityLookback +
+                    settings.valueAreaLiquidityRejection.swingRight + 1,
+            )
         ChartStudyId.MACD -> max(settings.macd.fastPeriod, settings.macd.slowPeriod) + settings.macd.signalPeriod
         ChartStudyId.STOCHASTIC -> max(settings.stochastic.kPeriod, settings.stochastic.dPeriod) + 1
         ChartStudyId.BOLLINGER -> settings.bollinger.period

@@ -17,6 +17,7 @@ class SignalEvidenceReducer @Inject constructor() {
         DIVERGENCE,
         MOMENTUM_ORDERFLOW,
         COMPOSITE,
+        AUCTION_PROFILE,
         OTHER,
     }
 
@@ -51,6 +52,7 @@ class SignalEvidenceReducer @Inject constructor() {
         SignalSource.SMT -> Family.DIVERGENCE
         SignalSource.RSI_ORDERFLOW -> Family.MOMENTUM_ORDERFLOW
         SignalSource.PIVOT_SWEEP_DIVERGENCE -> Family.COMPOSITE
+        SignalSource.VALUE_AREA_LIQUIDITY_REJECTION -> Family.AUCTION_PROFILE
         SignalSource.TRADEPRO -> Family.COMPOSITE
         SignalSource.BINARY3M,
         SignalSource.STRATEGY -> Family.OTHER

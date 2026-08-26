@@ -449,6 +449,7 @@ fun ChartScreen(
                             drawings = state.drawings,
                             volumeProfile = state.volumeProfile,
                             marketProfile = state.marketProfile,
+                            valueAreaLiquidityProfile = state.valueAreaLiquidityProfile,
                             supportResistanceZones = state.supportResistanceZones,
                             autoFibLevels = state.autoFibLevels,
                             autoFibDirection = state.autoFibDirection,
@@ -1566,4 +1567,3 @@ private fun BiasBadge(bias: Bias) {
 
 private fun formatPrice(price: Double): String =
     if (price >= 1000) String.format("%,.2f", price) else String.format("%.5f", price)
-

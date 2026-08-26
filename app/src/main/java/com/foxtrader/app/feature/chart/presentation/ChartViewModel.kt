@@ -57,6 +57,7 @@ import com.foxtrader.app.domain.usecase.signalintel.ConfirmedBarPolicy
 import com.foxtrader.app.domain.usecase.signalintel.LitEngine
 import com.foxtrader.app.domain.usecase.signalintel.RsiOrderFlowSignalEngine
 import com.foxtrader.app.domain.usecase.signalintel.PivotSweepDivergenceEngine
+import com.foxtrader.app.domain.usecase.signalintel.ValueAreaLiquidityRejectionEngine
 import com.foxtrader.app.domain.usecase.signalintel.SmsEngine
 import com.foxtrader.app.domain.usecase.signalintel.SignalFusionEngine
 import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
@@ -125,6 +126,7 @@ class ChartViewModel @Inject constructor(
     private val smtDivergenceDetector: SmtDivergenceDetector,
     private val rsiOrderFlowSignalEngine: RsiOrderFlowSignalEngine,
     private val pivotSweepDivergenceEngine: PivotSweepDivergenceEngine,
+    private val valueAreaLiquidityRejectionEngine: ValueAreaLiquidityRejectionEngine,
     private val heikinAshiTransformer: HeikinAshiTransformer,
     private val candleRenkoBuilder: CandleRenkoBuilder,
     private val signalComputer: SignalComputer,
@@ -691,6 +693,27 @@ class ChartViewModel @Inject constructor(
             }
         } else emptyList()
 
+        val valueAreaLiquidityAnalysis = if (
+            ind.valueAreaLiquidityRejection &&
+            barMode == ChartBarMode.TIME &&
+            timeframe.minutes < Timeframe.D1.minutes &&
+            signalCandles.isNotEmpty()
+        ) {
+            withContext(defaultDispatcher) {
+                containedOrNull {
+                    valueAreaLiquidityRejectionEngine.analyze(
+                        symbol = symbol,
+                        timeframe = timeframe,
+                        candles = signalCandles,
+                        config = ind.settings.valueAreaLiquidityRejection.toEngineConfig(),
+                    )
+                }
+            }
+        } else null
+        val valueAreaLiquiditySignals = valueAreaLiquidityAnalysis?.signals.orEmpty().map { signal ->
+            signal.toChartSignal(latestConfirmedIndex)
+        }
+
         // Backfill previously confirmed LiT arrows. Each bar is evaluated only
         // through its own closed prefix, so later data cannot create, move or
         // delete an earlier marker (non-repaint by construction).
@@ -817,7 +840,7 @@ class ChartViewModel @Inject constructor(
             emptyList()
         }
 
-        val chartStrategySignals = productionHistory + pivotSweepDivergenceSignals + strategySignals + binary3mSignals
+        val chartStrategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + strategySignals + binary3mSignals
 
         // Drop stale frames: a newer computation (e.g. from a rapid indicator
         // toggle) has already started, so publishing this older result would
@@ -837,7 +860,7 @@ class ChartViewModel @Inject constructor(
             signalFusion = signalFusion.takeIf { ind.tradePro || ind.litX || ind.lit || ind.sms || ind.smt },
             smtDivergences = smtDivergences,
             barMode = barMode,
-        )
+        ).copy(valueAreaLiquidityProfile = valueAreaLiquidityAnalysis?.activeProfile)
         val frameSignals = signalComputer.computeSignals(
             litXAnalysis = litXAnalysis.takeIf { ind.litX },
             tradeProAnalysis = tradeProAnalysis,
@@ -980,6 +1003,26 @@ class ChartViewModel @Inject constructor(
             }
         } else emptyList()
 
+        val valueAreaLiquidityAnalysis = if (
+            ind.valueAreaLiquidityRejection &&
+            current.barMode == ChartBarMode.TIME &&
+            timeframe.minutes < Timeframe.D1.minutes
+        ) {
+            withContext(defaultDispatcher) {
+                containedOrNull {
+                    valueAreaLiquidityRejectionEngine.analyze(
+                        symbol = symbol,
+                        timeframe = timeframe,
+                        candles = candles,
+                        config = ind.settings.valueAreaLiquidityRejection.toEngineConfig(),
+                    )
+                }
+            }
+        } else null
+        val valueAreaLiquiditySignals = valueAreaLiquidityAnalysis?.signals.orEmpty().map { signal ->
+            signal.toChartSignal(candles.lastIndex)
+        }
+
         val productionHistory = if ((ind.litX || ind.lit) && candles.isNotEmpty()) {
             withContext(defaultDispatcher) {
                 scanProductionSignalHistory(
@@ -1071,7 +1114,7 @@ class ChartViewModel @Inject constructor(
             tradeProAnalysis = null,
             smtDivergences = emptyList(),
             candles = candles,
-            strategySignals = productionHistory + pivotSweepDivergenceSignals + strategySignals + binary3mSignals,
+            strategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + strategySignals + binary3mSignals,
             litAnalysis = litAnalysis,
             smsAnalysis = smsAnalysis,
             rsiOrderFlowSignals = rsiOrderFlowSignals,
@@ -1088,7 +1131,7 @@ class ChartViewModel @Inject constructor(
             litXAnalysis = litXAnalysis,
             litAnalysis = litAnalysis,
             smsAnalysis = smsAnalysis,
-        )
+        ).copy(valueAreaLiquidityProfile = valueAreaLiquidityAnalysis?.activeProfile)
     }
 
     /**
@@ -2132,6 +2175,29 @@ private fun PivotSweepDivergenceEngine.Signal.toChartSignal(latestConfirmedIndex
         isLive = confirmationIndex == latestConfirmedIndex,
         label = "PSD ${levelName.name} · ${reasons.take(4).joinToString(" · ")}",
         eventKey = SignalIdentity.pivotSweepDivergence(
+            symbol = symbol,
+            timeframe = timeframe,
+            timestamp = timestamp,
+            direction = direction,
+            confirmationIndex = confirmationIndex,
+        ),
+        variant = mode.name,
+    )
+
+private fun ValueAreaLiquidityRejectionEngine.Signal.toChartSignal(latestConfirmedIndex: Int): ChartSignal =
+    ChartSignal(
+        id = "valr_${symbol}_${timestamp}_${direction.name}_${edge.name}",
+        source = SignalSource.VALUE_AREA_LIQUIDITY_REJECTION,
+        direction = direction,
+        entry = entry,
+        sl = stopLoss,
+        tp = takeProfit,
+        barIndex = confirmationIndex,
+        timestamp = timestamp,
+        confidence = confidence.toDouble(),
+        isLive = confirmationIndex == latestConfirmedIndex,
+        label = "VALR ${edge.name} · ${reasons.take(4).joinToString(" · ")}",
+        eventKey = SignalIdentity.valueAreaLiquidityRejection(
             symbol = symbol,
             timeframe = timeframe,
             timestamp = timestamp,

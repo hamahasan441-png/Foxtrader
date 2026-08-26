@@ -11,15 +11,15 @@ class DukascopyPollingWebSocketTest {
     private val socket = DukascopyPollingWebSocket(mockk<DukascopyDataSource>(), Dispatchers.Unconfined)
 
     @Test
-    fun `every Dukascopy chart timeframe refreshes on a five second healthy cadence`() {
+    fun `every Dukascopy chart timeframe refreshes on a one second healthy cadence`() {
         Timeframe.entries.forEach { timeframe ->
-            assertEquals("Unexpected Dukascopy poll interval for $timeframe", 5_000L, socket.pollIntervalMs(timeframe))
+            assertEquals("Unexpected Dukascopy poll interval for $timeframe", 1_000L, socket.pollIntervalMs(timeframe))
         }
     }
 
     @Test
-    fun `successful cycle subtracts fetch duration from five second cadence`() {
-        assertEquals(3_750L, socket.nextDelayMs(Timeframe.M1, failedThisCycle = false, failures = 0, elapsedMs = 1_250L))
+    fun `successful cycle subtracts fetch duration from one second cadence`() {
+        assertEquals(750L, socket.nextDelayMs(Timeframe.M1, failedThisCycle = false, failures = 0, elapsedMs = 250L))
         assertEquals(0L, socket.nextDelayMs(Timeframe.H4, failedThisCycle = false, failures = 0, elapsedMs = 5_200L))
     }
 

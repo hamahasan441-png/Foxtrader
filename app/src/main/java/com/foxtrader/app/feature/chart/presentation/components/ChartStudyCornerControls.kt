@@ -52,6 +52,8 @@ import com.foxtrader.app.feature.chart.presentation.MfiStudySettings
 import com.foxtrader.app.feature.chart.presentation.ParabolicSarStudySettings
 import com.foxtrader.app.feature.chart.presentation.PivotSweepDivergenceMode
 import com.foxtrader.app.feature.chart.presentation.PivotSweepDivergenceStudySettings
+import com.foxtrader.app.feature.chart.presentation.ValueAreaLiquidityRejectionMode
+import com.foxtrader.app.feature.chart.presentation.ValueAreaLiquidityRejectionStudySettings
 import com.foxtrader.app.feature.chart.presentation.ProductionAnalysisSystem
 import com.foxtrader.app.feature.chart.presentation.RsiOrderFlowStudySettings
 import com.foxtrader.app.feature.chart.presentation.RsiStudySettings
@@ -484,6 +486,66 @@ ResetButton { updateSettings(onChange) { it.copy(rsiOrderFlow = RsiOrderFlowStud
                     ResetButton { updateSettings(onChange) { it.copy(pivotSweepDivergence = PivotSweepDivergenceStudySettings()) } }
                 }
 
+                StudyControlId.VALUE_AREA_LIQUIDITY_REJECTION -> {
+                    ValrModeSelector(settings.valueAreaLiquidityRejection.mode) { mode ->
+                        updateSettings(onChange) {
+                            it.copy(valueAreaLiquidityRejection = it.valueAreaLiquidityRejection.copy(mode = mode))
+                        }
+                    }
+                    IntStepper("Min quality score", settings.valueAreaLiquidityRejection.minScore, 0, 100) { value ->
+                        updateSettings(onChange) { it.copy(valueAreaLiquidityRejection = it.valueAreaLiquidityRejection.copy(minScore = value)) }
+                    }
+                    IntStepper("Profile bins", settings.valueAreaLiquidityRejection.profileBins, 12, 200) { value ->
+                        updateSettings(onChange) { it.copy(valueAreaLiquidityRejection = it.valueAreaLiquidityRejection.copy(profileBins = value)) }
+                    }
+                    DoubleStepper("Value area", settings.valueAreaLiquidityRejection.valueAreaPercent, 0.05, 0.50, 0.90) { value ->
+                        updateSettings(onChange) { it.copy(valueAreaLiquidityRejection = it.valueAreaLiquidityRejection.copy(valueAreaPercent = value)) }
+                    }
+                    IntStepper("Prior-session bars", settings.valueAreaLiquidityRejection.minPreviousSessionBars, 4, 1500) { value ->
+                        updateSettings(onChange) { it.copy(valueAreaLiquidityRejection = it.valueAreaLiquidityRejection.copy(minPreviousSessionBars = value)) }
+                    }
+                    IntStepper("ATR period", settings.valueAreaLiquidityRejection.atrPeriod, 2, 500) { value ->
+                        updateSettings(onChange) { it.copy(valueAreaLiquidityRejection = it.valueAreaLiquidityRejection.copy(atrPeriod = value)) }
+                    }
+                    IntStepper("Liquidity lookback", settings.valueAreaLiquidityRejection.liquidityLookback, 3, 500) { value ->
+                        updateSettings(onChange) { it.copy(valueAreaLiquidityRejection = it.valueAreaLiquidityRejection.copy(liquidityLookback = value)) }
+                    }
+                    DoubleStepper("Pool tolerance ATR", settings.valueAreaLiquidityRejection.poolToleranceAtr, 0.05, 0.0, 5.0) { value ->
+                        updateSettings(onChange) { it.copy(valueAreaLiquidityRejection = it.valueAreaLiquidityRejection.copy(poolToleranceAtr = value)) }
+                    }
+                    DoubleStepper("Min sweep ATR", settings.valueAreaLiquidityRejection.minSweepAtr, 0.05, 0.0, 3.0) { value ->
+                        updateSettings(onChange) { it.copy(valueAreaLiquidityRejection = it.valueAreaLiquidityRejection.copy(minSweepAtr = value)) }
+                    }
+                    DoubleStepper("Min rejection wick", settings.valueAreaLiquidityRejection.minWickFraction, 0.05, 0.0, 1.0) { value ->
+                        updateSettings(onChange) { it.copy(valueAreaLiquidityRejection = it.valueAreaLiquidityRejection.copy(minWickFraction = value)) }
+                    }
+                    DoubleStepper("Volume spike", settings.valueAreaLiquidityRejection.volumeSpikeMultiple, 0.05, 0.0, 10.0) { value ->
+                        updateSettings(onChange) { it.copy(valueAreaLiquidityRejection = it.valueAreaLiquidityRejection.copy(volumeSpikeMultiple = value)) }
+                    }
+                    IntStepper("Structure lookback", settings.valueAreaLiquidityRejection.structureLookback, 1, 100) { value ->
+                        updateSettings(onChange) { it.copy(valueAreaLiquidityRejection = it.valueAreaLiquidityRejection.copy(structureLookback = value)) }
+                    }
+                    IntStepper("Confirm window", settings.valueAreaLiquidityRejection.maxConfirmBars, 0, 30) { value ->
+                        updateSettings(onChange) { it.copy(valueAreaLiquidityRejection = it.valueAreaLiquidityRejection.copy(maxConfirmBars = value)) }
+                    }
+                    DoubleStepper("POC minimum R:R", settings.valueAreaLiquidityRejection.minPocRewardRisk, 0.25, 0.25, 10.0) { value ->
+                        updateSettings(onChange) { it.copy(valueAreaLiquidityRejection = it.valueAreaLiquidityRejection.copy(minPocRewardRisk = value)) }
+                    }
+                    IntStepper("Cooldown bars", settings.valueAreaLiquidityRejection.cooldownBars, 0, 250) { value ->
+                        updateSettings(onChange) { it.copy(valueAreaLiquidityRejection = it.valueAreaLiquidityRejection.copy(cooldownBars = value)) }
+                    }
+                    IntStepper("Session UTC offset", settings.valueAreaLiquidityRejection.sessionOffsetMinutes, -720, 840, 60) { value ->
+                        updateSettings(onChange) { it.copy(valueAreaLiquidityRejection = it.valueAreaLiquidityRejection.copy(sessionOffsetMinutes = value)) }
+                    }
+                    Text(
+                        text = "BUY: prior-session VAL sweep/reclaim. SELL: VAH sweep/reclaim. POC is the causal target; provider volume or deterministic TPO fallback.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textSecondary,
+                    )
+                    SignalArrowNote()
+                    ResetButton { updateSettings(onChange) { it.copy(valueAreaLiquidityRejection = ValueAreaLiquidityRejectionStudySettings()) } }
+                }
+
                 StudyControlId.MACD -> {
                     IntStepper("Fast", settings.macd.fastPeriod, 1, 500) { value ->
                         updateSettings(onChange) { it.copy(macd = it.macd.copy(fastPeriod = value).sanitized()) }
@@ -824,6 +886,31 @@ private fun PsdModeSelector(
     }
 }
 
+@Composable
+private fun ValrModeSelector(
+    selected: ValueAreaLiquidityRejectionMode,
+    onSelected: (ValueAreaLiquidityRejectionMode) -> Unit,
+) {
+    val colors = FoxTheme.colors
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("Signal mode", style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
+        Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            ValueAreaLiquidityRejectionMode.entries.forEach { mode ->
+                Text(
+                    text = mode.name,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = if (selected == mode) colors.accent else colors.textSecondary,
+                    modifier = Modifier.clip(RoundedCornerShape(6.dp))
+                        .background(if (selected == mode) colors.accentMuted else colors.surfaceStrong)
+                        .clickable { onSelected(mode) }
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                )
+            }
+        }
+    }
+}
+
 private data class ActiveStudy(val id: StudyControlId, val label: String)
 
 private fun activeStudies(t: IndicatorToggles): List<ActiveStudy> = buildList {
@@ -849,6 +936,10 @@ private fun activeStudies(t: IndicatorToggles): List<ActiveStudy> = buildList {
         }
         ProductionAnalysisSystem.PIVOT_SWEEP_DIVERGENCE -> {
             add(ActiveStudy(StudyControlId.PIVOT_SWEEP_DIVERGENCE, "Pivot Sweep Divergence"))
+            return@buildList
+        }
+        ProductionAnalysisSystem.VALUE_AREA_LIQUIDITY_REJECTION -> {
+            add(ActiveStudy(StudyControlId.VALUE_AREA_LIQUIDITY_REJECTION, "Value Area Liquidity Rejection"))
             return@buildList
         }
         null -> Unit
@@ -883,6 +974,7 @@ private fun activeStudies(t: IndicatorToggles): List<ActiveStudy> = buildList {
     if (t.rsi) add(ActiveStudy(StudyControlId.RSI, "RSI ${t.settings.rsi.sanitized().period}"))
     if (t.rsiOrderFlow) add(ActiveStudy(StudyControlId.RSI_ORDER_FLOW, "RSI OF"))
     if (t.pivotSweepDivergence) add(ActiveStudy(StudyControlId.PIVOT_SWEEP_DIVERGENCE, "PSD"))
+    if (t.valueAreaLiquidityRejection) add(ActiveStudy(StudyControlId.VALUE_AREA_LIQUIDITY_REJECTION, "VALR"))
     if (t.macd) add(ActiveStudy(StudyControlId.MACD, "MACD"))
     if (t.volume) add(ActiveStudy(StudyControlId.VOLUME, "Volume"))
     if (t.stochastic) add(ActiveStudy(StudyControlId.STOCHASTIC, "Stoch"))
@@ -927,6 +1019,7 @@ private fun removeStudy(
         StudyControlId.RSI -> t.copy(rsi = false)
         StudyControlId.RSI_ORDER_FLOW -> t.withProductionAnalysisSystem(null)
         StudyControlId.PIVOT_SWEEP_DIVERGENCE -> t.withProductionAnalysisSystem(null)
+        StudyControlId.VALUE_AREA_LIQUIDITY_REJECTION -> t.withProductionAnalysisSystem(null)
         StudyControlId.MACD -> t.copy(macd = false)
         StudyControlId.VOLUME -> t.copy(volume = false)
         StudyControlId.STOCHASTIC -> t.copy(stochastic = false)
@@ -949,6 +1042,7 @@ private enum class StudyControlId(val title: String) {
     TRADE_PRO("TradePro"), BINARY_3M("Deriv 3m"), RSI("RSI settings"),
     RSI_ORDER_FLOW("RSI OrderFlow settings"),
     PIVOT_SWEEP_DIVERGENCE("Pivot Sweep Divergence settings"),
+    VALUE_AREA_LIQUIDITY_REJECTION("Value Area Liquidity Rejection settings"),
     MACD("MACD settings"), VOLUME("Volume"),
     STOCHASTIC("Stochastic settings"), OBV("OBV"), MFI("MFI settings"), STRATEGY("Strategy settings"),
     CUSTOM_STRATEGY("Custom strategy"), ALL_STRATEGIES("All strategies"),

@@ -70,6 +70,21 @@ object SignalIdentity {
         confirmationIndex = confirmationIndex,
     )
 
+    fun valueAreaLiquidityRejection(
+        symbol: String,
+        timeframe: Timeframe,
+        timestamp: Long,
+        direction: Direction,
+        confirmationIndex: Int,
+    ): String = methodology(
+        prefix = "valr",
+        symbol = symbol,
+        timeframe = timeframe,
+        timestamp = timestamp,
+        direction = direction,
+        confirmationIndex = confirmationIndex,
+    )
+
     private fun methodology(
         prefix: String,
         symbol: String,

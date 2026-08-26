@@ -32,9 +32,9 @@ import javax.inject.Singleton
  * changed latest candle. The chart separately computes freshness and labels a
  * stale feed DELAYED/CACHED instead of pretending it is live.
  *
- * Healthy subscriptions target a five-second poll cadence on every timeframe.
+ * Healthy subscriptions target a one-second poll cadence on every timeframe.
  * The fetch duration is subtracted from the sleep so a two-second HTTP request
- * does not accidentally turn a five-second cadence into seven seconds. Failed
+ * does not accidentally turn a one-second cadence into seven seconds. Failed
  * cycles retain bounded exponential backoff to avoid hammering the provider.
  */
 @Singleton
@@ -196,7 +196,7 @@ class DukascopyPollingWebSocket @Inject constructor(
         const val FAILURES_BEFORE_STALE = 2
         const val FAILURES_BEFORE_ERROR = 4
         const val DATA_FRESHNESS_GRACE_MS = 120_000L
-        const val HEALTHY_POLL_INTERVAL_MS = 5_000L
+        const val HEALTHY_POLL_INTERVAL_MS = 1_000L
         const val FAILURE_BACKOFF_BASE_MS = 5_000L
         const val FAILURE_BACKOFF_MAX_MS = 120_000L
     }

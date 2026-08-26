@@ -23,6 +23,7 @@ class ProductionAnalysisSystemTest {
             smt = true,
             rsiOrderFlow = true,
             pivotSweepDivergence = true,
+            valueAreaLiquidityRejection = true,
             allStrategies = true,
             activeStrategy = StrategyType.BREAKOUT,
             settings = customSettings,
@@ -42,6 +43,7 @@ class ProductionAnalysisSystemTest {
         assertFalse(result.smt)
         assertFalse(result.rsiOrderFlow)
         assertFalse(result.pivotSweepDivergence)
+        assertFalse(result.valueAreaLiquidityRejection)
 
         // Every independent indicator/engine/strategy choice survives.
         assertTrue(result.tradePro)
@@ -61,6 +63,7 @@ class ProductionAnalysisSystemTest {
             ProductionAnalysisSystem.SMT to { t: IndicatorToggles -> t.smt },
             ProductionAnalysisSystem.RSI_ORDERFLOW_CANDLE to { t: IndicatorToggles -> t.rsiOrderFlow },
             ProductionAnalysisSystem.PIVOT_SWEEP_DIVERGENCE to { t: IndicatorToggles -> t.pivotSweepDivergence },
+            ProductionAnalysisSystem.VALUE_AREA_LIQUIDITY_REJECTION to { t: IndicatorToggles -> t.valueAreaLiquidityRejection },
         )
 
         mappings.forEach { (system, isExpectedActive) ->
@@ -79,6 +82,7 @@ class ProductionAnalysisSystemTest {
             smt = true,
             rsiOrderFlow = true,
             pivotSweepDivergence = true,
+            valueAreaLiquidityRejection = true,
             tradePro = true,
             binary3m = true,
             ema = true,
@@ -91,6 +95,7 @@ class ProductionAnalysisSystemTest {
         assertFalse(result.smt)
         assertFalse(result.rsiOrderFlow)
         assertFalse(result.pivotSweepDivergence)
+        assertFalse(result.valueAreaLiquidityRejection)
         assertNull(result.productionAnalysisSystem())
 
         assertTrue(result.tradePro)

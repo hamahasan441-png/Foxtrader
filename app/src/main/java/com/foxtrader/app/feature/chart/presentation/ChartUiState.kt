@@ -36,6 +36,7 @@ import com.foxtrader.app.domain.usecase.indicators.PivotPoints
 import com.foxtrader.app.domain.usecase.analysis.SupportResistanceDetector
 import com.foxtrader.app.domain.usecase.mtf.ConfluenceEngine
 import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
+import com.foxtrader.app.domain.usecase.signalintel.ValueAreaLiquidityRejectionEngine
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 
@@ -79,6 +80,7 @@ data class IndicatorToggles(
     val rsi: Boolean = false,
     val rsiOrderFlow: Boolean = false,
     val pivotSweepDivergence: Boolean = false,
+    val valueAreaLiquidityRejection: Boolean = false,
     val macd: Boolean = false,
     val volume: Boolean = false,
     val stochastic: Boolean = false,
@@ -95,7 +97,7 @@ data class IndicatorToggles(
             ichimoku || keltner || donchian || pivotPoints || volumeProfile || marketProfile ||
             supportResistance || fibonacci || confluence || orderBlocks || fairValueGaps ||
             liquidity || sessions || structure || litX || lit || sms || smt || tradePro || binary3m ||
-            rsi || rsiOrderFlow || pivotSweepDivergence || macd || volume || stochastic || obv || moneyFlowIndex ||
+            rsi || rsiOrderFlow || pivotSweepDivergence || valueAreaLiquidityRejection || macd || volume || stochastic || obv || moneyFlowIndex ||
             activeStrategy != null || activeBlueprintId != null || allStrategies
 
     val smcSuiteActive: Boolean
@@ -263,6 +265,7 @@ data class ChartUiState(
     val liveSignalStats: LiveSignalPerformanceStats = LiveSignalPerformanceStats(),
     val volumeProfile: com.foxtrader.app.domain.model.VolumeProfile? = null,
     val marketProfile: MarketProfile.ProfileResult? = null,
+    val valueAreaLiquidityProfile: ValueAreaLiquidityRejectionEngine.ProfileSnapshot? = null,
     val supportResistanceZones: ImmutableList<SupportResistanceDetector.SRZone> = persistentListOf(),
     val autoFibLevels: ImmutableList<FibonacciEngine.FibLevel> = persistentListOf(),
     val autoFibDirection: Direction? = null,

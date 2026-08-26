@@ -14,6 +14,7 @@ enum class ProductionAnalysisSystem(val label: String) {
     SMT("SMT"),
     RSI_ORDERFLOW_CANDLE("RSI Orderflow Candle"),
     PIVOT_SWEEP_DIVERGENCE("Pivot Sweep Divergence"),
+    VALUE_AREA_LIQUIDITY_REJECTION("Value Area Liquidity Rejection"),
 }
 
 /** Resolve a single selected canonical engine when the state is unambiguous. */
@@ -24,6 +25,7 @@ fun IndicatorToggles.productionAnalysisSystem(): ProductionAnalysisSystem? {
         ProductionAnalysisSystem.SMT.takeIf { smt },
         ProductionAnalysisSystem.RSI_ORDERFLOW_CANDLE.takeIf { rsiOrderFlow },
         ProductionAnalysisSystem.PIVOT_SWEEP_DIVERGENCE.takeIf { pivotSweepDivergence },
+        ProductionAnalysisSystem.VALUE_AREA_LIQUIDITY_REJECTION.takeIf { valueAreaLiquidityRejection },
     )
     return selected.singleOrNull()
 }
@@ -46,6 +48,7 @@ fun IndicatorToggles.withProductionAnalysisSystem(
         smt = false,
         rsiOrderFlow = false,
         pivotSweepDivergence = false,
+        valueAreaLiquidityRejection = false,
     )
 
     return when (system) {
@@ -54,6 +57,7 @@ fun IndicatorToggles.withProductionAnalysisSystem(
         ProductionAnalysisSystem.SMT -> preserved.withSmtSuite(true)
         ProductionAnalysisSystem.RSI_ORDERFLOW_CANDLE -> preserved.copy(rsiOrderFlow = true)
         ProductionAnalysisSystem.PIVOT_SWEEP_DIVERGENCE -> preserved.copy(pivotSweepDivergence = true)
+        ProductionAnalysisSystem.VALUE_AREA_LIQUIDITY_REJECTION -> preserved.copy(valueAreaLiquidityRejection = true)
         null -> preserved
     }
 }

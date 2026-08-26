@@ -72,4 +72,20 @@ class IndicatorReadinessTest {
         assertEquals(IndicatorReadinessLevel.INCOMPATIBLE, incompatible.level)
         assertTrue(ready.label.contains("prior trading day"))
     }
+
+    @Test
+    fun `VALR requires time bars and a completed prior session`() {
+        val incompatible = IndicatorReadinessCatalog.status(
+            ChartStudyId.VALUE_AREA_LIQUIDITY_REJECTION,
+            500,
+            ChartBarMode.RENKO,
+        )
+        val ready = IndicatorReadinessCatalog.status(
+            ChartStudyId.VALUE_AREA_LIQUIDITY_REJECTION,
+            500,
+            ChartBarMode.TIME,
+        )
+        assertEquals(IndicatorReadinessLevel.INCOMPATIBLE, incompatible.level)
+        assertTrue(ready.label.contains("prior session"))
+    }
 }
