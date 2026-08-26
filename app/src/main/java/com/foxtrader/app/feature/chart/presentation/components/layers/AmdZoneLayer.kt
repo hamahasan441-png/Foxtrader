@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.usecase.signalintel.AccumulationManipulationDistributionEngine
+import com.foxtrader.app.feature.chart.presentation.chartOverlayLabelBaseline
 import com.foxtrader.app.feature.chart.presentation.components.ChartViewport
 
 private val AmdAccumulationFill = Color(0xFF9B7BFF)
@@ -96,12 +97,18 @@ internal fun DrawScope.drawAmdZones(
         if (width >= labelPaint.measureText(accLabel) * 2.2f) {
             labelPaint.color = AmdAccumulationEdge.copy(alpha = if (isLive) 0.95f else 0.55f).toArgb()
             labelPaint.textAlign = Paint.Align.LEFT
-            drawContext.canvas.nativeCanvas.drawText(
-                accLabel,
-                left + 4f * scale,
-                (top + labelPaint.textSize + 2f * scale).coerceIn(labelPaint.textSize, ch - 2f),
-                labelPaint,
-            )
+            chartOverlayLabelBaseline(
+                requested = top + labelPaint.textSize + 2f * scale,
+                textSize = labelPaint.textSize,
+                chartHeight = ch,
+            )?.let { labelY ->
+                drawContext.canvas.nativeCanvas.drawText(
+                    accLabel,
+                    left + 4f * scale,
+                    labelY,
+                    labelPaint,
+                )
+            }
         }
 
         // Manipulation marker: a gold "sweep" pip at the violated extreme, with
