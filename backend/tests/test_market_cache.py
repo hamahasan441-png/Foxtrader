@@ -4,10 +4,10 @@ import pytest
 
 pytest.importorskip("fastapi", reason="FastAPI not installed")
 
-from fastapi.testclient import TestClient
 from app.api import create_app
 from app.config import Settings
 from app.core.service import clear_candle_cache
+from fastapi.testclient import TestClient
 
 
 class CountingProvider:
@@ -46,7 +46,9 @@ def test_repeated_identical_requests_hit_cache():
     # Second identical request within TTL — should be served from cache, no extra provider call
     r2 = client.get("/api/v1/market/candles/EURUSD/1H", params={"limit": 10})
     assert r2.status_code == 200
-    assert provider.call_count == 1, f"Expected cache hit, but provider was called {provider.call_count} times"
+    assert provider.call_count == 1, (
+        f"Expected cache hit, but provider was called {provider.call_count} times"
+    )
 
     # Different limit — should miss cache and call provider again
     r3 = client.get("/api/v1/market/candles/EURUSD/1H", params={"limit": 20})

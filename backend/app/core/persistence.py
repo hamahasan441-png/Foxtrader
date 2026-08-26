@@ -214,11 +214,17 @@ class SqliteStore(AuthStore, SyncStore):
             try:
                 conn.execute(
                     "INSERT INTO users "
-                    "(id, email, password_hash, password_salt, display_name, created_at, device_id) "
+                    "(id, email, password_hash, password_salt, display_name, "
+                    "created_at, device_id) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?)",
                     (
-                        user.id, user.email, user.password_hash, user.password_salt,
-                        user.display_name, user.created_at, user.device_id,
+                        user.id,
+                        user.email,
+                        user.password_hash,
+                        user.password_salt,
+                        user.display_name,
+                        user.created_at,
+                        user.device_id,
                     ),
                 )
                 return True

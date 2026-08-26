@@ -3,7 +3,6 @@
 from urllib.parse import parse_qs, urlparse
 
 import pytest
-
 from app.core.providers.all_rates_today import AllRatesTodayProvider
 from app.core.providers.registry import build_provider
 from app.core.providers.rest import MissingApiKeyError, ProviderRequestError

@@ -123,6 +123,7 @@ def test_sqlite_refresh_token_is_consumed_atomically(tmp_path):
     """Two concurrent rotations of one refresh token cannot both succeed."""
     from concurrent.futures import ThreadPoolExecutor
     from threading import Barrier
+
     from app.core.auth import InvalidTokenError
 
     db_path = str(tmp_path / "refresh-race.db")
@@ -153,6 +154,7 @@ def test_sqlite_concurrent_registration_returns_one_duplicate(tmp_path):
     """Unique-email races are translated to a domain duplicate, never a DB 500."""
     from concurrent.futures import ThreadPoolExecutor
     from threading import Barrier
+
     from app.core.auth import DuplicateEmailError
 
     service = AuthService(SqliteStore(str(tmp_path / "register-race.db")))
