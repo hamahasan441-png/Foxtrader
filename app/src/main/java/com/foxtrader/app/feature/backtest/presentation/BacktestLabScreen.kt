@@ -136,7 +136,14 @@ fun BacktestLabScreen(
                 colors = ButtonDefaults.buttonColors(containerColor = FoxAmber50),
             ) {
                 Text(
-                    text = if (state.isRunning) "Running…" else "Run Non-Repainting Backtest",
+                    // A multi-year custom range pages dozens of history requests
+                    // before the engine starts. Saying only "Running…" for that
+                    // whole stretch reads as a frozen screen.
+                    text = when {
+                        state.isLoadingHistory -> "Loading history…"
+                        state.isRunning -> "Running…"
+                        else -> "Run Non-Repainting Backtest"
+                    },
                     color = MaterialTheme.colorScheme.onPrimary,
                     fontWeight = FontWeight.Bold,
                 )
