@@ -380,6 +380,7 @@ class BacktestLabViewModel @Inject constructor(
                             analyticsReport = analytics,
                             replayCandles = candles.toPersistentList(),
                             replayCursor = initialReplayCursor(candles),
+                            replayStartCursor = initialReplayCursor(candles),
                             replayPlaying = false,
                             lastRunTime = System.currentTimeMillis(),
                             rangeNotice = rangeNotice,
@@ -467,6 +468,7 @@ class BacktestLabViewModel @Inject constructor(
                         analyticsReport = analytics,
                         replayCandles = replaySeries.toPersistentList(),
                         replayCursor = window?.startIndex ?: initialReplayCursor(replaySeries),
+                        replayStartCursor = window?.startIndex ?: initialReplayCursor(replaySeries),
                         replayPlaying = false,
                         lastRunTime = System.currentTimeMillis(),
                         rangeNotice = rangeNotice,
@@ -652,7 +654,7 @@ class BacktestLabViewModel @Inject constructor(
         replayJob = null
         _uiState.update { state ->
             if (!state.hasReplayData) state else state.copy(
-                replayCursor = initialReplayCursor(state.replayCandles),
+                replayCursor = state.replayStartCursor.coerceIn(0, state.replayCandles.lastIndex),
                 replayPlaying = false,
             )
         }
@@ -690,7 +692,9 @@ class BacktestLabViewModel @Inject constructor(
             return
         }
         if (current.replayCursor >= current.replayCandles.lastIndex) {
-            _uiState.update { it.copy(replayCursor = initialReplayCursor(it.replayCandles)) }
+            _uiState.update {
+                it.copy(replayCursor = it.replayStartCursor.coerceIn(0, it.replayCandles.lastIndex))
+            }
         }
         replayJob?.cancel()
         replayJob = viewModelScope.launch {

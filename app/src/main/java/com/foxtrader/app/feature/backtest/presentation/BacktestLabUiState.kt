@@ -99,6 +99,14 @@ data class BacktestLabUiState(
     val lastRunTime: Long = 0L,
     val replayCandles: ImmutableList<Candle> = persistentListOf(),
     val replayCursor: Int = 0,
+    /**
+     * Bar the replay rewinds to on restart and on loop.
+     *
+     * For a windowed run this is the first *measured* bar, not the first loaded
+     * one — replaying hundreds of warm-up candles that the backtest never
+     * traded is not what "replay this result" means.
+     */
+    val replayStartCursor: Int = 0,
     val replayPlaying: Boolean = false,
     val isComparingModes: Boolean = false,
     val modeComparisonCompleted: Int = 0,
