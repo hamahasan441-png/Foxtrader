@@ -9,7 +9,11 @@ name: Android CI — Build APK
 
 on:
   push:
-    branches: [ main, "feat/**", "fix/**" ]
+    # `claude/**` is included so agent branches are built on every push. Without
+    # it a stacked PR — one whose base is another working branch rather than
+    # `main` — matched neither trigger and shipped with no CI at all: the
+    # `pull_request` trigger below only fires for PRs targeting `main`.
+    branches: [ main, "feat/**", "fix/**", "claude/**" ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:   # Allow manual trigger from the Actions tab
@@ -18,7 +22,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: android-ci-${{ github.ref }}
+  # Keyed on the PR number when there is one, so a branch that both pushes and
+  # has an open PR to `main` gets a single run instead of two racing ones.
+  group: android-ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
