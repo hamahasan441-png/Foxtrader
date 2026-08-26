@@ -11,6 +11,7 @@ import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.usecase.analysis.FibonacciEngine
 import com.foxtrader.app.domain.usecase.analysis.MarketProfile
 import com.foxtrader.app.domain.usecase.analysis.SupportResistanceDetector
+import com.foxtrader.app.feature.chart.presentation.chartOverlayLabelBaseline
 import com.foxtrader.app.feature.chart.presentation.components.ChartViewport
 import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxBearish
@@ -69,10 +70,12 @@ internal fun DrawScope.drawSupportResistanceZones(
 
         labelPaint.color = if (zone.isSupport) SupportLabelArgb else ResistanceLabelArgb
         labelPaint.textAlign = Paint.Align.LEFT
+        val labelBaseline = chartOverlayLabelBaseline(centerY - 4f, labelPaint.textSize, ch)
+            ?: continue
         drawContext.canvas.nativeCanvas.drawText(
             "${if (zone.isSupport) "S" else "R"} ${zone.touches.coerceAtLeast(0)}x",
             8f,
-            (centerY - 4f).coerceIn(10f, ch),
+            labelBaseline,
             labelPaint,
         )
     }
@@ -106,7 +109,6 @@ internal fun DrawScope.drawMarketProfile(
 
     val valueAreaLow = profile.valueAreaLow.takeIf { it.isDrawablePrice() }
     val valueAreaHigh = profile.valueAreaHigh.takeIf { it.isDrawablePrice() }
-    val hasValueArea = valueAreaLow != null && valueAreaHigh != null && valueAreaLow <= valueAreaHigh
     val poc = profile.poc.takeIf { it.isDrawablePrice() }
 
     for (level in validLevels) {
@@ -120,7 +122,9 @@ internal fun DrawScope.drawMarketProfile(
 
         val width = ((level.tpoCount.toFloat() / maxTpo.toFloat()) * barMaxWidth)
             .takeIf { it.isFinite() && it >= 0f } ?: continue
-        val inValueArea = hasValueArea && level.priceLevel in valueAreaLow!!..valueAreaHigh!!
+        val inValueArea = valueAreaLow?.let { low ->
+            valueAreaHigh?.let { high -> low <= high && level.priceLevel in low..high }
+        } ?: false
         val isPoc = poc != null && abs(level.priceLevel - poc) <= step / 2.0
         val color = when {
             isPoc -> FoxAmber50.copy(alpha = 0.36f)
@@ -181,10 +185,12 @@ internal fun DrawScope.drawAutoFibonacciLevels(
 
         labelPaint.color = FibLabelArgb
         labelPaint.textAlign = Paint.Align.RIGHT
+        val labelBaseline = chartOverlayLabelBaseline(y - 4f, labelPaint.textSize, ch)
+            ?: continue
         drawContext.canvas.nativeCanvas.drawText(
             "${level.label} ${formatLayerPrice(level.price)}",
             (cw - 8f).coerceAtLeast(0f),
-            (y - 4f).coerceIn(10f, ch),
+            labelBaseline,
             labelPaint,
         )
     }

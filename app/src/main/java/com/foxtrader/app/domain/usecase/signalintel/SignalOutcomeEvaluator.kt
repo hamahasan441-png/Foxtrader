@@ -135,8 +135,10 @@ class SignalOutcomeEvaluator @Inject constructor() {
      * that does not exist.
      */
     fun summarizeByVariant(records: List<Record>): List<VariantStats> = records
-        .filter { it.variant != null }
-        .groupBy { it.source to it.variant!! }
+        .mapNotNull { record ->
+            record.variant?.let { variant -> (record.source to variant) to record }
+        }
+        .groupBy(keySelector = { it.first }, valueTransform = { it.second })
         .map { (key, group) ->
             VariantStats(
                 source = key.first,

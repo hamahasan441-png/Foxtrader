@@ -9,6 +9,7 @@ import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.StructureBreak
 import com.foxtrader.app.domain.model.StructureBreakType
+import com.foxtrader.app.feature.chart.presentation.chartOverlayLabelBaseline
 import com.foxtrader.app.feature.chart.presentation.components.ChartViewport
 import com.foxtrader.app.ui.theme.FoxBearish
 import com.foxtrader.app.ui.theme.FoxBullish
@@ -74,10 +75,12 @@ internal fun DrawScope.drawStructureLayer(
             Direction.BULLISH -> StructureBullishLabelArgb
             Direction.BEARISH -> StructureBearishLabelArgb
         }
+        val labelBaseline = chartOverlayLabelBaseline(y - 10f, labelPaint.textSize, ch)
+            ?: continue
         drawContext.canvas.nativeCanvas.drawText(
             label,
             x,
-            (y - 10f).coerceIn(10f, ch),
+            labelBaseline,
             labelPaint,
         )
     }

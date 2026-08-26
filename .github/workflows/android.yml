@@ -48,6 +48,11 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
+      - name: Run repository safety preflight
+        run: |
+          bash scripts/release_preflight.sh
+          python3 scripts/verify_room_migrations.py
+
       # Tests run BEFORE the APK is built and uploaded.
       #
       # Previously assembleDebug ran first and the artifact was uploaded

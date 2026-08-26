@@ -25,8 +25,9 @@ object ChartDimens {
     // --- Chrome spacing ---
     // Intentionally compact: the chart is the primary surface and top chrome
     // should never reserve a large empty band above price action.
+    val topBarContentHeight = 40.dp
     val topBarHorizontalPadding = 8.dp
-    val topBarVerticalPadding = 3.dp
+    val toolbarHeight = 36.dp
     val toolbarHorizontalPadding = 6.dp
     val toolbarVerticalPadding = 1.dp
 

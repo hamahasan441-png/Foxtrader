@@ -121,11 +121,12 @@ class LitEngine @Inject constructor(
             atrMultiple = cfg.displacementAtrMultiple,
             lookback = DISPLACEMENT_LOOKBACK,
         )
-        val displacementAligned = displacement != null &&
-            displacement.direction == choch.direction &&
-            displacement.startIndex in (choch.confirmationIndex - MAX_DISPLACEMENT_LEAD_BARS)
-                .coerceAtLeast(0)..choch.confirmationIndex
-        if (!displacementAligned) {
+        val alignedDisplacement = displacement?.takeIf {
+            it.direction == choch.direction &&
+                it.startIndex in (choch.confirmationIndex - MAX_DISPLACEMENT_LEAD_BARS)
+                    .coerceAtLeast(0)..choch.confirmationIndex
+        }
+        if (alignedDisplacement == null) {
             return result(
                 symbol,
                 timeframe,
@@ -227,7 +228,7 @@ class LitEngine @Inject constructor(
             choch = choch,
             poi = poi,
             scob = scob,
-            displacementAtr = displacement!!.atrMultiple,
+            displacementAtr = alignedDisplacement.atrMultiple,
             zoneAligned = directionalZone,
             rr = rr,
         )
