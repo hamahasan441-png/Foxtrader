@@ -27,43 +27,19 @@ class HistoricalBacktestRunner @Inject constructor(
         timeframe: Timeframe,
         config: BacktestConfig = BacktestConfig(),
     ): BacktestResult {
-        require(candles.size >= 2) { "Historical test requires at least 2 candles." }
-        val selected = window.clampTo(candles)
-        require(selected.barCount >= 2) { "Historical test range must contain at least 2 bars." }
-
-        val causalSeries = candles.subList(0, selected.endIndex + 1)
-        val guarded: StrategyFunction = { prefix, index ->
-            if (index < selected.startIndex || index > selected.endIndex) {
-                null
-            } else {
-                strategy(prefix, index)
-            }
-        }
+        val selected = WindowedBacktest.requireUsable(candles, window)
 
         // Historical-range mode must use the exact execution/risk model selected
         // by its caller. BacktestEngine is stateful by configuration and Hilt is
         // free to provide this runner a different engine instance than a screen.
         backtestEngine.updateConfig(config)
         val result = backtestEngine(
-            candles = causalSeries,
-            strategy = guarded,
+            candles = WindowedBacktest.causalSeries(candles, selected),
+            strategy = WindowedBacktest.guard(strategy, selected),
             symbol = symbol,
             timeframe = timeframe,
         )
 
-        val selectedEquity = result.equityCurve.filter { it.index in selected.startIndex..selected.endIndex }
-        val startTs = candles[selected.startIndex].timestamp
-        val endTs = candles[selected.endIndex].timestamp
-
-        return result.copy(
-            equityCurve = selectedEquity,
-            startDate = startTs,
-            endDate = endTs,
-            durationDays = (endTs - startTs).coerceAtLeast(0L) / MILLIS_PER_DAY.toDouble(),
-        )
-    }
-
-    private companion object {
-        const val MILLIS_PER_DAY = 86_400_000L
+        return WindowedBacktest.finalize(result, candles, selected)
     }
 }

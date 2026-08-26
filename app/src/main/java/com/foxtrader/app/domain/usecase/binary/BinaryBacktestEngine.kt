@@ -24,11 +24,28 @@ import kotlin.math.max
 class BinaryBacktestEngine @Inject constructor(
     private val signalEngine: DerivBinary3mSignalEngine,
 ) {
+    /**
+     * @param entryWindowStartMillis when set, no contract may be *signalled*
+     *   before this timestamp. Earlier bars are still fed to the signal engine
+     *   so its warm-up is identical to a full-history run — they simply cannot
+     *   open a trade. This is what makes "test only March 2024" measure March
+     *   rather than March plus whatever warm-up bars happened to be attached.
+     * @param entryWindowEndMillis the inclusive upper bound for signal bars.
+     *   Bars after it remain available for settlement, so a contract opened on
+     *   the final day of the window still expires against real prices instead
+     *   of being silently dropped.
+     *
+     * The window is expressed in timestamps rather than indices deliberately:
+     * this engine re-sorts and de-duplicates its input, so caller-side indices
+     * are not guaranteed to survive into the loop below.
+     */
     operator fun invoke(
         candles: List<Candle>,
         symbol: String,
         timeframe: Timeframe,
         config: BinaryBacktestConfig = BinaryBacktestConfig(),
+        entryWindowStartMillis: Long? = null,
+        entryWindowEndMillis: Long? = null,
     ): BinaryBacktestResult {
         require(timeframe == Timeframe.M1) { "Deriv 3-minute binary backtest requires 1-minute candles." }
         require(config.initialBalance.isFinite() && config.initialBalance > 0.0) { "Initial balance must be positive." }
@@ -57,6 +74,10 @@ class BinaryBacktestEngine @Inject constructor(
 
         for (signalIndex in ordered.indices) {
             val signal = signalsByIndex[signalIndex] ?: continue
+            // Outside the selected research period this bar contributes warm-up
+            // and settlement prices only — it may not open a contract.
+            if (entryWindowStartMillis != null && signal.timestamp < entryWindowStartMillis) continue
+            if (entryWindowEndMillis != null && signal.timestamp > entryWindowEndMillis) continue
             if (!config.allowOverlappingContracts && signalIndex < nextEligibleSignalIndex) continue
 
             val entryIndex = signalIndex + 1

@@ -26,6 +26,10 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -40,6 +44,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -61,6 +68,8 @@ import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.EquityPoint
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.backtest.BacktestAnalyticsReport
+import com.foxtrader.app.domain.usecase.backtest.BacktestDateRange
+import com.foxtrader.app.domain.usecase.backtest.BacktestRangePreset
 import com.foxtrader.app.domain.usecase.backtest.LitXModeComparisonRunner
 import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxBearishText
@@ -96,7 +105,7 @@ fun BacktestLabScreen(
                     }
                     IconButton(
                         onClick = viewModel::runBacktest,
-                        enabled = !state.isRunning && !state.isComparingModes,
+                        enabled = state.canRun,
                     ) {
                         Icon(Icons.Default.Refresh, contentDescription = "Run backtest", tint = FoxAmber50)
                     }
@@ -122,7 +131,7 @@ fun BacktestLabScreen(
 
             Button(
                 onClick = viewModel::runBacktest,
-                enabled = !state.isRunning && !state.isComparingModes,
+                enabled = state.canRun,
                 modifier = Modifier.fillMaxWidth().height(48.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = FoxAmber50),
             ) {
@@ -136,7 +145,7 @@ fun BacktestLabScreen(
             if (state.canCompareLitModes) {
                 Button(
                     onClick = viewModel::runLitModeComparison,
-                    enabled = !state.isRunning && !state.isComparingModes,
+                    enabled = state.canRun,
                     modifier = Modifier.fillMaxWidth().height(48.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = FoxNeutral15),
                 ) {
@@ -234,6 +243,9 @@ private fun ConfigurationCard(
         )
 
         Spacer(Modifier.height(12.dp))
+        DateRangeSelector(state = state, viewModel = viewModel)
+
+        Spacer(Modifier.height(12.dp))
         Text("Strategy Template", fontSize = 12.sp, color = FoxNeutral60)
         ChipRow(
             items = BacktestStrategyTemplate.primaryEntries,
@@ -286,6 +298,141 @@ private fun ConfigurationCard(
         }
     }
 }
+
+/**
+ * Research-period control: quick presets plus an explicit calendar range.
+ *
+ * A preset is relative to today, so it is the right tool for "how has this
+ * behaved lately". CUSTOM pins absolute dates, which is what makes a result
+ * reproducible and lets a specific month, quarter or year be tested the way a
+ * desktop platform does it.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DateRangeSelector(
+    state: BacktestLabUiState,
+    viewModel: BacktestLabViewModel,
+) {
+    var pickerTarget by remember { mutableStateOf<RangeEdge?>(null) }
+
+    Text("Test Period", fontSize = 12.sp, color = FoxNeutral60)
+    ChipRow(
+        items = BacktestRangePreset.entries,
+        selected = state.rangePreset,
+        label = { it.label },
+        onSelect = viewModel::setRangePreset,
+    )
+
+    if (state.rangePreset.isCustom) {
+        Spacer(Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            DateField(
+                label = "From",
+                millis = state.customStartMillis,
+                modifier = Modifier.weight(1f),
+                onClick = { pickerTarget = RangeEdge.START },
+            )
+            DateField(
+                label = "To",
+                millis = state.customEndMillis,
+                modifier = Modifier.weight(1f),
+                onClick = { pickerTarget = RangeEdge.END },
+            )
+        }
+    }
+
+    val resolved = state.resolvedRange
+    Spacer(Modifier.height(6.dp))
+    Text(
+        text = when {
+            state.customRangeIncomplete -> "Pick a start and end date."
+            resolved == null -> "Measures every bar the provider returns for the latest refresh."
+            else -> "Measures ${formatRangeDay(resolved.startMillis)} → ${formatRangeDay(resolved.endMillis)}" +
+                " · warm-up bars before the start are loaded but never traded."
+        },
+        style = MaterialTheme.typography.bodySmall,
+        color = FoxNeutral60,
+    )
+
+    if (state.measuredBars > 0 && state.measuredStartMillis != null && state.measuredEndMillis != null) {
+        Text(
+            text = "Last run measured ${state.measuredBars} bars " +
+                "(${formatRangeDay(state.measuredStartMillis)} → ${formatRangeDay(state.measuredEndMillis)})" +
+                if (state.loadedBars > state.measuredBars) " from ${state.loadedBars} loaded." else ".",
+            style = MaterialTheme.typography.bodySmall,
+            color = FoxNeutral60,
+        )
+    }
+
+    state.rangeNotice?.let { notice ->
+        Spacer(Modifier.height(4.dp))
+        Text(text = notice, style = MaterialTheme.typography.bodySmall, color = FoxAmber50)
+    }
+
+    pickerTarget?.let { edge ->
+        val initial = when (edge) {
+            RangeEdge.START -> state.customStartMillis
+            RangeEdge.END -> state.customEndMillis
+        } ?: System.currentTimeMillis()
+        val pickerState = rememberDatePickerState(initialSelectedDateMillis = initial)
+        DatePickerDialog(
+            onDismissRequest = { pickerTarget = null },
+            confirmButton = {
+                TextButton(onClick = {
+                    pickerState.selectedDateMillis?.let { picked ->
+                        // The picker hands back UTC midnight. An end date must
+                        // cover its whole day, otherwise "To: 31 March" would
+                        // silently exclude every bar traded on 31 March.
+                        val date = BacktestDateRange.toLocalDate(picked)
+                        when (edge) {
+                            RangeEdge.START -> viewModel.setCustomRangeStart(BacktestDateRange.startOfDay(date))
+                            RangeEdge.END -> viewModel.setCustomRangeEnd(BacktestDateRange.endOfDay(date))
+                        }
+                    }
+                    pickerTarget = null
+                }) { Text("OK", color = FoxAmber50) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pickerTarget = null }) { Text("Cancel", color = FoxNeutral60) }
+            },
+        ) {
+            DatePicker(state = pickerState)
+        }
+    }
+}
+
+private enum class RangeEdge { START, END }
+
+@Composable
+private fun DateField(
+    label: String,
+    millis: Long?,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(FoxNeutral15)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+    ) {
+        Text(label, fontSize = 10.sp, color = FoxNeutral60)
+        Text(
+            text = millis?.let(::formatRangeDay) ?: "Select date",
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = if (millis == null) FoxNeutral60 else MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            softWrap = false,
+        )
+    }
+}
+
+private fun formatRangeDay(millis: Long): String = BacktestDateRange.toLocalDate(millis).toString()
 
 @Composable
 private fun BinaryResultContent(result: BinaryBacktestResult, analytics: BacktestAnalyticsReport?) {

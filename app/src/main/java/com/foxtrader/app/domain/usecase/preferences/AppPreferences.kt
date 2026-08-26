@@ -32,6 +32,7 @@ import com.foxtrader.app.domain.model.SmtConfig
 import com.foxtrader.app.domain.model.SmsConfig
 import com.foxtrader.app.domain.model.tradepro.TradeProConfig
 import com.foxtrader.app.domain.usecase.chart.ChartLayout
+import com.foxtrader.app.feature.chart.presentation.IndicatorToggles
 import com.foxtrader.app.domain.usecase.performance.PerformanceMode
 import com.foxtrader.app.domain.usecase.chart.ChartPanelSeed
 import com.foxtrader.app.domain.usecase.chart.ChartViewportState
@@ -171,6 +172,29 @@ class AppPreferences @Inject constructor(
     private val _smsConfig = MutableStateFlow(SmsConfig())
     val smsConfig: StateFlow<SmsConfig> = _smsConfig.asStateFlow()
 
+    /**
+     * Chart indicator selection and every tuned study parameter.
+     *
+     * Previously this lived only in ChartViewModel state, so closing the app
+     * discarded the trader's entire workspace: which studies were on, and every
+     * period, threshold and mode they had tuned. Persisting it makes the chart
+     * open the way it was left, which is the baseline expectation for a charting
+     * tool.
+     */
+    private val _indicatorToggles = MutableStateFlow(IndicatorToggles())
+    val indicatorToggles: StateFlow<IndicatorToggles> = _indicatorToggles.asStateFlow()
+
+    /**
+     * Flips true once the DataStore read has populated every flow above.
+     *
+     * Until then each flow still reports its compile-time default, which is
+     * indistinguishable from a user who genuinely saved the defaults. A consumer
+     * that restores state exactly once must gate on this or it will race the
+     * load and restore nothing.
+     */
+    private val _hydrated = MutableStateFlow(false)
+    val hydrated: StateFlow<Boolean> = _hydrated.asStateFlow()
+
     private val _tradeProAlertRules = MutableStateFlow<List<AlertRule>>(emptyList())
     val tradeProAlertRules: StateFlow<List<AlertRule>> = _tradeProAlertRules.asStateFlow()
 
@@ -258,9 +282,21 @@ class AppPreferences @Inject constructor(
                 _smsConfig.value = prefs[KEY_SMS_CONFIG]?.let { raw ->
                     runCatching { json.decodeFromString<SmsConfig>(raw) }.getOrDefault(SmsConfig())
                 }?.sanitized() ?: SmsConfig()
+                _indicatorToggles.value = prefs[KEY_INDICATOR_TOGGLES]?.let { raw ->
+                    // A stored payload written by an older build can be missing
+                    // fields or carry a renamed enum. Falling back to defaults
+                    // costs the trader their layout once; throwing here would
+                    // make the chart unopenable until app data is cleared.
+                    runCatching { json.decodeFromString<IndicatorToggles>(raw) }.getOrNull()
+                }?.let { it.copy(settings = it.settings.sanitized()) } ?: IndicatorToggles()
                 _tradeProAlertRules.value = prefs[KEY_TRADEPRO_ALERT_RULES]?.let { raw ->
                     runCatching { json.decodeFromString<List<AlertRule>>(raw) }.getOrDefault(emptyList())
                 } ?: emptyList()
+                // Published last: every StateFlow above now holds its persisted
+                // value. Consumers that must restore exactly once (rather than
+                // react to their own later writes) wait on this instead of
+                // sampling a flow that may still be reporting its default.
+                _hydrated.value = true
             }
         }
     }
@@ -325,6 +361,12 @@ class AppPreferences @Inject constructor(
     fun setTradeProConfig(config: TradeProConfig) {
         _tradeProConfig.value = config
         scope.launch { context.dataStore.edit { it[KEY_TRADEPRO_CONFIG] = json.encodeToString(config) } }
+    }
+
+    fun setIndicatorToggles(toggles: IndicatorToggles) {
+        val safe = toggles.copy(settings = toggles.settings.sanitized())
+        _indicatorToggles.value = safe
+        scope.launch { context.dataStore.edit { it[KEY_INDICATOR_TOGGLES] = json.encodeToString(safe) } }
     }
 
     fun setLitXConfig(config: LitXConfig) {
@@ -657,6 +699,7 @@ class AppPreferences @Inject constructor(
         val KEY_LIT_CONFIG = stringPreferencesKey("lit_phase13_config")
         val KEY_SMT_CONFIG = stringPreferencesKey("smt_phase13_config")
         val KEY_SMS_CONFIG = stringPreferencesKey("sms_phase13_config")
+        val KEY_INDICATOR_TOGGLES = stringPreferencesKey("chart_indicator_toggles")
         val KEY_TRADEPRO_ALERT_RULES = stringPreferencesKey("tradepro_alert_rules")
 
     }

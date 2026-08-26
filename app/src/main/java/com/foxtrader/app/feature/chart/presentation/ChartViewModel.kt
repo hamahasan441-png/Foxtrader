@@ -7,6 +7,7 @@ import com.foxtrader.app.data.alerts.AlertDispatcher
 import com.foxtrader.app.di.DefaultDispatcher
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.BacktestConfig
+import com.foxtrader.app.domain.model.BacktestExecutionMode
 import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.model.ChartBarMode
 import com.foxtrader.app.domain.model.ConnectionState
@@ -86,7 +87,9 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -381,6 +384,33 @@ class ChartViewModel @Inject constructor(
                 if (current.smcVisualMode != mode) {
                     _uiState.value = _uiState.value.copy(indicators = current.copy(smcVisualMode = mode))
                 }
+            }
+            .launchIn(viewModelScope)
+        // Restore the saved indicator workspace exactly once, after DataStore
+        // has hydrated. Gating on `hydrated` rather than sampling the toggles
+        // flow avoids racing the load and restoring the compile-time defaults;
+        // taking only the first emission avoids fighting the user by re-applying
+        // this ViewModel's own later writes.
+        appPreferences.hydrated
+            .filter { it }
+            .take(1)
+            .onEach {
+                val restored = appPreferences.indicatorToggles.value
+                if (restored == IndicatorToggles()) return@onEach
+                val current = _uiState.value.indicators
+                // A blueprint the user has since deleted must not be restored as
+                // the active strategy; it would produce an empty chart with no
+                // way to tell why.
+                val blueprintStillExists = restored.activeBlueprintId == null ||
+                    _uiState.value.strategyBlueprints.any { it.id == restored.activeBlueprintId }
+                _uiState.value = _uiState.value.copy(
+                    indicators = restored.copy(
+                        // The visual mode has its own dedicated preference.
+                        smcVisualMode = current.smcVisualMode,
+                        activeBlueprintId = restored.activeBlueprintId.takeIf { blueprintStillExists },
+                    ),
+                )
+                recomputeIndicatorFrame()
             }
             .launchIn(viewModelScope)
         // Chart-corner settings are live in both normal and replay modes.
@@ -1673,6 +1703,14 @@ class ChartViewModel @Inject constructor(
                         initialBalance = CHART_BACKTEST_INITIAL_BALANCE,
                         riskPercent = CHART_BACKTEST_RISK_PERCENT,
                         contractSize = instrumentTypeResolver.resolve(runSnapshot.symbol).contractSize.toInt(),
+                        // Must match the Backtest Lab. BacktestConfig defaults to
+                        // the legacy SIGNAL_PRICE fill, which executes at the very
+                        // close the strategy decided on — no gap between decision
+                        // and execution. Leaving the default here meant the
+                        // on-chart panel and the Lab reported different win rates
+                        // and P&L for the same strategy on the same bars, with the
+                        // on-chart numbers biased optimistic.
+                        executionMode = BacktestExecutionMode.NEXT_BAR_OPEN,
                     )
                     historicalBacktestRunner(
                         candles = closedCandles,
@@ -1783,10 +1821,19 @@ class ChartViewModel @Inject constructor(
             indicators = updated,
             confluence = if (updated.confluence) _uiState.value.confluence else null,
         )
+        // Persist the workspace so the chart reopens with the same studies and
+        // the same tuned parameters. Without this, every restart silently threw
+        // away whatever the trader had configured.
+        if (current != updated) appPreferences.setIndicatorToggles(updated)
         // The user explicitly asked for a different overlay set: give the render
         // pipeline a clean quality slate so a previously-degraded session cannot
         // silently skip the newly enabled indicator (see onOverlayConfigChanged).
         performanceMonitor.onOverlayConfigChanged()
+        recomputeIndicatorFrame()
+    }
+
+    /** Recompute the current frame after an overlay/settings change. */
+    private fun recomputeIndicatorFrame() {
         viewModelScope.launch {
             try {
                 val replay = replayEngine.state.value

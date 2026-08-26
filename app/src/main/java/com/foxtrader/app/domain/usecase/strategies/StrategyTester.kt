@@ -1,6 +1,7 @@
 package com.foxtrader.app.domain.usecase.strategies
 
 import com.foxtrader.app.domain.model.BacktestConfig
+import com.foxtrader.app.domain.model.BacktestExecutionMode
 import com.foxtrader.app.domain.model.BacktestResult
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.StrategyType
@@ -80,7 +81,13 @@ class StrategyTester @Inject constructor(
 
     private fun defaultConfig(symbol: String): BacktestConfig {
         val contractSize = instrumentTypeResolver.resolve(symbol).contractSize.toInt()
-        return BacktestConfig(contractSize = contractSize)
+        // Same execution model as the Lab and the on-chart panel, so a
+        // strategy ranking cannot disagree with the backtest a trader then runs
+        // on the winner.
+        return BacktestConfig(
+            contractSize = contractSize,
+            executionMode = BacktestExecutionMode.NEXT_BAR_OPEN,
+        )
     }
 }
 

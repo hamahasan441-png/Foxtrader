@@ -1,6 +1,7 @@
 package com.foxtrader.app.feature.chart.presentation
 
 import androidx.compose.runtime.Immutable
+import kotlinx.serialization.Serializable
 import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.model.BacktestChartMarker
 import com.foxtrader.app.domain.model.EquityPoint
@@ -50,6 +51,7 @@ import kotlinx.collections.immutable.persistentListOf
  * periods can never be reused under a new settings label.
  */
 @Immutable
+@Serializable
 data class IndicatorToggles(
     val ema: Boolean = false,
     val bollinger: Boolean = false,

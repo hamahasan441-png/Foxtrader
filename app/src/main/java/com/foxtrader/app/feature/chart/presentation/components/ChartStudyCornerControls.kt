@@ -52,6 +52,12 @@ import com.foxtrader.app.feature.chart.presentation.MfiStudySettings
 import com.foxtrader.app.feature.chart.presentation.ParabolicSarStudySettings
 import com.foxtrader.app.feature.chart.presentation.PivotSweepDivergenceMode
 import com.foxtrader.app.feature.chart.presentation.PivotSweepDivergenceStudySettings
+import com.foxtrader.app.feature.chart.presentation.VolumeProfileStudySettings
+import com.foxtrader.app.feature.chart.presentation.MarketProfileStudySettings
+import com.foxtrader.app.feature.chart.presentation.SupportResistanceStudySettings
+import com.foxtrader.app.feature.chart.presentation.FibonacciStudySettings
+import com.foxtrader.app.feature.chart.presentation.AnchoredVwapStudySettings
+import com.foxtrader.app.feature.chart.presentation.SmcStudySettings
 import com.foxtrader.app.feature.chart.presentation.ValueAreaLiquidityRejectionMode
 import com.foxtrader.app.feature.chart.presentation.ValueAreaLiquidityRejectionStudySettings
 import com.foxtrader.app.feature.chart.presentation.ProductionAnalysisSystem
@@ -719,6 +725,89 @@ ResetButton { updateSettings(onChange) { it.copy(rsiOrderFlow = RsiOrderFlowStud
                     )
                 }
 
+                StudyControlId.VOLUME_PROFILE -> {
+                    IntStepper("Price buckets", settings.volumeProfile.buckets, 4, 200, 2) { value ->
+                        updateSettings(onChange) { it.copy(volumeProfile = it.volumeProfile.copy(buckets = value)) }
+                    }
+                    SettingsHint("Fewer buckets widen the POC band; more buckets resolve finer nodes but need more bars to be meaningful.")
+                    ResetButton { updateSettings(onChange) { it.copy(volumeProfile = VolumeProfileStudySettings()) } }
+                }
+
+                StudyControlId.MARKET_PROFILE -> {
+                    IntStepper("TPO rows", settings.marketProfile.rowSize, 4, 200, 2) { value ->
+                        updateSettings(onChange) { it.copy(marketProfile = it.marketProfile.copy(rowSize = value)) }
+                    }
+                    SettingsHint("Row count is the profile's vertical resolution over the visible range.")
+                    ResetButton { updateSettings(onChange) { it.copy(marketProfile = MarketProfileStudySettings()) } }
+                }
+
+                StudyControlId.SUPPORT_RESISTANCE -> {
+                    IntStepper("Swing strength", settings.supportResistance.swingLookback, 1, 50) { value ->
+                        updateSettings(onChange) {
+                            it.copy(supportResistance = it.supportResistance.copy(swingLookback = value))
+                        }
+                    }
+                    IntStepper("Max zones", settings.supportResistance.maxZones, 1, 30) { value ->
+                        updateSettings(onChange) {
+                            it.copy(supportResistance = it.supportResistance.copy(maxZones = value))
+                        }
+                    }
+                    SettingsHint("Swing strength is the bars required either side of a pivot before it becomes a level.")
+                    ResetButton {
+                        updateSettings(onChange) { it.copy(supportResistance = SupportResistanceStudySettings()) }
+                    }
+                }
+
+                StudyControlId.FIBONACCI -> {
+                    IntStepper("Swing lookback", settings.fibonacci.lookbackBars, 20, 1_000, 10) { value ->
+                        updateSettings(onChange) { it.copy(fibonacci = it.fibonacci.copy(lookbackBars = value)) }
+                    }
+                    SettingsHint("The window searched for the swing high and low the retracement is drawn from.")
+                    ResetButton { updateSettings(onChange) { it.copy(fibonacci = FibonacciStudySettings()) } }
+                }
+
+                StudyControlId.ANCHORED_VWAP -> {
+                    IntStepper("Anchor lookback", settings.anchoredVwap.lookbackBars, 10, 1_000, 10) { value ->
+                        updateSettings(onChange) {
+                            it.copy(anchoredVwap = it.anchoredVwap.copy(lookbackBars = value))
+                        }
+                    }
+                    DoubleStepper("Band multiplier", settings.anchoredVwap.bandMultiplier, 0.25, 0.5, 6.0) { value ->
+                        updateSettings(onChange) {
+                            it.copy(anchoredVwap = it.anchoredVwap.copy(bandMultiplier = value))
+                        }
+                    }
+                    SettingsHint("The anchor is placed on the most significant swing inside the lookback window.")
+                    ResetButton { updateSettings(onChange) { it.copy(anchoredVwap = AnchoredVwapStudySettings()) } }
+                }
+
+                StudyControlId.ORDER_BLOCKS -> {
+                    DoubleStepper(
+                        "Impulse multiple", settings.smc.orderBlockImpulseMultiplier, 0.1, 1.0, 6.0,
+                    ) { value ->
+                        updateSettings(onChange) {
+                            it.copy(smc = it.smc.copy(orderBlockImpulseMultiplier = value))
+                        }
+                    }
+                    SettingsHint("How much larger than the recent average range a move must be to leave an order block.")
+                    ResetButton { updateSettings(onChange) { it.copy(smc = SmcStudySettings()) } }
+                }
+
+                StudyControlId.LIQUIDITY -> {
+                    DoubleStepper(
+                        "Pool tolerance %", settings.smc.liquidityTolerancePercent, 0.005, 0.005, 2.0,
+                    ) { value ->
+                        updateSettings(onChange) {
+                            it.copy(smc = it.smc.copy(liquidityTolerancePercent = value))
+                        }
+                    }
+                    IntStepper("Lookback bars", settings.smc.liquidityLookback, 5, 500, 5) { value ->
+                        updateSettings(onChange) { it.copy(smc = it.smc.copy(liquidityLookback = value)) }
+                    }
+                    SettingsHint("Tolerance is how close two highs or lows must be to count as the same pool.")
+                    ResetButton { updateSettings(onChange) { it.copy(smc = SmcStudySettings()) } }
+                }
+
                 else -> {
                     Text(
                         text = "This study has no numeric chart parameters. Visibility and removal are controlled from this chart-corner row.",
@@ -838,6 +927,16 @@ private fun ToggleRow(label: String, checked: Boolean, onChecked: (Boolean) -> U
         Text(label, style = MaterialTheme.typography.bodySmall, color = colors.textSecondary, modifier = Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = onChecked)
     }
+}
+
+/** One-line explanation of what a study parameter actually changes. */
+@Composable
+private fun SettingsHint(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodySmall,
+        color = FoxTheme.colors.textSecondary,
+    )
 }
 
 @Composable
