@@ -50,6 +50,11 @@ enum class BacktestStrategyTemplate(
         displayName = "RSI Orderflow Candle",
         description = "Confirmed RSI/orderflow-proxy divergence with provider-volume coverage disclosed explicitly.",
     ),
+    NASCENT(
+        displayName = "Nascent FX Primary Analysis",
+        description = "External key level (ILQ/SLQ/TLQ or EPA+DP) gating an internal MSU / EPA+DP setup, " +
+            "entered on a closed-bar sweep, engulf or 50% direct pullback.",
+    ),
     AMD(
         displayName = "AMD (Accumulation/Manipulation/Distribution)",
         description = "Range compression, a liquidity sweep beyond it, then a displaced reversal back through the whole range. Structural — works on every timeframe.",
@@ -61,7 +66,7 @@ enum class BacktestStrategyTemplate(
 
     companion object {
         /** The only built-in methodologies exposed in FoxTrader's primary Lab. */
-        val primaryEntries = listOf(LITX, LIT_MAY_MADNESS, SMT, RSI_ORDERFLOW, AMD)
+        val primaryEntries = listOf(LITX, LIT_MAY_MADNESS, SMT, RSI_ORDERFLOW, AMD, NASCENT)
     }
 }
 

@@ -18,6 +18,7 @@ data class ChartStudySettings(
     val pivotSweepDivergence: PivotSweepDivergenceStudySettings = PivotSweepDivergenceStudySettings(),
     val valueAreaLiquidityRejection: ValueAreaLiquidityRejectionStudySettings = ValueAreaLiquidityRejectionStudySettings(),
     val amd: AmdStudySettings = AmdStudySettings(),
+    val nascent: NascentStudySettings = NascentStudySettings(),
     val macd: MacdStudySettings = MacdStudySettings(),
     val bollinger: BollingerStudySettings = BollingerStudySettings(),
     val superTrend: SuperTrendStudySettings = SuperTrendStudySettings(),
@@ -35,6 +36,7 @@ data class ChartStudySettings(
         pivotSweepDivergence = pivotSweepDivergence.sanitized(),
         valueAreaLiquidityRejection = valueAreaLiquidityRejection.sanitized(),
         amd = amd.sanitized(),
+        nascent = nascent.sanitized(),
         macd = macd.sanitized(),
         bollinger = bollinger.sanitized(),
         superTrend = superTrend.sanitized(),
@@ -52,6 +54,40 @@ enum class PivotSweepDivergenceMode { FAST, PRECISION, POWER }
 enum class ValueAreaLiquidityRejectionMode { FAST, PRECISION, POWER }
 
 enum class AmdMode { FAST, PRECISION, POWER }
+
+/** Signal-quality floor offered to the trader, mapped to Nascent grades. */
+enum class NascentQuality { A_PLUS_ONLY, A_AND_ABOVE, ALL_VALID }
+
+/** How much Nascent diagnostic detail to retain. Off costs nothing. */
+enum class NascentDebugLevel { OFF, SUMMARY, FULL }
+
+/**
+ * Trader-facing Nascent settings.
+ *
+ * Deliberately a short list. The engine has many isolated thresholds, but
+ * exposing all of them would invite tuning a documented methodology into
+ * something else; the experimental ones stay inside
+ * [com.foxtrader.app.domain.usecase.nascent.NascentConfig].
+ */
+@Immutable
+data class NascentStudySettings(
+    val mode: com.foxtrader.app.domain.usecase.nascent.model.NascentMode =
+        com.foxtrader.app.domain.usecase.nascent.model.NascentMode.BALANCED,
+    val quality: NascentQuality = NascentQuality.ALL_VALID,
+    /** Reconstruct historical signals, not only those forming from now on. */
+    val historicalCalculation: Boolean = true,
+    val historyDepthBars: Int = 4_000,
+    /** Rolling window described to the trader as live analysis. */
+    val liveWindowBars: Int = 100,
+    val showKeyLevels: Boolean = true,
+    val showSetupLabels: Boolean = false,
+    val debug: NascentDebugLevel = NascentDebugLevel.OFF,
+) {
+    fun sanitized(): NascentStudySettings = copy(
+        historyDepthBars = historyDepthBars.coerceIn(200, 20_000),
+        liveWindowBars = liveWindowBars.coerceIn(20, 2_000),
+    )
+}
 
 @Immutable
 data class AmdStudySettings(

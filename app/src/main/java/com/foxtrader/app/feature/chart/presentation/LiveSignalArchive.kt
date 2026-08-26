@@ -164,6 +164,7 @@ class LiveSignalArchive(
         SignalSource.PIVOT_SWEEP_DIVERGENCE -> 92
         SignalSource.VALUE_AREA_LIQUIDITY_REJECTION -> 93
         SignalSource.ACCUMULATION_MANIPULATION_DISTRIBUTION -> 91
+        SignalSource.NASCENT -> 94
         SignalSource.SMT -> 85
         SignalSource.TRADEPRO -> 80
         SignalSource.BINARY3M -> 70

@@ -82,6 +82,7 @@ import com.foxtrader.app.feature.chart.presentation.components.layers.drawSmtDiv
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawSignalMarkers
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawValueAreaLiquidityProfiles
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawAmdZones
+import com.foxtrader.app.feature.chart.presentation.components.layers.drawNascentKeyLevels
 import com.foxtrader.app.domain.usecase.signalintel.AccumulationManipulationDistributionEngine
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawBacktestMarkers
 import com.foxtrader.app.ui.theme.FoxNeutral0
@@ -167,6 +168,7 @@ fun CandleChart(
     marketProfile: MarketProfile.ProfileResult? = null,
     valueAreaLiquidityProfiles: List<ValueAreaLiquidityRejectionEngine.ProfileSnapshot> = emptyList(),
     amdZones: List<AccumulationManipulationDistributionEngine.Signal> = emptyList(),
+    nascentKeyLevels: List<com.foxtrader.app.domain.usecase.nascent.model.ExternalKeyLevel> = emptyList(),
     supportResistanceZones: ImmutableList<SupportResistanceDetector.SRZone> = persistentListOf(),
     autoFibLevels: ImmutableList<FibonacciEngine.FibLevel> = persistentListOf(),
     autoFibDirection: Direction? = null,
@@ -666,6 +668,18 @@ fun CandleChart(
         if (indicators.amd && amdZones.isNotEmpty() && quality.structureAnnotations) {
             clipRect(right = cw, bottom = ch) {
                 drawAmdZones(amdZones, viewport, cw, ch, amdLabelPaint)
+            }
+        }
+
+        // Nascent context is opt-in: the default chart shows entries only.
+        if (
+            indicators.nascent &&
+            indicators.settings.nascent.showKeyLevels &&
+            nascentKeyLevels.isNotEmpty() &&
+            quality.structureAnnotations
+        ) {
+            clipRect(right = cw, bottom = ch) {
+                drawNascentKeyLevels(nascentKeyLevels, candles, viewport, cw, ch, amdLabelPaint)
             }
         }
 
