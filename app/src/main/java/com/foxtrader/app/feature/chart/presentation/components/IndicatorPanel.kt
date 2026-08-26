@@ -25,12 +25,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 import com.foxtrader.app.domain.model.StrategyBlueprint
 import com.foxtrader.app.feature.chart.presentation.ChartIndicatorRuntime
 import com.foxtrader.app.feature.chart.presentation.ChartStudyId
@@ -64,8 +60,6 @@ fun IndicatorPanel(
 ) {
     if (!visible) return
 
-    val density = LocalDensity.current
-    val popupOffset = with(density) { IntOffset(0, POPUP_OFFSET_DP.dp.roundToPx()) }
     val maxPopupHeight = (LocalConfiguration.current.screenHeightDp * 0.72f)
         .coerceAtLeast(260f)
         .dp
@@ -79,17 +73,10 @@ fun IndicatorPanel(
         }
     }
 
-    Popup(
-        alignment = Alignment.TopCenter,
-        offset = popupOffset,
-        properties = PopupProperties(
-            focusable = false,
-            dismissOnBackPress = false,
-            dismissOnClickOutside = false,
-            clippingEnabled = true,
-        ),
-    ) {
-        Surface(
+    // Keep the indicator selector in the chart's existing composition. A separate
+    // Compose Popup creates a detached PopupLayout that can be retained by the
+    // platform accessibility listener after this panel closes.
+    Surface(
             modifier = modifier
                 .widthIn(min = 300.dp, max = 680.dp)
                 .padding(horizontal = 10.dp),
@@ -200,7 +187,6 @@ fun IndicatorPanel(
                 )
             }
         }
-    }
 }
 
 private data class StudyItem(
@@ -357,4 +343,3 @@ private fun InlineDoubleSetting(
 }
 
 private const val TOGGLE_DEBOUNCE_MS = 120L
-private const val POPUP_OFFSET_DP = 104
