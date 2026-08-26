@@ -7,6 +7,7 @@ import com.foxtrader.app.data.alerts.AlertDispatcher
 import com.foxtrader.app.di.DefaultDispatcher
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.BacktestConfig
+import com.foxtrader.app.domain.model.BacktestExecutionMode
 import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.model.ChartBarMode
 import com.foxtrader.app.domain.model.ConnectionState
@@ -1702,6 +1703,14 @@ class ChartViewModel @Inject constructor(
                         initialBalance = CHART_BACKTEST_INITIAL_BALANCE,
                         riskPercent = CHART_BACKTEST_RISK_PERCENT,
                         contractSize = instrumentTypeResolver.resolve(runSnapshot.symbol).contractSize.toInt(),
+                        // Must match the Backtest Lab. BacktestConfig defaults to
+                        // the legacy SIGNAL_PRICE fill, which executes at the very
+                        // close the strategy decided on — no gap between decision
+                        // and execution. Leaving the default here meant the
+                        // on-chart panel and the Lab reported different win rates
+                        // and P&L for the same strategy on the same bars, with the
+                        // on-chart numbers biased optimistic.
+                        executionMode = BacktestExecutionMode.NEXT_BAR_OPEN,
                     )
                     historicalBacktestRunner(
                         candles = closedCandles,

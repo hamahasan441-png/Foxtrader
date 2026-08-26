@@ -1,6 +1,7 @@
 package com.foxtrader.app.domain.usecase.ai
 
 import com.foxtrader.app.domain.model.BacktestConfig
+import com.foxtrader.app.domain.model.BacktestExecutionMode
 import com.foxtrader.app.domain.model.BacktestResult
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Timeframe
@@ -261,6 +262,12 @@ data class OptimizationGrid(
                             riskPercent = risk,
                             spread = spread,
                             slippage = slippage,
+                            // Optimise against the fill model the Lab and the
+                            // chart actually report. Tuning parameters under the
+                            // legacy same-bar fill produces settings that look
+                            // best only under an execution model the trader will
+                            // never get.
+                            executionMode = BacktestExecutionMode.NEXT_BAR_OPEN,
                         ),
                     )
                 }
