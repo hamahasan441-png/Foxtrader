@@ -860,7 +860,9 @@ class ChartViewModel @Inject constructor(
             signalFusion = signalFusion.takeIf { ind.tradePro || ind.litX || ind.lit || ind.sms || ind.smt },
             smtDivergences = smtDivergences,
             barMode = barMode,
-        ).copy(valueAreaLiquidityProfile = valueAreaLiquidityAnalysis?.activeProfile)
+        ).copy(
+            valueAreaLiquidityProfiles = valueAreaLiquidityAnalysis?.profiles.orEmpty().toPersistentList(),
+        )
         val frameSignals = signalComputer.computeSignals(
             litXAnalysis = litXAnalysis.takeIf { ind.litX },
             tradeProAnalysis = tradeProAnalysis,
@@ -1131,7 +1133,9 @@ class ChartViewModel @Inject constructor(
             litXAnalysis = litXAnalysis,
             litAnalysis = litAnalysis,
             smsAnalysis = smsAnalysis,
-        ).copy(valueAreaLiquidityProfile = valueAreaLiquidityAnalysis?.activeProfile)
+        ).copy(
+            valueAreaLiquidityProfiles = valueAreaLiquidityAnalysis?.profiles.orEmpty().toPersistentList(),
+        )
     }
 
     /**

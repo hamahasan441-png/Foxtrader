@@ -80,7 +80,7 @@ import com.foxtrader.app.feature.chart.presentation.components.layers.drawTimeAx
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawLitXSignals
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawSmtDivergences
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawSignalMarkers
-import com.foxtrader.app.feature.chart.presentation.components.layers.drawValueAreaLiquidityProfile
+import com.foxtrader.app.feature.chart.presentation.components.layers.drawValueAreaLiquidityProfiles
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawBacktestMarkers
 import com.foxtrader.app.ui.theme.FoxNeutral0
 import kotlin.math.max
@@ -163,7 +163,7 @@ fun CandleChart(
     drawings: ImmutableList<com.foxtrader.app.domain.model.ChartDrawing> = persistentListOf(),
     volumeProfile: com.foxtrader.app.domain.model.VolumeProfile? = null,
     marketProfile: MarketProfile.ProfileResult? = null,
-    valueAreaLiquidityProfile: ValueAreaLiquidityRejectionEngine.ProfileSnapshot? = null,
+    valueAreaLiquidityProfiles: List<ValueAreaLiquidityRejectionEngine.ProfileSnapshot> = emptyList(),
     supportResistanceZones: ImmutableList<SupportResistanceDetector.SRZone> = persistentListOf(),
     autoFibLevels: ImmutableList<FibonacciEngine.FibLevel> = persistentListOf(),
     autoFibDirection: Direction? = null,
@@ -247,6 +247,18 @@ fun CandleChart(
     // they need their own LEFT-aligned paint rather than the CENTER-aligned
     // structure label paint.
     val pivotLabelPaint = remember {
+        Paint().apply {
+            color = AxisLabelArgb
+            textSize = with(density) { 8.dp.toPx() }
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            isAntiAlias = true
+            textAlign = Paint.Align.LEFT
+        }
+    }
+    // Value-area tags (VAH/VAL/POC). Owned separately from [pivotLabelPaint]
+    // because the value-area layer re-colours and re-sizes its paint on every
+    // pass; sharing one instance would leak that state into the pivot tags.
+    val valueAreaLabelPaint = remember {
         Paint().apply {
             color = AxisLabelArgb
             textSize = with(density) { 8.dp.toPx() }
@@ -631,9 +643,9 @@ fun CandleChart(
             }
         }
 
-        if (indicators.valueAreaLiquidityRejection && valueAreaLiquidityProfile != null && quality.volumeProfile) {
+        if (indicators.valueAreaLiquidityRejection && valueAreaLiquidityProfiles.isNotEmpty() && quality.volumeProfile) {
             clipRect(right = cw, bottom = ch) {
-                drawValueAreaLiquidityProfile(valueAreaLiquidityProfile, viewport, cw, ch, pivotLabelPaint)
+                drawValueAreaLiquidityProfiles(valueAreaLiquidityProfiles, viewport, cw, ch, valueAreaLabelPaint)
             }
         }
 

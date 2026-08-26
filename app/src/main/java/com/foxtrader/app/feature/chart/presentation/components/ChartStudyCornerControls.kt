@@ -462,6 +462,12 @@ ResetButton { updateSettings(onChange) { it.copy(rsiOrderFlow = RsiOrderFlowStud
                     IntStepper("Confirm window", settings.pivotSweepDivergence.maxConfirmBars, 0, 30) { value ->
                         updateSettings(onChange) { it.copy(pivotSweepDivergence = it.pivotSweepDivergence.copy(maxConfirmBars = value)) }
                     }
+                    IntStepper("Sweep window", settings.pivotSweepDivergence.sweepWindowBars, 0, 25) { value ->
+                        updateSettings(onChange) { it.copy(pivotSweepDivergence = it.pivotSweepDivergence.copy(sweepWindowBars = value)) }
+                    }
+                    IntStepper("Reclaim window", settings.pivotSweepDivergence.maxReclaimBars, 0, 25) { value ->
+                        updateSettings(onChange) { it.copy(pivotSweepDivergence = it.pivotSweepDivergence.copy(maxReclaimBars = value)) }
+                    }
                     DoubleStepper("Displacement ATR", settings.pivotSweepDivergence.displacementAtrMultiple, 0.05, 0.0, 5.0) { value ->
                         updateSettings(onChange) { it.copy(pivotSweepDivergence = it.pivotSweepDivergence.copy(displacementAtrMultiple = value)) }
                     }

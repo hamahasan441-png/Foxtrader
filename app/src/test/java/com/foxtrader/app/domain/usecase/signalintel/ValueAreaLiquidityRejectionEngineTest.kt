@@ -31,6 +31,50 @@ class ValueAreaLiquidityRejectionEngineTest {
         assertEquals(prior.last().timestamp, first?.sourceEndTimestamp)
     }
 
+    /**
+     * The chart draws one value area per session, so the engine must hand back
+     * every session profile — not only the one for the session in progress —
+     * and each must be bounded by the bars it actually governed.
+     */
+    @Test
+    fun `every session profile is returned and bounded to its own session`() {
+        val hour = 3_600_000L
+        val day = 86_400_000L
+        val candles = (0 until 4).flatMap { dayIndex ->
+            List(24) { hourIndex ->
+                val price = 100.0 + dayIndex * 2.0 + hourIndex * 0.10
+                Candle(
+                    dayIndex * day + hourIndex * hour,
+                    price,
+                    price + 0.60,
+                    price - 0.40,
+                    price + 0.20,
+                    100.0 + hourIndex,
+                )
+            }
+        }
+        val analysis = engine.analyze(
+            "EURUSD",
+            Timeframe.H1,
+            candles,
+            ValueAreaLiquidityRejectionEngine.Config(minPreviousSessionBars = 20),
+        )
+
+        // Four sessions, three of which have a completed predecessor to profile.
+        assertEquals(3, analysis.profiles.size)
+        assertEquals(analysis.activeProfile, analysis.profiles.last())
+        analysis.profiles.forEach { profile ->
+            assertTrue(
+                "a profile must span at least one bar",
+                profile.appliesToIndex >= profile.appliesFromIndex,
+            )
+        }
+        // Sessions are disjoint and ordered oldest first.
+        analysis.profiles.zipWithNext().forEach { (older, newer) ->
+            assertTrue(older.appliesToIndex < newer.appliesFromIndex)
+        }
+    }
+
     @Test
     fun `daily and synthetic non-time contexts do not produce signals`() {
         val candles = List(80) { index -> Candle(index * 86_400_000L, 100.0, 101.0, 99.0, 100.5, 10.0) }

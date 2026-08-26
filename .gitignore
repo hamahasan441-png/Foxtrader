@@ -17,6 +17,8 @@ local.properties
 
 # Kotlin
 *.kotlin_module
+# Kotlin 2.x build-session scratch dir (compiler error logs, daemon state).
+.kotlin/
 
 # Keystore (never commit signing keys)
 *.jks

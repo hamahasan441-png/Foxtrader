@@ -19,6 +19,8 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import kotlinx.serialization.json.Json
 import okhttp3.CertificatePinner
+import okhttp3.ConnectionPool
+import okhttp3.Dispatcher
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -124,6 +126,10 @@ object NetworkModule {
     private const val POLYGON_BASE_URL = "https://api.polygon.io/"
 
     // Shared timeout constants (seconds).
+    /** `PERF` Chart history fans out to one host; OkHttp defaults to 64/5. */
+    private const val MAX_PARALLEL_REQUESTS = 64
+    private const val MAX_PARALLEL_REQUESTS_PER_HOST = 12
+
     private const val CONNECT_TIMEOUT = 15L
     private const val READ_TIMEOUT = 30L
     private const val WRITE_TIMEOUT = 30L
@@ -227,8 +233,21 @@ object NetworkModule {
             level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC
             else HttpLoggingInterceptor.Level.NONE
         }
+        // `PERF` Historical chart loads fan out many small GETs to a single host
+        // (Dukascopy partitions minute data per day and ticks per hour). OkHttp's
+        // default `maxRequestsPerHost = 5` silently serialised those batches no
+        // matter how much concurrency the data source asked for, so a cold chart
+        // load spent most of its wall-clock time queued in the dispatcher. The
+        // connection pool is widened to match so the extra parallelism reuses
+        // warm TLS connections instead of paying a fresh handshake per request.
+        val dispatcher = Dispatcher().apply {
+            maxRequests = MAX_PARALLEL_REQUESTS
+            maxRequestsPerHost = MAX_PARALLEL_REQUESTS_PER_HOST
+        }
         return OkHttpClient.Builder()
             .addInterceptor(logging)
+            .dispatcher(dispatcher)
+            .connectionPool(ConnectionPool(MAX_PARALLEL_REQUESTS_PER_HOST, 5, TimeUnit.MINUTES))
             .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
             .readTimeout(READ_TIMEOUT, TimeUnit.SECONDS)
             .writeTimeout(WRITE_TIMEOUT, TimeUnit.SECONDS)

@@ -126,6 +126,10 @@ data class PivotSweepDivergenceStudySettings(
     val cooldownBars: Int = 6,
     val sessionOffsetMinutes: Int = 0,
     val maxSignals: Int = 160,
+    /** Bars either side of the divergence pivot that may carry the level sweep. */
+    val sweepWindowBars: Int = 3,
+    /** Bars allowed between the level pierce and its closing reclaim. */
+    val maxReclaimBars: Int = 2,
 ) {
     fun sanitized(): PivotSweepDivergenceStudySettings {
         val minSep = minPivotSeparation.coerceIn(1, 250)
@@ -152,6 +156,8 @@ data class PivotSweepDivergenceStudySettings(
             cooldownBars = cooldownBars.coerceIn(0, 250),
             sessionOffsetMinutes = sessionOffsetMinutes.coerceIn(-720, 840),
             maxSignals = maxSignals.coerceIn(20, 500),
+            sweepWindowBars = sweepWindowBars.coerceIn(0, 25),
+            maxReclaimBars = maxReclaimBars.coerceIn(0, 25),
         )
     }
 }

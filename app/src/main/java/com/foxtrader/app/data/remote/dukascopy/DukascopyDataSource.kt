@@ -50,14 +50,61 @@ class DukascopyDataSource @Inject constructor(
 
     private data class CandleRequest(val url: String, val cacheable: Boolean)
 
-    private val cacheLock = Any()
-    private val completedCandleCache = object : LinkedHashMap<String, List<Candle>>(128, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<Candle>>?): Boolean =
-            size > MAX_CACHED_CANDLE_BUCKETS
+    /**
+     * LRU cache bounded by the number of *rows* it retains, not by entry count.
+     *
+     * `MEMORY` Bucket payloads here are wildly uneven: one completed minute
+     * bucket is ~1 440 candles, while one completed `.bi5` hour of a major FX
+     * pair is routinely 20 000–100 000 ticks. Capping only the entry count let
+     * this singleton retain millions of objects (hundreds of MB) for the whole
+     * process lifetime, which is what pushed the app into `OutOfMemoryError`
+     * after a few provider/timeframe switches. Bounding by total rows keeps the
+     * worst case flat regardless of how dense the requested history is.
+     */
+    private class RowBoundedCache<T>(
+        private val maxRows: Int,
+        private val rowsOf: (List<T>) -> Int = { it.size },
+    ) {
+        private val entries = LinkedHashMap<String, List<T>>(64, 0.75f, true)
+        private var rows = 0
+
+        operator fun get(key: String): List<T>? = entries[key]
+
+        operator fun set(key: String, value: List<T>) {
+            val weight = rowsOf(value)
+            // A single payload larger than the whole budget is never worth
+            // retaining: caching it would evict everything else and still be
+            // dropped on the next insert.
+            if (weight > maxRows) {
+                entries.remove(key)?.let { rows -= rowsOf(it) }
+                return
+            }
+            entries.put(key, value)?.let { rows -= rowsOf(it) }
+            rows += weight
+            val iterator = entries.entries.iterator()
+            while (rows > maxRows && iterator.hasNext()) {
+                val eldest = iterator.next()
+                rows -= rowsOf(eldest.value)
+                iterator.remove()
+            }
+        }
+
+        fun clear() {
+            entries.clear()
+            rows = 0
+        }
     }
-    private val completedTickCache = object : LinkedHashMap<String, List<Tick>>(128, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<Tick>>?): Boolean =
-            size > MAX_CACHED_TICK_HOURS
+
+    private val cacheLock = Any()
+    private val completedCandleCache = RowBoundedCache<Candle>(MAX_CACHED_CANDLE_ROWS)
+    private val completedTickCache = RowBoundedCache<Tick>(MAX_CACHED_TICK_ROWS)
+
+    /** Drop every cached bucket. Called when the process is under memory pressure. */
+    fun clearCaches() {
+        synchronized(cacheLock) {
+            completedCandleCache.clear()
+            completedTickCache.clear()
+        }
     }
 
     fun discoverSymbols(): List<ProviderMarketSymbol> = instrumentCatalog.discoverSymbols()
@@ -98,15 +145,29 @@ class DukascopyDataSource @Inject constructor(
     ): List<Candle> {
         val source = sourceFor(timeframe)
         val requests = buildCandleRequests(instrument, source, timeframe, beforeTimestamp, limit)
-        val all = mutableListOf<Candle>()
+        val durationMs = timeframe.minutes.toLong() * 60_000L
+        val all = ArrayList<Candle>()
+
+        // `PERF` The completion test tracks distinct *target* buckets in a hash
+        // set updated as rows arrive. The previous implementation re-ran the
+        // full filter/distinct/sort/group aggregation after every batch over a
+        // list that grows past 100 000 rows on a minute-sourced request — an
+        // O(batches · n log n) allocation storm that dominated chart load time
+        // and shredded the young generation while the user waited.
+        val bucketKeys = HashSet<Long>(limit * 2)
 
         for (batch in requests.chunked(CANDLE_FETCH_CONCURRENCY)) {
-            val candles = coroutineScope {
+            val fetched = coroutineScope {
                 batch.map { request -> async { fetchCandleBucket(request) } }.awaitAll()
             }
-            candles.forEach(all::addAll)
-            val aggregated = aggregateCandles(all, timeframe, beforeTimestamp)
-            if (aggregated.size >= limit) return aggregated.takeLast(limit)
+            for (bucket in fetched) {
+                for (candle in bucket) {
+                    if (candle.timestamp >= beforeTimestamp) continue
+                    all += candle
+                    bucketKeys += Math.floorDiv(candle.timestamp, durationMs)
+                }
+            }
+            if (bucketKeys.size >= limit) break
         }
 
         return aggregateCandles(all, timeframe, beforeTimestamp).takeLast(limit)
@@ -196,24 +257,50 @@ class DukascopyDataSource @Inject constructor(
     ): List<Candle> {
         if (candles.isEmpty()) return emptyList()
         val durationMs = timeframe.minutes.toLong() * 60_000L
-        return candles
-            .asSequence()
-            .filter { it.timestamp < beforeTimestamp }
-            .distinctBy { it.timestamp }
-            .sortedBy { it.timestamp }
-            .groupBy { Math.floorDiv(it.timestamp, durationMs) * durationMs }
-            .map { (timestamp, bucket) ->
-                Candle(
-                    timestamp = timestamp,
-                    open = bucket.first().open,
-                    high = bucket.maxOf { it.high },
-                    low = bucket.minOf { it.low },
-                    close = bucket.last().close,
-                    volume = bucket.sumOf { it.volume },
-                )
+
+        // `PERF` One dedup pass, one sort, one fold. The previous sequence
+        // chain (`distinctBy → sortedBy → groupBy → map → sortedBy`) built a
+        // hash set, two full lists, a map of per-bucket sublists and then
+        // sorted an already-ordered result — several times the allocation for
+        // the same output.
+        val deduplicated = HashMap<Long, Candle>(candles.size * 2)
+        for (candle in candles) {
+            if (candle.timestamp >= beforeTimestamp) continue
+            // Overlapping buckets repeat edge rows; keep the first observation,
+            // matching the previous `distinctBy` semantics.
+            if (!deduplicated.containsKey(candle.timestamp)) deduplicated[candle.timestamp] = candle
+        }
+        if (deduplicated.isEmpty()) return emptyList()
+
+        val ordered = deduplicated.values.sortedBy { it.timestamp }
+        val out = ArrayList<Candle>()
+        var bucketStart = Long.MIN_VALUE
+        var open = 0.0
+        var high = 0.0
+        var low = 0.0
+        var close = 0.0
+        var volume = 0.0
+        for (candle in ordered) {
+            val key = Math.floorDiv(candle.timestamp, durationMs) * durationMs
+            if (key != bucketStart) {
+                if (bucketStart != Long.MIN_VALUE) {
+                    out += Candle(bucketStart, open, high, low, close, volume)
+                }
+                bucketStart = key
+                open = candle.open
+                high = candle.high
+                low = candle.low
+                close = candle.close
+                volume = candle.volume
+            } else {
+                if (candle.high > high) high = candle.high
+                if (candle.low < low) low = candle.low
+                close = candle.close
+                volume += candle.volume
             }
-            .sortedBy { it.timestamp }
-            .toList()
+        }
+        if (bucketStart != Long.MIN_VALUE) out += Candle(bucketStart, open, high, low, close, volume)
+        return out
     }
 
     private suspend fun fetchBi5CandlesBefore(
@@ -222,7 +309,15 @@ class DukascopyDataSource @Inject constructor(
         beforeTimestamp: Long,
         limit: Int,
     ): List<Candle> {
-        val allTicks = mutableListOf<Tick>()
+        val allTicks = ArrayList<Tick>()
+        val durationMs = timeframe.minutes.toLong() * 60_000L
+        // `PERF`/`MEMORY` Distinct bar buckets are tracked as ticks arrive, so
+        // the walk can stop without re-sorting and re-aggregating the whole
+        // accumulated tick list on every batch. A dense FX hour is tens of
+        // thousands of ticks; the previous per-batch `sortBy` + `aggregate`
+        // was quadratic in batches and the unbounded accumulator could reach
+        // millions of objects before the loop's own limits fired.
+        val bucketKeys = HashSet<Long>()
         var currentHourEpochMs = floorToHour(beforeTimestamp)
         val hoursNeededEstimate = max(2, calculateHoursNeeded(timeframe, limit))
         val maxHourWalk = max(hoursNeededEstimate * 3, MIN_MARKET_GAP_LOOKBACK_HOURS)
@@ -253,9 +348,17 @@ class DukascopyDataSource @Inject constructor(
             val nonEmpty = batchTicks.filter { it.isNotEmpty() }
             if (nonEmpty.isEmpty()) emptyConsecutiveHours += batchSize else {
                 emptyConsecutiveHours = 0
-                nonEmpty.forEach(allTicks::addAll)
-                allTicks.sortBy { it.timestampMs }
-                if (tickAggregator.aggregate(allTicks, timeframe).size >= limit + 1) break
+                for (hourTicks in nonEmpty) {
+                    for (tick in hourTicks) {
+                        allTicks += tick
+                        bucketKeys += Math.floorDiv(tick.timestampMs, durationMs)
+                    }
+                }
+                if (bucketKeys.size >= limit + 1) break
+                // Hard ceiling on the working set: a handful of very dense
+                // hours must not be allowed to exhaust the heap before the
+                // bar-count target is reached.
+                if (allTicks.size >= MAX_ACCUMULATED_TICKS) break
             }
             hoursWalked += batchSize
             currentHourEpochMs -= batchSize * ONE_HOUR_MS
@@ -371,19 +474,30 @@ class DukascopyDataSource @Inject constructor(
         private const val USER_AGENT = "FoxTrader/6 Dukascopy Market Data"
         private const val MAX_CANDLE_LIMIT = 2_000
         private const val MAX_CANDLE_BUCKET_REQUESTS = 96
-        private const val CANDLE_FETCH_CONCURRENCY = 6
+        // Matches the public market-data client's per-host dispatcher budget so
+        // a batch is actually issued in parallel instead of queueing in OkHttp.
+        private const val CANDLE_FETCH_CONCURRENCY = 12
         private const val MARKET_GAP_SEARCH_FACTOR = 2.0
         private const val HTTP_ATTEMPTS = 3
         private const val RETRY_BASE_DELAY_MS = 250L
         private const val MAX_CANDLE_RESPONSE_CHARS = 8 * 1024 * 1024
         private const val MAX_BI5_BYTES = 8 * 1024 * 1024
-        private const val MAX_CACHED_CANDLE_BUCKETS = 192
-        private const val MAX_CACHED_TICK_HOURS = 192
+        // `MEMORY` Row budgets, not bucket counts. A Candle and a Tick are both
+        // ~64 B once the object header and list slot are counted, so these caps
+        // bound the two caches at roughly 8 MB and 10 MB of retained heap —
+        // something a mid-range handset holds comfortably alongside the chart's
+        // own working set. The old entry-count caps (192 buckets each) placed no
+        // bound at all on a dense `.bi5` hour and could retain hundreds of MB.
+        private const val MAX_CACHED_CANDLE_ROWS = 120_000
+        private const val MAX_CACHED_TICK_ROWS = 150_000
         private const val FETCH_BATCH_HOURS = 8
         private const val LIVE_POLL_BATCH_HOURS = 2
         private const val LIVE_POLL_LIMIT_THRESHOLD = 5
         private const val MIN_MARKET_GAP_LOOKBACK_HOURS = 96
         private const val MAX_EMPTY_HOURS = MIN_MARKET_GAP_LOOKBACK_HOURS
         private const val MAX_BI5_FALLBACK_HOURS = 720
+
+        /** `MEMORY` Ceiling on ticks held live while walking the `.bi5` fallback. */
+        private const val MAX_ACCUMULATED_TICKS = 400_000
     }
 }

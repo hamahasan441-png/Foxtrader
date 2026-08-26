@@ -82,6 +82,15 @@ class ValueAreaLiquidityRejectionEngine @Inject constructor() {
         val sourceStartTimestamp: Long,
         val sourceEndTimestamp: Long,
         val appliesFromIndex: Int,
+        /**
+         * Last bar index of the session this profile governs.
+         *
+         * Historical sessions are bounded by their own last bar so each day's
+         * value area is drawn over the day it actually applied to. The newest
+         * (still open) session carries the last loaded index and is extended to
+         * the right edge by the renderer.
+         */
+        val appliesToIndex: Int,
         val sessionHigh: Double,
         val sessionLow: Double,
         val poc: Double,
@@ -116,6 +125,14 @@ class ValueAreaLiquidityRejectionEngine @Inject constructor() {
         val signals: List<Signal>,
         val activeProfile: ProfileSnapshot?,
         val completedSessions: Int,
+        /**
+         * Every session profile derived from the loaded history, oldest first.
+         *
+         * The chart draws all of them so a trader can audit each past day's
+         * value area and the rejections that fired inside it, rather than only
+         * the session currently in progress.
+         */
+        val profiles: List<ProfileSnapshot> = emptyList(),
     )
 
     private val profileCache = object : LinkedHashMap<ProfileCacheKey, CachedProfile>(64, 0.75f, true) {
@@ -147,7 +164,7 @@ class ValueAreaLiquidityRejectionEngine @Inject constructor() {
             if (previous.candles.size < requiredPreviousBars) continue
             val current = sessions[i]
             val cached = profile(previous, config)
-            profiles[current.key] = cached.toSnapshot(current.key, current.startIndex)
+            profiles[current.key] = cached.toSnapshot(current.key, current.startIndex, current.endIndex)
         }
 
         val candidates = ArrayList<Signal>()
@@ -193,6 +210,9 @@ class ValueAreaLiquidityRejectionEngine @Inject constructor() {
             signals = accepted.takeLast(config.maxSignals),
             activeProfile = profiles[sessions.last().key],
             completedSessions = sessions.size - 1,
+            // Oldest first, bounded so a long history cannot grow UI state
+            // without limit. Every one of these is drawn on its own session.
+            profiles = profiles.values.toList().takeLast(MAX_RENDERED_PROFILES),
         )
     }
 
@@ -242,11 +262,19 @@ class ValueAreaLiquidityRejectionEngine @Inject constructor() {
         val displacement = displacementScore(confirmation, atr.getOrElse(confirmationIndex) { Double.NaN }, config)
         val pool = poolScore(candles, atr, rejection.index, rejection, config)
         val profileScore = min(1.0, profile.totalWeight / max(1.0, profile.bins.size.toDouble()))
+        // `BUGFIX` The parentheses around the structure term are load-bearing.
+        // Written as `18.0 * if (structure) 1.0 else 0.35 + 12.0 * ...`, Kotlin
+        // binds the whole trailing sum into the `else` branch, so a confirmed
+        // structure break scored a flat 18 (capping the total at ~74, below the
+        // PRECISION threshold of 66 only by luck) while a *failed* structure
+        // break scored 18 × (0.35 + everything else) and saturated at 100. The
+        // grading was inverted: the weakest setups were the ones being drawn.
+        val structureScore = if (structure) 1.0 else 0.35
         val score = (
             24.0 * rejection.quality +
                 16.0 * pool +
                 16.0 * absorption +
-                18.0 * if (structure) 1.0 else 0.35 +
+                18.0 * structureScore +
                 12.0 * displacement +
                 6.0 * profileScore +
                 8.0 * min(1.0, rewardRisk / 3.0)
@@ -470,8 +498,9 @@ class ValueAreaLiquidityRejectionEngine @Inject constructor() {
         val quality: ProfileQuality,
         val bins: List<ProfileBin>,
     ) {
-        fun toSnapshot(sessionKey: Long, appliesFromIndex: Int) = ProfileSnapshot(
-            sessionKey, sourceSessionKey, sourceStartTimestamp, sourceEndTimestamp, appliesFromIndex,
+        fun toSnapshot(sessionKey: Long, appliesFromIndex: Int, appliesToIndex: Int) = ProfileSnapshot(
+            sessionKey, sourceSessionKey, sourceStartTimestamp, sourceEndTimestamp,
+            appliesFromIndex, appliesToIndex,
             high, low, poc, vah, valueAreaLow, total, coverage, quality, bins,
         )
     }
@@ -533,5 +562,8 @@ class ValueAreaLiquidityRejectionEngine @Inject constructor() {
         const val EPSILON = 1e-12
         const val MIN_VOLUME_COVERAGE = 0.65
         const val MAX_CACHED_PROFILES = 48
+
+        /** Bound on session profiles handed to the chart for rendering. */
+        const val MAX_RENDERED_PROFILES = 40
     }
 }

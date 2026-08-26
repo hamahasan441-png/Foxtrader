@@ -38,8 +38,30 @@ class PivotSweepDivergenceEngine @Inject constructor() {
         val cooldownBars: Int = 6,
         val sessionOffsetMinutes: Int = 0,
         val maxSignals: Int = 160,
+        /**
+         * Bars either side of the divergence pivot that may carry the sweep.
+         *
+         * The sweep of a daily level and the oscillator's divergent extreme are
+         * the same *event*, but they very rarely land on the same bar: price
+         * usually pierces the level, then prints the divergent extreme one or
+         * two bars later (or the other way round). Requiring an exact index
+         * match — which is what the engine used to do — made the whole study
+         * silent on real data.
+         */
+        val sweepWindowBars: Int = 3,
+        /**
+         * Bars allowed between the pierce and the closing reclaim.
+         *
+         * A liquidity grab is frequently a two- or three-bar sequence: one bar
+         * takes the stops below the level, the next closes back above it.
+         * Demanding a single candle that both pierces *and* reclaims with a
+         * 55 % close location rejected almost every genuine sweep.
+         */
+        val maxReclaimBars: Int = 2,
     ) {
         init {
+            require(sweepWindowBars in 0..25)
+            require(maxReclaimBars in 0..25)
             require(atrPeriod >= 2)
             require(minSweepAtr.isFinite() && minSweepAtr >= 0.0)
             require(minRejectionWickFraction in 0.0..1.0)
@@ -118,8 +140,7 @@ class PivotSweepDivergenceEngine @Inject constructor() {
                     atr = atr,
                     volumeCoverage = study.positiveVolumeCoverage,
                     divergence = divergence,
-                    levels = levelsByDay[dayKey(candles[divergence.endIndex].timestamp, config.sessionOffsetMinutes)]
-                        ?: return@mapNotNull null,
+                    levelsByDay = levelsByDay,
                     config = config,
                 )
             }
@@ -152,15 +173,16 @@ class PivotSweepDivergenceEngine @Inject constructor() {
         atr: DoubleArray,
         volumeCoverage: Double,
         divergence: RsiOrderFlow.Divergence,
-        levels: DailyLevels,
+        levelsByDay: Map<Long, DailyLevels>,
         config: Config,
     ): Signal? {
-        val sweepIndex = divergence.endIndex
-        val sweep = candles.getOrNull(sweepIndex) ?: return null
-        val sweepAtr = atr.getOrNull(sweepIndex)?.takeIf { it.isFinite() && it > EPSILON } ?: return null
         val direction = if (divergence.bullish) Direction.BULLISH else Direction.BEARISH
-        val rejection = findRejection(sweep, sweepAtr, levels, direction, config) ?: return null
-        val confirmationIndex = findConfirmation(candles, atr, divergence, direction, config) ?: return null
+        val rejection = findRejection(candles, atr, divergence, levelsByDay, direction, config) ?: return null
+        val sweepIndex = rejection.sweepIndex
+        val sweep = candles[sweepIndex]
+        val sweepAtr = atr.getOrNull(sweepIndex)?.takeIf { it.isFinite() && it > EPSILON } ?: return null
+        val confirmationIndex = findConfirmation(candles, atr, divergence, rejection, direction, config)
+            ?: return null
         val confirmation = candles[confirmationIndex]
         val entry = confirmation.close
         val stop = when (direction) {
@@ -176,7 +198,7 @@ class PivotSweepDivergenceEngine @Inject constructor() {
             else entry - risk * config.rewardRisk
         if (!target.isFinite() || target <= 0.0) return null
 
-        val structureBreak = breaksStructure(candles, divergence.endIndex, confirmationIndex, direction, config.structureLookback)
+        val structureBreak = breaksStructure(candles, sweepIndex, confirmationIndex, direction, config.structureLookback)
         val displacement = displacementScore(candles[confirmationIndex], atr[confirmationIndex], config)
         val wickQuality = rejection.wickFraction.coerceIn(0.0, 1.0)
         val divergenceQuality = (divergence.strength / 100.0).coerceIn(0.0, 1.0)
@@ -224,53 +246,126 @@ class PivotSweepDivergenceEngine @Inject constructor() {
         )
     }
 
-    private data class Rejection(val name: LevelName, val price: Double, val wickFraction: Double)
+    private data class Rejection(
+        val name: LevelName,
+        val price: Double,
+        val wickFraction: Double,
+        val sweepIndex: Int,
+        val reclaimIndex: Int,
+    )
 
+    /**
+     * Locate the sweep-and-reclaim that belongs to [divergence].
+     *
+     * Two deliberate relaxations versus the original single-bar test, both of
+     * which keep the non-repaint contract intact because every index used is
+     * still at or before the confirmation bar the arrow is stamped on:
+     *
+     * 1. The sweep may sit anywhere within [Config.sweepWindowBars] of the
+     *    divergence's extreme, instead of on exactly that bar.
+     * 2. The closing reclaim may take up to [Config.maxReclaimBars] additional
+     *    candles, instead of having to happen on the piercing candle itself.
+     *
+     * Daily levels are resolved per candidate sweep bar, so a sweep that lands
+     * just across a session boundary is measured against that day's levels.
+     */
     private fun findRejection(
-        candle: Candle,
-        atr: Double,
-        levels: DailyLevels,
+        candles: List<Candle>,
+        atr: DoubleArray,
+        divergence: RsiOrderFlow.Divergence,
+        levelsByDay: Map<Long, DailyLevels>,
         direction: Direction,
         config: Config,
     ): Rejection? {
-        val range = candle.high - candle.low
-        if (!range.isFinite() || range <= EPSILON) return null
-        val closeLocation = (candle.close - candle.low) / range
-        val candidates = if (direction == Direction.BULLISH) {
-            listOf(LevelName.PDL to levels.previousLow, LevelName.S1 to levels.s1, LevelName.S2 to levels.s2)
-        } else {
-            listOf(LevelName.PDH to levels.previousHigh, LevelName.R1 to levels.r1, LevelName.R2 to levels.r2)
-        }
-        return candidates.mapNotNull { (name, price) ->
+        val pivotIndex = divergence.endIndex
+        if (pivotIndex !in candles.indices) return null
+        val from = (pivotIndex - config.sweepWindowBars).coerceAtLeast(0)
+        val to = (pivotIndex + config.sweepWindowBars).coerceAtMost(candles.lastIndex)
+
+        var best: Rejection? = null
+        for (sweepIndex in from..to) {
+            val candle = candles[sweepIndex]
+            val range = candle.high - candle.low
+            if (!range.isFinite() || range <= EPSILON) continue
+            val sweepAtr = atr.getOrNull(sweepIndex)?.takeIf { it.isFinite() && it > EPSILON } ?: continue
+            val levels = levelsByDay[dayKey(candle.timestamp, config.sessionOffsetMinutes)] ?: continue
+
             val wickFraction = if (direction == Direction.BULLISH) {
                 (minOf(candle.open, candle.close) - candle.low) / range
             } else {
                 (candle.high - maxOf(candle.open, candle.close)) / range
             }
-            val swept = if (direction == Direction.BULLISH) {
-                candle.low <= price - atr * config.minSweepAtr && candle.close > price &&
-                    closeLocation >= config.minCloseLocation
+            if (wickFraction < config.minRejectionWickFraction) continue
+
+            val candidates = if (direction == Direction.BULLISH) {
+                listOf(LevelName.PDL to levels.previousLow, LevelName.S1 to levels.s1, LevelName.S2 to levels.s2)
             } else {
-                candle.high >= price + atr * config.minSweepAtr && candle.close < price &&
-                    closeLocation <= 1.0 - config.minCloseLocation
+                listOf(LevelName.PDH to levels.previousHigh, LevelName.R1 to levels.r1, LevelName.R2 to levels.r2)
             }
-            if (swept && wickFraction >= config.minRejectionWickFraction) Rejection(name, price, wickFraction)
-            else null
-        }.maxByOrNull { it.wickFraction }
+            for ((name, price) in candidates) {
+                if (!price.isFinite() || price <= 0.0) continue
+                val pierced = if (direction == Direction.BULLISH) {
+                    candle.low <= price - sweepAtr * config.minSweepAtr
+                } else {
+                    candle.high >= price + sweepAtr * config.minSweepAtr
+                }
+                if (!pierced) continue
+                val reclaimIndex = findReclaim(candles, sweepIndex, price, direction, config) ?: continue
+                val candidate = Rejection(name, price, wickFraction, sweepIndex, reclaimIndex)
+                // Prefer the fastest reclaim; on a tie prefer the cleaner wick.
+                val current = best
+                if (
+                    current == null ||
+                    candidate.reclaimIndex < current.reclaimIndex ||
+                    (candidate.reclaimIndex == current.reclaimIndex && candidate.wickFraction > current.wickFraction)
+                ) {
+                    best = candidate
+                }
+            }
+        }
+        return best
+    }
+
+    /** First closed bar at or after [sweepIndex] that closes back through [price]. */
+    private fun findReclaim(
+        candles: List<Candle>,
+        sweepIndex: Int,
+        price: Double,
+        direction: Direction,
+        config: Config,
+    ): Int? {
+        val end = (sweepIndex + config.maxReclaimBars).coerceAtMost(candles.lastIndex)
+        for (index in sweepIndex..end) {
+            val bar = candles[index]
+            val range = bar.high - bar.low
+            if (!range.isFinite() || range <= EPSILON) continue
+            val closeLocation = (bar.close - bar.low) / range
+            val reclaimed = if (direction == Direction.BULLISH) {
+                bar.close > price && closeLocation >= config.minCloseLocation
+            } else {
+                bar.close < price && closeLocation <= 1.0 - config.minCloseLocation
+            }
+            if (reclaimed) return index
+        }
+        return null
     }
 
     private fun findConfirmation(
         candles: List<Candle>,
         atr: DoubleArray,
         divergence: RsiOrderFlow.Divergence,
+        rejection: Rejection,
         direction: Direction,
         config: Config,
     ): Int? {
-        val start = divergence.confirmedIndex.coerceAtLeast(divergence.endIndex)
+        // Never earlier than the divergence's own confirmation bar, and never
+        // earlier than the reclaim: the arrow must be decidable from closed
+        // bars only.
+        val start = maxOf(divergence.confirmedIndex, divergence.endIndex, rejection.reclaimIndex)
         if (start !in candles.indices) return null
         val end = (start + config.maxConfirmBars).coerceAtMost(candles.lastIndex)
         for (index in start..end) {
-            val structure = breaksStructure(candles, divergence.endIndex, index, direction, config.structureLookback)
+            val structure = breaksStructure(candles, rejection.sweepIndex, index, direction, config.structureLookback)
             val displacement = displacementScore(candles[index], atr.getOrElse(index) { Double.NaN }, config)
             val qualifies = when (config.mode) {
                 Mode.FAST -> displacement >= 0.20
