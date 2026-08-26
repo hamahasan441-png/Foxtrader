@@ -38,19 +38,19 @@ class ValueAreaLiquidityRejectionEngine @Inject constructor() {
         val swingLeft: Int = 2,
         val swingRight: Int = 2,
         val liquidityLookback: Int = 30,
-        val poolToleranceAtr: Double = 0.30,
-        val minSweepAtr: Double = 0.12,
-        val minWickFraction: Double = 0.42,
-        val minCloseLocation: Double = 0.62,
+        val poolToleranceAtr: Double = 0.50,
+        val minSweepAtr: Double = 0.04,
+        val minWickFraction: Double = 0.25,
+        val minCloseLocation: Double = 0.55,
         val volumeLookback: Int = 20,
         val volumeSpikeMultiple: Double = 1.15,
         val structureLookback: Int = 5,
-        val maxConfirmBars: Int = 2,
-        val displacementAtrMultiple: Double = 0.70,
+        val maxConfirmBars: Int = 4,
+        val displacementAtrMultiple: Double = 0.45,
         val stopBufferAtr: Double = 0.20,
-        val minPocRewardRisk: Double = 1.50,
-        val minScore: Int = 78,
-        val cooldownBars: Int = 8,
+        val minPocRewardRisk: Double = 1.00,
+        val minScore: Int = 66,
+        val cooldownBars: Int = 6,
         val sessionOffsetMinutes: Int = 0,
         val maxSignals: Int = 160,
     ) {
@@ -140,9 +140,11 @@ class ValueAreaLiquidityRejectionEngine @Inject constructor() {
         val atr = TechnicalIndicators.calculateATR(sorted, config.atrPeriod)
         val pressure = pressureSeries(sorted)
         val profiles = LinkedHashMap<Long, ProfileSnapshot>()
+        val expectedSessionBars = (Timeframe.D1.minutes / timeframe.minutes).coerceAtLeast(4)
+        val requiredPreviousBars = min(config.minPreviousSessionBars, expectedSessionBars)
         for (i in 1 until sessions.size) {
             val previous = sessions[i - 1]
-            if (previous.candles.size < config.minPreviousSessionBars) continue
+            if (previous.candles.size < requiredPreviousBars) continue
             val current = sessions[i]
             val cached = profile(previous, config)
             profiles[current.key] = cached.toSnapshot(current.key, current.startIndex)
@@ -155,7 +157,7 @@ class ValueAreaLiquidityRejectionEngine @Inject constructor() {
             while (index <= session.endIndex) {
                 val rejection = rejectionAt(sorted, atr, index, profile, config)
                 if (rejection != null && hasLiquidityPool(sorted, atr, index, rejection, config)) {
-                    val confirmation = findConfirmation(sorted, atr, index, rejection.direction, config)
+                    val confirmation = findConfirmation(sorted, atr, index, rejection, config)
                     if (confirmation != null) {
                         buildSignal(
                             symbol = symbol.trim().uppercase().ifBlank { "UNKNOWN" },
@@ -216,14 +218,21 @@ class ValueAreaLiquidityRejectionEngine @Inject constructor() {
         }
         val risk = abs(entry - stop)
         if (risk <= EPSILON || !entry.isFinite() || !stop.isFinite()) return null
-        if (rejection.direction == Direction.BULLISH && (stop >= entry || profile.poc <= entry)) return null
-        if (rejection.direction == Direction.BEARISH && (stop <= entry || profile.poc >= entry)) return null
-        val rewardRisk = abs(profile.poc - entry) / risk
+        if (rejection.direction == Direction.BULLISH && stop >= entry) return null
+        if (rejection.direction == Direction.BEARISH && stop <= entry) return null
         val requiredRr = max(config.minPocRewardRisk, when (config.mode) {
-            Mode.FAST -> 1.20
-            Mode.PRECISION -> 1.50
-            Mode.POWER -> 2.00
+            Mode.FAST -> 0.75
+            Mode.PRECISION -> 1.00
+            Mode.POWER -> 1.50
         })
+        val targetCandidates = if (rejection.direction == Direction.BULLISH) {
+            listOf(profile.poc, profile.vah).filter { it > entry }
+        } else {
+            listOf(profile.poc, profile.valueAreaLow).filter { it < entry }
+        }
+        val target = targetCandidates.firstOrNull { abs(it - entry) / risk >= requiredRr }
+            ?: return null
+        val rewardRisk = abs(target - entry) / risk
         if (rewardRisk < requiredRr) return null
 
         val absorption = absorptionScore(candles, pressure, rejection.index, profile.quality, config)
@@ -241,9 +250,9 @@ class ValueAreaLiquidityRejectionEngine @Inject constructor() {
                 8.0 * min(1.0, rewardRisk / 3.0)
             ).toInt().coerceIn(0, 100)
         val threshold = max(config.minScore, when (config.mode) {
-            Mode.FAST -> 70
-            Mode.PRECISION -> 78
-            Mode.POWER -> 86
+            Mode.FAST -> 60
+            Mode.PRECISION -> 66
+            Mode.POWER -> 78
         })
         if (score < threshold) return null
 
@@ -259,13 +268,13 @@ class ValueAreaLiquidityRejectionEngine @Inject constructor() {
             timestamp = confirmation.timestamp,
             entry = entry,
             stopLoss = stop,
-            takeProfit = profile.poc,
+            takeProfit = target,
             confidence = score,
             reasons = listOf(
                 "Previous-session ${rejection.edge.name} liquidity sweep + reclaim",
                 "Confirmed liquidity pool and absorption ${formatPercent(absorption)}",
                 if (structure) "Closed-bar micro structure break" else "Fast closed-bar rejection",
-                "POC target ${formatPrice(profile.poc)} · R:R ${format1(rewardRisk)}",
+                "${if (abs(target - profile.poc) <= EPSILON) "POC" else "Opposite value-area edge"} target ${formatPrice(target)} · R:R ${format1(rewardRisk)}",
                 "${profile.quality.name.replace('_', ' ').lowercase()} · non-repaint",
             ),
         )
@@ -293,12 +302,11 @@ class ValueAreaLiquidityRejectionEngine @Inject constructor() {
         val closeLocation = (candle.close - candle.low) / range
         val lowerWick = (min(candle.open, candle.close) - candle.low) / range
         val upperWick = (candle.high - max(candle.open, candle.close)) / range
+        val wickFloor = config.minWickFraction * 0.70
         val bullish = candle.low <= profile.valueAreaLow - value * config.minSweepAtr &&
-            candle.close > profile.valueAreaLow && lowerWick >= config.minWickFraction &&
-            closeLocation >= config.minCloseLocation
+            (lowerWick >= wickFloor || candle.close <= profile.valueAreaLow)
         val bearish = candle.high >= profile.vah + value * config.minSweepAtr &&
-            candle.close < profile.vah && upperWick >= config.minWickFraction &&
-            closeLocation <= 1.0 - config.minCloseLocation
+            (upperWick >= wickFloor || candle.close >= profile.vah)
         return when {
             bullish -> Rejection(index, Direction.BULLISH, Edge.VAL, profile.valueAreaLow,
                 min(1.0, (lowerWick + closeLocation) / 1.55))
@@ -315,8 +323,8 @@ class ValueAreaLiquidityRejectionEngine @Inject constructor() {
         rejection: Rejection,
         config: Config,
     ): Boolean {
-        if (config.mode == Mode.FAST) return true
-        return poolScore(candles, atr, index, rejection, config) >= if (config.mode == Mode.POWER) 0.65 else 0.40
+        if (config.mode != Mode.POWER) return true
+        return poolScore(candles, atr, index, rejection, config) >= 0.20
     }
 
     private fun poolScore(
@@ -348,16 +356,27 @@ class ValueAreaLiquidityRejectionEngine @Inject constructor() {
         candles: List<Candle>,
         atr: DoubleArray,
         sweepIndex: Int,
-        direction: Direction,
+        rejection: Rejection,
         config: Config,
     ): Int? {
-        if (config.mode == Mode.FAST) return sweepIndex
         val end = (sweepIndex + config.maxConfirmBars).coerceAtMost(candles.lastIndex)
         for (index in sweepIndex..end) {
-            val structure = breaksStructure(candles, sweepIndex, index, direction, config.structureLookback)
+            val candle = candles[index]
+            val reclaim = if (rejection.direction == Direction.BULLISH) {
+                candle.close > rejection.level && (candle.close - candle.low) / max(EPSILON, candle.range) >= config.minCloseLocation
+            } else {
+                candle.close < rejection.level && (candle.close - candle.low) / max(EPSILON, candle.range) <= 1.0 - config.minCloseLocation
+            }
+            if (!reclaim) continue
+            val structure = breaksStructure(candles, sweepIndex, index, rejection.direction, config.structureLookback)
             val displacement = displacementScore(candles[index], atr.getOrElse(index) { Double.NaN }, config)
-            val floor = if (config.mode == Mode.POWER) 0.82 else 0.60
-            if (structure && displacement >= floor) return index
+            val directional = if (rejection.direction == Direction.BULLISH) candle.close >= candle.open else candle.close <= candle.open
+            val qualifies = when (config.mode) {
+                Mode.FAST -> directional && displacement >= 0.15
+                Mode.PRECISION -> directional && (structure || displacement >= 0.35)
+                Mode.POWER -> directional && structure && displacement >= 0.60
+            }
+            if (qualifies) return index
         }
         return null
     }

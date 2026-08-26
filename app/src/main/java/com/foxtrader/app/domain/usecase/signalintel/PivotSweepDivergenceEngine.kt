@@ -26,16 +26,16 @@ class PivotSweepDivergenceEngine @Inject constructor() {
         val mode: Mode = Mode.PRECISION,
         val divergence: RsiOrderFlow.Config = RsiOrderFlow.Config(includeHidden = false),
         val atrPeriod: Int = 14,
-        val minSweepAtr: Double = 0.15,
-        val minRejectionWickFraction: Double = 0.40,
-        val minCloseLocation: Double = 0.60,
+        val minSweepAtr: Double = 0.05,
+        val minRejectionWickFraction: Double = 0.25,
+        val minCloseLocation: Double = 0.55,
         val structureLookback: Int = 5,
         val maxConfirmBars: Int = 4,
-        val displacementAtrMultiple: Double = 0.80,
+        val displacementAtrMultiple: Double = 0.45,
         val stopBufferAtr: Double = 0.25,
         val rewardRisk: Double = 2.0,
-        val minScore: Int = 75,
-        val cooldownBars: Int = 8,
+        val minScore: Int = 66,
+        val cooldownBars: Int = 6,
         val sessionOffsetMinutes: Int = 0,
         val maxSignals: Int = 160,
     ) {
@@ -101,7 +101,14 @@ class PivotSweepDivergenceEngine @Inject constructor() {
         if (levelsByDay.isEmpty()) return Analysis(emptyList(), completedDayCount(candles, config.sessionOffsetMinutes))
 
         val normalizedSymbol = symbol.trim().uppercase().ifBlank { "UNKNOWN" }
-        val candidates = study.divergences.asSequence()
+        val divergenceCandidates = (
+            study.divergences.filter { !it.type.name.startsWith("HIDDEN") } +
+                detectLocalDivergences(candles, study, config)
+            )
+            .groupBy { it.endIndex to it.bullish }
+            .mapNotNull { (_, group) -> group.maxByOrNull { it.strength } }
+
+        val candidates = divergenceCandidates.asSequence()
             .filter { !it.type.name.startsWith("HIDDEN") }
             .mapNotNull { divergence ->
                 buildSignal(
@@ -187,9 +194,9 @@ class PivotSweepDivergenceEngine @Inject constructor() {
                 (if (volumeCoverage >= 0.50) 5 else 2)
             ).coerceIn(0, 100)
         val requiredScore = maxOf(config.minScore, when (config.mode) {
-            Mode.FAST -> 70
-            Mode.PRECISION -> 75
-            Mode.POWER -> 85
+            Mode.FAST -> 60
+            Mode.PRECISION -> 66
+            Mode.POWER -> 78
         })
         if (score < requiredScore) return null
 
@@ -266,9 +273,9 @@ class PivotSweepDivergenceEngine @Inject constructor() {
             val structure = breaksStructure(candles, divergence.endIndex, index, direction, config.structureLookback)
             val displacement = displacementScore(candles[index], atr.getOrElse(index) { Double.NaN }, config)
             val qualifies = when (config.mode) {
-                Mode.FAST -> index == start && displacement >= 0.35
-                Mode.PRECISION -> structure && displacement >= 0.65
-                Mode.POWER -> structure && displacement >= 0.85
+                Mode.FAST -> displacement >= 0.20
+                Mode.PRECISION -> (structure && displacement >= 0.35) || displacement >= 0.70
+                Mode.POWER -> structure && displacement >= 0.65
             }
             if (qualifies) return index
         }
@@ -301,6 +308,80 @@ class PivotSweepDivergenceEngine @Inject constructor() {
         }
         val rangeRatio = if (threshold <= EPSILON) 1.0 else candle.range / atr / threshold
         return minOf(bodyFraction / 0.55, rangeRatio).coerceIn(0.0, 1.0)
+    }
+
+    /**
+     * Causal swing-exhaustion fallback for markets where strict left/right
+     * oscillator pivots do not land on the exact daily-level sweep bar.
+     * Availability is deliberately the next closed bar, preserving the same
+     * non-repaint contract as a confirmed right-pivot divergence.
+     */
+    private fun detectLocalDivergences(
+        candles: List<Candle>,
+        study: RsiOrderFlow.Result,
+        config: Config,
+    ): List<RsiOrderFlow.Divergence> {
+        if (candles.size < config.divergence.rsiPeriod + config.divergence.minPivotSeparation + 2) return emptyList()
+        val out = ArrayList<RsiOrderFlow.Divergence>()
+        val warmup = maxOf(config.divergence.rsiPeriod, config.divergence.flowPeriod) + 1
+        for (index in warmup until candles.lastIndex) {
+            val latestPrior = index - config.divergence.minPivotSeparation
+            if (latestPrior < 1) continue
+            val from = (index - config.divergence.maxPivotSeparation).coerceAtLeast(warmup)
+            if (from > latestPrior) continue
+
+            val lowIndex = (from..latestPrior).minByOrNull { candles[it].low } ?: continue
+            val highIndex = (from..latestPrior).maxByOrNull { candles[it].high } ?: continue
+            val priceEpsilon = candles[index].close * config.divergence.minPriceChangeFraction
+
+            val bullishRsi = study.rsi[index] - study.rsi[lowIndex]
+            val bullishFlow = study.flow[index] - study.flow[lowIndex]
+            val bearishRsi = study.rsi[highIndex] - study.rsi[index]
+            val bearishFlow = study.flow[highIndex] - study.flow[index]
+            val rsiFloor = config.divergence.minRsiDifference * when (config.mode) {
+                Mode.FAST -> 0.25
+                Mode.PRECISION -> 0.45
+                Mode.POWER -> 0.80
+            }
+            val flowFloor = config.divergence.minFlowDifference * when (config.mode) {
+                Mode.FAST -> 0.25
+                Mode.PRECISION -> 0.45
+                Mode.POWER -> 0.80
+            }
+            val bullishDual = bullishRsi >= rsiFloor && bullishFlow >= flowFloor
+            val bearishDual = bearishRsi >= rsiFloor && bearishFlow >= flowFloor
+            val bullishSingle = bullishRsi >= rsiFloor || bullishFlow >= flowFloor
+            val bearishSingle = bearishRsi >= rsiFloor || bearishFlow >= flowFloor
+
+            val bullish = candles[index].low < candles[lowIndex].low - priceEpsilon &&
+                if (config.mode == Mode.FAST) bullishSingle else bullishDual
+            val bearish = candles[index].high > candles[highIndex].high + priceEpsilon &&
+                if (config.mode == Mode.FAST) bearishSingle else bearishDual
+            val type = when {
+                bullish -> RsiOrderFlow.DivergenceType.REGULAR_BULLISH
+                bearish -> RsiOrderFlow.DivergenceType.REGULAR_BEARISH
+                else -> null
+            } ?: continue
+            val anchor = if (bullish) lowIndex else highIndex
+            val rsiDifference = if (bullish) bullishRsi else bearishRsi
+            val flowDifference = if (bullish) bullishFlow else bearishFlow
+            val strength = (
+                50.0 + (rsiDifference / maxOf(1.0, config.divergence.minRsiDifference) * 12.0) +
+                    (flowDifference / maxOf(1.0, config.divergence.minFlowDifference) * 12.0)
+                ).toInt().coerceIn(45, 92)
+            out += RsiOrderFlow.Divergence(
+                type = type,
+                startIndex = anchor,
+                endIndex = index,
+                confirmedIndex = index + 1,
+                startRsi = study.rsi[anchor],
+                endRsi = study.rsi[index],
+                startFlow = study.flow[anchor],
+                endFlow = study.flow[index],
+                strength = strength,
+            )
+        }
+        return out
     }
 
     internal fun levelsByTradingDay(candles: List<Candle>, offsetMinutes: Int): Map<Long, DailyLevels> {
