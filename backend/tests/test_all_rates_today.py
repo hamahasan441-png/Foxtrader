@@ -40,7 +40,10 @@ def test_minute_samples_aggregate_into_real_5m_ohlc():
         ]
     )
 
-    candles = provider.fetch_candles("EUR/USD", 5, 10, None)
+    # Pin the request window just after the fixture. Using wall-clock "now"
+    # makes historical samples age out of the provider's bounded lookback.
+    before = 1_787_573_160_000  # 2026-08-24T12:06:00Z
+    candles = provider.fetch_candles("EUR/USD", 5, 10, before)
 
     assert len(candles) == 2
     assert candles[0].open == pytest.approx(1.10)
@@ -66,7 +69,7 @@ def test_hour_group_used_for_h4_and_before_is_honoured():
             {"time": "2026-08-23T12:00:00Z", "rate": 0.93},
         ]
     )
-    before = 1787472000000  # safely after test samples
+    before = 1_787_486_460_000  # 2026-08-23T12:01:00Z, after every fixture sample
     candles = provider.fetch_candles("USDEUR", 240, 10, before)
     assert candles
     assert all(c.timestamp < before for c in candles)
