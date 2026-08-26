@@ -33,4 +33,13 @@ object ChartDimens {
     // --- Floating overlays / palettes ---
     val overlayPadding = 4.dp
     val drawingRailWidth = 40.dp
+
+    /**
+     * Height of the collapsed Analysis handle pinned to the bottom of the chart.
+     *
+     * The handle is an overlay inside the chart Box, so without reserving this
+     * much room it sits on top of the time axis and the lowest price grid line —
+     * exactly the part of the canvas a trader reads most often.
+     */
+    val analysisHandleHeight = 36.dp
 }

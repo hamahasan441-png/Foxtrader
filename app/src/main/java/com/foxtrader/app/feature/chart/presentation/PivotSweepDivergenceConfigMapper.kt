@@ -36,5 +36,7 @@ fun PivotSweepDivergenceStudySettings.toEngineConfig(): PivotSweepDivergenceEngi
         cooldownBars = s.cooldownBars,
         sessionOffsetMinutes = s.sessionOffsetMinutes,
         maxSignals = s.maxSignals,
+        sweepWindowBars = s.sweepWindowBars,
+        maxReclaimBars = s.maxReclaimBars,
     )
 }

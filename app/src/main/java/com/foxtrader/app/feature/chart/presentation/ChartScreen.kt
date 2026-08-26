@@ -6,6 +6,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +17,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -164,6 +167,11 @@ fun ChartScreen(
 
     // --- Price-scale lock (R7): freezes the Y auto-fit during pan/zoom ---
     var scaleLocked by remember { mutableStateOf(false) }
+
+    // Room reserved at the bottom of the canvas for the collapsed Analysis
+    // handle. During replay that handle is hidden (the replay control bar owns
+    // the bottom edge instead) so the chart reclaims the space.
+    val chartBottomInset = if (replayState.isActive) 0.dp else ChartDimens.analysisHandleHeight
 
     // The candle series shown right now (replay bars while replaying, else the
     // live series), as a stable CandleSeries. Shared by the main chart and the
@@ -406,7 +414,12 @@ fun ChartScreen(
                             // chart when inputs are unchanged (R5). Shared with the
                             // volume pane for index alignment (R3).
                             candles = displayCandles,
-                            modifier = Modifier.fillMaxSize(),
+                            // Keep the time axis and the lowest grid line clear
+                            // of the collapsed Analysis handle overlaying the
+                            // bottom of this Box.
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(bottom = chartBottomInset),
                             structureBreaks = state.structureBreaks,
                             timeframe = state.timeframe,
                             seriesKey = "${state.symbol}:${state.timeframe.label}",
@@ -449,7 +462,7 @@ fun ChartScreen(
                             drawings = state.drawings,
                             volumeProfile = state.volumeProfile,
                             marketProfile = state.marketProfile,
-                            valueAreaLiquidityProfile = state.valueAreaLiquidityProfile,
+                            valueAreaLiquidityProfiles = state.valueAreaLiquidityProfiles,
                             supportResistanceZones = state.supportResistanceZones,
                             autoFibLevels = state.autoFibLevels,
                             autoFibDirection = state.autoFibDirection,
@@ -759,6 +772,8 @@ private fun ChartTopBar(
             color = MaterialTheme.colorScheme.onSurface,
             fontWeight = FontWeight.Bold,
             style = MaterialTheme.typography.labelLarge,
+            maxLines = 1,
+            softWrap = false,
             modifier = Modifier
                 .clip(RoundedCornerShape(4.dp))
                 .background(MaterialTheme.colorScheme.primaryContainer)
@@ -775,6 +790,8 @@ private fun ChartTopBar(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontWeight = FontWeight.SemiBold,
             style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            softWrap = false,
             modifier = Modifier
                 .clip(RoundedCornerShape(4.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant)
@@ -786,6 +803,10 @@ private fun ChartTopBar(
             text = liveLabel,
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
+            // Same reasoning as the toolbar chips: a wrapped status label would
+            // set the height of the whole top bar.
+            maxLines = 1,
+            softWrap = false,
             color = if (live || liveError) MaterialTheme.colorScheme.background else FoxNeutral60,
             modifier = Modifier
                 .clip(RoundedCornerShape(4.dp))
@@ -932,10 +953,18 @@ private fun ChartToolbar(
     onSignalsToggle: () -> Unit,
     onOpenStudio: () -> Unit,
 ) {
+    // `LAYOUT` This row carries five labelled chips plus seven icon buttons. On
+    // a normal-width handset that overflows, and an unconstrained Row responds
+    // by letting its children wrap their text — the "Layout" chip rendered as
+    // three stacked lines ("La / yo / ut"), which tripled the toolbar's height
+    // and pushed a dead band above and below the other chips. Scrolling
+    // horizontally keeps every control reachable at a fixed single-line height,
+    // so the space goes back to the price canvas instead.
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
+            .horizontalScroll(rememberScrollState())
             .padding(
                 horizontal = ChartDimens.toolbarHorizontalPadding,
                 vertical = ChartDimens.toolbarVerticalPadding,
@@ -984,7 +1013,12 @@ private fun ChartToolbar(
             onClick = { onMenuToggle(ChartMenu.MULTI_CHART) },
         )
 
-        Spacer(Modifier.weight(1f))
+        // `LAYOUT` A weighted spacer cannot be used here: the row is
+        // horizontally scrollable, so it is measured with an infinite width
+        // constraint and `Modifier.weight` has nothing to divide — Compose
+        // fails the measure pass. A fixed gap separates the chip group from the
+        // icon group instead.
+        Spacer(Modifier.width(10.dp))
 
         IconButton(
             onClick = onOpenStudio,
@@ -1104,6 +1138,10 @@ private fun ToolbarChipButton(
             style = MaterialTheme.typography.labelSmall,
             fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
             color = if (isActive) FoxAmber50 else MaterialTheme.colorScheme.onSurfaceVariant,
+            // A chip label must never wrap; a wrapped chip drives the whole
+            // toolbar row's height and steals space from the chart.
+            maxLines = 1,
+            softWrap = false,
         )
         Icon(
             Icons.Default.KeyboardArrowDown,

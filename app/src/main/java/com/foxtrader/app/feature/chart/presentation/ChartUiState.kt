@@ -265,7 +265,14 @@ data class ChartUiState(
     val liveSignalStats: LiveSignalPerformanceStats = LiveSignalPerformanceStats(),
     val volumeProfile: com.foxtrader.app.domain.model.VolumeProfile? = null,
     val marketProfile: MarketProfile.ProfileResult? = null,
-    val valueAreaLiquidityProfile: ValueAreaLiquidityRejectionEngine.ProfileSnapshot? = null,
+    /**
+     * Every session's value-area profile, oldest first.
+     *
+     * The chart renders all of them so past days remain auditable; the last
+     * entry is the session currently in progress.
+     */
+    val valueAreaLiquidityProfiles: ImmutableList<ValueAreaLiquidityRejectionEngine.ProfileSnapshot> =
+        persistentListOf(),
     val supportResistanceZones: ImmutableList<SupportResistanceDetector.SRZone> = persistentListOf(),
     val autoFibLevels: ImmutableList<FibonacciEngine.FibLevel> = persistentListOf(),
     val autoFibDirection: Direction? = null,

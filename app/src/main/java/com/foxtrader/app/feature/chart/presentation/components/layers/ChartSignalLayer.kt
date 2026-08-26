@@ -28,18 +28,20 @@ private val SignalDash = PathEffect.dashPathEffect(floatArrayOf(10f, 8f), 0f)
 private val ContextDash = PathEffect.dashPathEffect(floatArrayOf(5f, 7f), 0f)
 private val SignalArrowScratch = Path()
 
+// `DENSITY` `textSize` is assigned from the DrawScope's density on every draw
+// pass (see [drawSignalMarkers] / [drawBacktestMarkers]); the value here is only
+// a placeholder so the paint is never used unconfigured. Drawing happens on the
+// single render thread, so mutating these shared paints per pass is safe.
 private val LiveSignalLabelPaint = Paint().apply {
     color = android.graphics.Color.WHITE
-    textSize = 13f
     typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     isAntiAlias = true
     textAlign = Paint.Align.CENTER
-    alpha = (0.88f * 255).toInt()
+    alpha = (0.92f * 255).toInt()
 }
 
 private val BacktestOutcomeLabelPaint = Paint().apply {
     color = android.graphics.Color.WHITE
-    textSize = 15f
     typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     isAntiAlias = true
     textAlign = Paint.Align.CENTER
@@ -198,12 +200,12 @@ internal fun DrawScope.drawSmtDivergences(
             color = color.copy(alpha = 0.36f),
             start = Offset(primaryX, primaryY),
             end = Offset(confirmationX, primaryY),
-            strokeWidth = 1.2f,
+            strokeWidth = 1f * density,
             pathEffect = SignalDash,
         )
         drawCircle(
             color = color.copy(alpha = 0.58f),
-            radius = 3.2f,
+            radius = 2.5f * density,
             center = Offset(primaryX, primaryY),
         )
     }
@@ -225,6 +227,9 @@ internal fun DrawScope.drawSignalMarkers(
     val startIdx = viewport.startIndex.toInt().coerceAtLeast(0)
     val endIdx = (viewport.startIndex + viewport.visibleBars).toInt() + 1
     val laneCounts = HashMap<Long, Int>(8)
+    val scale = density
+    val laneSpacing = SIGNAL_LANE_SPACING_DP * scale
+    LiveSignalLabelPaint.textSize = SIGNAL_LABEL_TEXT_DP * scale
 
     for (signal in signals) {
         if (signal.barIndex < 0 || !signal.entry.isDrawablePrice()) continue
@@ -239,18 +244,20 @@ internal fun DrawScope.drawSignalMarkers(
         val laneKey = (signal.barIndex.toLong() shl 1) or directionBit
         val lane = laneCounts[laneKey] ?: 0
         laneCounts[laneKey] = lane + 1
-        val laneOffset = lane.coerceAtMost(MAX_SIGNAL_LANES - 1) * SIGNAL_LANE_SPACING
+        val laneOffset = lane.coerceAtMost(MAX_SIGNAL_LANES - 1) * laneSpacing
         val markerY = if (signal.direction == Direction.BULLISH) baseY + laneOffset else baseY - laneOffset
 
         // User-facing signal language: long = green, short = amber/yellow.
         val color = if (signal.direction == Direction.BULLISH) FoxBullish else FoxAmber50
-        val alpha = if (signal.isLive) 0.98f else 0.58f
-        val arrow = signalArrowPath(x, markerY, signal.direction)
+        val alpha = if (signal.isLive) 0.98f else 0.72f
+        val arrow = signalArrowPath(x, markerY, signal.direction, scale)
 
         drawPath(
             path = arrow,
             color = color.copy(alpha = alpha),
-            style = if (signal.isLive) Fill else Stroke(width = 2f),
+            // Historical markers stay outline-only, but the outline itself must
+            // scale with density or it disappears on a high-dpi panel.
+            style = if (signal.isLive) Fill else Stroke(width = 1.5f * scale),
         )
 
         if (signal.isLive) {
@@ -267,11 +274,18 @@ internal fun DrawScope.drawSignalMarkers(
                 SignalSource.STRATEGY -> "ST"
             }
             val confidencePercent = (signal.confidence.coerceIn(0.0, 1.0) * 100.0).toInt()
-            val labelY = if (signal.direction == Direction.BULLISH) markerY + 29f else markerY - 21f
+            // Clear of the arrow's full height on the entry side, sized in dp.
+            val arrowExtent =
+                (ARROW_GAP_DP + ARROW_HEAD_LENGTH_DP + ARROW_STEM_LENGTH_DP + SIGNAL_LABEL_OFFSET_DP) * scale
+            val labelY = if (signal.direction == Direction.BULLISH) {
+                markerY + arrowExtent
+            } else {
+                markerY - arrowExtent + SIGNAL_LABEL_TEXT_DP * scale
+            }
             drawContext.canvas.nativeCanvas.drawText(
                 "$letter $confidencePercent%",
                 x,
-                labelY.coerceIn(13f, ch - 2f),
+                labelY.coerceIn(SIGNAL_LABEL_TEXT_DP * scale, ch - 2f),
                 LiveSignalLabelPaint,
             )
         }
@@ -289,6 +303,9 @@ internal fun DrawScope.drawBacktestMarkers(
 
     val startIdx = viewport.startIndex.toInt().coerceAtLeast(0)
     val endIdx = (viewport.startIndex + viewport.visibleBars).toInt() + 1
+    val scale = density
+    val outcomeRadius = BACKTEST_OUTCOME_RADIUS_DP * scale
+    BacktestOutcomeLabelPaint.textSize = BACKTEST_LABEL_TEXT_DP * scale
 
     for (marker in markers) {
         if (!marker.entryPrice.isDrawablePrice() || !marker.exitPrice.isDrawablePrice()) continue
@@ -318,14 +335,14 @@ internal fun DrawScope.drawBacktestMarkers(
             pathEffect = SignalDash,
         )
         drawPath(
-            path = signalArrowPath(entryX, entryY, marker.direction),
+            path = signalArrowPath(entryX, entryY, marker.direction, scale),
             color = entryColor.copy(alpha = 0.78f),
             style = Fill,
         )
         if (exitY in -12f..(ch + 12f)) {
             drawCircle(
                 color = outcomeColor.copy(alpha = 0.90f),
-                radius = 7f,
+                radius = outcomeRadius,
                 center = Offset(exitX, exitY),
             )
             val label = when (marker.outcome) {
@@ -333,22 +350,38 @@ internal fun DrawScope.drawBacktestMarkers(
                 BacktestOutcome.LOSS -> "L"
                 BacktestOutcome.BREAKEVEN -> "B"
             }
-            drawContext.canvas.nativeCanvas.drawText(label, exitX, exitY + 5f, BacktestOutcomeLabelPaint)
+            drawContext.canvas.nativeCanvas.drawText(
+                label,
+                exitX,
+                exitY + BACKTEST_LABEL_TEXT_DP * scale * 0.36f,
+                BacktestOutcomeLabelPaint,
+            )
         }
     }
 }
 
-private fun signalArrowPath(x: Float, entryY: Float, direction: Direction): Path {
+/**
+ * Build the entry arrow for one signal.
+ *
+ * `DENSITY` Every dimension is expressed in dp and converted through [density]
+ * (px per dp). The previous implementation used raw pixel constants, so on a
+ * modern high-density handset (a 440 dpi phone runs at ~2.75 px/dp, a 1440p
+ * flagship higher still) a "7 px" arrow head measured barely 2.5 dp — the
+ * marker was physically present but far too small to read. Sizing in dp makes
+ * the arrow the same physical size on every display.
+ */
+private fun signalArrowPath(x: Float, entryY: Float, direction: Direction, density: Float): Path {
     val path = SignalArrowScratch
     path.rewind()
-    val halfHead = 7f
-    val stemHalf = 2.5f
-    val stemLength = 9f
-    val gap = 4f
+    val halfHead = ARROW_HALF_HEAD_DP * density
+    val stemHalf = ARROW_STEM_HALF_DP * density
+    val stemLength = ARROW_STEM_LENGTH_DP * density
+    val headLength = ARROW_HEAD_LENGTH_DP * density
+    val gap = ARROW_GAP_DP * density
 
     if (direction == Direction.BULLISH) {
         val tipY = entryY + gap
-        val headBaseY = tipY + 10f
+        val headBaseY = tipY + headLength
         val stemBottomY = headBaseY + stemLength
         path.moveTo(x, tipY)
         path.lineTo(x - halfHead, headBaseY)
@@ -359,7 +392,7 @@ private fun signalArrowPath(x: Float, entryY: Float, direction: Direction): Path
         path.lineTo(x + halfHead, headBaseY)
     } else {
         val tipY = entryY - gap
-        val headBaseY = tipY - 10f
+        val headBaseY = tipY - headLength
         val stemTopY = headBaseY - stemLength
         path.moveTo(x, tipY)
         path.lineTo(x - halfHead, headBaseY)
@@ -397,4 +430,16 @@ private fun Double.isDrawablePrice(): Boolean = isFinite() && this > 0.0
 private const val MAX_CONTEXT_BLOCKS = 2
 private const val MAX_SMT_CONTEXT_RAYS = 6
 private const val MAX_SIGNAL_LANES = 3
-private const val SIGNAL_LANE_SPACING = 16f
+
+// `DENSITY` Marker geometry in dp. Converted with the DrawScope's density at
+// draw time so an arrow is the same physical size on every screen.
+private const val SIGNAL_LANE_SPACING_DP = 14f
+private const val ARROW_HALF_HEAD_DP = 7f
+private const val ARROW_STEM_HALF_DP = 2.5f
+private const val ARROW_STEM_LENGTH_DP = 9f
+private const val ARROW_HEAD_LENGTH_DP = 10f
+private const val ARROW_GAP_DP = 4f
+private const val SIGNAL_LABEL_TEXT_DP = 10f
+private const val SIGNAL_LABEL_OFFSET_DP = 12f
+private const val BACKTEST_LABEL_TEXT_DP = 10f
+private const val BACKTEST_OUTCOME_RADIUS_DP = 5f

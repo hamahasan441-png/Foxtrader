@@ -42,6 +42,52 @@ class PivotSweepDivergenceEngineTest {
         assertTrue(first.all { it.direction == Direction.BULLISH })
     }
 
+    /**
+     * The common real-market shape: one candle takes the stops below the
+     * previous day's low and closes *under* it, the next candle closes back
+     * above. The engine used to demand a single candle that both pierced and
+     * reclaimed, so this sequence produced no arrow at all — which is why the
+     * study looked dead on live charts.
+     */
+    @Test
+    fun `two bar sweep and reclaim still produces an arrow`() {
+        val signals = engine.analyze(
+            "EURUSD",
+            Timeframe.M15,
+            twoBarSweepFixture(),
+            permissiveFastConfig(),
+        ).signals
+
+        assertTrue("a split sweep/reclaim must still emit a signal", signals.isNotEmpty())
+        val signal = signals.first()
+        assertEquals(Direction.BULLISH, signal.direction)
+        // The arrow is stamped on the reclaim/confirmation bar, never on the
+        // piercing bar: the setup is not decidable until that close exists.
+        assertTrue(signal.confirmationIndex > signal.sweepIndex)
+        assertTrue(signal.stopLoss < signal.entry)
+        assertTrue(signal.takeProfit > signal.entry)
+    }
+
+    /** A signal must never move or vanish once later candles arrive. */
+    @Test
+    fun `two bar sweep signal does not repaint`() {
+        val fixture = twoBarSweepFixture()
+        val config = permissiveFastConfig()
+        val first = engine.analyze("EURUSD", Timeframe.M15, fixture, config).signals
+        assertTrue(first.isNotEmpty())
+
+        val future = (1..12).map { step ->
+            val prior = fixture.last().close + step * 0.2
+            candle(fixture.last().timestamp + step * M15, prior, prior + 0.4, prior - 0.3, prior + 0.1)
+        }
+        val second = engine.analyze("EURUSD", Timeframe.M15, fixture + future, config).signals
+
+        assertEquals(
+            first.map(::fingerprint),
+            second.filter { it.timestamp <= fixture.last().timestamp }.map(::fingerprint),
+        )
+    }
+
     @Test
     fun `daily timeframe cannot manufacture an intraday sweep signal`() {
         assertTrue(engine.analyze("EURUSD", Timeframe.D1, bullishFixture(), permissiveFastConfig()).signals.isEmpty())
@@ -112,6 +158,54 @@ class PivotSweepDivergenceEngineTest {
         // Lower-low liquidity sweep of PDL=90 with a strong reclaim.
         out += candle(time, 91.2, 93.0, 88.8, 92.7); time += M15
         // Right-pivot / closed-bar confirmation; large body for displacement.
+        out += candle(time, 92.7, 96.2, 92.5, 96.0); time += M15
+        out += candle(time, 96.0, 96.5, 95.6, 96.2)
+        return out
+    }
+
+    /**
+     * Identical to [bullishFixture] except the single sweep-and-reclaim candle
+     * is split into the two bars a real sweep normally takes: a pierce that
+     * closes below PDL, then the reclaim close above it.
+     */
+    private fun twoBarSweepFixture(): List<Candle> {
+        val out = mutableListOf<Candle>()
+        var time = 1_700_006_400_000L
+        repeat(32) { i ->
+            val open = 100.0 + if (i % 2 == 0) -0.2 else 0.2
+            val close = 100.0 + if (i % 2 == 0) 0.2 else -0.2
+            val high = if (i == 4) 110.0 else maxOf(open, close) + 0.4
+            val low = if (i == 5) 90.0 else minOf(open, close) - 0.4
+            out += candle(time, open, high, low, close)
+            time += M15
+        }
+        time = 1_700_092_800_000L
+        var price = 100.0
+        repeat(10) {
+            val close = price - 0.85
+            out += candle(time, price, price + 0.15, close - 0.15, close)
+            price = close
+            time += M15
+        }
+        out += candle(time, 91.5, 92.0, 90.6, 91.0); time += M15
+        out += candle(time, 91.0, 93.4, 90.9, 93.2); time += M15
+        repeat(5) {
+            val close = price + 1.05
+            out += candle(time, price, close + 0.2, price - 0.1, close)
+            price = close
+            time += M15
+        }
+        repeat(8) {
+            val close = price - 0.48
+            out += candle(time, price, price + 0.12, close - 0.12, close)
+            price = close
+            time += M15
+        }
+        // Bar 1 — pierces PDL = 90 and closes BELOW it (long lower wick).
+        out += candle(time, 91.2, 91.6, 88.8, 89.5); time += M15
+        // Bar 2 — closes back above the level, high in its own range.
+        out += candle(time, 89.5, 93.0, 89.3, 92.7); time += M15
+        // Displacement / continuation.
         out += candle(time, 92.7, 96.2, 92.5, 96.0); time += M15
         out += candle(time, 96.0, 96.5, 95.6, 96.2)
         return out
