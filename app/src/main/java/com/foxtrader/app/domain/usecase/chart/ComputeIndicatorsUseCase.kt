@@ -19,6 +19,7 @@ import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
 import com.foxtrader.app.domain.usecase.sessions.SessionDetector
 import com.foxtrader.app.domain.usecase.smc.SmcDetector
 import com.foxtrader.app.feature.chart.presentation.IndicatorToggles
+import com.foxtrader.app.feature.chart.presentation.SmcStudySettings
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlin.math.abs
@@ -202,7 +203,13 @@ class ComputeIndicatorsUseCase @Inject constructor(
         val vwap = if (toggles.vwap && safeCandles.isNotEmpty())
             safeOrNull { TechnicalIndicators.calculateVWAP(safeCandles) } else null
         val anchoredVwap = if (toggles.anchoredVwap && safeCandles.size >= ANCHORED_VWAP_MIN_BARS)
-            safeOrNull { AnchoredVwap.calculate(safeCandles, AnchoredVwap.autoAnchorIndex(safeCandles)) } else null
+            safeOrNull {
+                AnchoredVwap.calculate(
+                    safeCandles,
+                    AnchoredVwap.autoAnchorIndex(safeCandles, settings.anchoredVwap.lookbackBars),
+                    settings.anchoredVwap.bandMultiplier,
+                )
+            } else null
         val rsi = if (toggles.rsi && safeCandles.size >= settings.rsi.period + 1)
             safeOrNull { TechnicalIndicators.calculateRSI(safeCandles, settings.rsi.period) } else null
         val macdMinBars = max(settings.macd.fastPeriod, settings.macd.slowPeriod) + settings.macd.signalPeriod
@@ -287,39 +294,61 @@ class ComputeIndicatorsUseCase @Inject constructor(
         var fairValueGaps: List<com.foxtrader.app.domain.model.FairValueGap> = emptyList()
         var liquidityPools: List<com.foxtrader.app.domain.model.LiquidityPool> = emptyList()
 
-        if (toggles.orderBlocks && toggles.fairValueGaps) {
+        // `SETTINGS` The combined `analyzeAll` fast path cannot accept per-study
+        // thresholds, so it is only taken while the trader is on the defaults.
+        // Once any SMC parameter is customised we fall through to the individual
+        // detectors, which do accept them — otherwise the settings panel would
+        // appear to work but silently change nothing on the chart.
+        val smcDefaults = settings.smc == SmcStudySettings()
+        val obImpulse = settings.smc.orderBlockImpulseMultiplier
+        val liqTolerance = settings.smc.liquidityTolerancePercent
+        val liqLookback = settings.smc.liquidityLookback
+
+        if (toggles.orderBlocks && toggles.fairValueGaps && smcDefaults) {
             val smcResult = safeOrNull { smcDetector.analyzeAll(safeCandles) }
             if (smcResult != null) {
                 orderBlocks = smcResult.orderBlocks
                 fairValueGaps = smcResult.fairValueGaps
                 if (toggles.liquidity) liquidityPools = smcResult.liquidityPools
             } else {
-                orderBlocks = safeOrDefault(emptyList()) { smcDetector.detectOrderBlocks(safeCandles) }
+                orderBlocks = safeOrDefault(emptyList()) { smcDetector.detectOrderBlocks(safeCandles, obImpulse) }
                 fairValueGaps = safeOrDefault(emptyList()) { smcDetector.detectFairValueGaps(safeCandles) }
                 if (toggles.liquidity) {
-                    liquidityPools = safeOrDefault(emptyList()) { smcDetector.detectLiquidity(safeCandles) }
+                    liquidityPools = safeOrDefault(emptyList()) {
+                        smcDetector.detectLiquidity(safeCandles, liqTolerance, liqLookback)
+                    }
                 }
             }
         } else {
             if (toggles.orderBlocks) {
-                orderBlocks = safeOrDefault(emptyList()) { smcDetector.detectOrderBlocks(safeCandles) }
+                orderBlocks = safeOrDefault(emptyList()) { smcDetector.detectOrderBlocks(safeCandles, obImpulse) }
             }
             if (toggles.fairValueGaps) {
                 fairValueGaps = safeOrDefault(emptyList()) { smcDetector.detectFairValueGaps(safeCandles) }
             }
             if (toggles.liquidity) {
-                liquidityPools = safeOrDefault(emptyList()) { smcDetector.detectLiquidity(safeCandles) }
+                liquidityPools = safeOrDefault(emptyList()) {
+                    smcDetector.detectLiquidity(safeCandles, liqTolerance, liqLookback)
+                }
             }
         }
 
+        // Every one of these used to run on its detector's built-in defaults with
+        // no way for a trader to adapt it to the instrument being charted.
         val volumeProfile = if (toggles.volumeProfile && safeCandles.size >= 20)
-            safeOrNull { smcDetector.computeVolumeProfile(safeCandles) } else null
+            safeOrNull { smcDetector.computeVolumeProfile(safeCandles, settings.volumeProfile.buckets) } else null
         val marketProfileResult = if (toggles.marketProfile && safeCandles.size >= 30)
-            safeOrNull { marketProfile.compute(safeCandles) } else null
+            safeOrNull { marketProfile.compute(safeCandles, settings.marketProfile.rowSize) } else null
         val supportResistanceZones = if (toggles.supportResistance && safeCandles.size >= 25)
-            safeOrDefault(emptyList()) { supportResistanceDetector.detect(safeCandles) } else emptyList()
+            safeOrDefault(emptyList()) {
+                supportResistanceDetector.detect(
+                    safeCandles,
+                    swingLookback = settings.supportResistance.swingLookback,
+                    maxZones = settings.supportResistance.maxZones,
+                )
+            } else emptyList()
         val autoFib = if (toggles.fibonacci && safeCandles.size >= AUTO_FIB_MIN_BARS)
-            safeOrNull { buildAutoFib(safeCandles) } else null
+            safeOrNull { buildAutoFib(safeCandles, settings.fibonacci.lookbackBars) } else null
         val sessions = if (toggles.sessions)
             safeOrDefault(emptyList()) { sessionDetector.detectSessions(safeCandles) } else emptyList()
 
@@ -398,7 +427,11 @@ class ComputeIndicatorsUseCase @Inject constructor(
             } else null
         val anchoredVwap = if (toggles.anchoredVwap && safeCandles.size >= ANCHORED_VWAP_MIN_BARS)
             safeOrPrevious(previous.anchoredVwap) {
-                AnchoredVwap.calculate(safeCandles, AnchoredVwap.autoAnchorIndex(safeCandles))
+                AnchoredVwap.calculate(
+                    safeCandles,
+                    AnchoredVwap.autoAnchorIndex(safeCandles, settings.anchoredVwap.lookbackBars),
+                    settings.anchoredVwap.bandMultiplier,
+                )
             } else null
         val ichimokuMinBars = maxOf(
             settings.ichimoku.tenkanPeriod,
@@ -563,8 +596,8 @@ class ComputeIndicatorsUseCase @Inject constructor(
         )
     }
 
-    private fun buildAutoFib(candles: List<Candle>): AutoFibResult? {
-        val lookback = candles.takeLast(minOf(candles.size, AUTO_FIB_LOOKBACK))
+    private fun buildAutoFib(candles: List<Candle>, lookbackBars: Int = AUTO_FIB_LOOKBACK): AutoFibResult? {
+        val lookback = candles.takeLast(minOf(candles.size, lookbackBars.coerceAtLeast(AUTO_FIB_MIN_BARS)))
         if (lookback.size < AUTO_FIB_MIN_BARS) return null
 
         val highest = lookback.withIndex().maxByOrNull { it.value.high } ?: return null

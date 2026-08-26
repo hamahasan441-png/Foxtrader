@@ -1,6 +1,7 @@
 package com.foxtrader.app.feature.chart.presentation
 
 import androidx.compose.runtime.Immutable
+import kotlinx.serialization.Serializable
 
 /**
  * Typed, finite-safe settings for chart studies.
@@ -11,6 +12,7 @@ import androidx.compose.runtime.Immutable
  * must never be reused after the trader changes the study to RSI(7).
  */
 @Immutable
+@Serializable
 data class ChartStudySettings(
     val ema: EmaStudySettings = EmaStudySettings(),
     val rsi: RsiStudySettings = RsiStudySettings(),
@@ -26,6 +28,12 @@ data class ChartStudySettings(
     val ichimoku: IchimokuStudySettings = IchimokuStudySettings(),
     val parabolicSar: ParabolicSarStudySettings = ParabolicSarStudySettings(),
     val mfi: MfiStudySettings = MfiStudySettings(),
+    val volumeProfile: VolumeProfileStudySettings = VolumeProfileStudySettings(),
+    val marketProfile: MarketProfileStudySettings = MarketProfileStudySettings(),
+    val supportResistance: SupportResistanceStudySettings = SupportResistanceStudySettings(),
+    val fibonacci: FibonacciStudySettings = FibonacciStudySettings(),
+    val anchoredVwap: AnchoredVwapStudySettings = AnchoredVwapStudySettings(),
+    val smc: SmcStudySettings = SmcStudySettings(),
 ) {
     fun sanitized(): ChartStudySettings = copy(
         ema = ema.sanitized(),
@@ -42,14 +50,23 @@ data class ChartStudySettings(
         ichimoku = ichimoku.sanitized(),
         parabolicSar = parabolicSar.sanitized(),
         mfi = mfi.sanitized(),
+        volumeProfile = volumeProfile.sanitized(),
+        marketProfile = marketProfile.sanitized(),
+        supportResistance = supportResistance.sanitized(),
+        fibonacci = fibonacci.sanitized(),
+        anchoredVwap = anchoredVwap.sanitized(),
+        smc = smc.sanitized(),
     )
 }
 
+@Serializable
 enum class PivotSweepDivergenceMode { FAST, PRECISION, POWER }
 
+@Serializable
 enum class ValueAreaLiquidityRejectionMode { FAST, PRECISION, POWER }
 
 @Immutable
+@Serializable
 data class ValueAreaLiquidityRejectionStudySettings(
     val mode: ValueAreaLiquidityRejectionMode = ValueAreaLiquidityRejectionMode.PRECISION,
     val profileBins: Int = 48,
@@ -102,6 +119,7 @@ data class ValueAreaLiquidityRejectionStudySettings(
 }
 
 @Immutable
+@Serializable
 data class PivotSweepDivergenceStudySettings(
     val mode: PivotSweepDivergenceMode = PivotSweepDivergenceMode.PRECISION,
     val rsiPeriod: Int = 14,
@@ -163,6 +181,7 @@ data class PivotSweepDivergenceStudySettings(
 }
 
 @Immutable
+@Serializable
 data class EmaStudySettings(
     val fastPeriod: Int = 20,
     val slowPeriod: Int = 50,
@@ -176,6 +195,7 @@ data class EmaStudySettings(
 }
 
 @Immutable
+@Serializable
 data class RsiStudySettings(
     val period: Int = 14,
     val overbought: Double = 70.0,
@@ -189,6 +209,7 @@ data class RsiStudySettings(
 }
 
 @Immutable
+@Serializable
 data class RsiOrderFlowStudySettings(
     val rsiPeriod: Int = 14,
     val flowPeriod: Int = 14,
@@ -226,6 +247,7 @@ data class RsiOrderFlowStudySettings(
 }
 
 @Immutable
+@Serializable
 data class MacdStudySettings(
     val fastPeriod: Int = 12,
     val slowPeriod: Int = 26,
@@ -245,6 +267,7 @@ data class MacdStudySettings(
 }
 
 @Immutable
+@Serializable
 data class BollingerStudySettings(
     val period: Int = 20,
     val multiplier: Double = 2.0,
@@ -256,6 +279,7 @@ data class BollingerStudySettings(
 }
 
 @Immutable
+@Serializable
 data class SuperTrendStudySettings(
     val atrPeriod: Int = 10,
     val multiplier: Double = 3.0,
@@ -267,6 +291,7 @@ data class SuperTrendStudySettings(
 }
 
 @Immutable
+@Serializable
 data class StochasticStudySettings(
     val kPeriod: Int = 14,
     val dPeriod: Int = 3,
@@ -286,6 +311,7 @@ data class StochasticStudySettings(
 }
 
 @Immutable
+@Serializable
 data class KeltnerStudySettings(
     val emaPeriod: Int = 20,
     val atrPeriod: Int = 10,
@@ -299,11 +325,13 @@ data class KeltnerStudySettings(
 }
 
 @Immutable
+@Serializable
 data class DonchianStudySettings(val period: Int = 20) {
     fun sanitized(): DonchianStudySettings = copy(period = period.coerceIn(1, MAX_PERIOD))
 }
 
 @Immutable
+@Serializable
 data class IchimokuStudySettings(
     val tenkanPeriod: Int = 9,
     val kijunPeriod: Int = 26,
@@ -319,6 +347,7 @@ data class IchimokuStudySettings(
 }
 
 @Immutable
+@Serializable
 data class ParabolicSarStudySettings(
     val accelerationStart: Double = 0.02,
     val accelerationStep: Double = 0.02,
@@ -333,6 +362,7 @@ data class ParabolicSarStudySettings(
 }
 
 @Immutable
+@Serializable
 data class MfiStudySettings(
     val period: Int = 14,
     val overbought: Double = 80.0,
@@ -343,6 +373,96 @@ data class MfiStudySettings(
         val high = finiteOr(overbought, 80.0).coerceIn(51.0, 99.0)
         return copy(period = period.coerceIn(1, MAX_PERIOD), overbought = high, oversold = low)
     }
+}
+
+/**
+ * Volume Profile resolution.
+ *
+ * Bucket count is a display/analysis resolution: too few and the POC is a
+ * meaningless wide band, too many and every bucket holds one bar.
+ */
+@Immutable
+@Serializable
+data class VolumeProfileStudySettings(
+    val buckets: Int = 24,
+) {
+    fun sanitized(): VolumeProfileStudySettings = copy(buckets = buckets.coerceIn(4, 200))
+}
+
+/** Market Profile (TPO) row resolution. */
+@Immutable
+@Serializable
+data class MarketProfileStudySettings(
+    val rowSize: Int = 50,
+) {
+    fun sanitized(): MarketProfileStudySettings = copy(rowSize = rowSize.coerceIn(4, 200))
+}
+
+/**
+ * Support / resistance zone detection.
+ *
+ * [swingLookback] is the pivot strength — bars required either side of a swing
+ * before it counts as a level. [maxZones] bounds how many survive onto the
+ * chart, because an unbounded list turns the canvas into noise.
+ */
+@Immutable
+@Serializable
+data class SupportResistanceStudySettings(
+    val swingLookback: Int = 5,
+    val maxZones: Int = 8,
+) {
+    fun sanitized(): SupportResistanceStudySettings = copy(
+        swingLookback = swingLookback.coerceIn(1, 50),
+        maxZones = maxZones.coerceIn(1, 30),
+    )
+}
+
+/** Auto-Fibonacci swing search window. */
+@Immutable
+@Serializable
+data class FibonacciStudySettings(
+    val lookbackBars: Int = 120,
+) {
+    fun sanitized(): FibonacciStudySettings = copy(lookbackBars = lookbackBars.coerceIn(20, 1_000))
+}
+
+/**
+ * Anchored VWAP.
+ *
+ * [lookbackBars] is the window the automatic anchor searches for its swing
+ * origin; [bandMultiplier] scales the standard-deviation bands.
+ */
+@Immutable
+@Serializable
+data class AnchoredVwapStudySettings(
+    val lookbackBars: Int = 120,
+    val bandMultiplier: Double = 2.0,
+) {
+    fun sanitized(): AnchoredVwapStudySettings = copy(
+        lookbackBars = lookbackBars.coerceIn(10, 1_000),
+        bandMultiplier = finiteOr(bandMultiplier, 2.0).coerceIn(0.5, 6.0),
+    )
+}
+
+/**
+ * Smart-money structure detection thresholds.
+ *
+ * These were previously fixed at the detector's defaults with no way to adapt
+ * them to an instrument's volatility, which made order blocks and liquidity
+ * pools either far too sparse or far too noisy depending on the symbol.
+ */
+@Immutable
+@Serializable
+data class SmcStudySettings(
+    val orderBlockImpulseMultiplier: Double = 1.5,
+    val liquidityTolerancePercent: Double = 0.05,
+    val liquidityLookback: Int = 50,
+) {
+    fun sanitized(): SmcStudySettings = copy(
+        orderBlockImpulseMultiplier = finiteOr(orderBlockImpulseMultiplier, 1.5).coerceIn(1.0, 6.0),
+        liquidityTolerancePercent = finiteOr(liquidityTolerancePercent, 0.05).coerceIn(0.005, 2.0),
+        liquidityLookback = liquidityLookback.coerceIn(5, 500),
+    )
 }
 
 private const val MAX_PERIOD = 500
