@@ -56,6 +56,7 @@ import com.foxtrader.app.domain.usecase.litx.LitXEngine
 import com.foxtrader.app.domain.usecase.signalintel.ConfirmedBarPolicy
 import com.foxtrader.app.domain.usecase.signalintel.LitEngine
 import com.foxtrader.app.domain.usecase.signalintel.RsiOrderFlowSignalEngine
+import com.foxtrader.app.domain.usecase.signalintel.AccumulationManipulationDistributionEngine
 import com.foxtrader.app.domain.usecase.signalintel.PivotSweepDivergenceEngine
 import com.foxtrader.app.domain.usecase.signalintel.ValueAreaLiquidityRejectionEngine
 import com.foxtrader.app.domain.usecase.signalintel.SmsEngine
@@ -127,6 +128,7 @@ class ChartViewModel @Inject constructor(
     private val rsiOrderFlowSignalEngine: RsiOrderFlowSignalEngine,
     private val pivotSweepDivergenceEngine: PivotSweepDivergenceEngine,
     private val valueAreaLiquidityRejectionEngine: ValueAreaLiquidityRejectionEngine,
+    private val amdEngine: AccumulationManipulationDistributionEngine,
     private val heikinAshiTransformer: HeikinAshiTransformer,
     private val candleRenkoBuilder: CandleRenkoBuilder,
     private val signalComputer: SignalComputer,
@@ -714,6 +716,27 @@ class ChartViewModel @Inject constructor(
             signal.toChartSignal(latestConfirmedIndex)
         }
 
+        // AMD is detected structurally (range compression relative to ATR)
+        // rather than by session clock, so — unlike PSD/VALR — it is not
+        // gated to sub-daily timeframes.
+        val amdAnalysisSignals = if (
+            ind.amd &&
+            barMode == ChartBarMode.TIME &&
+            signalCandles.isNotEmpty()
+        ) {
+            withContext(defaultDispatcher) {
+                containedOrDefault(emptyList()) {
+                    amdEngine.analyze(
+                        symbol = symbol,
+                        timeframe = timeframe,
+                        candles = signalCandles,
+                        config = ind.settings.amd.toEngineConfig(),
+                    ).signals
+                }
+            }
+        } else emptyList()
+        val amdSignals = amdAnalysisSignals.map { signal -> signal.toChartSignal(latestConfirmedIndex) }
+
         // Backfill previously confirmed LiT arrows. Each bar is evaluated only
         // through its own closed prefix, so later data cannot create, move or
         // delete an earlier marker (non-repaint by construction).
@@ -840,7 +863,7 @@ class ChartViewModel @Inject constructor(
             emptyList()
         }
 
-        val chartStrategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + strategySignals + binary3mSignals
+        val chartStrategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + strategySignals + binary3mSignals
 
         // Drop stale frames: a newer computation (e.g. from a rapid indicator
         // toggle) has already started, so publishing this older result would
@@ -862,6 +885,7 @@ class ChartViewModel @Inject constructor(
             barMode = barMode,
         ).copy(
             valueAreaLiquidityProfiles = valueAreaLiquidityAnalysis?.profiles.orEmpty().toPersistentList(),
+            amdZones = amdAnalysisSignals.toPersistentList(),
         )
         val frameSignals = signalComputer.computeSignals(
             litXAnalysis = litXAnalysis.takeIf { ind.litX },
@@ -1025,6 +1049,23 @@ class ChartViewModel @Inject constructor(
             signal.toChartSignal(candles.lastIndex)
         }
 
+        val amdAnalysisSignals = if (
+            ind.amd &&
+            current.barMode == ChartBarMode.TIME
+        ) {
+            withContext(defaultDispatcher) {
+                containedOrDefault(emptyList()) {
+                    amdEngine.analyze(
+                        symbol = symbol,
+                        timeframe = timeframe,
+                        candles = candles,
+                        config = ind.settings.amd.toEngineConfig(),
+                    ).signals
+                }
+            }
+        } else emptyList()
+        val amdSignals = amdAnalysisSignals.map { signal -> signal.toChartSignal(candles.lastIndex) }
+
         val productionHistory = if ((ind.litX || ind.lit) && candles.isNotEmpty()) {
             withContext(defaultDispatcher) {
                 scanProductionSignalHistory(
@@ -1116,7 +1157,7 @@ class ChartViewModel @Inject constructor(
             tradeProAnalysis = null,
             smtDivergences = emptyList(),
             candles = candles,
-            strategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + strategySignals + binary3mSignals,
+            strategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + strategySignals + binary3mSignals,
             litAnalysis = litAnalysis,
             smsAnalysis = smsAnalysis,
             rsiOrderFlowSignals = rsiOrderFlowSignals,
@@ -1135,6 +1176,7 @@ class ChartViewModel @Inject constructor(
             smsAnalysis = smsAnalysis,
         ).copy(
             valueAreaLiquidityProfiles = valueAreaLiquidityAnalysis?.profiles.orEmpty().toPersistentList(),
+            amdZones = amdAnalysisSignals.toPersistentList(),
         )
     }
 
@@ -2202,6 +2244,29 @@ private fun ValueAreaLiquidityRejectionEngine.Signal.toChartSignal(latestConfirm
         isLive = confirmationIndex == latestConfirmedIndex,
         label = "VALR ${edge.name} · ${reasons.take(4).joinToString(" · ")}",
         eventKey = SignalIdentity.valueAreaLiquidityRejection(
+            symbol = symbol,
+            timeframe = timeframe,
+            timestamp = timestamp,
+            direction = direction,
+            confirmationIndex = confirmationIndex,
+        ),
+        variant = mode.name,
+    )
+
+private fun AccumulationManipulationDistributionEngine.Signal.toChartSignal(latestConfirmedIndex: Int): ChartSignal =
+    ChartSignal(
+        id = "amd_${symbol}_${timestamp}_${direction.name}_${sweepIndex}",
+        source = SignalSource.ACCUMULATION_MANIPULATION_DISTRIBUTION,
+        direction = direction,
+        entry = entry,
+        sl = stopLoss,
+        tp = takeProfit,
+        barIndex = confirmationIndex,
+        timestamp = timestamp,
+        confidence = confidence.toDouble(),
+        isLive = confirmationIndex == latestConfirmedIndex,
+        label = "AMD · ${reasons.take(4).joinToString(" · ")}",
+        eventKey = SignalIdentity.accumulationManipulationDistribution(
             symbol = symbol,
             timeframe = timeframe,
             timestamp = timestamp,

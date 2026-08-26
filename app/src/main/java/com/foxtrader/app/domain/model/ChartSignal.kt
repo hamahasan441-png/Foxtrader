@@ -80,6 +80,9 @@ enum class SignalSource {
     /** Deriv 3-minute fixed-expiry CALL/PUT setup confirmed on a closed M1 bar. */
     BINARY3M,
 
+    /** Accumulation-Manipulation-Distribution cycle: range sweep + displaced reversal. */
+    ACCUMULATION_MANIPULATION_DISTRIBUTION,
+
     /** A rule from the backtestable [com.foxtrader.app.domain.usecase.strategies.StrategyLibrary]. */
     STRATEGY,
 }

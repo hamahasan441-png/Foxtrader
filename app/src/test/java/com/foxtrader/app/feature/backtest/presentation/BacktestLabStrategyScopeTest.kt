@@ -14,6 +14,7 @@ class BacktestLabStrategyScopeTest {
                 BacktestStrategyTemplate.LIT_MAY_MADNESS,
                 BacktestStrategyTemplate.SMT,
                 BacktestStrategyTemplate.RSI_ORDERFLOW,
+                BacktestStrategyTemplate.AMD,
             ),
             BacktestStrategyTemplate.primaryEntries,
         )

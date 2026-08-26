@@ -36,6 +36,7 @@ import com.foxtrader.app.domain.usecase.indicators.PivotPoints
 import com.foxtrader.app.domain.usecase.analysis.SupportResistanceDetector
 import com.foxtrader.app.domain.usecase.mtf.ConfluenceEngine
 import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
+import com.foxtrader.app.domain.usecase.signalintel.AccumulationManipulationDistributionEngine
 import com.foxtrader.app.domain.usecase.signalintel.ValueAreaLiquidityRejectionEngine
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
@@ -81,6 +82,7 @@ data class IndicatorToggles(
     val rsiOrderFlow: Boolean = false,
     val pivotSweepDivergence: Boolean = false,
     val valueAreaLiquidityRejection: Boolean = false,
+    val amd: Boolean = false,
     val macd: Boolean = false,
     val volume: Boolean = false,
     val stochastic: Boolean = false,
@@ -97,7 +99,7 @@ data class IndicatorToggles(
             ichimoku || keltner || donchian || pivotPoints || volumeProfile || marketProfile ||
             supportResistance || fibonacci || confluence || orderBlocks || fairValueGaps ||
             liquidity || sessions || structure || litX || lit || sms || smt || tradePro || binary3m ||
-            rsi || rsiOrderFlow || pivotSweepDivergence || valueAreaLiquidityRejection || macd || volume || stochastic || obv || moneyFlowIndex ||
+            rsi || rsiOrderFlow || pivotSweepDivergence || valueAreaLiquidityRejection || amd || macd || volume || stochastic || obv || moneyFlowIndex ||
             activeStrategy != null || activeBlueprintId != null || allStrategies
 
     val smcSuiteActive: Boolean
@@ -273,6 +275,13 @@ data class ChartUiState(
      */
     val valueAreaLiquidityProfiles: ImmutableList<ValueAreaLiquidityRejectionEngine.ProfileSnapshot> =
         persistentListOf(),
+    /**
+     * Every confirmed AMD cycle's accumulation range/manipulation sweep, for
+     * the premium zone overlay. The confirmation arrow itself is rendered by
+     * the unified [signals] layer; this list only carries the extra geometry
+     * (range box + sweep bar) [ChartSignal] does not.
+     */
+    val amdZones: ImmutableList<AccumulationManipulationDistributionEngine.Signal> = persistentListOf(),
     val supportResistanceZones: ImmutableList<SupportResistanceDetector.SRZone> = persistentListOf(),
     val autoFibLevels: ImmutableList<FibonacciEngine.FibLevel> = persistentListOf(),
     val autoFibDirection: Direction? = null,

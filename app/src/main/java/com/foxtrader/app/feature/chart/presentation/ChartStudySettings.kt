@@ -17,6 +17,7 @@ data class ChartStudySettings(
     val rsiOrderFlow: RsiOrderFlowStudySettings = RsiOrderFlowStudySettings(),
     val pivotSweepDivergence: PivotSweepDivergenceStudySettings = PivotSweepDivergenceStudySettings(),
     val valueAreaLiquidityRejection: ValueAreaLiquidityRejectionStudySettings = ValueAreaLiquidityRejectionStudySettings(),
+    val amd: AmdStudySettings = AmdStudySettings(),
     val macd: MacdStudySettings = MacdStudySettings(),
     val bollinger: BollingerStudySettings = BollingerStudySettings(),
     val superTrend: SuperTrendStudySettings = SuperTrendStudySettings(),
@@ -33,6 +34,7 @@ data class ChartStudySettings(
         rsiOrderFlow = rsiOrderFlow.sanitized(),
         pivotSweepDivergence = pivotSweepDivergence.sanitized(),
         valueAreaLiquidityRejection = valueAreaLiquidityRejection.sanitized(),
+        amd = amd.sanitized(),
         macd = macd.sanitized(),
         bollinger = bollinger.sanitized(),
         superTrend = superTrend.sanitized(),
@@ -48,6 +50,51 @@ data class ChartStudySettings(
 enum class PivotSweepDivergenceMode { FAST, PRECISION, POWER }
 
 enum class ValueAreaLiquidityRejectionMode { FAST, PRECISION, POWER }
+
+enum class AmdMode { FAST, PRECISION, POWER }
+
+@Immutable
+data class AmdStudySettings(
+    val mode: AmdMode = AmdMode.PRECISION,
+    val atrPeriod: Int = 14,
+    val minAccumulationBars: Int = 6,
+    val maxAccumulationBars: Int = 40,
+    val accumulationRangeAtrMultiple: Double = 1.6,
+    val minSweepAtr: Double = 0.15,
+    val minRejectionWickFraction: Double = 0.20,
+    val minCloseLocation: Double = 0.55,
+    val maxReclaimBars: Int = 2,
+    val maxConfirmBars: Int = 4,
+    val displacementAtrMultiple: Double = 0.45,
+    val stopBufferAtr: Double = 0.25,
+    val rewardRisk: Double = 2.0,
+    val minScore: Int = 66,
+    val cooldownBars: Int = 6,
+    val sessionOffsetMinutes: Int = 0,
+    val maxSignals: Int = 160,
+) {
+    fun sanitized(): AmdStudySettings {
+        val minBars = minAccumulationBars.coerceIn(3, 250)
+        return copy(
+            atrPeriod = atrPeriod.coerceIn(2, MAX_PERIOD),
+            minAccumulationBars = minBars,
+            maxAccumulationBars = maxAccumulationBars.coerceIn(minBars, 500),
+            accumulationRangeAtrMultiple = finiteOr(accumulationRangeAtrMultiple, 1.6).coerceIn(0.1, 10.0),
+            minSweepAtr = finiteOr(minSweepAtr, 0.15).coerceIn(0.0, 3.0),
+            minRejectionWickFraction = finiteOr(minRejectionWickFraction, 0.20).coerceIn(0.0, 1.0),
+            minCloseLocation = finiteOr(minCloseLocation, 0.55).coerceIn(0.50, 1.0),
+            maxReclaimBars = maxReclaimBars.coerceIn(0, 25),
+            maxConfirmBars = maxConfirmBars.coerceIn(0, 30),
+            displacementAtrMultiple = finiteOr(displacementAtrMultiple, 0.45).coerceIn(0.0, 5.0),
+            stopBufferAtr = finiteOr(stopBufferAtr, 0.25).coerceIn(0.0, 5.0),
+            rewardRisk = finiteOr(rewardRisk, 2.0).coerceIn(0.25, 10.0),
+            minScore = minScore.coerceIn(0, 100),
+            cooldownBars = cooldownBars.coerceIn(0, 250),
+            sessionOffsetMinutes = sessionOffsetMinutes.coerceIn(-720, 840),
+            maxSignals = maxSignals.coerceIn(20, 500),
+        )
+    }
+}
 
 @Immutable
 data class ValueAreaLiquidityRejectionStudySettings(
