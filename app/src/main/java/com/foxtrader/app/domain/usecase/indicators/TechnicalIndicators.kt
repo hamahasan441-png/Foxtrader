@@ -235,17 +235,35 @@ object TechnicalIndicators {
     // RSI — Relative Strength Index
     // ========================================================================
 
-    fun calculateRSI(candles: List<Candle>, period: Int = 14): DoubleArray {
-        val rsi = DoubleArray(candles.size) { 50.0 }
+    fun calculateRSI(candles: List<Candle>, period: Int = 14): DoubleArray =
+        calculateRsiSeries(DoubleArray(candles.size) { candles[it].close }, period)
+
+    /**
+     * Wilder RSI over an arbitrary price series.
+     *
+     * Extracted from [calculateRSI] so a study can run RSI over open/high/low
+     * as well as close without duplicating the recurrence. The close-only
+     * overload delegates here, so both paths are the same arithmetic and can
+     * never drift apart.
+     *
+     * Note the recurrence is seeded from the first element: RSI over a suffix
+     * of a series is therefore not bit-identical to RSI over the whole series
+     * restricted to that range. The influence decays geometrically, but callers
+     * that must be invariant under prepended history (the chart prepends older
+     * bars at runtime) have to exclude a warmup region rather than assume
+     * equality.
+     */
+    fun calculateRsiSeries(values: DoubleArray, period: Int = 14): DoubleArray {
+        val rsi = DoubleArray(values.size) { 50.0 }
         // With period <= 0 the size guard passes and the seed loop reads
-        // candles[i - 1] at i = 0 (or writes rsi[period] at a negative index).
+        // values[i - 1] at i = 0 (or writes rsi[period] at a negative index).
         @Suppress("NAME_SHADOWING") val period = sanitizePeriod(period)
-        if (candles.size < period + 1) return rsi
+        if (values.size < period + 1) return rsi
 
         var avgGain = 0.0
         var avgLoss = 0.0
         for (i in 1..period) {
-            val change = candles[i].close - candles[i - 1].close
+            val change = values[i] - values[i - 1]
             if (change > 0) avgGain += change else avgLoss += abs(change)
         }
         avgGain /= period
@@ -268,8 +286,8 @@ object TechnicalIndicators {
         // Emit the first RSI value at index [period] from the seed averages.
         rsi[period] = fromAverages(avgGain, avgLoss)
 
-        for (i in period + 1 until candles.size) {
-            val change = candles[i].close - candles[i - 1].close
+        for (i in period + 1 until values.size) {
+            val change = values[i] - values[i - 1]
             val gain = if (change > 0) change else 0.0
             val loss = if (change < 0) abs(change) else 0.0
 

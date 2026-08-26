@@ -225,13 +225,18 @@ Per spec §48.5: **no TODOs, placeholders, fake signals, hard-coded outputs or u
 
 ---
 
-## 6. Decisions needed before Phase 1
+## 6. Decisions (confirmed)
 
-1. **Naming** — confirm "RSI Orderflow Reversal" for the new engine and relabelling the existing oscillator to
-   "RSI Orderflow Divergence" (§1.1).
-2. **LTF data** — confirm the engine may issue a second bounded `getSourcedCandles` fetch per armed setup. Without it,
-   §16–§18 cannot be honoured and the system degrades to HTF-only arming.
-3. **3m timeframe** — confirm deferring `M3` (§1.3).
+All three were put to the project owner and answered before Phase 1 began:
+
+1. **Naming — confirmed.** The new engine is **"RSI Orderflow Reversal"**. The existing oscillator is relabelled
+   **"RSI Orderflow Divergence"** as a display string only: `SignalSource.RSI_ORDERFLOW`, the `rsiOrderFlow` toggle
+   field, the `RSI_ORDERFLOW_CANDLE` enum constant and every persisted preference stay exactly as they are, so there
+   is no migration and no stored history is re-partitioned.
+2. **LTF data — confirmed.** The engine may issue a second, bounded `getSourcedCandles` fetch per armed setup, so
+   §16–§18 are honoured in full. Provenance is enforced: **synthetic LTF bars can never confirm an entry.**
+3. **3m timeframe — deferred.** The mapping table ships without the `3m → 1m` row. Adding `M3` reaches providers,
+   Room entities and stored preferences, and belongs in its own change rather than widening this one.
 
 ## 7. Estimated scope
 
