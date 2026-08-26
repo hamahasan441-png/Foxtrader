@@ -8,6 +8,7 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.nativeCanvas
 import com.foxtrader.app.domain.usecase.signalintel.ValueAreaLiquidityRejectionEngine
+import com.foxtrader.app.feature.chart.presentation.chartOverlayLabelBaseline
 import com.foxtrader.app.feature.chart.presentation.components.ChartViewport
 import kotlin.math.max
 import kotlin.math.min
@@ -138,7 +139,11 @@ private fun DrawScope.drawLevel(
     labelPaint.color = color.toArgb()
     labelPaint.textAlign = Paint.Align.LEFT
     val labelX = (left + 4f * density).coerceAtMost(right - textWidth - 2f * density)
-    val labelY = (y - 3f * density).coerceIn(labelPaint.textSize, ch - 2f)
+    val labelY = chartOverlayLabelBaseline(
+        requested = y - 3f * density,
+        textSize = labelPaint.textSize,
+        chartHeight = ch,
+    ) ?: return
     drawContext.canvas.nativeCanvas.drawText(label, labelX, labelY, labelPaint)
 }
 

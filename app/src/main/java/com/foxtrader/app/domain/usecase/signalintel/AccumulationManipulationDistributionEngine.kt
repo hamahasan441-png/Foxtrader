@@ -212,22 +212,30 @@ class AccumulationManipulationDistributionEngine @Inject constructor() {
         val maxRange = volAtr * config.accumulationRangeAtrMultiple * scale
         if (maxRange <= EPSILON) return null
 
-        var k = config.maxAccumulationBars
-        while (k >= config.minAccumulationBars) {
-            val start = sweepIndex - k
-            if (start < 0) {
-                k--
-                continue
+        // Scan the window once from newest to oldest. The previous implementation
+        // rebuilt max/min for every candidate length, making a user-selected
+        // 500-bar window quadratic per sweep and capable of stalling the chart.
+        // Range can only grow as older bars are added, so once it exceeds the
+        // threshold no still-longer window can qualify.
+        val oldest = (sweepIndex - config.maxAccumulationBars).coerceAtLeast(0)
+        var high = Double.NEGATIVE_INFINITY
+        var low = Double.POSITIVE_INFINITY
+        var best: Zone? = null
+        for (start in sweepIndex - 1 downTo oldest) {
+            val candle = candles[start]
+            if (!candle.high.isFinite() || !candle.low.isFinite()) return best
+            high = maxOf(high, candle.high)
+            low = minOf(low, candle.low)
+            if (high - low > maxRange) break
+
+            val bars = sweepIndex - start
+            if (bars >= config.minAccumulationBars) {
+                // Iteration moves toward older bars, so replacing the candidate
+                // retains the longest qualifying accumulation range.
+                best = Zone(start, sweepIndex - 1, high, low)
             }
-            val window = candles.subList(start, sweepIndex)
-            val high = window.maxOf { it.high }
-            val low = window.minOf { it.low }
-            if (high.isFinite() && low.isFinite() && high - low <= maxRange) {
-                return Zone(start, sweepIndex - 1, high, low)
-            }
-            k--
         }
-        return null
+        return best
     }
 
     /** The manipulation leg: a wick-rejected pierce beyond the accumulation range. */

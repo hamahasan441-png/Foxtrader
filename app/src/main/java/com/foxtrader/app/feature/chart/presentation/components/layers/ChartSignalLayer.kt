@@ -19,6 +19,7 @@ import com.foxtrader.app.domain.model.LitXAnalysis
 import com.foxtrader.app.domain.model.PriceZoneKind
 import com.foxtrader.app.domain.model.SignalSource
 import com.foxtrader.app.domain.usecase.smt.SmtDivergenceDetector
+import com.foxtrader.app.feature.chart.presentation.chartOverlayLabelBaseline
 import com.foxtrader.app.feature.chart.presentation.components.ChartViewport
 import com.foxtrader.app.ui.theme.FoxAmber50
 import com.foxtrader.app.ui.theme.FoxBearish
@@ -283,12 +284,18 @@ internal fun DrawScope.drawSignalMarkers(
             } else {
                 markerY - arrowExtent + SIGNAL_LABEL_TEXT_DP * scale
             }
-            drawContext.canvas.nativeCanvas.drawText(
-                "$letter $confidencePercent%",
-                x,
-                labelY.coerceIn(SIGNAL_LABEL_TEXT_DP * scale, ch - 2f),
-                LiveSignalLabelPaint,
-            )
+            chartOverlayLabelBaseline(
+                requested = labelY,
+                textSize = SIGNAL_LABEL_TEXT_DP * scale,
+                chartHeight = ch,
+            )?.let { safeLabelY ->
+                drawContext.canvas.nativeCanvas.drawText(
+                    "$letter $confidencePercent%",
+                    x,
+                    safeLabelY,
+                    LiveSignalLabelPaint,
+                )
+            }
         }
     }
 }

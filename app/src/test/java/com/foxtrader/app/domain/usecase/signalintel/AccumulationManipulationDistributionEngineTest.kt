@@ -24,6 +24,8 @@ class AccumulationManipulationDistributionEngineTest {
         assertTrue(signal.stopLoss < signal.entry)
         assertTrue(signal.takeProfit > signal.entry)
         assertTrue(signal.accumulationHigh > signal.accumulationLow)
+        assertEquals("the longest qualifying accumulation window wins", 0, signal.accumulationStartIndex)
+        assertEquals(9, signal.accumulationEndIndex)
     }
 
     @Test
@@ -65,6 +67,25 @@ class AccumulationManipulationDistributionEngineTest {
     fun `works on the daily timeframe`() {
         val signals = engine.analyze("EURUSD", Timeframe.D1, bullishFixture(), permissiveFastConfig()).signals
         assertTrue("AMD must not be gated to intraday timeframes", signals.isNotEmpty())
+    }
+
+    @Test
+    fun `production defaults produce a visible signal after ATR warmup`() {
+        var time = 1_700_006_400_000L
+        val candles = mutableListOf<Candle>()
+        repeat(20) { index ->
+            val close = if (index % 2 == 0) 100.02 else 99.98
+            candles += candle(time, 100.0, 100.05, 99.95, close)
+            time += M15
+        }
+        candles += candle(time, 100.0, 100.10, 99.70, 100.02); time += M15
+        candles += candle(time, 100.02, 100.30, 99.98, 100.28)
+
+        val signals = engine.analyze("EURUSD", Timeframe.M15, candles)
+
+        assertTrue("default chart settings must emit the closed-bar AMD cycle", signals.isNotEmpty())
+        assertEquals(Direction.BULLISH, signals.last().direction)
+        assertEquals(candles.lastIndex, signals.last().confirmationIndex)
     }
 
     @Test
