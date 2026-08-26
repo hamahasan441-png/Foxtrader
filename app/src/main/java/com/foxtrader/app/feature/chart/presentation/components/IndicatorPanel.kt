@@ -123,6 +123,9 @@ fun IndicatorPanel(
                         StudyItem("Pivot Sweep Divergence", ChartStudyId.PIVOT_SWEEP_DIVERGENCE, toggles.pivotSweepDivergence) { t ->
                             t.copy(pivotSweepDivergence = !t.pivotSweepDivergence)
                         },
+                        StudyItem("Value Area Liquidity Rejection", ChartStudyId.VALUE_AREA_LIQUIDITY_REJECTION, toggles.valueAreaLiquidityRejection) { t ->
+                            t.copy(valueAreaLiquidityRejection = !t.valueAreaLiquidityRejection)
+                        },
                         StudyItem("SMS", ChartStudyId.SMS, toggles.sms) { t -> t.withSmsSuite(!t.sms) },
                         StudyItem("TradePro", ChartStudyId.TRADE_PRO, toggles.tradePro) { t -> t.withTradeProSuite(!t.tradePro) },
                         StudyItem("Deriv 3m", ChartStudyId.BINARY_3M, toggles.binary3m) { t ->

@@ -74,6 +74,9 @@ enum class SignalSource {
     /** Previous-day pivot sweep/reclaim + confirmed dual divergence setup. */
     PIVOT_SWEEP_DIVERGENCE,
 
+    /** Previous-session value-area sweep/reclaim + absorption/structure setup. */
+    VALUE_AREA_LIQUIDITY_REJECTION,
+
     /** Deriv 3-minute fixed-expiry CALL/PUT setup confirmed on a closed M1 bar. */
     BINARY3M,
 

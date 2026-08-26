@@ -16,6 +16,7 @@ data class ChartStudySettings(
     val rsi: RsiStudySettings = RsiStudySettings(),
     val rsiOrderFlow: RsiOrderFlowStudySettings = RsiOrderFlowStudySettings(),
     val pivotSweepDivergence: PivotSweepDivergenceStudySettings = PivotSweepDivergenceStudySettings(),
+    val valueAreaLiquidityRejection: ValueAreaLiquidityRejectionStudySettings = ValueAreaLiquidityRejectionStudySettings(),
     val macd: MacdStudySettings = MacdStudySettings(),
     val bollinger: BollingerStudySettings = BollingerStudySettings(),
     val superTrend: SuperTrendStudySettings = SuperTrendStudySettings(),
@@ -31,6 +32,7 @@ data class ChartStudySettings(
         rsi = rsi.sanitized(),
         rsiOrderFlow = rsiOrderFlow.sanitized(),
         pivotSweepDivergence = pivotSweepDivergence.sanitized(),
+        valueAreaLiquidityRejection = valueAreaLiquidityRejection.sanitized(),
         macd = macd.sanitized(),
         bollinger = bollinger.sanitized(),
         superTrend = superTrend.sanitized(),
@@ -44,6 +46,60 @@ data class ChartStudySettings(
 }
 
 enum class PivotSweepDivergenceMode { FAST, PRECISION, POWER }
+
+enum class ValueAreaLiquidityRejectionMode { FAST, PRECISION, POWER }
+
+@Immutable
+data class ValueAreaLiquidityRejectionStudySettings(
+    val mode: ValueAreaLiquidityRejectionMode = ValueAreaLiquidityRejectionMode.PRECISION,
+    val profileBins: Int = 48,
+    val valueAreaPercent: Double = 0.70,
+    val minPreviousSessionBars: Int = 24,
+    val atrPeriod: Int = 14,
+    val swingLeft: Int = 2,
+    val swingRight: Int = 2,
+    val liquidityLookback: Int = 30,
+    val poolToleranceAtr: Double = 0.30,
+    val minSweepAtr: Double = 0.12,
+    val minWickFraction: Double = 0.42,
+    val minCloseLocation: Double = 0.62,
+    val volumeLookback: Int = 20,
+    val volumeSpikeMultiple: Double = 1.15,
+    val structureLookback: Int = 5,
+    val maxConfirmBars: Int = 2,
+    val displacementAtrMultiple: Double = 0.70,
+    val stopBufferAtr: Double = 0.20,
+    val minPocRewardRisk: Double = 1.50,
+    val minScore: Int = 78,
+    val cooldownBars: Int = 8,
+    val sessionOffsetMinutes: Int = 0,
+    val maxSignals: Int = 160,
+) {
+    fun sanitized(): ValueAreaLiquidityRejectionStudySettings = copy(
+        profileBins = profileBins.coerceIn(12, 200),
+        valueAreaPercent = finiteOr(valueAreaPercent, 0.70).coerceIn(0.50, 0.90),
+        minPreviousSessionBars = minPreviousSessionBars.coerceIn(4, 1_500),
+        atrPeriod = atrPeriod.coerceIn(2, MAX_PERIOD),
+        swingLeft = swingLeft.coerceIn(1, 25),
+        swingRight = swingRight.coerceIn(1, 25),
+        liquidityLookback = liquidityLookback.coerceIn(3, 500),
+        poolToleranceAtr = finiteOr(poolToleranceAtr, 0.30).coerceIn(0.0, 5.0),
+        minSweepAtr = finiteOr(minSweepAtr, 0.12).coerceIn(0.0, 3.0),
+        minWickFraction = finiteOr(minWickFraction, 0.42).coerceIn(0.0, 1.0),
+        minCloseLocation = finiteOr(minCloseLocation, 0.62).coerceIn(0.50, 1.0),
+        volumeLookback = volumeLookback.coerceIn(2, 500),
+        volumeSpikeMultiple = finiteOr(volumeSpikeMultiple, 1.15).coerceIn(0.0, 10.0),
+        structureLookback = structureLookback.coerceIn(1, 100),
+        maxConfirmBars = maxConfirmBars.coerceIn(0, 30),
+        displacementAtrMultiple = finiteOr(displacementAtrMultiple, 0.70).coerceIn(0.0, 5.0),
+        stopBufferAtr = finiteOr(stopBufferAtr, 0.20).coerceIn(0.0, 5.0),
+        minPocRewardRisk = finiteOr(minPocRewardRisk, 1.50).coerceIn(0.25, 10.0),
+        minScore = minScore.coerceIn(0, 100),
+        cooldownBars = cooldownBars.coerceIn(0, 250),
+        sessionOffsetMinutes = sessionOffsetMinutes.coerceIn(-720, 840),
+        maxSignals = maxSignals.coerceIn(20, 500),
+    )
+}
 
 @Immutable
 data class PivotSweepDivergenceStudySettings(
