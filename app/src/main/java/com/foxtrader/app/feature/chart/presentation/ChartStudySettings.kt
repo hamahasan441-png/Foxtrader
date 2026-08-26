@@ -15,6 +15,7 @@ data class ChartStudySettings(
     val ema: EmaStudySettings = EmaStudySettings(),
     val rsi: RsiStudySettings = RsiStudySettings(),
     val rsiOrderFlow: RsiOrderFlowStudySettings = RsiOrderFlowStudySettings(),
+    val rsiReversal: RsiReversalStudySettings = RsiReversalStudySettings(),
     val pivotSweepDivergence: PivotSweepDivergenceStudySettings = PivotSweepDivergenceStudySettings(),
     val valueAreaLiquidityRejection: ValueAreaLiquidityRejectionStudySettings = ValueAreaLiquidityRejectionStudySettings(),
     val amd: AmdStudySettings = AmdStudySettings(),
@@ -33,6 +34,7 @@ data class ChartStudySettings(
         ema = ema.sanitized(),
         rsi = rsi.sanitized(),
         rsiOrderFlow = rsiOrderFlow.sanitized(),
+        rsiReversal = rsiReversal.sanitized(),
         pivotSweepDivergence = pivotSweepDivergence.sanitized(),
         valueAreaLiquidityRejection = valueAreaLiquidityRejection.sanitized(),
         amd = amd.sanitized(),
@@ -47,6 +49,44 @@ data class ChartStudySettings(
         parabolicSar = parabolicSar.sanitized(),
         mfi = mfi.sanitized(),
     )
+}
+
+/**
+ * Trader-facing settings for the RSI Orderflow Reversal engine.
+ *
+ * Deliberately narrower than [com.foxtrader.app.domain.usecase.rsireversal.RsiReversalConfig]:
+ * the engine keeps its full threshold surface for research and backtesting,
+ * while the chart exposes only the choices a trader should be making, so the
+ * shipped defaults stay a faithful implementation of the methodology rather
+ * than a quietly tuned variant of it.
+ */
+@Immutable
+data class RsiReversalStudySettings(
+    val rsiLength: Int = 14,
+    val pricePivotStrength: Int = 2,
+    val rsiPivotStrength: Int = 2,
+    /** Require the RSI structure break to close beyond the protected swing. */
+    val requireRsiCloseBreak: Boolean = true,
+    val entryMode: RsiReversalEntryPreset = RsiReversalEntryPreset.BALANCED,
+    val riskReward: Double = 4.0,
+    val ltfConfirmationWindowBars: Int = 12,
+    /** Draw the P1..P4 pattern points and RSI reference swings (§23). */
+    val showDebugLabels: Boolean = false,
+) {
+    fun sanitized(): RsiReversalStudySettings = copy(
+        rsiLength = rsiLength.coerceIn(2, 100),
+        pricePivotStrength = pricePivotStrength.coerceIn(1, 20),
+        rsiPivotStrength = rsiPivotStrength.coerceIn(1, 20),
+        riskReward = riskReward.coerceIn(0.5, 20.0),
+        ltfConfirmationWindowBars = ltfConfirmationWindowBars.coerceIn(1, 200),
+    )
+}
+
+/** Entry strictness presets (§18). */
+enum class RsiReversalEntryPreset(val label: String) {
+    AGGRESSIVE("Aggressive"),
+    BALANCED("Balanced"),
+    STRICT("Strict"),
 }
 
 enum class PivotSweepDivergenceMode { FAST, PRECISION, POWER }

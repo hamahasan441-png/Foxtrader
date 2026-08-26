@@ -16,6 +16,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -61,6 +62,8 @@ import com.foxtrader.app.feature.chart.presentation.ValueAreaLiquidityRejectionM
 import com.foxtrader.app.feature.chart.presentation.ValueAreaLiquidityRejectionStudySettings
 import com.foxtrader.app.feature.chart.presentation.ProductionAnalysisSystem
 import com.foxtrader.app.feature.chart.presentation.RsiOrderFlowStudySettings
+import com.foxtrader.app.feature.chart.presentation.RsiReversalEntryPreset
+import com.foxtrader.app.feature.chart.presentation.RsiReversalStudySettings
 import com.foxtrader.app.feature.chart.presentation.RsiStudySettings
 import com.foxtrader.app.feature.chart.presentation.StochasticStudySettings
 import com.foxtrader.app.feature.chart.presentation.SuperTrendStudySettings
@@ -417,6 +420,35 @@ DoubleStepper("Reward : risk", settings.rsiOrderFlow.rewardRisk, 0.25, 0.25, 10.
 }
 SignalArrowNote()
 ResetButton { updateSettings(onChange) { it.copy(rsiOrderFlow = RsiOrderFlowStudySettings()) } }
+                }
+
+                StudyControlId.RSI_REVERSAL -> {
+                    IntStepper("RSI length", settings.rsiReversal.rsiLength, 2, 100) { value ->
+                        updateSettings(onChange) { it.copy(rsiReversal = it.rsiReversal.copy(rsiLength = value).sanitized()) }
+                    }
+                    IntStepper("Price pivot strength", settings.rsiReversal.pricePivotStrength, 1, 20) { value ->
+                        updateSettings(onChange) { it.copy(rsiReversal = it.rsiReversal.copy(pricePivotStrength = value).sanitized()) }
+                    }
+                    IntStepper("RSI pivot strength", settings.rsiReversal.rsiPivotStrength, 1, 20) { value ->
+                        updateSettings(onChange) { it.copy(rsiReversal = it.rsiReversal.copy(rsiPivotStrength = value).sanitized()) }
+                    }
+                    ToggleRow("RSI break must close", settings.rsiReversal.requireRsiCloseBreak) { enabled ->
+                        updateSettings(onChange) { it.copy(rsiReversal = it.rsiReversal.copy(requireRsiCloseBreak = enabled)) }
+                    }
+                    RsiReversalEntryModeRow(settings.rsiReversal.entryMode) { mode ->
+                        updateSettings(onChange) { it.copy(rsiReversal = it.rsiReversal.copy(entryMode = mode)) }
+                    }
+                    DoubleStepper("Reward : risk", settings.rsiReversal.riskReward, 0.25, 0.5, 20.0) { value ->
+                        updateSettings(onChange) { it.copy(rsiReversal = it.rsiReversal.copy(riskReward = value).sanitized()) }
+                    }
+                    IntStepper("LTF entry window", settings.rsiReversal.ltfConfirmationWindowBars, 1, 200) { value ->
+                        updateSettings(onChange) { it.copy(rsiReversal = it.rsiReversal.copy(ltfConfirmationWindowBars = value).sanitized()) }
+                    }
+                    ToggleRow("Debug pattern labels", settings.rsiReversal.showDebugLabels) { enabled ->
+                        updateSettings(onChange) { it.copy(rsiReversal = it.rsiReversal.copy(showDebugLabels = enabled)) }
+                    }
+                    SignalArrowNote()
+                    ResetButton { updateSettings(onChange) { it.copy(rsiReversal = RsiReversalStudySettings()) } }
                 }
 
                 StudyControlId.PIVOT_SWEEP_DIVERGENCE -> {
@@ -930,6 +962,32 @@ private fun SettingRow(label: String, value: String, onMinus: () -> Unit, onPlus
 }
 
 @Composable
+private fun RsiReversalEntryModeRow(
+    selected: RsiReversalEntryPreset,
+    onSelect: (RsiReversalEntryPreset) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "Entry mode",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        RsiReversalEntryPreset.entries.forEach { preset ->
+            FilterChip(
+                selected = preset == selected,
+                onClick = { onSelect(preset) },
+                label = { Text(preset.label, style = MaterialTheme.typography.labelSmall) },
+                modifier = Modifier.padding(start = 4.dp),
+            )
+        }
+    }
+}
+
+@Composable
 private fun ToggleRow(label: String, checked: Boolean, onChecked: (Boolean) -> Unit) {
     val colors = FoxTheme.colors
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -1131,7 +1189,11 @@ private fun activeStudies(t: IndicatorToggles): List<ActiveStudy> = buildList {
             return@buildList
         }
         ProductionAnalysisSystem.RSI_ORDERFLOW_CANDLE -> {
-            add(ActiveStudy(StudyControlId.RSI_ORDER_FLOW, "RSI Orderflow Candle"))
+            add(ActiveStudy(StudyControlId.RSI_ORDER_FLOW, "RSI Orderflow Divergence"))
+            return@buildList
+        }
+        ProductionAnalysisSystem.RSI_REVERSAL -> {
+            add(ActiveStudy(StudyControlId.RSI_REVERSAL, "RSI Orderflow Reversal"))
             return@buildList
         }
         ProductionAnalysisSystem.PIVOT_SWEEP_DIVERGENCE -> {
@@ -1173,6 +1235,7 @@ private fun activeStudies(t: IndicatorToggles): List<ActiveStudy> = buildList {
     if (t.binary3m) add(ActiveStudy(StudyControlId.BINARY_3M, "Deriv 3m"))
     if (t.rsi) add(ActiveStudy(StudyControlId.RSI, "RSI ${t.settings.rsi.sanitized().period}"))
     if (t.rsiOrderFlow) add(ActiveStudy(StudyControlId.RSI_ORDER_FLOW, "RSI OF"))
+    if (t.rsiReversal) add(ActiveStudy(StudyControlId.RSI_REVERSAL, "RSI Rev"))
     if (t.pivotSweepDivergence) add(ActiveStudy(StudyControlId.PIVOT_SWEEP_DIVERGENCE, "PSD"))
     if (t.valueAreaLiquidityRejection) add(ActiveStudy(StudyControlId.VALUE_AREA_LIQUIDITY_REJECTION, "VALR"))
     if (t.amd) add(ActiveStudy(StudyControlId.AMD, "AMD"))
@@ -1220,6 +1283,7 @@ private fun removeStudy(
         StudyControlId.BINARY_3M -> t.copy(binary3m = false)
         StudyControlId.RSI -> t.copy(rsi = false)
         StudyControlId.RSI_ORDER_FLOW -> t.withProductionAnalysisSystem(null)
+        StudyControlId.RSI_REVERSAL -> t.withProductionAnalysisSystem(null)
         StudyControlId.PIVOT_SWEEP_DIVERGENCE -> t.withProductionAnalysisSystem(null)
         StudyControlId.VALUE_AREA_LIQUIDITY_REJECTION -> t.withProductionAnalysisSystem(null)
         StudyControlId.AMD -> t.copy(amd = false)
@@ -1245,6 +1309,7 @@ private enum class StudyControlId(val title: String) {
     STRUCTURE("Market Structure"), LITX("LiT Adventure"), LIT("LiT May Madness"), SMS("SMS"), SMT("SMT"),
     TRADE_PRO("TradePro"), BINARY_3M("Deriv 3m"), RSI("RSI settings"),
     RSI_ORDER_FLOW("RSI OrderFlow settings"),
+    RSI_REVERSAL("RSI Orderflow Reversal settings"),
     PIVOT_SWEEP_DIVERGENCE("Pivot Sweep Divergence settings"),
     VALUE_AREA_LIQUIDITY_REJECTION("Value Area Liquidity Rejection settings"),
     AMD("AMD settings"),

@@ -1,6 +1,7 @@
 package com.foxtrader.app.feature.chart.presentation
 
 import com.foxtrader.app.domain.model.ChartBarMode
+import com.foxtrader.app.domain.usecase.rsireversal.RsiReversalEngine
 import kotlin.math.max
 
 /** Runtime-readiness metadata for chart studies. */
@@ -16,6 +17,12 @@ enum class ChartStudyId(
     PARABOLIC_SAR("Parabolic SAR", 2),
     RSI("RSI", 15),
     RSI_ORDER_FLOW("RSI OrderFlow", 25, contextHint = "OHLCV delta/CVD proxy"),
+    RSI_REVERSAL(
+        "RSI Orderflow Reversal",
+        220,
+        requiresTimeAxis = true,
+        contextHint = "arms on this timeframe, confirms one below",
+    ),
     PIVOT_SWEEP_DIVERGENCE(
         "Pivot Sweep Divergence",
         40,
@@ -148,6 +155,10 @@ object IndicatorReadinessCatalog {
         ChartStudyId.RSI_ORDER_FLOW ->
             max(settings.rsiOrderFlow.rsiPeriod, settings.rsiOrderFlow.flowPeriod) +
                 settings.rsiOrderFlow.pivotLeft + settings.rsiOrderFlow.pivotRight + 1
+        ChartStudyId.RSI_REVERSAL ->
+            // The warmup exclusion dominates: below it the engine is correctly
+            // silent rather than publishing decisions a scroll-back could flip.
+            RsiReversalEngine().minimumBars(settings.rsiReversal.toEngineConfig())
         ChartStudyId.PIVOT_SWEEP_DIVERGENCE ->
             maxOf(
                 settings.pivotSweepDivergence.rsiPeriod,
