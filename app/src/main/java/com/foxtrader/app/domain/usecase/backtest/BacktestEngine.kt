@@ -16,6 +16,7 @@ import kotlinx.coroutines.CancellationException
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.round
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
@@ -384,7 +385,27 @@ class BacktestEngine @Inject constructor() {
         if (!riskAmount.isFinite() || !stopDistance.isFinite() || stopDistance <= MIN_PRICE_DISTANCE) return 0.0
         val volume = riskAmount / (stopDistance * config.contractSize)
         if (!volume.isFinite() || volume <= 0.0) return 0.0
-        return max(MIN_VOLUME, (volume * 100).roundToInt() / 100.0)
+
+        // `OVERFLOW` Round in Double space. The previous `(volume * 100).roundToInt()`
+        // saturated at Int.MAX_VALUE once the product passed 2^31, which happens
+        // for any signal whose stop distance approaches MIN_PRICE_DISTANCE
+        // (1e-12): a 1 % risk on a 100 k balance sizes to 1e9 lots, saturates,
+        // and silently becomes a ~21 million lot position. One such trade
+        // dominates every metric in the report, and nothing in the output says
+        // the size came from an integer overflow rather than the risk model.
+        val rounded = round(volume * 100.0) / 100.0
+        if (!rounded.isFinite()) return 0.0
+
+        // A stop so tight that the risk budget cannot express it is not a
+        // tradeable signal. Skipping is the honest outcome — clamping would
+        // report a position the risk model never actually sanctioned.
+        if (rounded > MAX_VOLUME) return 0.0
+
+        // A size that rounds below one micro lot is still floored to the
+        // broker minimum, exactly as before: that is real minimum-lot
+        // behaviour, not an overflow, and rejecting it here would silently
+        // drop every legitimate small-risk trade.
+        return max(MIN_VOLUME, rounded)
     }
 
     /** Reject malformed, stale, or wrong-side strategy output before it reaches execution. */
@@ -551,5 +572,15 @@ class BacktestEngine @Inject constructor() {
     private companion object {
         const val MIN_PRICE_DISTANCE = 1e-12
         const val MIN_VOLUME = 0.01
+
+        /**
+         * Ceiling on a single simulated position, in lots.
+         *
+         * Far above any real retail or institutional single fill, so it never
+         * rejects a legitimate size — it exists purely to catch a degenerate
+         * stop distance producing an absurd notional instead of letting that
+         * one trade define the whole report.
+         */
+        const val MAX_VOLUME = 10_000.0
     }
 }
