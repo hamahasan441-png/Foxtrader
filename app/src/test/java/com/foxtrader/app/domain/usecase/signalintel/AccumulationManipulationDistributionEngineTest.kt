@@ -81,7 +81,7 @@ class AccumulationManipulationDistributionEngineTest {
         candles += candle(time, 100.0, 100.10, 99.70, 100.02); time += M15
         candles += candle(time, 100.02, 100.30, 99.98, 100.28)
 
-        val signals = engine.analyze("EURUSD", Timeframe.M15, candles)
+        val signals = engine.analyze("EURUSD", Timeframe.M15, candles).signals
 
         assertTrue("default chart settings must emit the closed-bar AMD cycle", signals.isNotEmpty())
         assertEquals(Direction.BULLISH, signals.last().direction)
