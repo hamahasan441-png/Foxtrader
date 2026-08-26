@@ -117,7 +117,12 @@ object RsiReversalFixtures {
      * A deterministic random walk with realistic bar geometry, for the
      * reliability, parity and performance tests.
      */
-    fun randomWalk(size: Int, seed: Int = 42, start: Double = 1.1000): List<Candle> {
+    fun randomWalk(
+        size: Int,
+        seed: Int = 42,
+        start: Double = 1.1000,
+        intervalMillis: Long = BAR_MILLIS,
+    ): List<Candle> {
         val random = Random(seed)
         var price = start
         return (0 until size).map { index ->
@@ -127,7 +132,7 @@ object RsiReversalFixtures {
             val wick = abs(drift) * 0.6 + 0.0001
             price = close
             Candle(
-                timestamp = START_TIME + index * BAR_MILLIS,
+                timestamp = START_TIME + index * intervalMillis,
                 open = open,
                 high = maxOf(open, close) + wick,
                 low = minOf(open, close) - wick,
@@ -137,12 +142,7 @@ object RsiReversalFixtures {
         }
     }
 
-    /**
-     * Re-time a series so it can stand in for a lower timeframe: the same bar
-     * shapes at a finer interval, ending aligned with [alignEndTo].
-     */
-    fun retimed(candles: List<Candle>, intervalMillis: Long, startTime: Long): List<Candle> =
-        candles.mapIndexed { index, candle ->
-            candle.copy(timestamp = startTime + index * intervalMillis)
-        }
+    /** Five-minute-spaced bars, so resampling to M15 genuinely aggregates. */
+    fun m5Series(size: Int, seed: Int = 42): List<Candle> =
+        randomWalk(size, seed = seed, intervalMillis = 5 * 60 * 1000L)
 }

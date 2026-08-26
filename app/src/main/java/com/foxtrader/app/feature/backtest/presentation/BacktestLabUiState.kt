@@ -47,8 +47,14 @@ enum class BacktestStrategyTemplate(
         description = "Confirmed divergence against real correlated peer history with causal 2R execution geometry.",
     ),
     RSI_ORDERFLOW(
-        displayName = "RSI Orderflow Candle",
+        displayName = "RSI Orderflow Divergence",
         description = "Confirmed RSI/orderflow-proxy divergence with provider-volume coverage disclosed explicitly.",
+    ),
+    RSI_REVERSAL(
+        displayName = "RSI Orderflow Reversal",
+        description = "Price extreme RSI refused to confirm, armed after an RSI structure break, " +
+            "entered on a lower-timeframe sweep/CHOCH with a fixed 4R target. The selected timeframe " +
+            "is the entry timeframe; the context timeframe is reconstructed from it by resampling.",
     ),
     NASCENT(
         displayName = "Nascent FX Primary Analysis",
@@ -66,7 +72,7 @@ enum class BacktestStrategyTemplate(
 
     companion object {
         /** The only built-in methodologies exposed in FoxTrader's primary Lab. */
-        val primaryEntries = listOf(LITX, LIT_MAY_MADNESS, SMT, RSI_ORDERFLOW, AMD, NASCENT)
+        val primaryEntries = listOf(LITX, LIT_MAY_MADNESS, SMT, RSI_ORDERFLOW, RSI_REVERSAL, AMD, NASCENT)
     }
 }
 

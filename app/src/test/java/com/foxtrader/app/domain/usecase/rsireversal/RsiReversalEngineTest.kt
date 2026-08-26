@@ -125,21 +125,24 @@ class RsiReversalEngineTest {
 
     @Test
     fun `signals carry the configured reward multiple and a stop on the correct side`() {
-        val htf = RsiReversalFixtures.randomWalk(1_500, seed = 7)
-        // A finer series over the same span stands in for the entry timeframe.
-        val ltf = RsiReversalFixtures.retimed(
-            RsiReversalFixtures.randomWalk(6_000, seed = 8),
-            intervalMillis = 5 * 60 * 1000L,
-            startTime = htf.first().timestamp,
-        )
+        // One M5 series, resampled up to M15 for context, so the two timeframes
+        // are genuinely the same market rather than two unrelated walks.
+        val ltf = RsiReversalFixtures.m5Series(9_000, seed = 21)
+        val htf = com.foxtrader.app.domain.usecase.tradepro.TimeframeResampler.resample(ltf, Timeframe.M15)
         val analysis = engine.analyze(
             symbol = RsiReversalFixtures.SYMBOL,
             timeframe = Timeframe.M15,
             candles = htf,
             ltfCandles = ltf,
             ltfTimeframe = Timeframe.M5,
+            // A wider entry window than the shipped default. On a synthetic
+            // random walk a sweep-and-reclaim followed by a change of character
+            // inside 12 bars is genuinely rare, and this test is about the
+            // geometry of the signals produced, not about how often they are.
+            config = RsiReversalConfig(ltfConfirmationWindowBars = 48),
         )
 
+        assertTrue("the fixture must actually produce signals", analysis.signals.isNotEmpty())
         analysis.signals.forEach { signal ->
             assertEquals("reward multiple must be exactly as configured", 4.0, signal.riskReward, 1e-6)
             assertTrue("risk must be positive", signal.risk > 0.0)
@@ -158,6 +161,32 @@ class RsiReversalEngineTest {
             analysis.signals.map { it.setup.key }.distinct().size,
             analysis.signals.size,
         )
+    }
+
+    @Test
+    fun `entry presets are ordered by strictness`() {
+        // Aggressive must accept everything Balanced accepts, and Balanced
+        // everything Strict accepts. If that ordering ever inverts, a preset is
+        // not doing what its name promises.
+        val ltf = RsiReversalFixtures.m5Series(9_000, seed = 21)
+        val htf = com.foxtrader.app.domain.usecase.tradepro.TimeframeResampler.resample(ltf, Timeframe.M15)
+
+        fun countFor(mode: EntryMode): Int = engine.analyze(
+            symbol = RsiReversalFixtures.SYMBOL,
+            timeframe = Timeframe.M15,
+            candles = htf,
+            ltfCandles = ltf,
+            ltfTimeframe = Timeframe.M5,
+            config = RsiReversalConfig(entryMode = mode, ltfConfirmationWindowBars = 48),
+        ).signals.size
+
+        val aggressive = countFor(EntryMode.AGGRESSIVE)
+        val balanced = countFor(EntryMode.BALANCED)
+        val strict = countFor(EntryMode.STRICT)
+
+        assertTrue("the fixture must produce signals to compare", aggressive > 0)
+        assertTrue("Balanced accepted more than Aggressive", balanced <= aggressive)
+        assertTrue("Strict accepted more than Balanced", strict <= balanced)
     }
 
     // ------------------------------------------------------------------

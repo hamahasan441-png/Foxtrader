@@ -29,6 +29,7 @@ import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
 import com.foxtrader.app.domain.usecase.strategies.StrategyLibrary
 import com.foxtrader.app.domain.usecase.nascent.NascentEngine
+import com.foxtrader.app.domain.usecase.rsireversal.RsiReversalEngine
 import com.foxtrader.app.domain.usecase.signalintel.AccumulationManipulationDistributionEngine
 import com.foxtrader.app.domain.usecase.signalintel.RsiOrderFlowSignalEngine
 import com.foxtrader.app.domain.usecase.smt.SmtSignalEngine
@@ -68,6 +69,7 @@ class BacktestLabViewModel @Inject constructor(
     private val rsiOrderFlowSignalEngine: RsiOrderFlowSignalEngine,
     private val amdEngine: AccumulationManipulationDistributionEngine,
     private val nascentEngine: NascentEngine,
+    private val rsiReversalEngine: RsiReversalEngine,
     private val smtSignalEngine: SmtSignalEngine,
     private val mtfContextProvider: MtfContextProvider,
     private val scriptEngine: ScriptEngine,
@@ -583,6 +585,14 @@ class BacktestLabViewModel @Inject constructor(
             BacktestStrategyTemplate.NASCENT -> nascentEngine.strategyFunction(
                 symbol = state.symbol,
                 timeframe = state.timeframe,
+            )
+            // The selected timeframe is the entry timeframe; the engine
+            // reconstructs the context timeframe above it by resampling, which
+            // is the only direction that adds no information the bars did not
+            // already carry.
+            BacktestStrategyTemplate.RSI_REVERSAL -> rsiReversalEngine.strategyFunction(
+                symbol = state.symbol,
+                entryTimeframe = state.timeframe,
             )
         }
     }

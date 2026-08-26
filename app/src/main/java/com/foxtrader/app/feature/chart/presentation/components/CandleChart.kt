@@ -63,6 +63,7 @@ import com.foxtrader.app.feature.chart.presentation.components.layers.drawCandle
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawCrosshairLayer
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawSyncedCrosshairLayer
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawGridLayer
+import com.foxtrader.app.feature.chart.presentation.components.layers.drawRsiReversalDebugPoints
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawMarketProfile
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawDonchianChannel
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawIchimoku
@@ -169,6 +170,7 @@ fun CandleChart(
     valueAreaLiquidityProfiles: List<ValueAreaLiquidityRejectionEngine.ProfileSnapshot> = emptyList(),
     amdZones: List<AccumulationManipulationDistributionEngine.Signal> = emptyList(),
     nascentKeyLevels: List<com.foxtrader.app.domain.usecase.nascent.model.ExternalKeyLevel> = emptyList(),
+    rsiReversalSetups: List<com.foxtrader.app.domain.usecase.rsireversal.model.RsiReversalSetup> = emptyList(),
     supportResistanceZones: ImmutableList<SupportResistanceDetector.SRZone> = persistentListOf(),
     autoFibLevels: ImmutableList<FibonacciEngine.FibLevel> = persistentListOf(),
     autoFibDirection: Direction? = null,
@@ -680,6 +682,19 @@ fun CandleChart(
         ) {
             clipRect(right = cw, bottom = ch) {
                 drawNascentKeyLevels(nascentKeyLevels, candles, viewport, cw, ch, amdLabelPaint)
+            }
+        }
+
+        // RSI Orderflow Reversal pattern points are a debug aid, off by
+        // default: the default chart shows the entry arrow and nothing else.
+        if (
+            indicators.rsiReversal &&
+            indicators.settings.rsiReversal.showDebugLabels &&
+            rsiReversalSetups.isNotEmpty() &&
+            quality.structureAnnotations
+        ) {
+            clipRect(right = cw, bottom = ch) {
+                drawRsiReversalDebugPoints(rsiReversalSetups, viewport, cw, ch, amdLabelPaint)
             }
         }
 

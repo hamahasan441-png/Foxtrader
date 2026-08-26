@@ -39,7 +39,8 @@ class SignalEvidenceReducer @Inject constructor() {
     fun family(name: String): Family = when (name) {
         "LiTX", "LiT", "SMS" -> Family.STRUCTURE_LIQUIDITY
         "SMT" -> Family.DIVERGENCE
-        "RSI Orderflow", "RSI Orderflow Candle", "RSI OrderFlow" -> Family.MOMENTUM_ORDERFLOW
+        "RSI Orderflow", "RSI Orderflow Candle", "RSI OrderFlow",
+        "RSI Orderflow Divergence", "RSI Orderflow Reversal" -> Family.MOMENTUM_ORDERFLOW
         "TradePro" -> Family.COMPOSITE
         else -> Family.OTHER
     }
@@ -50,7 +51,8 @@ class SignalEvidenceReducer @Inject constructor() {
         SignalSource.LIT,
         SignalSource.SMS -> Family.STRUCTURE_LIQUIDITY
         SignalSource.SMT -> Family.DIVERGENCE
-        SignalSource.RSI_ORDERFLOW -> Family.MOMENTUM_ORDERFLOW
+        SignalSource.RSI_ORDERFLOW,
+        SignalSource.RSI_REVERSAL -> Family.MOMENTUM_ORDERFLOW
         SignalSource.PIVOT_SWEEP_DIVERGENCE -> Family.COMPOSITE
         SignalSource.VALUE_AREA_LIQUIDITY_REJECTION -> Family.AUCTION_PROFILE
         SignalSource.ACCUMULATION_MANIPULATION_DISTRIBUTION -> Family.STRUCTURE_LIQUIDITY

@@ -80,6 +80,7 @@ data class IndicatorToggles(
     val binary3m: Boolean = false,
     val rsi: Boolean = false,
     val rsiOrderFlow: Boolean = false,
+    val rsiReversal: Boolean = false,
     val pivotSweepDivergence: Boolean = false,
     val valueAreaLiquidityRejection: Boolean = false,
     val amd: Boolean = false,
@@ -100,7 +101,7 @@ data class IndicatorToggles(
             ichimoku || keltner || donchian || pivotPoints || volumeProfile || marketProfile ||
             supportResistance || fibonacci || confluence || orderBlocks || fairValueGaps ||
             liquidity || sessions || structure || litX || lit || sms || smt || tradePro || binary3m ||
-            rsi || rsiOrderFlow || pivotSweepDivergence || valueAreaLiquidityRejection || amd || nascent || macd || volume || stochastic || obv || moneyFlowIndex ||
+            rsi || rsiOrderFlow || rsiReversal || pivotSweepDivergence || valueAreaLiquidityRejection || amd || nascent || macd || volume || stochastic || obv || moneyFlowIndex ||
             activeStrategy != null || activeBlueprintId != null || allStrategies
 
     val smcSuiteActive: Boolean
@@ -292,6 +293,15 @@ data class ChartUiState(
         com.foxtrader.app.domain.usecase.nascent.model.ExternalKeyLevel,
         > = persistentListOf(),
     val supportResistanceZones: ImmutableList<SupportResistanceDetector.SRZone> = persistentListOf(),
+    /**
+     * Armed RSI Orderflow Reversal setups, for the opt-in debug layer.
+     *
+     * Entries themselves travel as ordinary ChartSignals through the shared
+     * signal layer; this carries only the pattern points behind them.
+     */
+    val rsiReversalSetups: ImmutableList<
+        com.foxtrader.app.domain.usecase.rsireversal.model.RsiReversalSetup,
+        > = persistentListOf(),
     val autoFibLevels: ImmutableList<FibonacciEngine.FibLevel> = persistentListOf(),
     val autoFibDirection: Direction? = null,
     val autoFibSwingHigh: Double? = null,

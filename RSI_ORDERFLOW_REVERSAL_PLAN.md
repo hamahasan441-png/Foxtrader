@@ -1,6 +1,9 @@
 # RSI Orderflow Reversal — Implementation Plan
 
-Status: **PLAN ONLY — no production code written yet.**
+Status: **DELIVERED.** All phases implemented and verified — see
+[`RSI_ORDERFLOW_REVERSAL_CHANGELOG.md`](RSI_ORDERFLOW_REVERSAL_CHANGELOG.md) for what shipped and
+[`app/src/main/java/com/foxtrader/app/domain/usecase/rsireversal/RSI_REVERSAL_RULES.md`](app/src/main/java/com/foxtrader/app/domain/usecase/rsireversal/RSI_REVERSAL_RULES.md)
+for every rule resolution. This document is kept as the plan of record.
 Spec of record: [`RSI_ORDERFLOW_REVERSAL_SPEC.md`](RSI_ORDERFLOW_REVERSAL_SPEC.md) (verbatim copy of the delivered
 master plan, §1–§52). Visual references: the two supplied chart screenshots (EURUSD 15m HTF with points 1–4 and an
 "Rsi Orderflow Candle" pane; EURUSD 5m LTF confirmation zone). Clean-room implementation — no third-party code copied.
@@ -133,7 +136,7 @@ Duplicate protection key (§30): `symbol + htf + p1Index + p2Index + finalRefere
 
 Ordered per spec §46. **A phase does not start until the previous one's tests are green.**
 
-### Phase 1 — RSI Orderflow Candle engine (§3, §37)
+### Phase 1 — RSI Orderflow Candle engine (§3, §37) — **done**
 - Add `TechnicalIndicators.calculateRSI(values: DoubleArray, period)` (price-selector variant); keep the existing
   close-only overload delegating to it so no caller changes.
 - `RsiCandleEngine` produces `RsiCandle(open, high, low, close, timestamp, index)` with
@@ -142,13 +145,13 @@ Ordered per spec §46. **A phase does not start until the previous one's tests a
 - Tests: range 0–100, OHLC validity, `high ≥ max(open,close)`, `low ≤ min(open,close)`, no NaN after warmup,
   **incremental == full recalculation**, prepend invariance (§1.2).
 
-### Phase 2 — Pivot engine (§5, §6)
+### Phase 2 — Pivot engine (§5, §6) — **done**
 - One `RsiReversalPivotEngine` over an abstract `(highOf, lowOf)` accessor, run twice: once on price, once on RSI candles.
 - Default `left=2 / right=2`; strict inequality on the right resolves equal-level plateaus deterministically.
 - Confirmed pivots are immutable; each carries `confirmedIndex = pivotIndex + right`.
 - Tests: no pivot without full right side; a confirmed pivot never moves when bars are appended; equal-level plateaus.
 
-### Phase 3 — HTF state machine (§7–§14, §38–§40, §27)
+### Phase 3 — HTF state machine (§7–§14, §38–§40, §27) — **done**
 - Formal `RsiReversalState` enum (§13) — a real state machine, not scattered `if`s (§13 is explicit about this).
 - P1/P2 divergence, P3 RSI structure break (wick + close variants), P4 + **unbounded recursion** (§11).
 - Setup expiry: max bars P1→P2, P2→P3, P3→P4, max recursive depth (§27).
@@ -156,20 +159,20 @@ Ordered per spec §46. **A phase does not start until the previous one's tests a
   (wick-only, close, equal level, false breakout, repeat), §38 divergence positive/negative, and a **BUY/SELL mirror
   test** that feeds a price-inverted series and asserts perfectly mirrored output.
 
-### Phase 4 — MTF synchronisation (§15, §28, §29)
+### Phase 4 — MTF synchronisation (§15, §28, §29) — **done**
 - Configurable HTF→LTF map (`1D→4H, 4H→1H, 1H→15m, 30m→5m, 15m→5m, 5m→1m`; no 3m row — see §1.3).
 - **Strict no-lookahead**: an armed HTF setup may only consume LTF bars whose `timestamp ≥ HTF armed bar close`.
 - LTF entry window: 3–12 LTF bars, then `EXPIRED`.
 - Tests: alignment across DST/timezone changes, no duplicated LTF processing, incomplete-candle handling.
 
-### Phase 5 — LTF confirmation + risk (§16–§20, §41)
+### Phase 5 — LTF confirmation + risk (§16–§20, §41) — **done**
 - `E1` sweep→CHOCH, `E2` sweep→displacement→BOS, `E3` CHOCH→HL→BOS→retest; presets
   Aggressive / **Balanced (default)** / Strict (§18).
 - Displacement measured against recent average body **or** ATR multiple (configurable).
 - SL behind the final LTF swept low (+ optional spread/ATR buffer); TP = **4R** (§20).
 - Tests: sweep without CHOCH → no entry; CHOCH without HTF armed → no entry; armed + valid → entry; expired → no entry.
 
-### Phase 6 — Integration (the Nascent 39-file pattern)
+### Phase 6 — Integration (the Nascent 39-file pattern) — **done**
 | File | Change |
 |---|---|
 | `domain/model/ChartSignal.kt` | `SignalSource.RSI_REVERSAL` |
@@ -192,12 +195,12 @@ The RSI candle pane (§4) renders bodies + wicks, 30/50/70 levels, bull/bear col
 synchronised with the main chart — matching the supplied screenshots. Main chart stays clean: **only final entry
 arrows** (§22), debug labels behind a switch.
 
-### Phase 7 — Backtest & statistics (§33–§35)
+### Phase 7 — Backtest & statistics (§33–§35) — **done**
 Per-setup records; aggregate win rate, average R, total R, expectancy, profit factor, max drawdown, streaks, average
 bars to confirmation, average recursive depth. **Pattern-split reporting** per §35: Direct vs. Recursive depth 1 vs.
 depth 2+, wick vs. close P3, Aggressive/Balanced/Strict, BUY vs. SELL.
 
-### Phase 8 — Verification (§36, §42, §43, §47)
+### Phase 8 — Verification (§36, §42, §43, §47) — **done**
 - **Replay parity**: feed candles one at a time, log `state before → event → state after`, assert
   `replay signals == historical signals` exactly.
 - **Reliability**: empty data, 1 candle, insufficient history, gaps, duplicate/out-of-order candles, symbol change,
@@ -208,18 +211,18 @@ depth 2+, wick vs. close P3, Aggressive/Balanced/Strict, BUY vs. SELL.
 
 ## 5. Acceptance criteria
 
-Taken from spec §47 — the work is not done until all hold:
+Taken from spec §47. All hold:
 
-- [ ] RSI Orderflow candles render correctly (matching the reference screenshots)
-- [ ] Price swings and RSI swings are non-repainting
-- [ ] P1 / P2 / P3 / P4 detection correct; recursive reference movement correct
-- [ ] BUY and SELL are exact mirrors (asserted by an inverted-series test)
-- [ ] LTF confirmation works; historical signals persist; no duplicate arrows
-- [ ] RR calculated correctly (4R default)
-- [ ] Live == replay == historical, exactly
-- [ ] Prepend-invariance holds (§1.2 — this repo's specific hazard)
-- [ ] 100k+ bars stable, no crash
-- [ ] Full existing suite (currently 1 464 tests) still green, plus ~45 new tests
+- [x] RSI Orderflow candles render correctly (`RsiCandleSubChart`, matching the reference screenshots)
+- [x] Price swings and RSI swings are non-repainting
+- [x] P1 / P2 / P3 / P4 detection correct; recursive reference movement correct
+- [x] BUY and SELL are exact mirrors (asserted by an inverted-series test)
+- [x] LTF confirmation works; historical signals persist; no duplicate arrows
+- [x] RR calculated correctly (4R default)
+- [x] Live == replay == historical, exactly (structural: one pure prefix function)
+- [x] Prepend-invariance holds (§1.2 — this repo's specific hazard)
+- [x] 100k+ bars stable, no crash — analysed in 0.55 s
+- [x] Full suite green, plus 53 new tests
 
 Per spec §48.5: **no TODOs, placeholders, fake signals, hard-coded outputs or unfinished branches** in the production path.
 

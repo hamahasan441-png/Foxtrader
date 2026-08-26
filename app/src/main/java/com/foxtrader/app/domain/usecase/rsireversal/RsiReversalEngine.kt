@@ -8,6 +8,8 @@ import com.foxtrader.app.domain.usecase.rsireversal.model.RsiReversalAnalysis
 import com.foxtrader.app.domain.usecase.rsireversal.model.RsiReversalSetup
 import com.foxtrader.app.domain.usecase.rsireversal.model.RsiReversalSignal
 import com.foxtrader.app.domain.usecase.rsireversal.model.RsiReversalState
+import com.foxtrader.app.domain.usecase.tradepro.TimeframeResampler
+import com.foxtrader.app.domain.model.StrategySignal
 import javax.inject.Inject
 
 /**
@@ -209,7 +211,105 @@ class RsiReversalEngine @Inject constructor() {
         statusText = "Scanning",
     )
 
+    // ------------------------------------------------------------------
+    // Backtest entry point (§33)
+    // ------------------------------------------------------------------
+
+    /**
+     * Signal on [index], driven the way the backtester can drive it.
+     *
+     * The backtester holds one series. This treats it as the **entry**
+     * timeframe and reconstructs the context timeframe by resampling upward,
+     * which is the only direction that adds no information the bars did not
+     * already contain. The trailing partial bucket is dropped: an unfinished
+     * higher-timeframe bar's high and low keep changing as the entry series
+     * advances, so treating it as closed would be a direct look-ahead.
+     *
+     * The result is the same engine, over the same rules, as the chart runs —
+     * so a backtest statistic describes the arrows a trader would have seen.
+     */
+    fun signalAt(
+        symbol: String,
+        entryTimeframe: Timeframe,
+        candles: List<Candle>,
+        index: Int,
+        config: RsiReversalConfig = RsiReversalConfig(),
+    ): StrategySignal? {
+        if (index !in candles.indices) return null
+        val contextTimeframe = contextTimeframeFor(entryTimeframe, config) ?: return null
+
+        val visible = if (index == candles.lastIndex) candles else candles.subList(0, index + 1)
+        val context = closedContextSeries(visible, entryTimeframe, contextTimeframe)
+        if (context.isEmpty()) return null
+
+        val signal = analyze(
+            symbol = symbol,
+            timeframe = contextTimeframe,
+            candles = context,
+            ltfCandles = visible,
+            ltfTimeframe = entryTimeframe,
+            config = config,
+        ).signals.lastOrNull { it.confirmedAt == visible[index].timestamp } ?: return null
+
+        return StrategySignal(
+            index = index,
+            timestamp = visible[index].timestamp,
+            direction = signal.direction,
+            entry = signal.entry,
+            stopLoss = signal.stop,
+            takeProfit = signal.target,
+            confidence = 100,
+            setupType = "RSI Reversal ${signal.confirmationType.name} / depth ${signal.setup.recursiveDepth}",
+        )
+    }
+
+    /** Strategy function for the backtester, bound to a symbol and entry timeframe. */
+    fun strategyFunction(
+        symbol: String,
+        entryTimeframe: Timeframe,
+        config: RsiReversalConfig = RsiReversalConfig(),
+    ): (List<Candle>, Int) -> StrategySignal? = { candles, index ->
+        signalAt(symbol, entryTimeframe, candles, index, config)
+    }
+
+    /**
+     * The context timeframe that maps down to [entryTimeframe] (§15).
+     *
+     * The mapping is deliberately not injective — §15 sends both 30m and 15m
+     * down to 5m — so its inverse has to choose. It takes the **nearest**
+     * context timeframe above the entry, which is what "drop one timeframe
+     * lower" means read backwards; picking whichever happened to be declared
+     * first would make the backtest silently analyse a different chart than
+     * the one the trader was looking at.
+     */
+    fun contextTimeframeFor(entryTimeframe: Timeframe, config: RsiReversalConfig): Timeframe? =
+        config.ltfMapping.entries
+            .filter { it.value == entryTimeframe }
+            .minByOrNull { it.key.minutes }
+            ?.key
+
+    /**
+     * Resample upward, keeping only buckets that have genuinely closed by the
+     * last entry-timeframe bar.
+     */
+    private fun closedContextSeries(
+        candles: List<Candle>,
+        entryTimeframe: Timeframe,
+        contextTimeframe: Timeframe,
+    ): List<Candle> {
+        val resampled = TimeframeResampler.resample(candles, contextTimeframe)
+        if (resampled.isEmpty()) return emptyList()
+        val entryDuration = entryTimeframe.minutes.toLong() * MILLIS_PER_MINUTE
+        val contextDuration = contextTimeframe.minutes.toLong() * MILLIS_PER_MINUTE
+        val lastEntryClose = candles.last().timestamp + entryDuration
+        return resampled.filter { it.timestamp + contextDuration <= lastEntryClose }
+    }
+
     /** Bars required before the engine can produce anything (§43). */
     fun minimumBars(config: RsiReversalConfig = RsiReversalConfig()): Int =
         config.warmupBars + config.rsiLength + config.pricePivotLeft + config.pricePivotRight
+
+    private companion object {
+        const val MILLIS_PER_MINUTE = 60_000L
+    }
 }

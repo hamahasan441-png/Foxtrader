@@ -57,6 +57,7 @@ import com.foxtrader.app.domain.usecase.signalintel.ConfirmedBarPolicy
 import com.foxtrader.app.domain.usecase.signalintel.LitEngine
 import com.foxtrader.app.domain.usecase.signalintel.RsiOrderFlowSignalEngine
 import com.foxtrader.app.domain.usecase.nascent.NascentEngine
+import com.foxtrader.app.domain.usecase.rsireversal.RsiReversalEngine
 import com.foxtrader.app.domain.usecase.signalintel.AccumulationManipulationDistributionEngine
 import com.foxtrader.app.domain.usecase.signalintel.PivotSweepDivergenceEngine
 import com.foxtrader.app.domain.usecase.signalintel.ValueAreaLiquidityRejectionEngine
@@ -131,6 +132,8 @@ class ChartViewModel @Inject constructor(
     private val valueAreaLiquidityRejectionEngine: ValueAreaLiquidityRejectionEngine,
     private val amdEngine: AccumulationManipulationDistributionEngine,
     private val nascentEngine: NascentEngine,
+    private val rsiReversalEngine: RsiReversalEngine,
+    private val rsiReversalLtfProvider: RsiReversalLtfProvider,
     private val heikinAshiTransformer: HeikinAshiTransformer,
     private val candleRenkoBuilder: CandleRenkoBuilder,
     private val signalComputer: SignalComputer,
@@ -762,6 +765,33 @@ class ChartViewModel @Inject constructor(
         val nascentSignals: List<ChartSignal> = nascentAnalysis?.signals.orEmpty()
             .map { signal -> signal.toChartSignal(latestConfirmedIndex) }
 
+        // RSI Orderflow Reversal is the one study that needs a second series:
+        // the pattern arms on this timeframe but §16-§18 confirmation happens
+        // one timeframe below. The provider is bounded and provenance-gated, so
+        // an entry is never confirmed against synthetic bars.
+        val rsiReversalAnalysis = if (
+            ind.rsiReversal &&
+            barMode == ChartBarMode.TIME &&
+            signalCandles.isNotEmpty()
+        ) {
+            val config = ind.settings.rsiReversal.toEngineConfig()
+            val ltf = rsiReversalLtfProvider.candlesFor(symbol, timeframe, config)
+            withContext(defaultDispatcher) {
+                containedOrNull {
+                    rsiReversalEngine.analyze(
+                        symbol = symbol,
+                        timeframe = timeframe,
+                        candles = signalCandles,
+                        ltfCandles = ltf?.second.orEmpty(),
+                        ltfTimeframe = ltf?.first,
+                        config = config,
+                    )
+                }
+            }
+        } else null
+        val rsiReversalSignals: List<ChartSignal> = rsiReversalAnalysis?.signals.orEmpty()
+            .map { it.toChartSignal(signalCandles, latestConfirmedIndex) }
+
         // Backfill previously confirmed LiT arrows. Each bar is evaluated only
         // through its own closed prefix, so later data cannot create, move or
         // delete an earlier marker (non-repaint by construction).
@@ -888,7 +918,7 @@ class ChartViewModel @Inject constructor(
             emptyList()
         }
 
-        val chartStrategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + nascentSignals + strategySignals + binary3mSignals
+        val chartStrategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + nascentSignals + rsiReversalSignals + strategySignals + binary3mSignals
 
         // Drop stale frames: a newer computation (e.g. from a rapid indicator
         // toggle) has already started, so publishing this older result would
@@ -912,6 +942,7 @@ class ChartViewModel @Inject constructor(
             valueAreaLiquidityProfiles = valueAreaLiquidityAnalysis?.profiles.orEmpty().toPersistentList(),
             amdZones = amdAnalysisSignals.toPersistentList(),
             nascentKeyLevels = nascentAnalysis?.keyLevels.orEmpty().toPersistentList(),
+            rsiReversalSetups = rsiReversalAnalysis?.armedSetups.orEmpty().toPersistentList(),
         )
         val frameSignals = signalComputer.computeSignals(
             litXAnalysis = litXAnalysis.takeIf { ind.litX },
@@ -1111,6 +1142,32 @@ class ChartViewModel @Inject constructor(
         val nascentSignals: List<ChartSignal> = nascentAnalysis?.signals.orEmpty()
             .map { signal -> signal.toChartSignal(candles.lastIndex) }
 
+        // Replay drives the identical engine over the identical closed-bar
+        // prefix, so a replayed session reproduces the live arrows exactly.
+        val rsiReversalAnalysis = if (
+            ind.rsiReversal && current.barMode == ChartBarMode.TIME && candles.isNotEmpty()
+        ) {
+            val config = ind.settings.rsiReversal.toEngineConfig()
+            val ltf = rsiReversalLtfProvider.candlesFor(symbol, timeframe, config)
+            withContext(defaultDispatcher) {
+                containedOrNull {
+                    rsiReversalEngine.analyze(
+                        symbol = symbol,
+                        timeframe = timeframe,
+                        candles = candles,
+                        // Only bars the replay has already revealed, so the
+                        // entry search cannot see past the replay cursor.
+                        ltfCandles = ltf?.second.orEmpty()
+                            .filter { it.timestamp <= candles.last().timestamp },
+                        ltfTimeframe = ltf?.first,
+                        config = config,
+                    )
+                }
+            }
+        } else null
+        val rsiReversalSignals: List<ChartSignal> = rsiReversalAnalysis?.signals.orEmpty()
+            .map { it.toChartSignal(candles, candles.lastIndex) }
+
         val productionHistory = if ((ind.litX || ind.lit) && candles.isNotEmpty()) {
             withContext(defaultDispatcher) {
                 scanProductionSignalHistory(
@@ -1202,7 +1259,7 @@ class ChartViewModel @Inject constructor(
             tradeProAnalysis = null,
             smtDivergences = emptyList(),
             candles = candles,
-            strategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + nascentSignals + strategySignals + binary3mSignals,
+            strategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + nascentSignals + rsiReversalSignals + strategySignals + binary3mSignals,
             litAnalysis = litAnalysis,
             smsAnalysis = smsAnalysis,
             rsiOrderFlowSignals = rsiOrderFlowSignals,
@@ -1223,6 +1280,7 @@ class ChartViewModel @Inject constructor(
             valueAreaLiquidityProfiles = valueAreaLiquidityAnalysis?.profiles.orEmpty().toPersistentList(),
             amdZones = amdAnalysisSignals.toPersistentList(),
             nascentKeyLevels = nascentAnalysis?.keyLevels.orEmpty().toPersistentList(),
+            rsiReversalSetups = rsiReversalAnalysis?.armedSetups.orEmpty().toPersistentList(),
         )
     }
 
@@ -2321,6 +2379,38 @@ private fun com.foxtrader.app.domain.usecase.nascent.model.NascentSignal.toChart
         confirmationIndex = barIndex,
     ),
     variant = "${setupType.name}/${confidence.name}",
+)
+
+private fun com.foxtrader.app.domain.usecase.rsireversal.model.RsiReversalSignal.toChartSignal(
+    candles: List<Candle>,
+    latestConfirmedIndex: Int,
+): ChartSignal = ChartSignal(
+    id = "rsi_rev_${setup.symbol}_${confirmedAt}_${direction.name}_${setup.finalExtreme.index}",
+    source = SignalSource.RSI_REVERSAL,
+    direction = direction,
+    entry = entry,
+    sl = stop,
+    tp = target,
+    barIndex = contextIndex,
+    // The confirmation closed on an entry-timeframe bar, whose timestamp sits
+    // between two context bars. The arrow belongs to the context candle it is
+    // drawn on, so it carries that candle's time.
+    timestamp = candles[contextIndex].timestamp,
+    // The pattern is a structural rule, not a scored one: every confirmed
+    // setup satisfied the same conditions, so reporting a spread of
+    // confidences here would be inventing a distinction the rules do not make.
+    confidence = 100.0,
+    isLive = contextIndex == latestConfirmedIndex,
+    label = "RSI Reversal ${entryTimeframe.label} · RR ${"%.1f".format(riskReward)} · " +
+        reasons.take(3).joinToString(" · "),
+    eventKey = SignalIdentity.rsiReversal(
+        symbol = setup.symbol,
+        timeframe = setup.contextTimeframe,
+        timestamp = confirmedAt,
+        direction = direction,
+        confirmationIndex = contextIndex,
+    ),
+    variant = if (setup.recursiveDepth == 0) "DIRECT" else "RECURSIVE_${setup.recursiveDepth}",
 )
 
 private fun AccumulationManipulationDistributionEngine.Signal.toChartSignal(latestConfirmedIndex: Int): ChartSignal =

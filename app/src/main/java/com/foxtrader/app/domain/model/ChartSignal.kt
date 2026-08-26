@@ -71,6 +71,12 @@ enum class SignalSource {
     /** Confirmed RSI + candle-derived orderflow-proxy setup. */
     RSI_ORDERFLOW,
 
+    /**
+     * RSI Orderflow Reversal: an HTF price extreme RSI refused to confirm,
+     * armed after an RSI structure break and entered on LTF confirmation.
+     */
+    RSI_REVERSAL,
+
     /** Previous-day pivot sweep/reclaim + confirmed dual divergence setup. */
     PIVOT_SWEEP_DIVERGENCE,
 

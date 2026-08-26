@@ -104,8 +104,11 @@ fun IndicatorPanel(
                         StudyItem("LiT Adventure", ChartStudyId.LITX, toggles.litX) { t -> t.withLitXSuite(!t.litX) },
                         StudyItem("LiT May Madness", ChartStudyId.LIT, toggles.lit) { t -> t.withLitSuite(!t.lit) },
                         StudyItem("SMT", ChartStudyId.SMT, toggles.smt) { t -> t.withSmtSuite(!t.smt) },
-                        StudyItem("RSI Orderflow Candle", ChartStudyId.RSI_ORDER_FLOW, toggles.rsiOrderFlow) { t ->
+                        StudyItem("RSI Orderflow Divergence", ChartStudyId.RSI_ORDER_FLOW, toggles.rsiOrderFlow) { t ->
                             t.copy(rsiOrderFlow = !t.rsiOrderFlow)
+                        },
+                        StudyItem("RSI Orderflow Reversal", ChartStudyId.RSI_REVERSAL, toggles.rsiReversal) { t ->
+                            t.copy(rsiReversal = !t.rsiReversal)
                         },
                         StudyItem("Pivot Sweep Divergence", ChartStudyId.PIVOT_SWEEP_DIVERGENCE, toggles.pivotSweepDivergence) { t ->
                             t.copy(pivotSweepDivergence = !t.pivotSweepDivergence)

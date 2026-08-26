@@ -12,7 +12,12 @@ enum class ProductionAnalysisSystem(val label: String) {
     LIT_ADVENTURE("LiT Adventure"),
     LIT_MAY_MADNESS("LiT May Madness"),
     SMT("SMT"),
-    RSI_ORDERFLOW_CANDLE("RSI Orderflow Candle"),
+    // Label only. The enum constant, the toggle field and every persisted
+    // preference keep their existing names: this study is an RSI + volume
+    // delta oscillator, and the "Candle" name it shipped under now belongs
+    // to the engine that actually draws RSI OHLC candles.
+    RSI_ORDERFLOW_CANDLE("RSI Orderflow Divergence"),
+    RSI_REVERSAL("RSI Orderflow Reversal"),
     PIVOT_SWEEP_DIVERGENCE("Pivot Sweep Divergence"),
     VALUE_AREA_LIQUIDITY_REJECTION("Value Area Liquidity Rejection"),
 }
@@ -24,6 +29,7 @@ fun IndicatorToggles.productionAnalysisSystem(): ProductionAnalysisSystem? {
         ProductionAnalysisSystem.LIT_MAY_MADNESS.takeIf { lit },
         ProductionAnalysisSystem.SMT.takeIf { smt },
         ProductionAnalysisSystem.RSI_ORDERFLOW_CANDLE.takeIf { rsiOrderFlow },
+        ProductionAnalysisSystem.RSI_REVERSAL.takeIf { rsiReversal },
         ProductionAnalysisSystem.PIVOT_SWEEP_DIVERGENCE.takeIf { pivotSweepDivergence },
         ProductionAnalysisSystem.VALUE_AREA_LIQUIDITY_REJECTION.takeIf { valueAreaLiquidityRejection },
     )
@@ -47,6 +53,7 @@ fun IndicatorToggles.withProductionAnalysisSystem(
         lit = false,
         smt = false,
         rsiOrderFlow = false,
+        rsiReversal = false,
         pivotSweepDivergence = false,
         valueAreaLiquidityRejection = false,
     )
@@ -56,6 +63,7 @@ fun IndicatorToggles.withProductionAnalysisSystem(
         ProductionAnalysisSystem.LIT_MAY_MADNESS -> preserved.withLitSuite(true)
         ProductionAnalysisSystem.SMT -> preserved.withSmtSuite(true)
         ProductionAnalysisSystem.RSI_ORDERFLOW_CANDLE -> preserved.copy(rsiOrderFlow = true)
+        ProductionAnalysisSystem.RSI_REVERSAL -> preserved.copy(rsiReversal = true)
         ProductionAnalysisSystem.PIVOT_SWEEP_DIVERGENCE -> preserved.copy(pivotSweepDivergence = true)
         ProductionAnalysisSystem.VALUE_AREA_LIQUIDITY_REJECTION -> preserved.copy(valueAreaLiquidityRejection = true)
         null -> preserved
