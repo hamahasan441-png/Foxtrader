@@ -8,6 +8,8 @@ import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.StrategyBlueprint
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.backtest.BacktestAnalyticsReport
+import com.foxtrader.app.domain.usecase.backtest.BacktestDateRange
+import com.foxtrader.app.domain.usecase.backtest.BacktestRangePreset
 import com.foxtrader.app.domain.usecase.backtest.LitXModeComparisonRunner
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
@@ -77,6 +79,18 @@ data class BacktestLabUiState(
     val binaryPayoutRatio: Double = 0.85,
     val binaryMinConfidence: Int = 72,
     val availableSymbols: ImmutableList<String> = DEFAULT_SYMBOLS,
+    /** Research period. Presets track "now"; CUSTOM pins absolute dates. */
+    val rangePreset: BacktestRangePreset = BacktestRangePreset.LOADED,
+    val customStartMillis: Long? = null,
+    val customEndMillis: Long? = null,
+    /** Set when the provider could not supply the whole requested period. */
+    val rangeNotice: String? = null,
+    /** Bars actually measured, and the dates they span, after the last run. */
+    val measuredBars: Int = 0,
+    val measuredStartMillis: Long? = null,
+    val measuredEndMillis: Long? = null,
+    val isLoadingHistory: Boolean = false,
+    val loadedBars: Int = 0,
     val isRunning: Boolean = false,
     val error: String? = null,
     val result: BacktestResult? = null,
@@ -102,6 +116,16 @@ data class BacktestLabUiState(
 
     val selectedStrategyName: String
         get() = selectedBlueprint?.name ?: strategy.displayName
+
+    /** The absolute period this configuration would measure, or null for all loaded bars. */
+    val resolvedRange: BacktestDateRange?
+        get() = BacktestDateRange.resolve(rangePreset, customStartMillis, customEndMillis)
+
+    /** A custom range is only runnable once both ends have been chosen. */
+    val customRangeIncomplete: Boolean
+        get() = rangePreset.isCustom && (customStartMillis == null || customEndMillis == null)
+
+    val canRun: Boolean get() = !isRunning && !isComparingModes && !customRangeIncomplete
 
     val selectedStrategyDescription: String
         get() {

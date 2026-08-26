@@ -18,7 +18,12 @@ import com.foxtrader.app.domain.repository.MarketRepository
 import com.foxtrader.app.domain.sdk.script.ScriptEngine
 import com.foxtrader.app.domain.usecase.backtest.AiScoredBacktestEngine
 import com.foxtrader.app.domain.usecase.backtest.BacktestAnalyticsEngine
+import com.foxtrader.app.domain.usecase.backtest.BacktestDateRange
 import com.foxtrader.app.domain.usecase.backtest.BacktestEngine
+import com.foxtrader.app.domain.usecase.backtest.BacktestHistoryLoader
+import com.foxtrader.app.domain.usecase.backtest.BacktestRangePreset
+import com.foxtrader.app.domain.usecase.backtest.WindowedBacktest
+import com.foxtrader.app.domain.usecase.backtest.toWindow
 import com.foxtrader.app.domain.usecase.backtest.LitXModeComparisonRunner
 import com.foxtrader.app.domain.usecase.backtest.StrategyFunction
 import com.foxtrader.app.domain.usecase.ai.MtfContextProvider
@@ -60,6 +65,7 @@ class BacktestLabViewModel @Inject constructor(
     private val aiScoredBacktestEngine: AiScoredBacktestEngine,
     private val analyticsEngine: BacktestAnalyticsEngine,
     private val litXModeComparisonRunner: LitXModeComparisonRunner,
+    private val historyLoader: BacktestHistoryLoader,
     private val instrumentTypeResolver: InstrumentTypeResolver,
     private val tradeProEngine: TradeProSignalEngine,
     private val strategyLibrary: StrategyLibrary,
@@ -189,6 +195,67 @@ class BacktestLabViewModel @Inject constructor(
         }
     }
 
+    fun setRangePreset(preset: BacktestRangePreset) {
+        _uiState.update { state ->
+            // Seed the custom pickers from whatever period is on screen so the
+            // trader starts from a sensible window instead of two empty fields.
+            val seeded = state.resolvedRange
+            state.copy(
+                rangePreset = preset,
+                customStartMillis = if (preset.isCustom) {
+                    state.customStartMillis ?: seeded?.startMillis
+                        ?: (System.currentTimeMillis() - 90L * BacktestDateRange.MILLIS_PER_DAY)
+                } else {
+                    state.customStartMillis
+                },
+                customEndMillis = if (preset.isCustom) {
+                    state.customEndMillis ?: seeded?.endMillis ?: System.currentTimeMillis()
+                } else {
+                    state.customEndMillis
+                },
+                result = null,
+                binaryResult = null,
+                analyticsReport = null,
+                error = null,
+                rangeNotice = null,
+                modeComparisonReport = null,
+                modeComparisonError = null,
+            )
+        }
+    }
+
+    fun setCustomRangeStart(millis: Long) {
+        _uiState.update { state ->
+            state.copy(
+                rangePreset = BacktestRangePreset.CUSTOM,
+                customStartMillis = millis,
+                // Keep the pair ordered so the summary never reads backwards
+                // while the trader is mid-edit.
+                customEndMillis = state.customEndMillis?.coerceAtLeast(millis),
+                result = null,
+                binaryResult = null,
+                analyticsReport = null,
+                error = null,
+                rangeNotice = null,
+            )
+        }
+    }
+
+    fun setCustomRangeEnd(millis: Long) {
+        _uiState.update { state ->
+            state.copy(
+                rangePreset = BacktestRangePreset.CUSTOM,
+                customEndMillis = millis,
+                customStartMillis = state.customStartMillis?.coerceAtMost(millis),
+                result = null,
+                binaryResult = null,
+                analyticsReport = null,
+                error = null,
+                rangeNotice = null,
+            )
+        }
+    }
+
     fun setRiskPercent(value: Double) {
         _uiState.update {
             it.copy(
@@ -237,11 +304,17 @@ class BacktestLabViewModel @Inject constructor(
 
     fun runBacktest() {
         if (_uiState.value.isComparingModes) return
+        if (_uiState.value.customRangeIncomplete) {
+            _uiState.update { it.copy(error = "Pick both a start and an end date for a custom range.") }
+            return
+        }
         replayJob?.cancel()
         replayJob = null
         viewModelScope.launch {
             val state = _uiState.value
-            _uiState.update { it.copy(isRunning = true, replayPlaying = false, error = null) }
+            _uiState.update {
+                it.copy(isRunning = true, replayPlaying = false, error = null, rangeNotice = null)
+            }
             try {
                 // Backtests must measure the provider currently selected in
                 // this screen, not an anonymous Room series left by a previous
@@ -257,10 +330,26 @@ class BacktestLabViewModel @Inject constructor(
                         "Fresh ${state.dataProvider.displayName} data is required for this backtest; synthetic fallback is not allowed."
                     }
                 }
-                val candles = sourced.candles
+                // Resolve the research period and, when one is selected, page
+                // the provider backwards until it is covered. Extra warm-up bars
+                // are loaded *before* the window start so indicator/structure
+                // state is hot when the measured interval begins; they are never
+                // traded and never counted.
+                val range = state.resolvedRange
+                val loaded = loadRangeHistory(state, sourced, range)
+                val candles = loaded.candles
                 require(candles.size >= MIN_REQUIRED_BARS) {
                     "Need at least $MIN_REQUIRED_BARS candles for a reliable backtest. Got ${candles.size}."
                 }
+
+                val window = range?.toWindow(candles)
+                if (range != null && window == null) {
+                    throw IllegalStateException(
+                        "No ${state.timeframe.label} candles available between " +
+                            "${formatRangeDate(range.startMillis)} and ${formatRangeDate(range.endMillis)}.",
+                    )
+                }
+                val rangeNotice = buildRangeNotice(state, range, loaded, candles)
 
                 if (state.isBinary3m) {
                     require(state.timeframe == Timeframe.M1) { "Deriv Binary 3m requires the 1-minute timeframe." }
@@ -278,6 +367,8 @@ class BacktestLabViewModel @Inject constructor(
                                 minConfidence = state.binaryMinConfidence,
                                 allowOverlappingContracts = false,
                             ),
+                            entryWindowStartMillis = range?.startMillis,
+                            entryWindowEndMillis = range?.endMillis,
                         )
                         result to analyticsEngine.analyzeBinary(result)
                     }
@@ -291,6 +382,11 @@ class BacktestLabViewModel @Inject constructor(
                             replayCursor = initialReplayCursor(candles),
                             replayPlaying = false,
                             lastRunTime = System.currentTimeMillis(),
+                            rangeNotice = rangeNotice,
+                            loadedBars = candles.size,
+                            measuredBars = window?.barCount ?: candles.size,
+                            measuredStartMillis = candles[window?.startIndex ?: 0].timestamp,
+                            measuredEndMillis = candles[window?.endIndex ?: candles.lastIndex].timestamp,
                         )
                     }
                     return@launch
@@ -323,30 +419,45 @@ class BacktestLabViewModel @Inject constructor(
                 }
                 val strategy = buildStrategy(state, correlatedCandles)
 
-                val result = withContext(defaultDispatcher) {
+                // A windowed run feeds the engine the causal prefix through the
+                // window end and guards entries to the window. Both engines go
+                // through the same shared helpers so a date-limited Lab run and
+                // an on-chart research run cannot drift apart.
+                val runSeries = window?.let { WindowedBacktest.causalSeries(candles, it) } ?: candles
+                val runStrategy = window?.let { WindowedBacktest.guard(strategy, it) } ?: strategy
+
+                val rawResult = withContext(defaultDispatcher) {
                     if (state.aiScoringEnabled) {
                         aiScoredBacktestEngine.updateConfig(config)
                         aiScoredBacktestEngine(
-                            candles = candles,
-                            strategy = strategy,
+                            candles = runSeries,
+                            strategy = runStrategy,
                             symbol = state.symbol,
                             timeframe = state.timeframe,
-                            dataSource = sourced.source,
+                            dataSource = loaded.source,
                         )
                     } else {
                         backtestEngine.updateConfig(config)
                         backtestEngine(
-                            candles = candles,
-                            strategy = strategy,
+                            candles = runSeries,
+                            strategy = runStrategy,
                             symbol = state.symbol,
                             timeframe = state.timeframe,
                         )
                     }
                 }
+                val result = window?.let { WindowedBacktest.finalize(rawResult, candles, it) } ?: rawResult
 
                 val analytics = withContext(defaultDispatcher) {
                     analyticsEngine.analyze(result)
                 }
+
+                // Visual replay follows the measured period, not the warm-up
+                // prefix: stepping through 300 bars of warm-up before the first
+                // tested candle is not what "replay this backtest" means.
+                val replaySeries = window?.let {
+                    candles.subList(0, it.endIndex + 1)
+                } ?: candles
 
                 _uiState.update {
                     it.copy(
@@ -354,10 +465,15 @@ class BacktestLabViewModel @Inject constructor(
                         result = result,
                         binaryResult = null,
                         analyticsReport = analytics,
-                        replayCandles = candles.toPersistentList(),
-                        replayCursor = initialReplayCursor(candles),
+                        replayCandles = replaySeries.toPersistentList(),
+                        replayCursor = window?.startIndex ?: initialReplayCursor(replaySeries),
                         replayPlaying = false,
                         lastRunTime = System.currentTimeMillis(),
+                        rangeNotice = rangeNotice,
+                        loadedBars = candles.size,
+                        measuredBars = window?.barCount ?: candles.size,
+                        measuredStartMillis = candles[window?.startIndex ?: 0].timestamp,
+                        measuredEndMillis = candles[window?.endIndex ?: candles.lastIndex].timestamp,
                     )
                 }
             } catch (cancel: CancellationException) {
@@ -376,10 +492,81 @@ class BacktestLabViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Fetch enough history to cover [range], plus warm-up bars before it.
+     *
+     * With no range selected this is a no-op returning the refreshed page, which
+     * preserves the Lab's previous "test the latest N bars" behaviour exactly.
+     */
+    private suspend fun loadRangeHistory(
+        state: BacktestLabUiState,
+        seed: com.foxtrader.app.domain.model.SourcedCandles,
+        range: BacktestDateRange?,
+    ): BacktestHistoryLoader.Result {
+        val ordered = seed.candles.sortedBy { it.timestamp }
+        if (range == null) {
+            return BacktestHistoryLoader.Result(
+                candles = ordered,
+                source = seed.source,
+                reachedTarget = true,
+                providerExhausted = false,
+                hitBarCap = false,
+            )
+        }
+
+        val timeframeMillis = state.timeframe.minutes.toLong() * 60_000L
+        val warmupMillis = RANGE_WARMUP_BARS.toLong() * timeframeMillis
+        _uiState.update { it.copy(isLoadingHistory = true) }
+        return try {
+            historyLoader.loadBackTo(
+                symbol = state.symbol,
+                timeframe = state.timeframe,
+                seed = seed.copy(candles = ordered),
+                targetStartTimestamp = range.startMillis - warmupMillis,
+            )
+        } finally {
+            _uiState.update { it.copy(isLoadingHistory = false) }
+        }
+    }
+
+    /**
+     * Explain, once, why a measured period may be shorter than the one asked
+     * for. Silence here is what makes a truncated backtest look like a real one.
+     */
+    private fun buildRangeNotice(
+        state: BacktestLabUiState,
+        range: BacktestDateRange?,
+        loaded: BacktestHistoryLoader.Result,
+        candles: List<Candle>,
+    ): String? {
+        if (range == null) return null
+        val oldest = candles.firstOrNull()?.timestamp ?: return null
+        // Warm-up bars are expected to be missing at the very start of provider
+        // history; only flag it when the *measured* period itself is clipped.
+        if (oldest <= range.startMillis) return null
+        val label = state.rangePreset.label
+        return when {
+            loaded.hitBarCap ->
+                "History hit the ${BacktestHistoryLoader.MAX_BARS} bar safety cap before the full $label range " +
+                    "was available. Measured from ${formatRangeDate(oldest)}."
+            loaded.providerExhausted ->
+                "${state.dataProvider.displayName} history begins ${formatRangeDate(oldest)}; " +
+                    "the earlier part of the $label range does not exist upstream."
+            else -> "Only the available portion of the $label range was measured, from ${formatRangeDate(oldest)}."
+        }
+    }
+
+    private fun formatRangeDate(millis: Long): String =
+        BacktestDateRange.toLocalDate(millis).toString()
+
     /** Run every LiT Adventure mode against one identical, verified candle set. */
     fun runLitModeComparison() {
         val initial = _uiState.value
         if (!initial.canCompareLitModes || initial.isRunning || initial.isComparingModes) return
+        if (initial.customRangeIncomplete) {
+            _uiState.update { it.copy(modeComparisonError = "Pick both a start and an end date for a custom range.") }
+            return
+        }
 
         viewModelScope.launch {
             val state = _uiState.value
@@ -400,8 +587,21 @@ class BacktestLabViewModel @Inject constructor(
                         "Fresh ${state.dataProvider.displayName} data is required for mode comparison; synthetic fallback is not allowed."
                     }
                 }
-                require(sourced.candles.size >= MIN_REQUIRED_BARS) {
-                    "Need at least $MIN_REQUIRED_BARS candles for LiT mode comparison. Got ${sourced.candles.size}."
+                // Mode comparison honours the same research period as the
+                // single-mode run above it, so the two panels on this screen
+                // can never be quoting different spans of history.
+                val range = state.resolvedRange
+                val loaded = loadRangeHistory(state, sourced, range)
+                val candles = loaded.candles
+                require(candles.size >= MIN_REQUIRED_BARS) {
+                    "Need at least $MIN_REQUIRED_BARS candles for LiT mode comparison. Got ${candles.size}."
+                }
+                val window = range?.toWindow(candles)
+                if (range != null && window == null) {
+                    throw IllegalStateException(
+                        "No ${state.timeframe.label} candles available between " +
+                            "${formatRangeDate(range.startMillis)} and ${formatRangeDate(range.endMillis)}.",
+                    )
                 }
                 val config = BacktestConfig(
                     initialBalance = state.initialBalance,
@@ -411,11 +611,12 @@ class BacktestLabViewModel @Inject constructor(
                 )
                 val report = withContext(defaultDispatcher) {
                     litXModeComparisonRunner(
-                        candles = sourced.candles,
+                        candles = candles,
                         symbol = state.symbol,
                         timeframe = state.timeframe,
                         backtestConfig = config,
                         baseConfig = appPreferences.litXConfig.value,
+                        window = window,
                         onProgress = { completed, total ->
                             _uiState.update {
                                 it.copy(
@@ -663,6 +864,12 @@ class BacktestLabViewModel @Inject constructor(
 
     private companion object {
         const val BACKTEST_REFRESH_BARS = 1_000
+
+        /**
+         * Bars preloaded before a selected range so EMA/ATR/SMC/LiT state is
+         * warm when the measured interval opens. Never traded, never counted.
+         */
+        const val RANGE_WARMUP_BARS = 320
         const val BINARY_BACKTEST_REFRESH_BARS = 5_000
         const val MIN_REQUIRED_BARS = 100
         const val BREAKOUT_LOOKBACK = 20

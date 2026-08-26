@@ -119,11 +119,21 @@ class LitXModeComparisonRunner @Inject constructor(
         baseConfig: LitXConfig = LitXConfig.preset(SignalProfile.INTRADAY),
         modes: List<LitXMode> = LitXMode.entries,
         analysisWindow: Int = DEFAULT_ANALYSIS_WINDOW,
+        /**
+         * Restricts every mode to the same research period. Warm-up bars before
+         * the window are still evaluated so each mode's engine state is hot,
+         * but they cannot open a trade — otherwise a mode comparison run from
+         * the Lab would silently measure a different span than the single-mode
+         * backtest sitting directly above it on the same screen.
+         */
+        window: HistoricalTestWindow? = null,
         onProgress: (completed: Int, total: Int) -> Unit = { _, _ -> },
     ): ComparisonReport {
         require(analysisWindow >= MIN_ANALYSIS_WINDOW) {
             "analysisWindow must be at least $MIN_ANALYSIS_WINDOW bars for the engine to confirm a setup"
         }
+        val selected = window?.let { WindowedBacktest.requireUsable(candles, it) }
+        val series = selected?.let { WindowedBacktest.causalSeries(candles, it) } ?: candles
 
         val outcomes = mutableListOf<ModeOutcome>()
         modes.forEachIndexed { position, mode ->
@@ -134,18 +144,20 @@ class LitXModeComparisonRunner @Inject constructor(
             yield()
 
             backtestEngine.updateConfig(backtestConfig)
-            val result = backtestEngine(
-                candles = candles,
-                strategy = strategyFor(
-                    mode = mode,
-                    baseConfig = baseConfig,
-                    symbol = symbol,
-                    timeframe = timeframe,
-                    analysisWindow = analysisWindow,
-                ),
+            val modeStrategy = strategyFor(
+                mode = mode,
+                baseConfig = baseConfig,
+                symbol = symbol,
+                timeframe = timeframe,
+                analysisWindow = analysisWindow,
+            )
+            val rawResult = backtestEngine(
+                candles = series,
+                strategy = selected?.let { WindowedBacktest.guard(modeStrategy, it) } ?: modeStrategy,
                 symbol = symbol,
                 timeframe = timeframe,
             )
+            val result = selected?.let { WindowedBacktest.finalize(rawResult, candles, it) } ?: rawResult
             outcomes += ModeOutcome(
                 mode = mode,
                 result = result,
@@ -158,7 +170,7 @@ class LitXModeComparisonRunner @Inject constructor(
         return ComparisonReport(
             symbol = symbol,
             timeframe = timeframe,
-            barsAnalyzed = candles.size,
+            barsAnalyzed = selected?.barCount ?: candles.size,
             comparison = outcomes,
             ranked = adequate.sortedWith(
                 compareByDescending<ModeOutcome> { it.result.metrics.profitFactor }
