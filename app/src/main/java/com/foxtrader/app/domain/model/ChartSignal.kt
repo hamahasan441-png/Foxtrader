@@ -83,6 +83,9 @@ enum class SignalSource {
     /** Accumulation-Manipulation-Distribution cycle: range sweep + displaced reversal. */
     ACCUMULATION_MANIPULATION_DISTRIBUTION,
 
+    /** Nascent FX Primary Analysis: external key level + internal MSU/EPA setup. */
+    NASCENT,
+
     /** A rule from the backtestable [com.foxtrader.app.domain.usecase.strategies.StrategyLibrary]. */
     STRATEGY,
 }

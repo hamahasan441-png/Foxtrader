@@ -52,6 +52,9 @@ import com.foxtrader.app.feature.chart.presentation.MfiStudySettings
 import com.foxtrader.app.feature.chart.presentation.ParabolicSarStudySettings
 import com.foxtrader.app.feature.chart.presentation.AmdMode
 import com.foxtrader.app.feature.chart.presentation.AmdStudySettings
+import com.foxtrader.app.feature.chart.presentation.NascentDebugLevel
+import com.foxtrader.app.feature.chart.presentation.NascentQuality
+import com.foxtrader.app.feature.chart.presentation.NascentStudySettings
 import com.foxtrader.app.feature.chart.presentation.PivotSweepDivergenceMode
 import com.foxtrader.app.feature.chart.presentation.PivotSweepDivergenceStudySettings
 import com.foxtrader.app.feature.chart.presentation.ValueAreaLiquidityRejectionMode
@@ -612,6 +615,41 @@ ResetButton { updateSettings(onChange) { it.copy(rsiOrderFlow = RsiOrderFlowStud
                     ResetButton { updateSettings(onChange) { it.copy(amd = AmdStudySettings()) } }
                 }
 
+                StudyControlId.NASCENT -> {
+                    NascentModeSelector(settings.nascent.mode) { mode ->
+                        updateSettings(onChange) { it.copy(nascent = it.nascent.copy(mode = mode)) }
+                    }
+                    NascentQualitySelector(settings.nascent.quality) { quality ->
+                        updateSettings(onChange) { it.copy(nascent = it.nascent.copy(quality = quality)) }
+                    }
+                    ToggleRow("Historical calculation", settings.nascent.historicalCalculation) { value ->
+                        updateSettings(onChange) { it.copy(nascent = it.nascent.copy(historicalCalculation = value)) }
+                    }
+                    IntStepper("History depth (bars)", settings.nascent.historyDepthBars, 200, 20_000, 500) { value ->
+                        updateSettings(onChange) { it.copy(nascent = it.nascent.copy(historyDepthBars = value)) }
+                    }
+                    IntStepper("Live analysis window", settings.nascent.liveWindowBars, 20, 2_000, 20) { value ->
+                        updateSettings(onChange) { it.copy(nascent = it.nascent.copy(liveWindowBars = value)) }
+                    }
+                    ToggleRow("Show key levels", settings.nascent.showKeyLevels) { value ->
+                        updateSettings(onChange) { it.copy(nascent = it.nascent.copy(showKeyLevels = value)) }
+                    }
+                    ToggleRow("Show setup labels", settings.nascent.showSetupLabels) { value ->
+                        updateSettings(onChange) { it.copy(nascent = it.nascent.copy(showSetupLabels = value)) }
+                    }
+                    NascentDebugSelector(settings.nascent.debug) { level ->
+                        updateSettings(onChange) { it.copy(nascent = it.nascent.copy(debug = level)) }
+                    }
+                    Text(
+                        text = "External structure locates the setup, internal structure times it. " +
+                            "No valid external location means no signal — silence here is a result, not a fault.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textSecondary,
+                    )
+                    SignalArrowNote()
+                    ResetButton { updateSettings(onChange) { it.copy(nascent = NascentStudySettings()) } }
+                }
+
                 StudyControlId.MACD -> {
                     IntStepper("Fast", settings.macd.fastPeriod, 1, 500) { value ->
                         updateSettings(onChange) { it.copy(macd = it.macd.copy(fastPeriod = value).sanitized()) }
@@ -1002,6 +1040,77 @@ private fun AmdModeSelector(
     }
 }
 
+@Composable
+private fun NascentModeSelector(
+    selected: com.foxtrader.app.domain.usecase.nascent.model.NascentMode,
+    onSelected: (com.foxtrader.app.domain.usecase.nascent.model.NascentMode) -> Unit,
+) = ChipSelector(
+    title = "Mode",
+    entries = com.foxtrader.app.domain.usecase.nascent.model.NascentMode.entries,
+    selected = selected,
+    label = { it.name.replace('_', ' ') },
+    onSelected = onSelected,
+)
+
+@Composable
+private fun NascentQualitySelector(
+    selected: NascentQuality,
+    onSelected: (NascentQuality) -> Unit,
+) = ChipSelector(
+    title = "Signal quality",
+    entries = NascentQuality.entries,
+    selected = selected,
+    label = {
+        when (it) {
+            NascentQuality.A_PLUS_ONLY -> "A+ only"
+            NascentQuality.A_AND_ABOVE -> "A and above"
+            NascentQuality.ALL_VALID -> "All valid"
+        }
+    },
+    onSelected = onSelected,
+)
+
+@Composable
+private fun NascentDebugSelector(
+    selected: NascentDebugLevel,
+    onSelected: (NascentDebugLevel) -> Unit,
+) = ChipSelector(
+    title = "Debug",
+    entries = NascentDebugLevel.entries,
+    selected = selected,
+    label = { it.name.lowercase().replaceFirstChar(Char::uppercase) },
+    onSelected = onSelected,
+)
+
+/** Shared chip row, so each new selector is a call rather than a copy. */
+@Composable
+private fun <T> ChipSelector(
+    title: String,
+    entries: List<T>,
+    selected: T,
+    label: (T) -> String,
+    onSelected: (T) -> Unit,
+) {
+    val colors = FoxTheme.colors
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(title, style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
+        Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            entries.forEach { entry ->
+                Text(
+                    text = label(entry),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = if (selected == entry) colors.accent else colors.textSecondary,
+                    modifier = Modifier.clip(RoundedCornerShape(6.dp))
+                        .background(if (selected == entry) colors.accentMuted else colors.surfaceStrong)
+                        .clickable { onSelected(entry) }
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                )
+            }
+        }
+    }
+}
+
 private data class ActiveStudy(val id: StudyControlId, val label: String)
 
 private fun activeStudies(t: IndicatorToggles): List<ActiveStudy> = buildList {
@@ -1067,6 +1176,7 @@ private fun activeStudies(t: IndicatorToggles): List<ActiveStudy> = buildList {
     if (t.pivotSweepDivergence) add(ActiveStudy(StudyControlId.PIVOT_SWEEP_DIVERGENCE, "PSD"))
     if (t.valueAreaLiquidityRejection) add(ActiveStudy(StudyControlId.VALUE_AREA_LIQUIDITY_REJECTION, "VALR"))
     if (t.amd) add(ActiveStudy(StudyControlId.AMD, "AMD"))
+    if (t.nascent) add(ActiveStudy(StudyControlId.NASCENT, "Nascent FX"))
     if (t.macd) add(ActiveStudy(StudyControlId.MACD, "MACD"))
     if (t.volume) add(ActiveStudy(StudyControlId.VOLUME, "Volume"))
     if (t.stochastic) add(ActiveStudy(StudyControlId.STOCHASTIC, "Stoch"))
@@ -1113,6 +1223,7 @@ private fun removeStudy(
         StudyControlId.PIVOT_SWEEP_DIVERGENCE -> t.withProductionAnalysisSystem(null)
         StudyControlId.VALUE_AREA_LIQUIDITY_REJECTION -> t.withProductionAnalysisSystem(null)
         StudyControlId.AMD -> t.copy(amd = false)
+        StudyControlId.NASCENT -> t.copy(nascent = false)
         StudyControlId.MACD -> t.copy(macd = false)
         StudyControlId.VOLUME -> t.copy(volume = false)
         StudyControlId.STOCHASTIC -> t.copy(stochastic = false)
@@ -1137,6 +1248,7 @@ private enum class StudyControlId(val title: String) {
     PIVOT_SWEEP_DIVERGENCE("Pivot Sweep Divergence settings"),
     VALUE_AREA_LIQUIDITY_REJECTION("Value Area Liquidity Rejection settings"),
     AMD("AMD settings"),
+    NASCENT("Nascent FX settings"),
     MACD("MACD settings"), VOLUME("Volume"),
     STOCHASTIC("Stochastic settings"), OBV("OBV"), MFI("MFI settings"), STRATEGY("Strategy settings"),
     CUSTOM_STRATEGY("Custom strategy"), ALL_STRATEGIES("All strategies"),

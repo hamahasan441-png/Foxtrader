@@ -56,6 +56,7 @@ import com.foxtrader.app.domain.usecase.litx.LitXEngine
 import com.foxtrader.app.domain.usecase.signalintel.ConfirmedBarPolicy
 import com.foxtrader.app.domain.usecase.signalintel.LitEngine
 import com.foxtrader.app.domain.usecase.signalintel.RsiOrderFlowSignalEngine
+import com.foxtrader.app.domain.usecase.nascent.NascentEngine
 import com.foxtrader.app.domain.usecase.signalintel.AccumulationManipulationDistributionEngine
 import com.foxtrader.app.domain.usecase.signalintel.PivotSweepDivergenceEngine
 import com.foxtrader.app.domain.usecase.signalintel.ValueAreaLiquidityRejectionEngine
@@ -129,6 +130,7 @@ class ChartViewModel @Inject constructor(
     private val pivotSweepDivergenceEngine: PivotSweepDivergenceEngine,
     private val valueAreaLiquidityRejectionEngine: ValueAreaLiquidityRejectionEngine,
     private val amdEngine: AccumulationManipulationDistributionEngine,
+    private val nascentEngine: NascentEngine,
     private val heikinAshiTransformer: HeikinAshiTransformer,
     private val candleRenkoBuilder: CandleRenkoBuilder,
     private val signalComputer: SignalComputer,
@@ -737,6 +739,29 @@ class ChartViewModel @Inject constructor(
         } else emptyList()
         val amdSignals = amdAnalysisSignals.map { signal -> signal.toChartSignal(latestConfirmedIndex) }
 
+        // Nascent reconstructs its own history by replaying the closed-bar
+        // prefix through the identical engine the backtester uses, so enabling
+        // the study backfills previous sessions instead of only reporting
+        // setups that form from now on.
+        val nascentAnalysis = if (
+            ind.nascent &&
+            barMode == ChartBarMode.TIME &&
+            signalCandles.isNotEmpty()
+        ) {
+            withContext(defaultDispatcher) {
+                containedOrNull {
+                    nascentEngine.analyze(
+                        symbol = symbol,
+                        timeframe = timeframe,
+                        candles = signalCandles,
+                        config = ind.settings.nascent.toEngineConfig(),
+                    )
+                }
+            }
+        } else null
+        val nascentSignals: List<ChartSignal> = nascentAnalysis?.signals.orEmpty()
+            .map { signal -> signal.toChartSignal(latestConfirmedIndex) }
+
         // Backfill previously confirmed LiT arrows. Each bar is evaluated only
         // through its own closed prefix, so later data cannot create, move or
         // delete an earlier marker (non-repaint by construction).
@@ -863,7 +888,7 @@ class ChartViewModel @Inject constructor(
             emptyList()
         }
 
-        val chartStrategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + strategySignals + binary3mSignals
+        val chartStrategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + nascentSignals + strategySignals + binary3mSignals
 
         // Drop stale frames: a newer computation (e.g. from a rapid indicator
         // toggle) has already started, so publishing this older result would
@@ -886,6 +911,7 @@ class ChartViewModel @Inject constructor(
         ).copy(
             valueAreaLiquidityProfiles = valueAreaLiquidityAnalysis?.profiles.orEmpty().toPersistentList(),
             amdZones = amdAnalysisSignals.toPersistentList(),
+            nascentKeyLevels = nascentAnalysis?.keyLevels.orEmpty().toPersistentList(),
         )
         val frameSignals = signalComputer.computeSignals(
             litXAnalysis = litXAnalysis.takeIf { ind.litX },
@@ -1066,6 +1092,25 @@ class ChartViewModel @Inject constructor(
         } else emptyList()
         val amdSignals = amdAnalysisSignals.map { signal -> signal.toChartSignal(candles.lastIndex) }
 
+        // Replay hands the engine the revealed prefix, which is exactly what
+        // live hands it, so the same arrows appear at the same bars.
+        val nascentAnalysis = if (
+            ind.nascent && current.barMode == ChartBarMode.TIME
+        ) {
+            withContext(defaultDispatcher) {
+                containedOrNull {
+                    nascentEngine.analyze(
+                        symbol = symbol,
+                        timeframe = timeframe,
+                        candles = candles,
+                        config = ind.settings.nascent.toEngineConfig(),
+                    )
+                }
+            }
+        } else null
+        val nascentSignals: List<ChartSignal> = nascentAnalysis?.signals.orEmpty()
+            .map { signal -> signal.toChartSignal(candles.lastIndex) }
+
         val productionHistory = if ((ind.litX || ind.lit) && candles.isNotEmpty()) {
             withContext(defaultDispatcher) {
                 scanProductionSignalHistory(
@@ -1157,7 +1202,7 @@ class ChartViewModel @Inject constructor(
             tradeProAnalysis = null,
             smtDivergences = emptyList(),
             candles = candles,
-            strategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + strategySignals + binary3mSignals,
+            strategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + nascentSignals + strategySignals + binary3mSignals,
             litAnalysis = litAnalysis,
             smsAnalysis = smsAnalysis,
             rsiOrderFlowSignals = rsiOrderFlowSignals,
@@ -1177,6 +1222,7 @@ class ChartViewModel @Inject constructor(
         ).copy(
             valueAreaLiquidityProfiles = valueAreaLiquidityAnalysis?.profiles.orEmpty().toPersistentList(),
             amdZones = amdAnalysisSignals.toPersistentList(),
+            nascentKeyLevels = nascentAnalysis?.keyLevels.orEmpty().toPersistentList(),
         )
     }
 
@@ -2252,6 +2298,30 @@ private fun ValueAreaLiquidityRejectionEngine.Signal.toChartSignal(latestConfirm
         ),
         variant = mode.name,
     )
+
+private fun com.foxtrader.app.domain.usecase.nascent.model.NascentSignal.toChartSignal(
+    latestConfirmedIndex: Int,
+): ChartSignal = ChartSignal(
+    id = id,
+    source = SignalSource.NASCENT,
+    direction = direction,
+    entry = entryPrice,
+    sl = invalidationPrice ?: 0.0,
+    tp = targetPrice ?: 0.0,
+    barIndex = barIndex,
+    timestamp = timestamp,
+    confidence = score.toDouble(),
+    isLive = barIndex == latestConfirmedIndex,
+    label = "Nascent ${setupType.name} @ ${keyLevelType.name} · ${reasons.take(4).joinToString(" · ")}",
+    eventKey = SignalIdentity.nascent(
+        symbol = symbol,
+        timeframe = internalTimeframe,
+        timestamp = timestamp,
+        direction = direction,
+        confirmationIndex = barIndex,
+    ),
+    variant = "${setupType.name}/${confidence.name}",
+)
 
 private fun AccumulationManipulationDistributionEngine.Signal.toChartSignal(latestConfirmedIndex: Int): ChartSignal =
     ChartSignal(

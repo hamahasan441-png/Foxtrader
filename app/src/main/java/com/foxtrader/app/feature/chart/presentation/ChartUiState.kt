@@ -83,6 +83,7 @@ data class IndicatorToggles(
     val pivotSweepDivergence: Boolean = false,
     val valueAreaLiquidityRejection: Boolean = false,
     val amd: Boolean = false,
+    val nascent: Boolean = false,
     val macd: Boolean = false,
     val volume: Boolean = false,
     val stochastic: Boolean = false,
@@ -99,7 +100,7 @@ data class IndicatorToggles(
             ichimoku || keltner || donchian || pivotPoints || volumeProfile || marketProfile ||
             supportResistance || fibonacci || confluence || orderBlocks || fairValueGaps ||
             liquidity || sessions || structure || litX || lit || sms || smt || tradePro || binary3m ||
-            rsi || rsiOrderFlow || pivotSweepDivergence || valueAreaLiquidityRejection || amd || macd || volume || stochastic || obv || moneyFlowIndex ||
+            rsi || rsiOrderFlow || pivotSweepDivergence || valueAreaLiquidityRejection || amd || nascent || macd || volume || stochastic || obv || moneyFlowIndex ||
             activeStrategy != null || activeBlueprintId != null || allStrategies
 
     val smcSuiteActive: Boolean
@@ -282,6 +283,14 @@ data class ChartUiState(
      * (range box + sweep bar) [ChartSignal] does not.
      */
     val amdZones: ImmutableList<AccumulationManipulationDistributionEngine.Signal> = persistentListOf(),
+    /**
+     * External Nascent locations currently mapped, for the optional key-level
+     * overlay. The entry arrows themselves come from [signals] like every other
+     * engine's, so this carries only the context [ChartSignal] cannot express.
+     */
+    val nascentKeyLevels: ImmutableList<
+        com.foxtrader.app.domain.usecase.nascent.model.ExternalKeyLevel,
+        > = persistentListOf(),
     val supportResistanceZones: ImmutableList<SupportResistanceDetector.SRZone> = persistentListOf(),
     val autoFibLevels: ImmutableList<FibonacciEngine.FibLevel> = persistentListOf(),
     val autoFibDirection: Direction? = null,

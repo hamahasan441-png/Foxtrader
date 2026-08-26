@@ -33,6 +33,12 @@ enum class ChartStudyId(
         48,
         contextHint = "works on every timeframe",
     ),
+    NASCENT(
+        "Nascent FX Primary Analysis",
+        120,
+        requiresTimeAxis = true,
+        contextHint = "needs completed external-timeframe structure",
+    ),
     MACD("MACD", 35),
     STOCHASTIC("Stochastic", 15),
     BOLLINGER("Bollinger", 20),
@@ -159,6 +165,10 @@ object IndicatorReadinessCatalog {
             )
         ChartStudyId.AMD -> maxOf(settings.amd.atrPeriod, settings.amd.minAccumulationBars) + 1 +
             settings.amd.maxReclaimBars + settings.amd.maxConfirmBars
+        ChartStudyId.NASCENT ->
+            // Enough internal bars for the external resample to carry confirmed
+            // structure of its own; below this the engine is correctly silent.
+            settings.nascent.sanitized().liveWindowBars.coerceAtLeast(120)
         ChartStudyId.MACD -> max(settings.macd.fastPeriod, settings.macd.slowPeriod) + settings.macd.signalPeriod
         ChartStudyId.STOCHASTIC -> max(settings.stochastic.kPeriod, settings.stochastic.dPeriod) + 1
         ChartStudyId.BOLLINGER -> settings.bollinger.period

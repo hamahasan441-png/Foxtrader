@@ -464,6 +464,7 @@ fun ChartScreen(
                             marketProfile = state.marketProfile,
                             valueAreaLiquidityProfiles = state.valueAreaLiquidityProfiles,
                             amdZones = state.amdZones,
+                            nascentKeyLevels = state.nascentKeyLevels,
                             supportResistanceZones = state.supportResistanceZones,
                             autoFibLevels = state.autoFibLevels,
                             autoFibDirection = state.autoFibDirection,
