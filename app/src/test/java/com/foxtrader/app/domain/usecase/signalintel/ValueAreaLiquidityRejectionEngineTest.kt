@@ -38,4 +38,52 @@ class ValueAreaLiquidityRejectionEngineTest {
         assertTrue(analysis.signals.isEmpty())
         assertEquals(null, analysis.activeProfile)
     }
+
+    @Test
+    fun `balanced mode emits a closed reclaim arrow after a value area sweep`() {
+        val day = 86_400_000L
+        val step = 15L * 60_000L
+        val prior = List(40) { index ->
+            val center = 100.0 + ((index % 8) - 4) * 0.08
+            Candle(1L + index * step, center, center + 0.28, center - 0.28, center + 0.04, 100.0)
+        }
+        val probe = Candle(day, 100.0, 100.2, 99.8, 100.1, 100.0)
+        val config = ValueAreaLiquidityRejectionEngine.Config(
+            mode = ValueAreaLiquidityRejectionEngine.Mode.PRECISION,
+            minPreviousSessionBars = 20,
+            atrPeriod = 2,
+            minSweepAtr = 0.0,
+            minWickFraction = 0.15,
+            minPocRewardRisk = 0.25,
+            minScore = 0,
+            displacementAtrMultiple = 0.20,
+        )
+        val profile = engine.analyze("EURUSD", Timeframe.M15, prior + probe, config).activeProfile!!
+        val prefix = List(5) { index ->
+            val price = profile.valueAreaLow + 0.12
+            Candle(day + index * step, price, price + 0.08, price - 0.08, price + 0.01, 80.0)
+        }
+        val sweepTime = day + prefix.size * step
+        val sweep = Candle(
+            sweepTime,
+            profile.valueAreaLow + 0.10,
+            profile.valueAreaLow + 0.15,
+            profile.valueAreaLow - 0.60,
+            profile.valueAreaLow - 0.05,
+            240.0,
+        )
+        val reclaim = Candle(
+            sweepTime + step,
+            profile.valueAreaLow - 0.04,
+            profile.valueAreaLow + 0.40,
+            profile.valueAreaLow - 0.08,
+            profile.valueAreaLow + 0.32,
+            260.0,
+        )
+
+        val signals = engine.analyze("EURUSD", Timeframe.M15, prior + prefix + sweep + reclaim, config).signals
+        assertTrue("a causal VAL sweep and closed reclaim must create a visible arrow", signals.isNotEmpty())
+        assertTrue(signals.all { it.confirmationIndex >= it.sweepIndex })
+        assertEquals(reclaim.timestamp, signals.last().timestamp)
+    }
 }
