@@ -28,6 +28,7 @@ import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
 import com.foxtrader.app.domain.usecase.strategies.StrategyLibrary
+import com.foxtrader.app.domain.usecase.signalintel.AccumulationManipulationDistributionEngine
 import com.foxtrader.app.domain.usecase.signalintel.RsiOrderFlowSignalEngine
 import com.foxtrader.app.domain.usecase.smt.SmtSignalEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -64,6 +65,7 @@ class BacktestLabViewModel @Inject constructor(
     private val tradeProEngine: TradeProSignalEngine,
     private val strategyLibrary: StrategyLibrary,
     private val rsiOrderFlowSignalEngine: RsiOrderFlowSignalEngine,
+    private val amdEngine: AccumulationManipulationDistributionEngine,
     private val smtSignalEngine: SmtSignalEngine,
     private val mtfContextProvider: MtfContextProvider,
     private val scriptEngine: ScriptEngine,
@@ -567,6 +569,10 @@ class BacktestLabViewModel @Inject constructor(
                 correlatedCandles = correlatedCandles,
             )
             BacktestStrategyTemplate.RSI_ORDERFLOW -> rsiOrderFlowSignalEngine.strategyFunction(
+                symbol = state.symbol,
+                timeframe = state.timeframe,
+            )
+            BacktestStrategyTemplate.AMD -> amdEngine.strategyFunction(
                 symbol = state.symbol,
                 timeframe = state.timeframe,
             )

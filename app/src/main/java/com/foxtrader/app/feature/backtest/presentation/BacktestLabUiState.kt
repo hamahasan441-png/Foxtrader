@@ -50,6 +50,10 @@ enum class BacktestStrategyTemplate(
         displayName = "RSI Orderflow Candle",
         description = "Confirmed RSI/orderflow-proxy divergence with provider-volume coverage disclosed explicitly.",
     ),
+    AMD(
+        displayName = "AMD (Accumulation/Manipulation/Distribution)",
+        description = "Range compression, a liquidity sweep beyond it, then a displaced reversal back through the whole range. Structural — works on every timeframe.",
+    ),
     DERIV_BINARY_3M(
         displayName = "Deriv Binary 3m Precision",
         description = "M1 closed-bar EMA/ADX pullback-reclaim setup; enters next bar and settles after 3 minutes. Non-repainting and fixed-expiry backtestable.",
@@ -57,7 +61,7 @@ enum class BacktestStrategyTemplate(
 
     companion object {
         /** The only built-in methodologies exposed in FoxTrader's primary Lab. */
-        val primaryEntries = listOf(LITX, LIT_MAY_MADNESS, SMT, RSI_ORDERFLOW)
+        val primaryEntries = listOf(LITX, LIT_MAY_MADNESS, SMT, RSI_ORDERFLOW, AMD)
     }
 }
 

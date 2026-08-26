@@ -113,6 +113,9 @@ fun IndicatorPanel(
                         StudyItem("Value Area Liquidity Rejection", ChartStudyId.VALUE_AREA_LIQUIDITY_REJECTION, toggles.valueAreaLiquidityRejection) { t ->
                             t.copy(valueAreaLiquidityRejection = !t.valueAreaLiquidityRejection)
                         },
+                        StudyItem("AMD (Accumulation/Manipulation/Distribution)", ChartStudyId.AMD, toggles.amd) { t ->
+                            t.copy(amd = !t.amd)
+                        },
                         StudyItem("SMS", ChartStudyId.SMS, toggles.sms) { t -> t.withSmsSuite(!t.sms) },
                         StudyItem("TradePro", ChartStudyId.TRADE_PRO, toggles.tradePro) { t -> t.withTradeProSuite(!t.tradePro) },
                         StudyItem("Deriv 3m", ChartStudyId.BINARY_3M, toggles.binary3m) { t ->

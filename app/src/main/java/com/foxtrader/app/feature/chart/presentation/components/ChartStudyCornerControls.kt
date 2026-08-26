@@ -50,6 +50,8 @@ import com.foxtrader.app.feature.chart.presentation.KeltnerStudySettings
 import com.foxtrader.app.feature.chart.presentation.MacdStudySettings
 import com.foxtrader.app.feature.chart.presentation.MfiStudySettings
 import com.foxtrader.app.feature.chart.presentation.ParabolicSarStudySettings
+import com.foxtrader.app.feature.chart.presentation.AmdMode
+import com.foxtrader.app.feature.chart.presentation.AmdStudySettings
 import com.foxtrader.app.feature.chart.presentation.PivotSweepDivergenceMode
 import com.foxtrader.app.feature.chart.presentation.PivotSweepDivergenceStudySettings
 import com.foxtrader.app.feature.chart.presentation.ValueAreaLiquidityRejectionMode
@@ -552,6 +554,64 @@ ResetButton { updateSettings(onChange) { it.copy(rsiOrderFlow = RsiOrderFlowStud
                     ResetButton { updateSettings(onChange) { it.copy(valueAreaLiquidityRejection = ValueAreaLiquidityRejectionStudySettings()) } }
                 }
 
+                StudyControlId.AMD -> {
+                    AmdModeSelector(settings.amd.mode) { mode ->
+                        updateSettings(onChange) { it.copy(amd = it.amd.copy(mode = mode)) }
+                    }
+                    IntStepper("Min quality score", settings.amd.minScore, 0, 100) { value ->
+                        updateSettings(onChange) { it.copy(amd = it.amd.copy(minScore = value)) }
+                    }
+                    IntStepper("ATR period", settings.amd.atrPeriod, 2, 500) { value ->
+                        updateSettings(onChange) { it.copy(amd = it.amd.copy(atrPeriod = value)) }
+                    }
+                    IntStepper("Min accumulation bars", settings.amd.minAccumulationBars, 3, 250) { value ->
+                        updateSettings(onChange) { it.copy(amd = it.amd.copy(minAccumulationBars = value)) }
+                    }
+                    IntStepper("Max accumulation bars", settings.amd.maxAccumulationBars, 3, 500) { value ->
+                        updateSettings(onChange) { it.copy(amd = it.amd.copy(maxAccumulationBars = value)) }
+                    }
+                    DoubleStepper("Range compression ATR", settings.amd.accumulationRangeAtrMultiple, 0.1, 0.1, 10.0) { value ->
+                        updateSettings(onChange) { it.copy(amd = it.amd.copy(accumulationRangeAtrMultiple = value)) }
+                    }
+                    DoubleStepper("Min sweep ATR", settings.amd.minSweepAtr, 0.05, 0.0, 3.0) { value ->
+                        updateSettings(onChange) { it.copy(amd = it.amd.copy(minSweepAtr = value)) }
+                    }
+                    DoubleStepper("Min rejection wick", settings.amd.minRejectionWickFraction, 0.05, 0.0, 1.0) { value ->
+                        updateSettings(onChange) { it.copy(amd = it.amd.copy(minRejectionWickFraction = value)) }
+                    }
+                    DoubleStepper("Close location", settings.amd.minCloseLocation, 0.05, 0.5, 1.0) { value ->
+                        updateSettings(onChange) { it.copy(amd = it.amd.copy(minCloseLocation = value)) }
+                    }
+                    IntStepper("Reclaim window", settings.amd.maxReclaimBars, 0, 25) { value ->
+                        updateSettings(onChange) { it.copy(amd = it.amd.copy(maxReclaimBars = value)) }
+                    }
+                    IntStepper("Confirm window", settings.amd.maxConfirmBars, 0, 30) { value ->
+                        updateSettings(onChange) { it.copy(amd = it.amd.copy(maxConfirmBars = value)) }
+                    }
+                    DoubleStepper("Displacement ATR", settings.amd.displacementAtrMultiple, 0.05, 0.0, 5.0) { value ->
+                        updateSettings(onChange) { it.copy(amd = it.amd.copy(displacementAtrMultiple = value)) }
+                    }
+                    DoubleStepper("Stop ATR buffer", settings.amd.stopBufferAtr, 0.05, 0.0, 5.0) { value ->
+                        updateSettings(onChange) { it.copy(amd = it.amd.copy(stopBufferAtr = value)) }
+                    }
+                    DoubleStepper("Reward : risk", settings.amd.rewardRisk, 0.25, 0.25, 10.0) { value ->
+                        updateSettings(onChange) { it.copy(amd = it.amd.copy(rewardRisk = value)) }
+                    }
+                    IntStepper("Cooldown bars", settings.amd.cooldownBars, 0, 250) { value ->
+                        updateSettings(onChange) { it.copy(amd = it.amd.copy(cooldownBars = value)) }
+                    }
+                    IntStepper("Session UTC offset", settings.amd.sessionOffsetMinutes, -720, 840, 60) { value ->
+                        updateSettings(onChange) { it.copy(amd = it.amd.copy(sessionOffsetMinutes = value)) }
+                    }
+                    Text(
+                        text = "Accumulation range compresses, a sweep hunts the stops beyond it, distribution displaces back through the whole range. Structural, not session-clock — fires on every timeframe.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textSecondary,
+                    )
+                    SignalArrowNote()
+                    ResetButton { updateSettings(onChange) { it.copy(amd = AmdStudySettings()) } }
+                }
+
                 StudyControlId.MACD -> {
                     IntStepper("Fast", settings.macd.fastPeriod, 1, 500) { value ->
                         updateSettings(onChange) { it.copy(macd = it.macd.copy(fastPeriod = value).sanitized()) }
@@ -917,6 +977,31 @@ private fun ValrModeSelector(
     }
 }
 
+@Composable
+private fun AmdModeSelector(
+    selected: AmdMode,
+    onSelected: (AmdMode) -> Unit,
+) {
+    val colors = FoxTheme.colors
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("Signal mode", style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
+        Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            AmdMode.entries.forEach { mode ->
+                Text(
+                    text = mode.name,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = if (selected == mode) colors.accent else colors.textSecondary,
+                    modifier = Modifier.clip(RoundedCornerShape(6.dp))
+                        .background(if (selected == mode) colors.accentMuted else colors.surfaceStrong)
+                        .clickable { onSelected(mode) }
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                )
+            }
+        }
+    }
+}
+
 private data class ActiveStudy(val id: StudyControlId, val label: String)
 
 private fun activeStudies(t: IndicatorToggles): List<ActiveStudy> = buildList {
@@ -981,6 +1066,7 @@ private fun activeStudies(t: IndicatorToggles): List<ActiveStudy> = buildList {
     if (t.rsiOrderFlow) add(ActiveStudy(StudyControlId.RSI_ORDER_FLOW, "RSI OF"))
     if (t.pivotSweepDivergence) add(ActiveStudy(StudyControlId.PIVOT_SWEEP_DIVERGENCE, "PSD"))
     if (t.valueAreaLiquidityRejection) add(ActiveStudy(StudyControlId.VALUE_AREA_LIQUIDITY_REJECTION, "VALR"))
+    if (t.amd) add(ActiveStudy(StudyControlId.AMD, "AMD"))
     if (t.macd) add(ActiveStudy(StudyControlId.MACD, "MACD"))
     if (t.volume) add(ActiveStudy(StudyControlId.VOLUME, "Volume"))
     if (t.stochastic) add(ActiveStudy(StudyControlId.STOCHASTIC, "Stoch"))
@@ -1026,6 +1112,7 @@ private fun removeStudy(
         StudyControlId.RSI_ORDER_FLOW -> t.withProductionAnalysisSystem(null)
         StudyControlId.PIVOT_SWEEP_DIVERGENCE -> t.withProductionAnalysisSystem(null)
         StudyControlId.VALUE_AREA_LIQUIDITY_REJECTION -> t.withProductionAnalysisSystem(null)
+        StudyControlId.AMD -> t.copy(amd = false)
         StudyControlId.MACD -> t.copy(macd = false)
         StudyControlId.VOLUME -> t.copy(volume = false)
         StudyControlId.STOCHASTIC -> t.copy(stochastic = false)
@@ -1049,6 +1136,7 @@ private enum class StudyControlId(val title: String) {
     RSI_ORDER_FLOW("RSI OrderFlow settings"),
     PIVOT_SWEEP_DIVERGENCE("Pivot Sweep Divergence settings"),
     VALUE_AREA_LIQUIDITY_REJECTION("Value Area Liquidity Rejection settings"),
+    AMD("AMD settings"),
     MACD("MACD settings"), VOLUME("Volume"),
     STOCHASTIC("Stochastic settings"), OBV("OBV"), MFI("MFI settings"), STRATEGY("Strategy settings"),
     CUSTOM_STRATEGY("Custom strategy"), ALL_STRATEGIES("All strategies"),

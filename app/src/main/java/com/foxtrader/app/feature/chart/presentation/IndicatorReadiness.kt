@@ -28,6 +28,11 @@ enum class ChartStudyId(
         requiresTimeAxis = true,
         contextHint = "needs a completed prior session",
     ),
+    AMD(
+        "AMD (Accumulation/Manipulation/Distribution)",
+        48,
+        contextHint = "works on every timeframe",
+    ),
     MACD("MACD", 35),
     STOCHASTIC("Stochastic", 15),
     BOLLINGER("Bollinger", 20),
@@ -152,6 +157,8 @@ object IndicatorReadinessCatalog {
                     settings.valueAreaLiquidityRejection.liquidityLookback +
                     settings.valueAreaLiquidityRejection.swingRight + 1,
             )
+        ChartStudyId.AMD -> maxOf(settings.amd.atrPeriod, settings.amd.minAccumulationBars) + 1 +
+            settings.amd.maxReclaimBars + settings.amd.maxConfirmBars
         ChartStudyId.MACD -> max(settings.macd.fastPeriod, settings.macd.slowPeriod) + settings.macd.signalPeriod
         ChartStudyId.STOCHASTIC -> max(settings.stochastic.kPeriod, settings.stochastic.dPeriod) + 1
         ChartStudyId.BOLLINGER -> settings.bollinger.period

@@ -81,6 +81,8 @@ import com.foxtrader.app.feature.chart.presentation.components.layers.drawLitXSi
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawSmtDivergences
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawSignalMarkers
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawValueAreaLiquidityProfiles
+import com.foxtrader.app.feature.chart.presentation.components.layers.drawAmdZones
+import com.foxtrader.app.domain.usecase.signalintel.AccumulationManipulationDistributionEngine
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawBacktestMarkers
 import com.foxtrader.app.ui.theme.FoxNeutral0
 import kotlin.math.max
@@ -164,6 +166,7 @@ fun CandleChart(
     volumeProfile: com.foxtrader.app.domain.model.VolumeProfile? = null,
     marketProfile: MarketProfile.ProfileResult? = null,
     valueAreaLiquidityProfiles: List<ValueAreaLiquidityRejectionEngine.ProfileSnapshot> = emptyList(),
+    amdZones: List<AccumulationManipulationDistributionEngine.Signal> = emptyList(),
     supportResistanceZones: ImmutableList<SupportResistanceDetector.SRZone> = persistentListOf(),
     autoFibLevels: ImmutableList<FibonacciEngine.FibLevel> = persistentListOf(),
     autoFibDirection: Direction? = null,
@@ -259,6 +262,17 @@ fun CandleChart(
     // because the value-area layer re-colours and re-sizes its paint on every
     // pass; sharing one instance would leak that state into the pivot tags.
     val valueAreaLabelPaint = remember {
+        Paint().apply {
+            color = AxisLabelArgb
+            textSize = with(density) { 8.dp.toPx() }
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            isAntiAlias = true
+            textAlign = Paint.Align.LEFT
+        }
+    }
+    // AMD "ACC" range tags. Owned separately for the same reason as
+    // [valueAreaLabelPaint]: the AMD zone layer re-colours this paint per pass.
+    val amdLabelPaint = remember {
         Paint().apply {
             color = AxisLabelArgb
             textSize = with(density) { 8.dp.toPx() }
@@ -646,6 +660,12 @@ fun CandleChart(
         if (indicators.valueAreaLiquidityRejection && valueAreaLiquidityProfiles.isNotEmpty() && quality.volumeProfile) {
             clipRect(right = cw, bottom = ch) {
                 drawValueAreaLiquidityProfiles(valueAreaLiquidityProfiles, viewport, cw, ch, valueAreaLabelPaint)
+            }
+        }
+
+        if (indicators.amd && amdZones.isNotEmpty() && quality.structureAnnotations) {
+            clipRect(right = cw, bottom = ch) {
+                drawAmdZones(amdZones, viewport, cw, ch, amdLabelPaint)
             }
         }
 
