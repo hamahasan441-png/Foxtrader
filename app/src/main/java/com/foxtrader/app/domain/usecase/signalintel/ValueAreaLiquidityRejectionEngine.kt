@@ -231,7 +231,9 @@ class ValueAreaLiquidityRejectionEngine @Inject constructor() {
             listOf(profile.poc, profile.valueAreaLow).filter { it < entry }
         }
         val target = targetCandidates.firstOrNull { abs(it - entry) / risk >= requiredRr }
-            ?: return null
+            ?: if (rejection.direction == Direction.BULLISH) entry + risk * requiredRr
+            else entry - risk * requiredRr
+        if (!target.isFinite() || target <= 0.0) return null
         val rewardRisk = abs(target - entry) / risk
         if (rewardRisk < requiredRr) return null
 
@@ -274,7 +276,11 @@ class ValueAreaLiquidityRejectionEngine @Inject constructor() {
                 "Previous-session ${rejection.edge.name} liquidity sweep + reclaim",
                 "Confirmed liquidity pool and absorption ${formatPercent(absorption)}",
                 if (structure) "Closed-bar micro structure break" else "Fast closed-bar rejection",
-                "${if (abs(target - profile.poc) <= EPSILON) "POC" else "Opposite value-area edge"} target ${formatPrice(target)} · R:R ${format1(rewardRisk)}",
+                "${when {
+                    abs(target - profile.poc) <= EPSILON -> "POC"
+                    abs(target - profile.vah) <= EPSILON || abs(target - profile.valueAreaLow) <= EPSILON -> "Opposite value-area edge"
+                    else -> "Value-area extension"
+                }} target ${formatPrice(target)} · R:R ${format1(rewardRisk)}",
                 "${profile.quality.name.replace('_', ' ').lowercase()} · non-repaint",
             ),
         )
