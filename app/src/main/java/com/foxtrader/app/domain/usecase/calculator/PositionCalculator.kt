@@ -75,7 +75,16 @@ class PositionCalculator @Inject constructor() {
         // This matches the size we actually report AND prevents division-by-zero
         // (Infinity/NaN) in the break-even / max-loss math when a tiny raw size
         // rounds down to 0.0.
-        val roundedSize = ((positionSize * 100).roundToInt() / 100.0).coerceAtLeast(0.01)
+        // `OVERFLOW` `(positionSize * 100).roundToInt()` saturates at
+        // Int.MAX_VALUE instead of throwing, so a stop the user typed a
+        // hair away from the entry rendered as ~21 million lots — along with a
+        // margin and max-loss figure computed from it. Every number on the
+        // screen then looks authoritative and is wrong. Round in Double space
+        // and clamp to a size a broker could actually accept.
+        val roundedSize = (kotlin.math.round(positionSize * 100.0) / 100.0)
+            .takeIf { it.isFinite() }
+            ?.coerceIn(MIN_POSITION_LOTS, MAX_POSITION_LOTS)
+            ?: MIN_POSITION_LOTS
 
         // Reward calculations
         val tpDistance = input.takeProfitPrice?.let { abs(it - input.entryPrice) }
@@ -149,4 +158,12 @@ class PositionCalculator @Inject constructor() {
         val rTarget: Double,     // R-multiple target
         val price: Double,       // Price level to close at
     )
+
+    companion object {
+        /** Smallest tradable size (one micro lot). */
+        const val MIN_POSITION_LOTS = 0.01
+
+        /** Ceiling on a displayed size; see the rounding comment in [calculate]. */
+        const val MAX_POSITION_LOTS = 10_000.0
+    }
 }

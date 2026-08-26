@@ -148,8 +148,30 @@ class RiskEngine @Inject constructor(
             riskAmount = 0.0
         }
 
-        // Round to 0.01 lot minimum
-        volume = max(0.01, (volume * 100).roundToInt() / 100.0)
+        // `OVERFLOW` The isFinite() guard above catches Infinity and NaN, but a
+        // *finite* enormous volume slips straight through it and then saturates
+        // in exactly the way that comment warns about: a stop distance that is
+        // tiny but non-zero (a one-pipette stop, a near-zero ATR read) sizes to
+        // ~1e9 lots, and `(1e9 * 100).roundToInt()` returns Int.MAX_VALUE
+        // rather than throwing — the same ~21 million lot order, reached by a
+        // path the non-finite check does not cover. Round in Double space and
+        // cap explicitly.
+        val roundedVolume = kotlin.math.round(volume * 100.0) / 100.0
+        volume = when {
+            !roundedVolume.isFinite() -> {
+                warnings += "Computed volume was not finite — falling back to minimum size"
+                MIN_TRADE_VOLUME
+            }
+            roundedVolume > MAX_TRADE_VOLUME -> {
+                // Never silently downsize to the cap: a size this far out means
+                // the stop distance is unusable, and reporting the cap would
+                // look like a deliberate, sanctioned position.
+                warnings += "Stop distance is too small to size a position safely — " +
+                    "widen the stop before trading"
+                MIN_TRADE_VOLUME
+            }
+            else -> max(MIN_TRADE_VOLUME, roundedVolume)
+        }
 
         // riskPercent is only meaningful against a positive balance. With a
         // zero balance the division yields Infinity/NaN and with a negative
@@ -468,5 +490,20 @@ class RiskEngine @Inject constructor(
         }
         _tradingHalted.set(false)
         haltReason = ""
+    }
+
+    companion object {
+        /** Smallest tradable size (one micro lot). */
+        const val MIN_TRADE_VOLUME = 0.01
+
+        /**
+         * Ceiling on a sized position, in lots.
+         *
+         * Far above any real single fill, so it never rejects a legitimate
+         * size. It exists to catch a degenerate stop distance producing an
+         * absurd notional — the failure mode a plain `roundToInt()` turns into
+         * a plausible-looking number instead of an error.
+         */
+        const val MAX_TRADE_VOLUME = 10_000.0
     }
 }
