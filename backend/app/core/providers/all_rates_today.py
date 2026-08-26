@@ -40,7 +40,8 @@ class AllRatesTodayProvider(RESTProvider):
         key = (self._api_key or os.environ.get("ART_API_KEY", "")).strip()
         if not key:
             raise MissingApiKeyError(
-                "AllRatesToday API key is required. Enter it in FoxTrader Settings or set ART_API_KEY on the backend."
+                "AllRatesToday API key is required. Enter it in FoxTrader Settings "
+                "or set ART_API_KEY on the backend."
             )
         return key
 

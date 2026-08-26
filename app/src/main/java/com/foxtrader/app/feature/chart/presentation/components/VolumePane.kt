@@ -124,7 +124,10 @@ fun VolumePane(
                 if (!cx.isFinite() || cx < -barWidth || cx > chartW + barWidth) continue
                 val rawHeight = (volume / maxVol * chartH).toFloat()
                 if (!rawHeight.isFinite()) continue
-                val volH = rawHeight.coerceIn(1f, chartH)
+                // A pane can transiently measure below one pixel while its
+                // stack animates. Never construct the inverted [1f, chartH]
+                // range that would crash Canvas in that state.
+                val volH = rawHeight.coerceIn(minOf(1f, chartH), chartH)
                 val top = (chartH - volH).coerceIn(0f, chartH)
                 val path = if (candle.isBullish) bullVolPath else bearVolPath
                 path.addRect(Rect(cx - halfBar, top, cx + halfBar, (top + volH).coerceAtMost(chartH)))

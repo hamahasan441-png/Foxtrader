@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import com.foxtrader.app.domain.model.ChartDrawing
 import com.foxtrader.app.domain.model.ChartPoint
 import com.foxtrader.app.domain.model.DrawingToolType
+import com.foxtrader.app.feature.chart.presentation.chartOverlayLabelBaseline
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
@@ -155,10 +156,16 @@ private fun DrawScope.drawFibRetracement(
             strokeWidth = if (level == 0.5 || level == 0.618) 1.2f else 0.8f,
         )
         labelPaint.setDrawingColor(color, alpha)
+        val labelBaseline = chartOverlayLabelBaseline(
+            y + labelPaint.textSize / 3f,
+            labelPaint.textSize,
+            ch,
+            bottomPadding = 0f,
+        ) ?: continue
         drawContext.canvas.nativeCanvas.drawText(
             FIB_LABELS[i],
             (xSpan.second + 4f).coerceAtMost(cw),
-            (y + labelPaint.textSize / 3f).coerceIn(labelPaint.textSize, ch),
+            labelBaseline,
             labelPaint,
         )
     }
@@ -254,10 +261,16 @@ private fun DrawScope.drawFibExtension(
             strokeWidth = if (emphasize) 1.2f else 0.8f,
         )
         labelPaint.setDrawingColor(color, 1f)
+        val labelBaseline = chartOverlayLabelBaseline(
+            y + labelPaint.textSize / 3f,
+            labelPaint.textSize,
+            ch,
+            bottomPadding = 0f,
+        ) ?: continue
         drawContext.canvas.nativeCanvas.drawText(
             label,
             (xSpan.second + 4f).coerceAtMost(cw),
-            (y + labelPaint.textSize / 3f).coerceIn(labelPaint.textSize, ch),
+            labelBaseline,
             labelPaint,
         )
     }
@@ -309,12 +322,19 @@ private fun DrawScope.drawPosition(
 
     if (yTarget in 0f..ch) {
         labelPaint.color = android.graphics.Color.argb(220, 176, 190, 197)
-        drawContext.canvas.nativeCanvas.drawText(
-            String.format(Locale.US, "%.1fR", ChartDrawing.POSITION_RR),
-            (xSpan.second + 4f).coerceAtMost(cw),
-            (yTarget + labelPaint.textSize / 3f).coerceIn(labelPaint.textSize, ch),
-            labelPaint,
-        )
+        chartOverlayLabelBaseline(
+            yTarget + labelPaint.textSize / 3f,
+            labelPaint.textSize,
+            ch,
+            bottomPadding = 0f,
+        )?.let { labelBaseline ->
+            drawContext.canvas.nativeCanvas.drawText(
+                String.format(Locale.US, "%.1fR", ChartDrawing.POSITION_RR),
+                (xSpan.second + 4f).coerceAtMost(cw),
+                labelBaseline,
+                labelPaint,
+            )
+        }
     }
 }
 
@@ -351,12 +371,19 @@ private fun DrawScope.drawMeasuredMove(
     if (xc in 0f..cw && yc in 0f..ch) {
         drawCircle(color = color.copy(alpha = 0.6f), radius = 4f, center = Offset(xc, yc))
         labelPaint.setDrawingColor(color, 1f)
-        drawContext.canvas.nativeCanvas.drawText(
-            String.format(Locale.US, "%.5f", abs(b.price - a.price)),
-            (xc + 4f).coerceIn(0f, cw),
-            (yc + labelPaint.textSize / 3f).coerceIn(labelPaint.textSize, ch),
-            labelPaint,
-        )
+        chartOverlayLabelBaseline(
+            yc + labelPaint.textSize / 3f,
+            labelPaint.textSize,
+            ch,
+            bottomPadding = 0f,
+        )?.let { labelBaseline ->
+            drawContext.canvas.nativeCanvas.drawText(
+                String.format(Locale.US, "%.5f", abs(b.price - a.price)),
+                (xc + 4f).coerceIn(0f, cw),
+                labelBaseline,
+                labelPaint,
+            )
+        }
     }
 }
 

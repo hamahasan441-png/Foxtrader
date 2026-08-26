@@ -176,8 +176,8 @@ class AllRatesTodayDataSource @Inject constructor(
         val rows: List<JsonElement> = when (payload) {
             is JsonArray -> payload
             is JsonObject -> when {
-                payload["data"] is JsonArray -> payload["data"]!!.jsonArray
-                payload["rates"] is JsonArray -> payload["rates"]!!.jsonArray
+                payload["data"] is JsonArray -> payload["data"]?.jsonArray.orEmpty()
+                payload["rates"] is JsonArray -> payload["rates"]?.jsonArray.orEmpty()
                 payload["rate"] != null -> listOf(payload)
                 else -> emptyList()
             }

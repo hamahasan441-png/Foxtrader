@@ -205,12 +205,10 @@ fun ChartScreen(
         if (state.chartBacktest.showMarkers && !replayState.isActive) state.chartBacktest.markers else emptyList()
     }
 
-    // `INSETS` The app-level Scaffold in FoxNavHost already applies the system-bar
-    // window insets (status bar on top, navigation bar on the bottom) to the
-    // NavHost that hosts this screen. The previous manual `padding(top = 24.dp)`
-    // was therefore redundant double-padding that stole ~24dp from the chart and
-    // rendered incorrectly on cutout/notch devices. It is intentionally removed
-    // so the chart reclaims that space and honours real insets.
+    // `INSETS` FoxNavHost deliberately passes only the bottom-navigation inset to
+    // this destination. ChartTopBar owns the real status-bar inset; keeping that
+    // ownership in exactly one place prevents the large double-inset band that
+    // previously appeared above the price workspace.
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -755,10 +753,10 @@ private fun ChartTopBar(
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
             .statusBarsPadding()
-            .padding(
-                horizontal = ChartDimens.topBarHorizontalPadding,
-                vertical = ChartDimens.topBarVerticalPadding,
-            ),
+            // Keep child content (including the notification badge) from
+            // inflating this row and recreating a dead band above the chart.
+            .height(ChartDimens.topBarContentHeight)
+            .padding(horizontal = ChartDimens.topBarHorizontalPadding),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -863,6 +861,8 @@ private fun ChartTopBar(
                 color = MaterialTheme.colorScheme.onSurface,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                softWrap = false,
                 modifier = Modifier.semantics {
                     contentDescription = priceDescription
                 },
@@ -965,6 +965,10 @@ private fun ChartToolbar(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
+            // Fixed chrome height is intentional. Every label is single-line
+            // and the overflowing control set scrolls horizontally, so no chip
+            // can grow the toolbar into the multi-line gap seen on phones.
+            .height(ChartDimens.toolbarHeight)
             .horizontalScroll(rememberScrollState())
             .padding(
                 horizontal = ChartDimens.toolbarHorizontalPadding,
@@ -1514,8 +1518,8 @@ private fun BarModeDropdown(
 /** Alerts entry point with an unread-count badge overlaid on the bell. */
 @Composable
 private fun AlertsBellButton(unreadCount: Int, onClick: () -> Unit) {
-    Box {
-        IconButton(onClick = onClick) {
+    Box(modifier = Modifier.size(32.dp)) {
+        IconButton(onClick = onClick, modifier = Modifier.size(32.dp)) {
             Icon(
                 imageVector = Icons.Default.Notifications,
                 contentDescription = if (unreadCount > 0) {
@@ -1524,6 +1528,7 @@ private fun AlertsBellButton(unreadCount: Int, onClick: () -> Unit) {
                     stringResource(R.string.chart_alerts_inbox)
                 },
                 tint = if (unreadCount > 0) FoxAmber50 else FoxNeutral60,
+                modifier = Modifier.size(18.dp),
             )
         }
         if (unreadCount > 0) {

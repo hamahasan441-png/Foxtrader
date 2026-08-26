@@ -79,7 +79,13 @@ def get_candles(
     safe_limit = clamp_limit(limit)
 
     # Attempt cache hit (fast path)
-    key = _cache_key(symbol, timeframe_label, safe_limit, before_ms, getattr(provider, "name", None))
+    key = _cache_key(
+        symbol,
+        timeframe_label,
+        safe_limit,
+        before_ms,
+        getattr(provider, "name", None),
+    )
     now = time.monotonic()
     with _cache_lock:
         entry = _cache.get(key)

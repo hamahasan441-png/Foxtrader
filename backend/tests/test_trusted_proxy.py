@@ -11,12 +11,10 @@ import pytest
 
 pytest.importorskip("fastapi", reason="FastAPI not installed (offline sandbox)")
 
-from fastapi import FastAPI, Request
-from fastapi.testclient import TestClient
-
 from app.api import create_app
 from app.config import Settings
 from app.middleware import client_ip
+from fastapi.testclient import TestClient
 
 
 class _FakeClient:
@@ -83,7 +81,6 @@ def test_rate_limiter_does_not_allow_spoofed_bucket_when_untrusted():
     )
     client = TestClient(create_app(settings))
 
-    body = {"email": "a@b.c", "password": "Password123", "displayName": "A"}
     # First two requests from testclient IP consume budget
     client.post("/api/v1/auth/login", json={"email": "a@b.c", "password": "WrongPass1"})
     client.post("/api/v1/auth/login", json={"email": "a@b.c", "password": "WrongPass2"})

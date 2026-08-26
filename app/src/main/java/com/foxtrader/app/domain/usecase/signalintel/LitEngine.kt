@@ -67,6 +67,14 @@ class LitEngine @Inject constructor(
 
         val choch = context.choch
             ?: return result(symbol, timeframe, baseStage, context, narrativeFor(baseStage, context))
+        val direction = choch.direction
+            ?: return result(
+                symbol,
+                timeframe,
+                LitStage.SCANNING,
+                context,
+                "LiT Pro: directionless structure shift rejected; waiting for a valid CHOCH.",
+            )
 
         // Enforce the repository-defined causal sequence before any POI,
         // displacement, R:R or confidence logic is allowed to validate a trade.
@@ -101,7 +109,7 @@ class LitEngine @Inject constructor(
             )
 
         val poi = context.poi
-            ?.takeIf { it.confirmationIndex == choch.confirmationIndex && it.direction == choch.direction }
+            ?.takeIf { it.confirmationIndex == choch.confirmationIndex && it.direction == direction }
             ?: return result(
                 symbol,
                 timeframe,
@@ -121,11 +129,12 @@ class LitEngine @Inject constructor(
             atrMultiple = cfg.displacementAtrMultiple,
             lookback = DISPLACEMENT_LOOKBACK,
         )
-        val displacementAligned = displacement != null &&
-            displacement.direction == choch.direction &&
-            displacement.startIndex in (choch.confirmationIndex - MAX_DISPLACEMENT_LEAD_BARS)
-                .coerceAtLeast(0)..choch.confirmationIndex
-        if (!displacementAligned) {
+        val alignedDisplacement = displacement?.takeIf {
+            it.direction == direction &&
+                it.startIndex in (choch.confirmationIndex - MAX_DISPLACEMENT_LEAD_BARS)
+                    .coerceAtLeast(0)..choch.confirmationIndex
+        }
+        if (alignedDisplacement == null) {
             return result(
                 symbol,
                 timeframe,
@@ -157,7 +166,7 @@ class LitEngine @Inject constructor(
         }
 
         val scob = context.scob?.takeIf {
-            it.direction == choch.direction && it.confirmationIndex == retestIndex
+            it.direction == direction && it.confirmationIndex == retestIndex
         }
         if (cfg.requireScob && scob == null) {
             return result(
@@ -170,7 +179,7 @@ class LitEngine @Inject constructor(
         }
 
         val entry = candles[retestIndex].close
-        val stop = stopPrice(choch.direction, poi, scob, volatility, cfg.stopAtrBuffer)
+        val stop = stopPrice(direction, poi, scob, volatility, cfg.stopAtrBuffer)
         if (!entry.isFinite() || entry <= 0.0 || !stop.isFinite() || stop <= 0.0) {
             return result(symbol, timeframe, LitStage.RETEST_READY, context, "LiT Pro: invalid entry/risk geometry.")
         }
@@ -184,9 +193,9 @@ class LitEngine @Inject constructor(
             leftBars = cfg.swingLeftBars,
             rightBars = cfg.swingRightBars,
         )
-        val target = structuralTarget(choch.direction, entry, structure, candles, choch.confirmationIndex)
+        val target = structuralTarget(direction, entry, structure, candles, choch.confirmationIndex)
             ?: return result(symbol, timeframe, LitStage.RETEST_READY, context, "LiT Pro: no valid opposing liquidity target.")
-        val reward = when (choch.direction) {
+        val reward = when (direction) {
             Direction.BULLISH -> target - entry
             Direction.BEARISH -> entry - target
         }
@@ -207,7 +216,7 @@ class LitEngine @Inject constructor(
         // Premium/discount is evaluated with bars available at the entry. It is
         // never recalculated from bars that occur after the signal timestamp.
         val zone = premiumDiscount.calculate(candles.subList(0, retestIndex + 1))
-        val directionalZone = when (choch.direction) {
+        val directionalZone = when (direction) {
             Direction.BULLISH -> zone?.currentZone == PriceZoneKind.DISCOUNT
             Direction.BEARISH -> zone?.currentZone == PriceZoneKind.PREMIUM
         }
@@ -227,7 +236,7 @@ class LitEngine @Inject constructor(
             choch = choch,
             poi = poi,
             scob = scob,
-            displacementAtr = displacement!!.atrMultiple,
+            displacementAtr = alignedDisplacement.atrMultiple,
             zoneAligned = directionalZone,
             rr = rr,
         )
@@ -254,13 +263,13 @@ class LitEngine @Inject constructor(
             add("RR_${format2(rr)}")
             add("NON_REPAINT")
         }
-        val rationale = "LiT Pro ${choch.direction.name.lowercase()}: validated IDM -> opposite BOS -> " +
+        val rationale = "LiT Pro ${direction.name.lowercase()}: validated IDM -> opposite BOS -> " +
             "CHOCH + displacement -> ${poi.kind.name.lowercase()} POI" +
             (if (scob != null) " -> SCOB" else "") + " -> first retest."
         val signal = LitSignal(
             symbol = symbol,
             timeframe = timeframe,
-            direction = choch.direction,
+            direction = direction,
             entry = entry,
             stopLoss = stop,
             takeProfit = target,

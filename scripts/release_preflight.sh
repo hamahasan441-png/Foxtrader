@@ -32,14 +32,23 @@ else
 fi
 
 # Catch likely committed secrets without matching documentation placeholders.
-if grep -RInE --exclude-dir=.git --exclude='*.md' --exclude='*.txt' \
+# Keep matches in memory: a failed temporary-file creation used to turn a scan
+# error into a false PASS, which made the release gate fail open.
+secret_matches=""
+if secret_matches="$(grep -RInE --exclude-dir=.git --exclude='*.md' --exclude='*.txt' \
   '(api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret)[[:space:]]*=[[:space:]]*"[A-Za-z0-9._-]{12,}"' \
-  app/src/main/java >/tmp/foxtrader-secret-scan.txt 2>/dev/null; then
+  app/src/main/java 2>/dev/null)"; then
   say "Committed-secret heuristic" "FAIL"
-  cat /tmp/foxtrader-secret-scan.txt
+  printf '%s\n' "$secret_matches"
   fail=1
 else
-  say "Committed-secret heuristic" "PASS"
+  secret_scan_status=$?
+  if [[ "$secret_scan_status" -eq 1 ]]; then
+    say "Committed-secret heuristic" "PASS"
+  else
+    say "Committed-secret heuristic" "FAIL (scanner error)"
+    fail=1
+  fi
 fi
 
 if [[ "${FOXTRADER_REQUIRE_PRODUCTION_CONFIG:-0}" == "1" && -z "${FOXTRADER_BASE_URL:-}" ]]; then

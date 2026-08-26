@@ -43,8 +43,8 @@ def test_market_endpoint_is_rate_limited_with_higher_budget(client: TestClient):
 
     # And it should 429 once its own budget is exhausted
     # Use a client with small market budget to prove limiting works
-    from app.config import Settings
     from app.api import create_app
+    from app.config import Settings
 
     small_market_settings = Settings(
         provider="sample",
