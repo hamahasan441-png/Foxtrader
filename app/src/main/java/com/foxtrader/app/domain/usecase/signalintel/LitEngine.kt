@@ -164,12 +164,26 @@ class LitEngine @Inject constructor(
         if (retestStart > retestEnd) {
             return result(symbol, timeframe, LitStage.POI_READY, context, "LiT Pro: POI ready; waiting for first mitigation.")
         }
-        val retestIndex = (retestStart..retestEnd).firstOrNull { index -> overlaps(candles[index], poi) }
+        val firstTouchIndex = (retestStart..retestEnd).firstOrNull { index -> overlaps(candles[index], poi) }
             ?: return result(symbol, timeframe, LitStage.POI_READY, context, "LiT Pro: POI ready; waiting for first mitigation.")
 
+        // A POI reaction often confirms one or two candles after the first wick
+        // touches the zone. Requiring the touch candle itself to be the SCOB
+        // made the production engine practically silent. The setup is still
+        // one-shot, but a closed directional rejection may confirm the touch
+        // inside this small causal window.
+        val scob = context.scob?.takeIf {
+            it.direction == direction &&
+                it.confirmationIndex in firstTouchIndex..minOf(
+                    retestEnd,
+                    firstTouchIndex + MAX_RETEST_CONFIRM_BARS,
+                )
+        }
+        val retestIndex = scob?.confirmationIndex ?: firstTouchIndex
+
         // One-shot/non-repaint contract. If the first retest is already behind
-        // the newest confirmed candle, the setup has been consumed and cannot
-        // print a duplicate arrow on later bars.
+        // the newest confirmed candle without a bounded rejection confirmation,
+        // the setup has been consumed and cannot print a duplicate later.
         if (retestIndex != candles.lastIndex) {
             return result(
                 symbol,
@@ -180,9 +194,6 @@ class LitEngine @Inject constructor(
             )
         }
 
-        val scob = context.scob?.takeIf {
-            it.direction == direction && it.confirmationIndex == retestIndex
-        }
         if (cfg.requireScob && scob == null) {
             return result(
                 symbol,
@@ -200,7 +211,7 @@ class LitEngine @Inject constructor(
         // Switchable, because it is a genuine selectivity trade-off rather than
         // a correctness fix: it removes real setups along with the bad ones.
         val poiDivergence = if (cfg.requirePoiDivergence) {
-            poiDivergenceDetector.detect(
+            val divergence = poiDivergenceDetector.detect(
                 candles = candles,
                 retestIndex = retestIndex,
                 direction = direction,
@@ -209,13 +220,21 @@ class LitEngine @Inject constructor(
                 minRsiGap = cfg.poiDivergenceMinRsiGap,
                 pivotLeft = cfg.swingLeftBars,
                 pivotRight = cfg.swingRightBars,
-            ) ?: return result(
-                symbol,
-                timeframe,
-                LitStage.RETEST_READY,
-                context,
-                "LiT Pro: POI retested; waiting for RSI divergence confirmation.",
             )
+            // A confirmed SCOB is direct price-action evidence that the POI
+            // rejected. Treat it as an alternative momentum confirmation when
+            // regular RSI divergence is absent; requiring both made two valid
+            // confirmations mutually mandatory and removed almost all arrows.
+            if (divergence == null && scob == null) {
+                return result(
+                    symbol,
+                    timeframe,
+                    LitStage.RETEST_READY,
+                    context,
+                    "LiT Pro: POI retested; waiting for RSI divergence or SCOB rejection.",
+                )
+            }
+            divergence
         } else {
             null
         }
@@ -302,6 +321,7 @@ class LitEngine @Inject constructor(
             add("POI_${poi.kind.name}")
             poiDivergence?.let { add("POI_DIVERGENCE_${format2(it.rsiGap)}") }
             if (scob != null) add("SCOB")
+            if (poiDivergence == null && scob != null) add("SCOB_MOMENTUM_CONFIRMATION")
             if (directionalZone) add("PREMIUM_DISCOUNT")
             add("RR_${format2(rr)}")
             add("NON_REPAINT")
@@ -454,6 +474,7 @@ class LitEngine @Inject constructor(
         const val TARGET_LOOKBACK = 80
         const val DISPLACEMENT_LOOKBACK = 8
         const val MAX_DISPLACEMENT_LEAD_BARS = 3
+        const val MAX_RETEST_CONFIRM_BARS = 2
         const val MIN_PRICE_EPSILON = 1e-9
     }
 }
