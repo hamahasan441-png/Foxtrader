@@ -161,6 +161,7 @@ internal fun DrawScope.drawSignalMarkers(
                 SignalSource.VALUE_AREA_LIQUIDITY_REJECTION -> "VALR"
                 SignalSource.ACCUMULATION_MANIPULATION_DISTRIBUTION -> "AMD"
                 SignalSource.NASCENT -> "NFX"
+                SignalSource.APEX -> "APX"
                 SignalSource.BINARY3M -> "B3"
                 SignalSource.STRATEGY -> "ST"
             }

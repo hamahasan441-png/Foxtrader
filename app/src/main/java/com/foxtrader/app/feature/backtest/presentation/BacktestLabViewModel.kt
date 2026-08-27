@@ -30,6 +30,7 @@ import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
 import com.foxtrader.app.domain.usecase.strategies.StrategyLibrary
 import com.foxtrader.app.domain.usecase.liquiditysweep.LiquiditySweepEngine
 import com.foxtrader.app.domain.usecase.nascent.NascentEngine
+import com.foxtrader.app.domain.usecase.apex.ApexEngine
 import com.foxtrader.app.domain.usecase.virginwick.VirginWickEngine
 import com.foxtrader.app.domain.usecase.rsireversal.RsiReversalEngine
 import com.foxtrader.app.domain.usecase.signalintel.AccumulationManipulationDistributionEngine
@@ -73,6 +74,7 @@ class BacktestLabViewModel @Inject constructor(
     private val nascentEngine: NascentEngine,
     private val liquiditySweepEngine: LiquiditySweepEngine,
     private val virginWickEngine: VirginWickEngine,
+    private val apexEngine: ApexEngine,
     private val rsiReversalEngine: RsiReversalEngine,
     private val smtSignalEngine: SmtSignalEngine,
     private val mtfContextProvider: MtfContextProvider,
@@ -331,7 +333,7 @@ class BacktestLabViewModel @Inject constructor(
                 } else {
                     emptyMap()
                 }
-                val strategy = buildStrategy(state, correlatedCandles)
+                val strategy = buildStrategy(state, candles, correlatedCandles)
 
                 val result = withContext(defaultDispatcher) {
                     if (state.aiScoringEnabled) {
@@ -541,6 +543,7 @@ class BacktestLabViewModel @Inject constructor(
 
     private fun buildStrategy(
         state: BacktestLabUiState,
+        candles: List<Candle>,
         correlatedCandles: Map<String, List<Candle>> = emptyMap(),
     ): StrategyFunction {
         val blueprint = state.selectedBlueprint
@@ -597,6 +600,14 @@ class BacktestLabViewModel @Inject constructor(
             BacktestStrategyTemplate.VIRGIN_WICK -> virginWickEngine.strategyFunction(
                 symbol = state.symbol,
                 timeframe = state.timeframe,
+            )
+            // Single pass rather than one analysis per bar: Apex runs six
+            // member engines per call, and the engine is non-repainting in the
+            // strict sense, so the two are equal and only one of them finishes.
+            BacktestStrategyTemplate.APEX -> apexEngine.backtestFunction(
+                symbol = state.symbol,
+                timeframe = state.timeframe,
+                candles = candles,
             )
             // The selected timeframe is the entry timeframe; the engine
             // reconstructs the context timeframe above it by resampling, which

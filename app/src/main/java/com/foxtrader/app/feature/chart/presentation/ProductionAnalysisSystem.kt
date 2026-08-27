@@ -22,6 +22,11 @@ enum class ProductionAnalysisSystem(val label: String) {
     VIRGIN_WICK("Virgin Wick"),
     PIVOT_SWEEP_DIVERGENCE("Pivot Sweep Divergence"),
     VALUE_AREA_LIQUIDITY_REJECTION("Value Area Liquidity Rejection"),
+
+    // Apex runs the other members itself, so selecting it clears their own
+    // chart toggles: what is left on the chart is the consensus, not the
+    // consensus drawn on top of the votes it was built from.
+    APEX("Apex Consensus"),
 }
 
 /** Resolve a single selected canonical engine when the state is unambiguous. */
@@ -36,6 +41,7 @@ fun IndicatorToggles.productionAnalysisSystem(): ProductionAnalysisSystem? {
         ProductionAnalysisSystem.VIRGIN_WICK.takeIf { virginWick },
         ProductionAnalysisSystem.PIVOT_SWEEP_DIVERGENCE.takeIf { pivotSweepDivergence },
         ProductionAnalysisSystem.VALUE_AREA_LIQUIDITY_REJECTION.takeIf { valueAreaLiquidityRejection },
+        ProductionAnalysisSystem.APEX.takeIf { apex },
     )
     return selected.singleOrNull()
 }
@@ -46,7 +52,7 @@ fun IndicatorToggles.productionAnalysisSystem(): ProductionAnalysisSystem? {
  * The legacy implementation rebuilt [IndicatorToggles] from scratch, which
  * silently disabled EMA/MACD/SMC/profile studies whenever the user changed the
  * analysis system. That made indicator availability depend on the active mode.
- * This implementation clears only the five mutually-exclusive canonical engine
+ * This implementation clears only the mutually-exclusive canonical engine
  * flags and preserves every other chart choice and its [ChartStudySettings].
  */
 fun IndicatorToggles.withProductionAnalysisSystem(
@@ -62,6 +68,7 @@ fun IndicatorToggles.withProductionAnalysisSystem(
         virginWick = false,
         pivotSweepDivergence = false,
         valueAreaLiquidityRejection = false,
+        apex = false,
     )
 
     return when (system) {
@@ -74,6 +81,7 @@ fun IndicatorToggles.withProductionAnalysisSystem(
         ProductionAnalysisSystem.VIRGIN_WICK -> preserved.copy(virginWick = true)
         ProductionAnalysisSystem.PIVOT_SWEEP_DIVERGENCE -> preserved.copy(pivotSweepDivergence = true)
         ProductionAnalysisSystem.VALUE_AREA_LIQUIDITY_REJECTION -> preserved.copy(valueAreaLiquidityRejection = true)
+        ProductionAnalysisSystem.APEX -> preserved.copy(apex = true)
         null -> preserved
     }
 }

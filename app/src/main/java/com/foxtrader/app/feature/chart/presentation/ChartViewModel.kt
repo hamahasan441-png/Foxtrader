@@ -60,6 +60,7 @@ import com.foxtrader.app.domain.usecase.signalintel.RsiOrderFlowSignalEngine
 import com.foxtrader.app.domain.usecase.nascent.NascentEngine
 import com.foxtrader.app.domain.usecase.liquiditysweep.LiquiditySweepEngine
 import com.foxtrader.app.domain.usecase.rsireversal.RsiReversalEngine
+import com.foxtrader.app.domain.usecase.apex.ApexEngine
 import com.foxtrader.app.domain.usecase.virginwick.VirginWickEngine
 import com.foxtrader.app.domain.usecase.signalintel.AccumulationManipulationDistributionEngine
 import com.foxtrader.app.domain.usecase.signalintel.PivotSweepDivergenceEngine
@@ -138,6 +139,7 @@ class ChartViewModel @Inject constructor(
     private val rsiReversalEngine: RsiReversalEngine,
     private val liquiditySweepEngine: LiquiditySweepEngine,
     private val virginWickEngine: VirginWickEngine,
+    private val apexEngine: ApexEngine,
     private val rsiReversalLtfProvider: RsiReversalLtfProvider,
     private val heikinAshiTransformer: HeikinAshiTransformer,
     private val candleRenkoBuilder: CandleRenkoBuilder,
@@ -845,6 +847,25 @@ class ChartViewModel @Inject constructor(
         val virginWickSignals: List<ChartSignal> = virginWickAnalysis?.signals.orEmpty()
             .map { it.toChartSignal(latestConfirmedIndex) }
 
+        // Apex runs the member engines itself over this same series. It is the
+        // heaviest study here by some margin, so it only runs when asked for.
+        val apexAnalysis = if (
+            ind.apex && barMode == ChartBarMode.TIME && signalCandles.isNotEmpty()
+        ) {
+            withContext(defaultDispatcher) {
+                containedOrNull {
+                    apexEngine.analyze(
+                        symbol = symbol,
+                        timeframe = timeframe,
+                        candles = signalCandles,
+                        config = ind.settings.apex.toEngineConfig(),
+                    )
+                }
+            }
+        } else null
+        val apexSignals: List<ChartSignal> = apexAnalysis?.signals.orEmpty()
+            .map { it.toChartSignal(latestConfirmedIndex) }
+
         // Backfill previously confirmed LiT arrows. Each bar is evaluated only
         // through its own closed prefix, so later data cannot create, move or
         // delete an earlier marker (non-repaint by construction).
@@ -971,7 +992,7 @@ class ChartViewModel @Inject constructor(
             emptyList()
         }
 
-        val chartStrategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + nascentSignals + rsiReversalSignals + liquiditySweepSignals + virginWickSignals + strategySignals + binary3mSignals
+        val chartStrategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + nascentSignals + rsiReversalSignals + liquiditySweepSignals + virginWickSignals + apexSignals + strategySignals + binary3mSignals
 
         // Drop stale frames: a newer computation (e.g. from a rapid indicator
         // toggle) has already started, so publishing this older result would
@@ -1264,6 +1285,23 @@ class ChartViewModel @Inject constructor(
         val virginWickSignals: List<ChartSignal> = virginWickAnalysis?.signals.orEmpty()
             .map { it.toChartSignal(candles.lastIndex) }
 
+        val apexAnalysis = if (
+            ind.apex && current.barMode == ChartBarMode.TIME && candles.isNotEmpty()
+        ) {
+            withContext(defaultDispatcher) {
+                containedOrNull {
+                    apexEngine.analyze(
+                        symbol = symbol,
+                        timeframe = timeframe,
+                        candles = candles,
+                        config = ind.settings.apex.toEngineConfig(),
+                    )
+                }
+            }
+        } else null
+        val apexSignals: List<ChartSignal> = apexAnalysis?.signals.orEmpty()
+            .map { it.toChartSignal(candles.lastIndex) }
+
         val productionHistory = if ((ind.litX || ind.lit) && candles.isNotEmpty()) {
             withContext(defaultDispatcher) {
                 scanProductionSignalHistory(
@@ -1355,7 +1393,7 @@ class ChartViewModel @Inject constructor(
             tradeProAnalysis = null,
             smtDivergences = emptyList(),
             candles = candles,
-            strategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + nascentSignals + rsiReversalSignals + liquiditySweepSignals + virginWickSignals + strategySignals + binary3mSignals,
+            strategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + nascentSignals + rsiReversalSignals + liquiditySweepSignals + virginWickSignals + apexSignals + strategySignals + binary3mSignals,
             litAnalysis = litAnalysis,
             smsAnalysis = smsAnalysis,
             rsiOrderFlowSignals = rsiOrderFlowSignals,
@@ -2589,6 +2627,35 @@ private fun com.foxtrader.app.domain.usecase.virginwick.model.VirginWickSignal.t
         confirmationIndex = entryIndex,
     ),
     variant = "${entryType.name}/${targetSource.name}",
+)
+
+private fun com.foxtrader.app.domain.usecase.apex.model.ApexSignal.toChartSignal(
+    latestConfirmedIndex: Int,
+): ChartSignal = ChartSignal(
+    id = "apex_${symbol}_${timestamp}_${direction.name}_$index",
+    source = SignalSource.APEX,
+    direction = direction,
+    entry = entry,
+    sl = stop,
+    tp = target,
+    barIndex = index,
+    timestamp = timestamp,
+    // The measured hit rate this signal was published under — a real number
+    // about this engine's own record, not a score invented for display. When
+    // the gate is configured to publish before anything has resolved there is
+    // no measured basis, and zero is the honest way to say so.
+    confidence = (precisionAtPublication.hitRate ?: 0.0) * 100.0,
+    isLive = index == latestConfirmedIndex,
+    label = "Apex ${candidate.members.size}x · RR ${"%.1f".format(candidate.rewardMultiple)} · " +
+        reasons.take(2).joinToString(" · "),
+    eventKey = SignalIdentity.apex(
+        symbol = symbol,
+        timeframe = timeframe,
+        timestamp = timestamp,
+        direction = direction,
+        confirmationIndex = index,
+    ),
+    variant = candidate.members.joinToString("+") { it.name },
 )
 
 private fun AccumulationManipulationDistributionEngine.Signal.toChartSignal(latestConfirmedIndex: Int): ChartSignal =

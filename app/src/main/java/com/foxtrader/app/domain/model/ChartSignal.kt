@@ -104,6 +104,13 @@ enum class SignalSource {
     /** Nascent FX Primary Analysis: external key level + internal MSU/EPA setup. */
     NASCENT,
 
+    /**
+     * Apex: several methodologies independently agreeing on the same trade,
+     * published only while the engine's own measured record supports the
+     * configured hit rate.
+     */
+    APEX,
+
     /** A rule from the backtestable [com.foxtrader.app.domain.usecase.strategies.StrategyLibrary]. */
     STRATEGY,
 }

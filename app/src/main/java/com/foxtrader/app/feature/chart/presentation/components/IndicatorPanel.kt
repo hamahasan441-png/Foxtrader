@@ -128,6 +128,9 @@ fun IndicatorPanel(
                         StudyItem("Nascent FX Primary Analysis", ChartStudyId.NASCENT, toggles.nascent) { t ->
                             t.copy(nascent = !t.nascent)
                         },
+                        StudyItem("Apex Consensus", ChartStudyId.APEX, toggles.apex) { t ->
+                            t.copy(apex = !t.apex)
+                        },
                         StudyItem("SMS", ChartStudyId.SMS, toggles.sms) { t -> t.withSmsSuite(!t.sms) },
                         StudyItem("TradePro", ChartStudyId.TRADE_PRO, toggles.tradePro) { t -> t.withTradeProSuite(!t.tradePro) },
                         StudyItem("Deriv 3m", ChartStudyId.BINARY_3M, toggles.binary3m) { t ->

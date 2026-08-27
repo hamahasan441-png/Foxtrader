@@ -22,6 +22,7 @@ data class ChartStudySettings(
     val valueAreaLiquidityRejection: ValueAreaLiquidityRejectionStudySettings = ValueAreaLiquidityRejectionStudySettings(),
     val amd: AmdStudySettings = AmdStudySettings(),
     val nascent: NascentStudySettings = NascentStudySettings(),
+    val apex: ApexStudySettings = ApexStudySettings(),
     val macd: MacdStudySettings = MacdStudySettings(),
     val bollinger: BollingerStudySettings = BollingerStudySettings(),
     val superTrend: SuperTrendStudySettings = SuperTrendStudySettings(),
@@ -43,6 +44,7 @@ data class ChartStudySettings(
         valueAreaLiquidityRejection = valueAreaLiquidityRejection.sanitized(),
         amd = amd.sanitized(),
         nascent = nascent.sanitized(),
+        apex = apex.sanitized(),
         macd = macd.sanitized(),
         bollinger = bollinger.sanitized(),
         superTrend = superTrend.sanitized(),
@@ -570,3 +572,51 @@ data class MfiStudySettings(
 
 private const val MAX_PERIOD = 500
 private fun finiteOr(value: Double, fallback: Double): Double = if (value.isFinite()) value else fallback
+
+/**
+ * Trader-facing settings for the Apex consensus engine.
+ *
+ * The preset chooses the trading style; the rest is the honesty dial. The
+ * required hit rate is not a promise the engine makes — it is a bar the engine
+ * holds *itself* to, measured on its own resolved trades. Raising it does not
+ * improve the method, it only makes the engine quieter, and quiet is the
+ * correct behaviour when the record cannot support the number being asked for.
+ */
+@Immutable
+data class ApexStudySettings(
+    val preset: ApexPresetOption = ApexPresetOption.INTRADAY,
+    /** Distinct methodologies that must agree before a trade is considered. */
+    val minAgreeingMembers: Int = 2,
+    /** Hit rate the engine's own measured record must show before publishing. */
+    val minHitRate: Double = 0.80,
+    /** Resolved trades required before that rate is treated as evidence. */
+    val minResolvedSample: Int = 30,
+    /** How many recent resolved trades the rate is measured over. */
+    val precisionWindow: Int = 60,
+    /**
+     * Judge the threshold on the 95% confidence lower bound, not the raw rate.
+     *
+     * Leaving this on is the difference between "four of my last five won" and
+     * a record long enough that the rate is unlikely to be luck.
+     */
+    val useConfidenceBound: Boolean = true,
+    /** Publish before any trades have resolved, marked as unmeasured. */
+    val publishBeforeMeasured: Boolean = false,
+    val historicalSignals: Boolean = true,
+    val liveWindowBars: Int = 500,
+) {
+    fun sanitized(): ApexStudySettings = copy(
+        minAgreeingMembers = minAgreeingMembers.coerceIn(1, 6),
+        minHitRate = if (minHitRate.isFinite()) minHitRate.coerceIn(0.0, 1.0) else 0.80,
+        minResolvedSample = minResolvedSample.coerceIn(1, 500),
+        precisionWindow = precisionWindow.coerceIn(1, 1_000),
+        liveWindowBars = liveWindowBars.coerceIn(20, 10_000),
+    )
+}
+
+/** Trading style Apex shapes its defaults for. */
+enum class ApexPresetOption(val label: String) {
+    SCALPING("Scalping"),
+    INTRADAY("Intraday"),
+    SWING("Swing"),
+}

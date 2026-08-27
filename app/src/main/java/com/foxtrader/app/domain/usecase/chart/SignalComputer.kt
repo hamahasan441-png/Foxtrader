@@ -279,6 +279,7 @@ class SignalComputer @Inject constructor(
         SignalSource.VALUE_AREA_LIQUIDITY_REJECTION -> 93
         SignalSource.ACCUMULATION_MANIPULATION_DISTRIBUTION -> 91
         SignalSource.NASCENT -> 94
+        SignalSource.APEX -> 97
         SignalSource.SMT -> 85
         SignalSource.TRADEPRO -> 80
         SignalSource.BINARY3M -> 70
@@ -303,16 +304,23 @@ class SignalComputer @Inject constructor(
 
         // Only live signals represent the current market read. Binary3m is
         // excluded because its confidence is part of a fixed-expiry strategy
-        // contract shared with its backtester.
+        // contract shared with its backtester. Apex is excluded because it is
+        // built out of the very engines it would be counted alongside — letting
+        // it contribute a family would count the same evidence twice.
         val liveFamiliesByDirection: Map<Direction, Set<SignalEvidenceReducer.Family>> =
             signals
-                .filter { it.isLive && it.source != SignalSource.BINARY3M }
+                .filter { it.isLive && it.source != SignalSource.BINARY3M && it.source != SignalSource.APEX }
                 .groupBy { it.direction }
                 .mapValues { (_, group) -> group.map { evidenceReducer.family(it.source) }.toSet() }
 
         return signals.map { signal ->
             if (!signal.isLive) return@map signal
             if (signal.source == SignalSource.BINARY3M) return@map signal
+            // An Apex signal already carries the members' agreement, and its
+            // confidence is a measured hit rate rather than a score. Boosting
+            // it for the agreement it is made of would inflate a number whose
+            // whole value is that it means one specific thing.
+            if (signal.source == SignalSource.APEX) return@map signal
             // TradePro confidence has already been adjusted by the Phase-13
             // fusion engine. Do not apply a second chart-level boost.
             if (phase13TradeProAlreadyFused && signal.source == SignalSource.TRADEPRO) return@map signal
