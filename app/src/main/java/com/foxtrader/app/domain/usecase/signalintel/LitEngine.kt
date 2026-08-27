@@ -139,15 +139,19 @@ class LitEngine @Inject constructor(
         // Freeze displacement evidence at the CHOCH confirmation boundary. A
         // future impulse is never allowed to retroactively validate an old shift.
         val throughChoch = candles.subList(0, choch.confirmationIndex + 1)
-        val displacement = displacementDetector.detectLatest(
+        // Ask for the latest impulse *in the shift's direction*, rather than the
+        // latest impulse of any direction which then has to happen to point the
+        // right way. The second form is what shipped, and one opposing candle
+        // inside the window was enough to hide an aligned impulse a bar earlier
+        // and leave a real shift unconfirmed.
+        val alignedDisplacement = displacementDetector.detectLatestInDirection(
             candles = throughChoch,
+            direction = direction,
             atrMultiple = cfg.displacementAtrMultiple,
             lookback = DISPLACEMENT_LOOKBACK,
-        )
-        val alignedDisplacement = displacement?.takeIf {
-            it.direction == direction &&
-                it.startIndex in (choch.confirmationIndex - MAX_DISPLACEMENT_LEAD_BARS)
-                    .coerceAtLeast(0)..choch.confirmationIndex
+        )?.takeIf {
+            it.startIndex in (choch.confirmationIndex - MAX_DISPLACEMENT_LEAD_BARS)
+                .coerceAtLeast(0)..choch.confirmationIndex
         }
         if (alignedDisplacement == null) {
             return result(
