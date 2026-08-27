@@ -170,6 +170,7 @@ class LiveSignalArchive(
         SignalSource.NASCENT -> 94
         SignalSource.APEX -> 97
         SignalSource.COMPASS -> 98
+        SignalSource.CRUCIBLE -> 95
         SignalSource.SMT -> 85
         SignalSource.TRADEPRO -> 80
         SignalSource.BINARY3M -> 70

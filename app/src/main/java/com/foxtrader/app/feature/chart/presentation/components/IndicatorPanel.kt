@@ -134,6 +134,9 @@ fun IndicatorPanel(
                         StudyItem("Compass Accuracy", ChartStudyId.COMPASS, toggles.compass) { t ->
                             t.copy(compass = !t.compass)
                         },
+                        StudyItem("Crucible Discovery", ChartStudyId.CRUCIBLE, toggles.crucible) { t ->
+                            t.copy(crucible = !t.crucible)
+                        },
                         StudyItem("SMS", ChartStudyId.SMS, toggles.sms) { t -> t.withSmsSuite(!t.sms) },
                         StudyItem("TradePro", ChartStudyId.TRADE_PRO, toggles.tradePro) { t -> t.withTradeProSuite(!t.tradePro) },
                         StudyItem("Deriv 3m", ChartStudyId.BINARY_3M, toggles.binary3m) { t ->

@@ -24,6 +24,7 @@ data class ChartStudySettings(
     val nascent: NascentStudySettings = NascentStudySettings(),
     val apex: ApexStudySettings = ApexStudySettings(),
     val compass: CompassStudySettings = CompassStudySettings(),
+    val crucible: CrucibleStudySettings = CrucibleStudySettings(),
     val macd: MacdStudySettings = MacdStudySettings(),
     val bollinger: BollingerStudySettings = BollingerStudySettings(),
     val superTrend: SuperTrendStudySettings = SuperTrendStudySettings(),
@@ -47,6 +48,7 @@ data class ChartStudySettings(
         nascent = nascent.sanitized(),
         apex = apex.sanitized(),
         compass = compass.sanitized(),
+        crucible = crucible.sanitized(),
         macd = macd.sanitized(),
         bollinger = bollinger.sanitized(),
         superTrend = superTrend.sanitized(),
@@ -672,6 +674,69 @@ data class CompassStudySettings(
 
 /** Trading style Compass shapes its horizon and barrier for. */
 enum class CompassPresetOption(val label: String) {
+    SCALPING("Scalping"),
+    INTRADAY("Intraday"),
+    SWING("Swing"),
+}
+
+/**
+ * Trader-facing settings for the Crucible discovery engine.
+ *
+ * The most consequential setting here is the question being asked. Direction
+ * and movement are searched identically, and the difference in what survives is
+ * the engine's main result rather than a detail of configuration.
+ *
+ * The cut-points and fold count are not exposed. Both determine the size of the
+ * search, and the size of the search is what the false-discovery correction and
+ * the overfitting probability are computed from — so an editable version would
+ * let the search be widened until something passed, which is the failure the
+ * whole engine exists to prevent.
+ */
+@Immutable
+data class CrucibleStudySettings(
+    val target: CrucibleTargetOption = CrucibleTargetOption.DIRECTION,
+    val preset: CruciblePresetOption = CruciblePresetOption.INTRADAY,
+    val horizonBars: Int = 24,
+    /** Barrier half-width in ATR multiples for the direction question. */
+    val barrierAtrMultiple: Double = 1.0,
+    /** Barrier for the movement question — wider, or the question is trivial. */
+    val movementBarrierAtrMultiple: Double = 2.5,
+    /** Accuracy a rule must demonstrate out of sample. */
+    val minAccuracy: Double = 0.80,
+    /** Margin above what the target's own base rate already gives. */
+    val minLiftOverBaseRate: Double = 0.05,
+    /** Share of published findings allowed to be spurious. */
+    val falseDiscoveryRate: Double = 0.05,
+    /** Overfitting probability above which the whole run is withheld. */
+    val maxOverfittingProbability: Double = 0.5,
+    /** Independent-equivalent observations a rule needs. */
+    val minEffectiveSample: Double = 25.0,
+    val historicalSignals: Boolean = true,
+    val liveWindowBars: Int = 500,
+) {
+    fun sanitized(): CrucibleStudySettings = copy(
+        horizonBars = horizonBars.coerceIn(1, 500),
+        barrierAtrMultiple = finite(barrierAtrMultiple, 1.0).coerceIn(0.1, 10.0),
+        movementBarrierAtrMultiple = finite(movementBarrierAtrMultiple, 2.5).coerceIn(0.1, 20.0),
+        minAccuracy = finite(minAccuracy, 0.80).coerceIn(0.0, 1.0),
+        minLiftOverBaseRate = finite(minLiftOverBaseRate, 0.05).coerceIn(0.0, 0.5),
+        falseDiscoveryRate = finite(falseDiscoveryRate, 0.05).coerceIn(0.001, 0.5),
+        maxOverfittingProbability = finite(maxOverfittingProbability, 0.5).coerceIn(0.0, 1.0),
+        minEffectiveSample = finite(minEffectiveSample, 25.0).coerceIn(1.0, 500.0),
+        liveWindowBars = liveWindowBars.coerceIn(20, 10_000),
+    )
+
+    private fun finite(value: Double, fallback: Double): Double =
+        if (value.isFinite()) value else fallback
+}
+
+/** Which question Crucible searches against. */
+enum class CrucibleTargetOption(val label: String) {
+    DIRECTION("Direction"),
+    MOVEMENT("Movement"),
+}
+
+enum class CruciblePresetOption(val label: String) {
     SCALPING("Scalping"),
     INTRADAY("Intraday"),
     SWING("Swing"),

@@ -21,6 +21,7 @@ class BacktestLabStrategyScopeTest {
                 BacktestStrategyTemplate.VIRGIN_WICK,
                 BacktestStrategyTemplate.APEX,
                 BacktestStrategyTemplate.COMPASS,
+                BacktestStrategyTemplate.CRUCIBLE,
             ),
             BacktestStrategyTemplate.primaryEntries,
         )

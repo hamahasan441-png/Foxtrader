@@ -67,6 +67,9 @@ import com.foxtrader.app.feature.chart.presentation.LiquiditySweepStudySettings
 import com.foxtrader.app.feature.chart.presentation.RsiOrderFlowStudySettings
 import com.foxtrader.app.feature.chart.presentation.ApexPresetOption
 import com.foxtrader.app.feature.chart.presentation.CompassPresetOption
+import com.foxtrader.app.feature.chart.presentation.CruciblePresetOption
+import com.foxtrader.app.feature.chart.presentation.CrucibleStudySettings
+import com.foxtrader.app.feature.chart.presentation.CrucibleTargetOption
 import com.foxtrader.app.feature.chart.presentation.CompassStudySettings
 import com.foxtrader.app.feature.chart.presentation.ApexStudySettings
 import com.foxtrader.app.feature.chart.presentation.VirginWickEntryPreset
@@ -682,6 +685,73 @@ ResetButton { updateSettings(onChange) { it.copy(rsiOrderFlow = RsiOrderFlowStud
                     ResetButton { updateSettings(onChange) { it.copy(compass = CompassStudySettings()) } }
                 }
 
+                StudyControlId.CRUCIBLE -> {
+                    CrucibleTargetRow(settings.crucible.target) { target ->
+                        updateSettings(onChange) { it.copy(crucible = it.crucible.copy(target = target)) }
+                    }
+                    CruciblePresetRow(settings.crucible.preset) { preset ->
+                        updateSettings(onChange) { it.copy(crucible = it.crucible.copy(preset = preset)) }
+                    }
+                    IntStepper("Required accuracy %", (settings.crucible.minAccuracy * 100).toInt(), 0, 100) { value ->
+                        updateSettings(onChange) {
+                            it.copy(crucible = it.crucible.copy(minAccuracy = value / 100.0).sanitized())
+                        }
+                    }
+                    IntStepper("Min lift over base %", (settings.crucible.minLiftOverBaseRate * 100).toInt(), 0, 50) { value ->
+                        updateSettings(onChange) {
+                            it.copy(crucible = it.crucible.copy(minLiftOverBaseRate = value / 100.0).sanitized())
+                        }
+                    }
+                    IntStepper("False discovery %", (settings.crucible.falseDiscoveryRate * 100).toInt(), 1, 50) { value ->
+                        updateSettings(onChange) {
+                            it.copy(crucible = it.crucible.copy(falseDiscoveryRate = value / 100.0).sanitized())
+                        }
+                    }
+                    IntStepper("Max overfit %", (settings.crucible.maxOverfittingProbability * 100).toInt(), 0, 100) { value ->
+                        updateSettings(onChange) {
+                            it.copy(crucible = it.crucible.copy(maxOverfittingProbability = value / 100.0).sanitized())
+                        }
+                    }
+                    IntStepper("Horizon bars", settings.crucible.horizonBars, 1, 500) { value ->
+                        updateSettings(onChange) { it.copy(crucible = it.crucible.copy(horizonBars = value).sanitized()) }
+                    }
+                    DoubleStepper("Direction barrier (ATR)", settings.crucible.barrierAtrMultiple, 0.1, 0.1, 10.0) { value ->
+                        updateSettings(onChange) {
+                            it.copy(crucible = it.crucible.copy(barrierAtrMultiple = value).sanitized())
+                        }
+                    }
+                    DoubleStepper("Movement barrier (ATR)", settings.crucible.movementBarrierAtrMultiple, 0.25, 0.1, 20.0) { value ->
+                        updateSettings(onChange) {
+                            it.copy(crucible = it.crucible.copy(movementBarrierAtrMultiple = value).sanitized())
+                        }
+                    }
+                    ToggleRow("Keep historical signals", settings.crucible.historicalSignals) { enabled ->
+                        updateSettings(onChange) { it.copy(crucible = it.crucible.copy(historicalSignals = enabled)) }
+                    }
+                    Text(
+                        text = "Thousands of rules are tested → scored only outside the data they were found " +
+                            "in, with overlapping outcomes purged → corrected for how many rules were tried → " +
+                            "and the search itself is measured for overfitting before anything is shown.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textSecondary,
+                    )
+                    Text(
+                        text = "Direction and movement are searched identically. What survives in one and not " +
+                            "the other is the result: which way price goes is close to unpredictable, whether " +
+                            "it moves at all is not.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textSecondary,
+                    )
+                    Text(
+                        text = "Movement rules describe when a move is likely, not its direction, so they are " +
+                            "reported as findings and never drawn as arrows.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textSecondary,
+                    )
+                    SignalArrowNote()
+                    ResetButton { updateSettings(onChange) { it.copy(crucible = CrucibleStudySettings()) } }
+                }
+
                 StudyControlId.PIVOT_SWEEP_DIVERGENCE -> {
                     PsdModeSelector(settings.pivotSweepDivergence.mode) { mode ->
                         updateSettings(onChange) {
@@ -1193,6 +1263,18 @@ private fun SettingRow(label: String, value: String, onMinus: () -> Unit, onPlus
 }
 
 @Composable
+private fun CrucibleTargetRow(
+    selected: CrucibleTargetOption,
+    onSelect: (CrucibleTargetOption) -> Unit,
+) = PresetChipRow("Predict", CrucibleTargetOption.entries, selected, { it.label }, onSelect)
+
+@Composable
+private fun CruciblePresetRow(
+    selected: CruciblePresetOption,
+    onSelect: (CruciblePresetOption) -> Unit,
+) = PresetChipRow("Style", CruciblePresetOption.entries, selected, { it.label }, onSelect)
+
+@Composable
 private fun CompassPresetRow(
     selected: CompassPresetOption,
     onSelect: (CompassPresetOption) -> Unit,
@@ -1516,6 +1598,10 @@ private fun activeStudies(t: IndicatorToggles): List<ActiveStudy> = buildList {
             add(ActiveStudy(StudyControlId.COMPASS, "Compass Accuracy"))
             return@buildList
         }
+        ProductionAnalysisSystem.CRUCIBLE -> {
+            add(ActiveStudy(StudyControlId.CRUCIBLE, "Crucible Discovery"))
+            return@buildList
+        }
         null -> Unit
     }
 
@@ -1556,6 +1642,7 @@ private fun activeStudies(t: IndicatorToggles): List<ActiveStudy> = buildList {
     if (t.nascent) add(ActiveStudy(StudyControlId.NASCENT, "Nascent FX"))
     if (t.apex) add(ActiveStudy(StudyControlId.APEX, "Apex"))
     if (t.compass) add(ActiveStudy(StudyControlId.COMPASS, "Compass"))
+    if (t.crucible) add(ActiveStudy(StudyControlId.CRUCIBLE, "Crucible"))
     if (t.macd) add(ActiveStudy(StudyControlId.MACD, "MACD"))
     if (t.volume) add(ActiveStudy(StudyControlId.VOLUME, "Volume"))
     if (t.stochastic) add(ActiveStudy(StudyControlId.STOCHASTIC, "Stoch"))
@@ -1608,6 +1695,7 @@ private fun removeStudy(
         StudyControlId.NASCENT -> t.copy(nascent = false)
         StudyControlId.APEX -> t.withProductionAnalysisSystem(null)
         StudyControlId.COMPASS -> t.withProductionAnalysisSystem(null)
+        StudyControlId.CRUCIBLE -> t.withProductionAnalysisSystem(null)
         StudyControlId.MACD -> t.copy(macd = false)
         StudyControlId.VOLUME -> t.copy(volume = false)
         StudyControlId.STOCHASTIC -> t.copy(stochastic = false)
@@ -1638,6 +1726,7 @@ private enum class StudyControlId(val title: String) {
     NASCENT("Nascent FX settings"),
     APEX("Apex Consensus settings"),
     COMPASS("Compass Accuracy settings"),
+    CRUCIBLE("Crucible Discovery settings"),
     MACD("MACD settings"), VOLUME("Volume"),
     STOCHASTIC("Stochastic settings"), OBV("OBV"), MFI("MFI settings"), STRATEGY("Strategy settings"),
     CUSTOM_STRATEGY("Custom strategy"), ALL_STRATEGIES("All strategies"),

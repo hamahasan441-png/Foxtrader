@@ -89,6 +89,7 @@ data class IndicatorToggles(
     val nascent: Boolean = false,
     val apex: Boolean = false,
     val compass: Boolean = false,
+    val crucible: Boolean = false,
     val macd: Boolean = false,
     val volume: Boolean = false,
     val stochastic: Boolean = false,
@@ -105,7 +106,7 @@ data class IndicatorToggles(
             ichimoku || keltner || donchian || pivotPoints || volumeProfile || marketProfile ||
             supportResistance || fibonacci || confluence || orderBlocks || fairValueGaps ||
             liquidity || sessions || structure || litX || lit || sms || smt || tradePro || binary3m ||
-            rsi || rsiOrderFlow || rsiReversal || liquiditySweep || virginWick || pivotSweepDivergence || valueAreaLiquidityRejection || amd || nascent || apex || compass || macd || volume || stochastic || obv || moneyFlowIndex ||
+            rsi || rsiOrderFlow || rsiReversal || liquiditySweep || virginWick || pivotSweepDivergence || valueAreaLiquidityRejection || amd || nascent || apex || compass || crucible || macd || volume || stochastic || obv || moneyFlowIndex ||
             activeStrategy != null || activeBlueprintId != null || allStrategies
 
     val smcSuiteActive: Boolean
