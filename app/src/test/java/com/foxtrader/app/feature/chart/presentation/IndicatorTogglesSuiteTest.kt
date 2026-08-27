@@ -36,6 +36,18 @@ class IndicatorTogglesSuiteTest {
     }
 
     @Test
+    fun `LiT May Madness is signal only and leaves analysis overlays off`() {
+        val state = IndicatorToggles().withLitSuite(true)
+
+        assertTrue(state.lit)
+        assertFalse(state.structure)
+        assertFalse(state.orderBlocks)
+        assertFalse(state.fairValueGaps)
+        assertFalse(state.liquidity)
+        assertFalse(state.sessions)
+    }
+
+    @Test
     fun `SMT suite enables structure and liquidity context`() {
         val state = IndicatorToggles().withSmtSuite(true)
 
