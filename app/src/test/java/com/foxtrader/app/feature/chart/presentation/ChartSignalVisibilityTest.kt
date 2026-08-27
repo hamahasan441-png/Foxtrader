@@ -19,6 +19,7 @@ class ChartSignalVisibilityTest {
             signals = listOf(oldLit, oldOther, recentOther),
             showSignalHistory = false,
             litAdventureEnabled = true,
+            litMayMadnessEnabled = false,
             displayCandleCount = 200,
         )
 
@@ -35,6 +36,7 @@ class ChartSignalVisibilityTest {
             signals = listOf(oldLit),
             showSignalHistory = false,
             litAdventureEnabled = false,
+            litMayMadnessEnabled = false,
             displayCandleCount = 200,
         )
 
@@ -50,8 +52,33 @@ class ChartSignalVisibilityTest {
 
         assertEquals(
             signals,
-            selectVisibleChartSignals(signals, true, litAdventureEnabled = true, displayCandleCount = 3),
+            selectVisibleChartSignals(
+                signals,
+                true,
+                litAdventureEnabled = true,
+                litMayMadnessEnabled = false,
+                displayCandleCount = 3,
+            ),
         )
+    }
+
+    @Test
+    fun `active LiT May Madness keeps every confirmed historical arrow`() {
+        val oldMay = signal("old-may", SignalSource.LIT, barIndex = 5)
+        val oldOther = signal("old-other", SignalSource.SMT, barIndex = 6)
+        val recentOther = signal("recent", SignalSource.SMT, barIndex = 195)
+
+        val visible = selectVisibleChartSignals(
+            signals = listOf(oldMay, oldOther, recentOther),
+            showSignalHistory = false,
+            litAdventureEnabled = false,
+            litMayMadnessEnabled = true,
+            displayCandleCount = 200,
+        )
+
+        assertTrue(visible.contains(oldMay))
+        assertFalse(visible.contains(oldOther))
+        assertTrue(visible.contains(recentOther))
     }
 
     private fun signal(id: String, source: SignalSource, barIndex: Int) = ChartSignal(
