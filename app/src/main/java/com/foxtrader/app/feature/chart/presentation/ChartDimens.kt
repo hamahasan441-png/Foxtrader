@@ -11,16 +11,16 @@ object ChartDimens {
     val subPaneScaleWidth = priceScaleWidth
 
     // --- Stacked sub-panes (approved study panes / volume context) ---
-    // The price chart is the primary workspace. A study pane may provide useful
-    // context, but it must never consume a large fraction of a phone display.
-    val paneHeaderHeight = 16.dp
-    val paneMinHeight = 44.dp
-    val paneMaxHeight = 112.dp
-    val paneDefaultHeight = 64.dp
-    val paneSplitterHeight = 6.dp
+    // The pane starts large enough to read order-flow candles and can be resized
+    // directly from its top splitter, matching TradingView's pane interaction.
+    val paneHeaderHeight = 18.dp
+    val paneMinHeight = 72.dp
+    val paneMaxHeight = 280.dp
+    val paneDefaultHeight = 132.dp
+    val paneSplitterHeight = 12.dp
 
     /** Hard ceiling for the complete study deck below the price chart. */
-    val paneStackMaxHeight = 112.dp
+    val paneStackMaxHeight = 344.dp
 
     // --- Chrome spacing ---
     // Intentionally compact: the chart is the primary surface and top chrome
@@ -34,13 +34,4 @@ object ChartDimens {
     // --- Floating overlays / palettes ---
     val overlayPadding = 4.dp
     val drawingRailWidth = 40.dp
-
-    /**
-     * Height of the collapsed Analysis handle pinned to the bottom of the chart.
-     *
-     * The handle is an overlay inside the chart Box, so without reserving this
-     * much room it sits on top of the time axis and the lowest price grid line —
-     * exactly the part of the canvas a trader reads most often.
-     */
-    val analysisHandleHeight = 36.dp
 }
