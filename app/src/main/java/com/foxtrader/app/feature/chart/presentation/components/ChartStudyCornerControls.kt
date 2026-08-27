@@ -68,6 +68,7 @@ import com.foxtrader.app.feature.chart.presentation.RsiOrderFlowStudySettings
 import com.foxtrader.app.feature.chart.presentation.ApexPresetOption
 import com.foxtrader.app.feature.chart.presentation.CompassPresetOption
 import com.foxtrader.app.feature.chart.presentation.CruciblePresetOption
+import com.foxtrader.app.feature.chart.presentation.StudyStatus
 import com.foxtrader.app.feature.chart.presentation.CrucibleStudySettings
 import com.foxtrader.app.feature.chart.presentation.CrucibleTargetOption
 import com.foxtrader.app.feature.chart.presentation.CompassStudySettings
@@ -105,6 +106,7 @@ fun ChartStudyCornerControls(
     onLitConfigChange: (LitConfig) -> Unit = {},
     onSmtConfigChange: (SmtConfig) -> Unit = {},
     onSmsConfigChange: (SmsConfig) -> Unit = {},
+    studyStatuses: List<StudyStatus> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
     val active = remember(toggles) { activeStudies(toggles) }
@@ -131,6 +133,14 @@ fun ChartStudyCornerControls(
             }
         }
 
+        // A measured study that publishes nothing has a reason, and it is the
+        // only thing on screen that can distinguish a working filter from a
+        // broken indicator. Withheld studies are shown first because those are
+        // the ones the trader is currently wondering about.
+        studyStatuses
+            .sortedBy { it.publishing }
+            .forEach { status -> StudyStatusLine(status) }
+
         editing?.let { id ->
             StudySettingsCard(
                 id = id,
@@ -147,6 +157,30 @@ fun ChartStudyCornerControls(
                 onClose = { editing = null },
             )
         }
+    }
+}
+
+@Composable
+private fun StudyStatusLine(status: StudyStatus) {
+    val colors = FoxTheme.colors
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(6.dp))
+            .background(colors.surface.copy(alpha = 0.90f))
+            .padding(horizontal = 8.dp, vertical = 5.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            text = if (status.publishing) "●" else "○",
+            style = MaterialTheme.typography.labelSmall,
+            color = if (status.publishing) colors.accent else colors.textSecondary,
+        )
+        Text(
+            text = status.message,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (status.publishing) colors.textPrimary else colors.textSecondary,
+        )
     }
 }
 
