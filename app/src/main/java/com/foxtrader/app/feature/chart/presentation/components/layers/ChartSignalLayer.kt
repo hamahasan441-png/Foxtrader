@@ -130,10 +130,10 @@ internal fun DrawScope.drawSignalMarkers(
 
         // User-facing signal language: long = green, short = amber/yellow.
         val color = if (signal.direction == Direction.BULLISH) FoxBullish else FoxAmber50
-        val isLitAdventure = signal.source == SignalSource.LITX
+        val isPersistentLit = signal.source == SignalSource.LITX || signal.source == SignalSource.LIT
         val alpha = when {
             signal.isLive -> 0.98f
-            isLitAdventure -> 0.84f
+            isPersistentLit -> 0.84f
             else -> 0.72f
         }
         val arrow = signalArrowPath(x, markerY, signal.direction, scale)
@@ -141,21 +141,20 @@ internal fun DrawScope.drawSignalMarkers(
         drawPath(
             path = arrow,
             color = color.copy(alpha = alpha),
-            // LiT Adventure is explicitly signal-only, so its historical arrows
-            // stay filled. Other history remains outline-only to limit clutter.
-            style = if (signal.isLive || isLitAdventure) Fill else Stroke(width = 1.5f * scale),
+            // Both LiT studies are explicitly signal-only, so their historical
+            // arrows stay filled. Other history remains outline-only.
+            style = if (signal.isLive || isPersistentLit) Fill else Stroke(width = 1.5f * scale),
         )
 
         if (signal.isLive) {
             val letter = when (signal.source) {
                 SignalSource.LITX -> if (signal.direction == Direction.BULLISH) "LIT BUY" else "LIT SELL"
-                SignalSource.LIT -> "LIT"
+                SignalSource.LIT -> if (signal.direction == Direction.BULLISH) "LIT MAY BUY" else "LIT MAY SELL"
                 SignalSource.SMS -> "SMS"
                 SignalSource.TRADEPRO -> "TP"
                 SignalSource.SMT -> "SMT"
                 SignalSource.RSI_ORDERFLOW -> "ROF"
                 SignalSource.RSI_REVERSAL -> "RSR"
-                SignalSource.LIQUIDITY_SWEEP -> "LSW"
                 SignalSource.PIVOT_SWEEP_DIVERGENCE -> "PSD"
                 SignalSource.VALUE_AREA_LIQUIDITY_REJECTION -> "VALR"
                 SignalSource.ACCUMULATION_MANIPULATION_DISTRIBUTION -> "AMD"
