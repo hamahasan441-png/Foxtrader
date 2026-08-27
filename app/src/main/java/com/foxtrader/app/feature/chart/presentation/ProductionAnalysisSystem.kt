@@ -27,6 +27,11 @@ enum class ProductionAnalysisSystem(val label: String) {
     // chart toggles: what is left on the chart is the consensus, not the
     // consensus drawn on top of the votes it was built from.
     APEX("Apex Consensus"),
+
+    // Compass republishes another engine's call with a measured probability
+    // attached, so showing it alongside the engines it judges would put the
+    // same call on the chart twice.
+    COMPASS("Compass Accuracy"),
 }
 
 /** Resolve a single selected canonical engine when the state is unambiguous. */
@@ -42,6 +47,7 @@ fun IndicatorToggles.productionAnalysisSystem(): ProductionAnalysisSystem? {
         ProductionAnalysisSystem.PIVOT_SWEEP_DIVERGENCE.takeIf { pivotSweepDivergence },
         ProductionAnalysisSystem.VALUE_AREA_LIQUIDITY_REJECTION.takeIf { valueAreaLiquidityRejection },
         ProductionAnalysisSystem.APEX.takeIf { apex },
+        ProductionAnalysisSystem.COMPASS.takeIf { compass },
     )
     return selected.singleOrNull()
 }
@@ -69,6 +75,7 @@ fun IndicatorToggles.withProductionAnalysisSystem(
         pivotSweepDivergence = false,
         valueAreaLiquidityRejection = false,
         apex = false,
+        compass = false,
     )
 
     return when (system) {
@@ -82,6 +89,7 @@ fun IndicatorToggles.withProductionAnalysisSystem(
         ProductionAnalysisSystem.PIVOT_SWEEP_DIVERGENCE -> preserved.copy(pivotSweepDivergence = true)
         ProductionAnalysisSystem.VALUE_AREA_LIQUIDITY_REJECTION -> preserved.copy(valueAreaLiquidityRejection = true)
         ProductionAnalysisSystem.APEX -> preserved.copy(apex = true)
+        ProductionAnalysisSystem.COMPASS -> preserved.copy(compass = true)
         null -> preserved
     }
 }

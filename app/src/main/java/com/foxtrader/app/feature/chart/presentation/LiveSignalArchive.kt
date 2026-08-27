@@ -169,6 +169,7 @@ class LiveSignalArchive(
         SignalSource.ACCUMULATION_MANIPULATION_DISTRIBUTION -> 91
         SignalSource.NASCENT -> 94
         SignalSource.APEX -> 97
+        SignalSource.COMPASS -> 98
         SignalSource.SMT -> 85
         SignalSource.TRADEPRO -> 80
         SignalSource.BINARY3M -> 70

@@ -59,7 +59,11 @@ class SignalEvidenceReducer @Inject constructor() {
         // Apex is an aggregate of the other members, so it is not independent
         // of any of them. Its family only decides where it lands here; the
         // reason it can never reinforce them is handled at the confluence step.
-        SignalSource.APEX -> Family.COMPOSITE
+        SignalSource.APEX,
+        // Compass republishes another engine's call with a probability attached.
+        // It is never independent of whatever made the call, so it shares the
+        // composite family and is excluded from confluence entirely.
+        SignalSource.COMPASS -> Family.COMPOSITE
         SignalSource.VALUE_AREA_LIQUIDITY_REJECTION -> Family.AUCTION_PROFILE
         SignalSource.ACCUMULATION_MANIPULATION_DISTRIBUTION -> Family.STRUCTURE_LIQUIDITY
         SignalSource.NASCENT -> Family.STRUCTURE_LIQUIDITY

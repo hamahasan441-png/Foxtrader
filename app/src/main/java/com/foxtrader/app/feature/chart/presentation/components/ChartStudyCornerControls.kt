@@ -66,6 +66,8 @@ import com.foxtrader.app.feature.chart.presentation.LiquiditySweepEntryPreset
 import com.foxtrader.app.feature.chart.presentation.LiquiditySweepStudySettings
 import com.foxtrader.app.feature.chart.presentation.RsiOrderFlowStudySettings
 import com.foxtrader.app.feature.chart.presentation.ApexPresetOption
+import com.foxtrader.app.feature.chart.presentation.CompassPresetOption
+import com.foxtrader.app.feature.chart.presentation.CompassStudySettings
 import com.foxtrader.app.feature.chart.presentation.ApexStudySettings
 import com.foxtrader.app.feature.chart.presentation.VirginWickEntryPreset
 import com.foxtrader.app.feature.chart.presentation.VirginWickStudySettings
@@ -620,6 +622,66 @@ ResetButton { updateSettings(onChange) { it.copy(rsiOrderFlow = RsiOrderFlowStud
                     ResetButton { updateSettings(onChange) { it.copy(apex = ApexStudySettings()) } }
                 }
 
+                StudyControlId.COMPASS -> {
+                    CompassPresetRow(settings.compass.preset) { preset ->
+                        updateSettings(onChange) { it.copy(compass = it.compass.copy(preset = preset)) }
+                    }
+                    IntStepper("Required accuracy %", (settings.compass.minAccuracy * 100).toInt(), 0, 100) { value ->
+                        updateSettings(onChange) {
+                            it.copy(compass = it.compass.copy(minAccuracy = value / 100.0).sanitized())
+                        }
+                    }
+                    IntStepper("Min lift over base %", (settings.compass.minLiftOverBaseRate * 100).toInt(), 0, 50) { value ->
+                        updateSettings(onChange) {
+                            it.copy(compass = it.compass.copy(minLiftOverBaseRate = value / 100.0).sanitized())
+                        }
+                    }
+                    IntStepper("Horizon bars", settings.compass.horizonBars, 1, 500) { value ->
+                        updateSettings(onChange) { it.copy(compass = it.compass.copy(horizonBars = value).sanitized()) }
+                    }
+                    DoubleStepper("Barrier (ATR)", settings.compass.barrierAtrMultiple, 0.1, 0.1, 10.0) { value ->
+                        updateSettings(onChange) {
+                            it.copy(compass = it.compass.copy(barrierAtrMultiple = value).sanitized())
+                        }
+                    }
+                    IntStepper("Min resolved calls", settings.compass.minCalibrationSample, 1, 500) { value ->
+                        updateSettings(onChange) {
+                            it.copy(compass = it.compass.copy(minCalibrationSample = value).sanitized())
+                        }
+                    }
+                    IntStepper("Learn from", settings.compass.learningWindow, 20, 5_000) { value ->
+                        updateSettings(onChange) { it.copy(compass = it.compass.copy(learningWindow = value).sanitized()) }
+                    }
+                    ToggleRow("Keep historical signals", settings.compass.historicalSignals) { enabled ->
+                        updateSettings(onChange) { it.copy(compass = it.compass.copy(historicalSignals = enabled)) }
+                    }
+                    IntStepper("Live window bars", settings.compass.liveWindowBars, 20, 10_000) { value ->
+                        updateSettings(onChange) { it.copy(compass = it.compass.copy(liveWindowBars = value).sanitized()) }
+                    }
+                    Text(
+                        text = "Every call the other engines make is scored → the barrier is the same distance " +
+                            "on both sides, so the number is direction alone → a threshold is earned on calls " +
+                            "already proved right or wrong → only calls clearing it are published.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textSecondary,
+                    )
+                    Text(
+                        text = "Raising the required accuracy does not make the engine better, only quieter. " +
+                            "When it cannot demonstrate the number, it says what it could demonstrate instead — " +
+                            "so lowering the bar is an informed choice rather than a guess.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textSecondary,
+                    )
+                    Text(
+                        text = "Lift is what stops a rising market being sold back to you as skill: in a market " +
+                            "that only goes up, always-long scores highly while reading nothing at all.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textSecondary,
+                    )
+                    SignalArrowNote()
+                    ResetButton { updateSettings(onChange) { it.copy(compass = CompassStudySettings()) } }
+                }
+
                 StudyControlId.PIVOT_SWEEP_DIVERGENCE -> {
                     PsdModeSelector(settings.pivotSweepDivergence.mode) { mode ->
                         updateSettings(onChange) {
@@ -1131,6 +1193,12 @@ private fun SettingRow(label: String, value: String, onMinus: () -> Unit, onPlus
 }
 
 @Composable
+private fun CompassPresetRow(
+    selected: CompassPresetOption,
+    onSelect: (CompassPresetOption) -> Unit,
+) = PresetChipRow("Style", CompassPresetOption.entries, selected, { it.label }, onSelect)
+
+@Composable
 private fun ApexPresetRow(
     selected: ApexPresetOption,
     onSelect: (ApexPresetOption) -> Unit,
@@ -1444,6 +1512,10 @@ private fun activeStudies(t: IndicatorToggles): List<ActiveStudy> = buildList {
             add(ActiveStudy(StudyControlId.APEX, "Apex Consensus"))
             return@buildList
         }
+        ProductionAnalysisSystem.COMPASS -> {
+            add(ActiveStudy(StudyControlId.COMPASS, "Compass Accuracy"))
+            return@buildList
+        }
         null -> Unit
     }
 
@@ -1483,6 +1555,7 @@ private fun activeStudies(t: IndicatorToggles): List<ActiveStudy> = buildList {
     if (t.amd) add(ActiveStudy(StudyControlId.AMD, "AMD"))
     if (t.nascent) add(ActiveStudy(StudyControlId.NASCENT, "Nascent FX"))
     if (t.apex) add(ActiveStudy(StudyControlId.APEX, "Apex"))
+    if (t.compass) add(ActiveStudy(StudyControlId.COMPASS, "Compass"))
     if (t.macd) add(ActiveStudy(StudyControlId.MACD, "MACD"))
     if (t.volume) add(ActiveStudy(StudyControlId.VOLUME, "Volume"))
     if (t.stochastic) add(ActiveStudy(StudyControlId.STOCHASTIC, "Stoch"))
@@ -1534,6 +1607,7 @@ private fun removeStudy(
         StudyControlId.AMD -> t.copy(amd = false)
         StudyControlId.NASCENT -> t.copy(nascent = false)
         StudyControlId.APEX -> t.withProductionAnalysisSystem(null)
+        StudyControlId.COMPASS -> t.withProductionAnalysisSystem(null)
         StudyControlId.MACD -> t.copy(macd = false)
         StudyControlId.VOLUME -> t.copy(volume = false)
         StudyControlId.STOCHASTIC -> t.copy(stochastic = false)
@@ -1563,6 +1637,7 @@ private enum class StudyControlId(val title: String) {
     AMD("AMD settings"),
     NASCENT("Nascent FX settings"),
     APEX("Apex Consensus settings"),
+    COMPASS("Compass Accuracy settings"),
     MACD("MACD settings"), VOLUME("Volume"),
     STOCHASTIC("Stochastic settings"), OBV("OBV"), MFI("MFI settings"), STRATEGY("Strategy settings"),
     CUSTOM_STRATEGY("Custom strategy"), ALL_STRATEGIES("All strategies"),

@@ -23,6 +23,7 @@ data class ChartStudySettings(
     val amd: AmdStudySettings = AmdStudySettings(),
     val nascent: NascentStudySettings = NascentStudySettings(),
     val apex: ApexStudySettings = ApexStudySettings(),
+    val compass: CompassStudySettings = CompassStudySettings(),
     val macd: MacdStudySettings = MacdStudySettings(),
     val bollinger: BollingerStudySettings = BollingerStudySettings(),
     val superTrend: SuperTrendStudySettings = SuperTrendStudySettings(),
@@ -45,6 +46,7 @@ data class ChartStudySettings(
         amd = amd.sanitized(),
         nascent = nascent.sanitized(),
         apex = apex.sanitized(),
+        compass = compass.sanitized(),
         macd = macd.sanitized(),
         bollinger = bollinger.sanitized(),
         superTrend = superTrend.sanitized(),
@@ -616,6 +618,60 @@ data class ApexStudySettings(
 
 /** Trading style Apex shapes its defaults for. */
 enum class ApexPresetOption(val label: String) {
+    SCALPING("Scalping"),
+    INTRADAY("Intraday"),
+    SWING("Swing"),
+}
+
+/**
+ * Trader-facing settings for the Compass accuracy engine.
+ *
+ * The required accuracy is the headline dial, and it behaves differently from
+ * most settings: raising it does not make the engine better, it makes it
+ * quieter. When the engine cannot demonstrate the number being asked of it, it
+ * says so and publishes nothing — and the status line reports the best accuracy
+ * it *could* justify, so the choice to lower the bar is an informed one rather
+ * than a guess.
+ */
+@Immutable
+data class CompassStudySettings(
+    val preset: CompassPresetOption = CompassPresetOption.INTRADAY,
+    /** Bars a direction call is given to be right. */
+    val horizonBars: Int = 24,
+    /** Barrier half-width in ATR multiples — the same on both sides. */
+    val barrierAtrMultiple: Double = 1.0,
+    /** Directional accuracy the engine must demonstrate before publishing. */
+    val minAccuracy: Double = 0.80,
+    /** Margin the accuracy must clear above a constant-direction rule. */
+    val minLiftOverBaseRate: Double = 0.05,
+    /** Resolved calls required before an accuracy figure counts as evidence. */
+    val minCalibrationSample: Int = 40,
+    /** Resolved calls the scorer and threshold are learned from. */
+    val learningWindow: Int = 400,
+    val historicalSignals: Boolean = true,
+    val liveWindowBars: Int = 500,
+) {
+    fun sanitized(): CompassStudySettings = copy(
+        horizonBars = horizonBars.coerceIn(1, 500),
+        barrierAtrMultiple = if (barrierAtrMultiple.isFinite()) {
+            barrierAtrMultiple.coerceIn(0.1, 10.0)
+        } else {
+            1.0
+        },
+        minAccuracy = if (minAccuracy.isFinite()) minAccuracy.coerceIn(0.0, 1.0) else 0.80,
+        minLiftOverBaseRate = if (minLiftOverBaseRate.isFinite()) {
+            minLiftOverBaseRate.coerceIn(0.0, 0.5)
+        } else {
+            0.05
+        },
+        minCalibrationSample = minCalibrationSample.coerceIn(1, 500),
+        learningWindow = learningWindow.coerceIn(20, 5_000),
+        liveWindowBars = liveWindowBars.coerceIn(20, 10_000),
+    )
+}
+
+/** Trading style Compass shapes its horizon and barrier for. */
+enum class CompassPresetOption(val label: String) {
     SCALPING("Scalping"),
     INTRADAY("Intraday"),
     SWING("Swing"),

@@ -20,6 +20,7 @@ class BacktestLabStrategyScopeTest {
                 BacktestStrategyTemplate.LIQUIDITY_SWEEP,
                 BacktestStrategyTemplate.VIRGIN_WICK,
                 BacktestStrategyTemplate.APEX,
+                BacktestStrategyTemplate.COMPASS,
             ),
             BacktestStrategyTemplate.primaryEntries,
         )

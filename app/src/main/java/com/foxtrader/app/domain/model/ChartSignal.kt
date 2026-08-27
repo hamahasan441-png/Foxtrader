@@ -111,6 +111,12 @@ enum class SignalSource {
      */
     APEX,
 
+    /**
+     * Compass: a primary call published only when a calibrated estimate of its
+     * directional accuracy clears a threshold earned on past resolved calls.
+     */
+    COMPASS,
+
     /** A rule from the backtestable [com.foxtrader.app.domain.usecase.strategies.StrategyLibrary]. */
     STRATEGY,
 }

@@ -115,6 +115,21 @@ object SignalIdentity {
         confirmationIndex = confirmationIndex,
     )
 
+    fun compass(
+        symbol: String,
+        timeframe: Timeframe,
+        timestamp: Long,
+        direction: Direction,
+        confirmationIndex: Int,
+    ): String = methodology(
+        prefix = "compass",
+        symbol = symbol,
+        timeframe = timeframe,
+        timestamp = timestamp,
+        direction = direction,
+        confirmationIndex = confirmationIndex,
+    )
+
     fun pivotSweepDivergence(
         symbol: String,
         timeframe: Timeframe,
