@@ -10,6 +10,7 @@ import com.foxtrader.app.domain.usecase.liquiditysweep.model.LiquiditySweep
 import com.foxtrader.app.domain.usecase.liquiditysweep.model.LiquiditySweepAnalysis
 import com.foxtrader.app.domain.usecase.liquiditysweep.model.LiquiditySweepSignal
 import com.foxtrader.app.domain.usecase.liquiditysweep.model.SweepState
+import com.foxtrader.app.domain.usecase.mtf.MultiTimeframeSeries
 import com.foxtrader.app.domain.usecase.signalintel.SignalSeriesIntegrity
 import javax.inject.Inject
 import javax.inject.Singleton

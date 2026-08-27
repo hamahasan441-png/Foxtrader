@@ -19,6 +19,7 @@ enum class ProductionAnalysisSystem(val label: String) {
     RSI_ORDERFLOW_CANDLE("RSI Orderflow Divergence"),
     RSI_REVERSAL("RSI Orderflow Reversal"),
     LIQUIDITY_SWEEP("Liquidity Sweep"),
+    VIRGIN_WICK("Virgin Wick"),
     PIVOT_SWEEP_DIVERGENCE("Pivot Sweep Divergence"),
     VALUE_AREA_LIQUIDITY_REJECTION("Value Area Liquidity Rejection"),
 }
@@ -32,6 +33,7 @@ fun IndicatorToggles.productionAnalysisSystem(): ProductionAnalysisSystem? {
         ProductionAnalysisSystem.RSI_ORDERFLOW_CANDLE.takeIf { rsiOrderFlow },
         ProductionAnalysisSystem.RSI_REVERSAL.takeIf { rsiReversal },
         ProductionAnalysisSystem.LIQUIDITY_SWEEP.takeIf { liquiditySweep },
+        ProductionAnalysisSystem.VIRGIN_WICK.takeIf { virginWick },
         ProductionAnalysisSystem.PIVOT_SWEEP_DIVERGENCE.takeIf { pivotSweepDivergence },
         ProductionAnalysisSystem.VALUE_AREA_LIQUIDITY_REJECTION.takeIf { valueAreaLiquidityRejection },
     )
@@ -57,6 +59,7 @@ fun IndicatorToggles.withProductionAnalysisSystem(
         rsiOrderFlow = false,
         rsiReversal = false,
         liquiditySweep = false,
+        virginWick = false,
         pivotSweepDivergence = false,
         valueAreaLiquidityRejection = false,
     )
@@ -68,6 +71,7 @@ fun IndicatorToggles.withProductionAnalysisSystem(
         ProductionAnalysisSystem.RSI_ORDERFLOW_CANDLE -> preserved.copy(rsiOrderFlow = true)
         ProductionAnalysisSystem.RSI_REVERSAL -> preserved.copy(rsiReversal = true)
         ProductionAnalysisSystem.LIQUIDITY_SWEEP -> preserved.copy(liquiditySweep = true)
+        ProductionAnalysisSystem.VIRGIN_WICK -> preserved.copy(virginWick = true)
         ProductionAnalysisSystem.PIVOT_SWEEP_DIVERGENCE -> preserved.copy(pivotSweepDivergence = true)
         ProductionAnalysisSystem.VALUE_AREA_LIQUIDITY_REJECTION -> preserved.copy(valueAreaLiquidityRejection = true)
         null -> preserved

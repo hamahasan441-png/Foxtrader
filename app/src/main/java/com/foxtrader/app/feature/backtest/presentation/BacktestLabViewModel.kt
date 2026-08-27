@@ -30,6 +30,7 @@ import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
 import com.foxtrader.app.domain.usecase.strategies.StrategyLibrary
 import com.foxtrader.app.domain.usecase.liquiditysweep.LiquiditySweepEngine
 import com.foxtrader.app.domain.usecase.nascent.NascentEngine
+import com.foxtrader.app.domain.usecase.virginwick.VirginWickEngine
 import com.foxtrader.app.domain.usecase.rsireversal.RsiReversalEngine
 import com.foxtrader.app.domain.usecase.signalintel.AccumulationManipulationDistributionEngine
 import com.foxtrader.app.domain.usecase.signalintel.RsiOrderFlowSignalEngine
@@ -71,6 +72,7 @@ class BacktestLabViewModel @Inject constructor(
     private val amdEngine: AccumulationManipulationDistributionEngine,
     private val nascentEngine: NascentEngine,
     private val liquiditySweepEngine: LiquiditySweepEngine,
+    private val virginWickEngine: VirginWickEngine,
     private val rsiReversalEngine: RsiReversalEngine,
     private val smtSignalEngine: SmtSignalEngine,
     private val mtfContextProvider: MtfContextProvider,
@@ -589,6 +591,10 @@ class BacktestLabViewModel @Inject constructor(
                 timeframe = state.timeframe,
             )
             BacktestStrategyTemplate.LIQUIDITY_SWEEP -> liquiditySweepEngine.strategyFunction(
+                symbol = state.symbol,
+                timeframe = state.timeframe,
+            )
+            BacktestStrategyTemplate.VIRGIN_WICK -> virginWickEngine.strategyFunction(
                 symbol = state.symbol,
                 timeframe = state.timeframe,
             )

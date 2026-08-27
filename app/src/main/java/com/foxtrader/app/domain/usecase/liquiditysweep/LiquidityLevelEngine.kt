@@ -2,6 +2,7 @@ package com.foxtrader.app.domain.usecase.liquiditysweep
 
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.usecase.liquiditysweep.model.LiquidityLevel
+import com.foxtrader.app.domain.usecase.mtf.MultiTimeframeSeries
 import kotlin.math.abs
 
 /**

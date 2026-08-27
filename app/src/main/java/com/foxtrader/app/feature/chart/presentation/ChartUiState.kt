@@ -82,6 +82,7 @@ data class IndicatorToggles(
     val rsiOrderFlow: Boolean = false,
     val rsiReversal: Boolean = false,
     val liquiditySweep: Boolean = false,
+    val virginWick: Boolean = false,
     val pivotSweepDivergence: Boolean = false,
     val valueAreaLiquidityRejection: Boolean = false,
     val amd: Boolean = false,
@@ -102,7 +103,7 @@ data class IndicatorToggles(
             ichimoku || keltner || donchian || pivotPoints || volumeProfile || marketProfile ||
             supportResistance || fibonacci || confluence || orderBlocks || fairValueGaps ||
             liquidity || sessions || structure || litX || lit || sms || smt || tradePro || binary3m ||
-            rsi || rsiOrderFlow || rsiReversal || liquiditySweep || pivotSweepDivergence || valueAreaLiquidityRejection || amd || nascent || macd || volume || stochastic || obv || moneyFlowIndex ||
+            rsi || rsiOrderFlow || rsiReversal || liquiditySweep || virginWick || pivotSweepDivergence || valueAreaLiquidityRejection || amd || nascent || macd || volume || stochastic || obv || moneyFlowIndex ||
             activeStrategy != null || activeBlueprintId != null || allStrategies
 
     val smcSuiteActive: Boolean

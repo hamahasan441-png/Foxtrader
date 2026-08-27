@@ -3,6 +3,7 @@ package com.foxtrader.app.domain.usecase.liquiditysweep
 import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import com.foxtrader.app.domain.usecase.liquiditysweep.model.SweepBias
+import com.foxtrader.app.domain.usecase.mtf.MultiTimeframeSeries
 
 /**
  * Step 1 — the higher-timeframe directional read.

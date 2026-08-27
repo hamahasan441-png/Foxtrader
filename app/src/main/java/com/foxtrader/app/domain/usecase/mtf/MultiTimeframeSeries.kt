@@ -1,4 +1,4 @@
-package com.foxtrader.app.domain.usecase.liquiditysweep
+package com.foxtrader.app.domain.usecase.mtf
 
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Timeframe
@@ -7,6 +7,9 @@ import com.foxtrader.app.domain.usecase.tradepro.TimeframeResampler
 /**
  * A higher timeframe derived from the execution series, with the moment each of
  * its bars became knowable.
+ *
+ * Shared by every multi-timeframe engine, so they cannot drift into different
+ * answers about when a higher-timeframe bar became usable.
  *
  * This is the whole multi-timeframe contract in one place. Resampling upward is
  * the only direction that adds no information the execution bars did not

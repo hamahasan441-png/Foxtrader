@@ -83,6 +83,12 @@ enum class SignalSource {
      */
     LIQUIDITY_SWEEP,
 
+    /**
+     * Virgin Wick: an untested higher-timeframe wick the market closed away
+     * from, entered when price returns to it and an inversion confirms.
+     */
+    VIRGIN_WICK,
+
     /** Previous-day pivot sweep/reclaim + confirmed dual divergence setup. */
     PIVOT_SWEEP_DIVERGENCE,
 

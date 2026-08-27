@@ -85,6 +85,21 @@ object SignalIdentity {
         confirmationIndex = confirmationIndex,
     )
 
+    fun virginWick(
+        symbol: String,
+        timeframe: Timeframe,
+        timestamp: Long,
+        direction: Direction,
+        confirmationIndex: Int,
+    ): String = methodology(
+        prefix = "virgin_wick",
+        symbol = symbol,
+        timeframe = timeframe,
+        timestamp = timestamp,
+        direction = direction,
+        confirmationIndex = confirmationIndex,
+    )
+
     fun pivotSweepDivergence(
         symbol: String,
         timeframe: Timeframe,

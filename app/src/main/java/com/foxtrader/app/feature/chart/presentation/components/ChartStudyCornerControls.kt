@@ -65,6 +65,9 @@ import com.foxtrader.app.feature.chart.presentation.LiquiditySweepBiasPreset
 import com.foxtrader.app.feature.chart.presentation.LiquiditySweepEntryPreset
 import com.foxtrader.app.feature.chart.presentation.LiquiditySweepStudySettings
 import com.foxtrader.app.feature.chart.presentation.RsiOrderFlowStudySettings
+import com.foxtrader.app.feature.chart.presentation.VirginWickEntryPreset
+import com.foxtrader.app.feature.chart.presentation.VirginWickStudySettings
+import com.foxtrader.app.feature.chart.presentation.VirginWickTestPreset
 import com.foxtrader.app.feature.chart.presentation.RsiReversalEntryPreset
 import com.foxtrader.app.feature.chart.presentation.RsiReversalStudySettings
 import com.foxtrader.app.feature.chart.presentation.RsiStudySettings
@@ -530,6 +533,50 @@ ResetButton { updateSettings(onChange) { it.copy(rsiOrderFlow = RsiOrderFlowStud
                     )
                     SignalArrowNote()
                     ResetButton { updateSettings(onChange) { it.copy(liquiditySweep = LiquiditySweepStudySettings()) } }
+                }
+
+                StudyControlId.VIRGIN_WICK -> {
+                    VirginWickTestRow(settings.virginWick.testMode) { mode ->
+                        updateSettings(onChange) { it.copy(virginWick = it.virginWick.copy(testMode = mode)) }
+                    }
+                    VirginWickEntryRow(settings.virginWick.entryMode) { mode ->
+                        updateSettings(onChange) { it.copy(virginWick = it.virginWick.copy(entryMode = mode)) }
+                    }
+                    ToggleRow("Kill zones only", settings.virginWick.killZonesOnly) { enabled ->
+                        updateSettings(onChange) { it.copy(virginWick = it.virginWick.copy(killZonesOnly = enabled)) }
+                    }
+                    IntStepper("Closes to activate", settings.virginWick.closesBeyondToActivate, 1, 10) { value ->
+                        updateSettings(onChange) { it.copy(virginWick = it.virginWick.copy(closesBeyondToActivate = value).sanitized()) }
+                    }
+                    IntStepper("Confirmation window", settings.virginWick.confirmationWindowBars, 1, 600) { value ->
+                        updateSettings(onChange) { it.copy(virginWick = it.virginWick.copy(confirmationWindowBars = value).sanitized()) }
+                    }
+                    DoubleStepper("Reward multiple", settings.virginWick.defaultRewardMultiple, 0.25, 0.5, 20.0) { value ->
+                        updateSettings(onChange) { it.copy(virginWick = it.virginWick.copy(defaultRewardMultiple = value).sanitized()) }
+                    }
+                    DoubleStepper("Min reward", settings.virginWick.minRewardMultiple, 0.25, 0.1, 20.0) { value ->
+                        updateSettings(onChange) { it.copy(virginWick = it.virginWick.copy(minRewardMultiple = value).sanitized()) }
+                    }
+                    DoubleStepper("Max draw reward", settings.virginWick.maxDolRewardMultiple, 0.5, 0.5, 50.0) { value ->
+                        updateSettings(onChange) { it.copy(virginWick = it.virginWick.copy(maxDolRewardMultiple = value).sanitized()) }
+                    }
+                    ToggleRow("Keep historical signals", settings.virginWick.historicalSignals) { enabled ->
+                        updateSettings(onChange) { it.copy(virginWick = it.virginWick.copy(historicalSignals = enabled)) }
+                    }
+                    IntStepper("Live window bars", settings.virginWick.liveWindowBars, 20, 10_000) { value ->
+                        updateSettings(onChange) { it.copy(virginWick = it.virginWick.copy(liveWindowBars = value).sanitized()) }
+                    }
+                    ToggleRow("Show untested zones", settings.virginWick.showZones) { enabled ->
+                        updateSettings(onChange) { it.copy(virginWick = it.virginWick.copy(showZones = enabled)) }
+                    }
+                    Text(
+                        text = "Untested wicks on the context timeframe → the market closes away from one → " +
+                            "price returns to it → an inverted FVG confirms the rejection → stop behind the safer side.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textSecondary,
+                    )
+                    SignalArrowNote()
+                    ResetButton { updateSettings(onChange) { it.copy(virginWick = VirginWickStudySettings()) } }
                 }
 
                 StudyControlId.PIVOT_SWEEP_DIVERGENCE -> {
@@ -1043,6 +1090,18 @@ private fun SettingRow(label: String, value: String, onMinus: () -> Unit, onPlus
 }
 
 @Composable
+private fun VirginWickTestRow(
+    selected: VirginWickTestPreset,
+    onSelect: (VirginWickTestPreset) -> Unit,
+) = PresetChipRow("Tested when", VirginWickTestPreset.entries, selected, { it.label }, onSelect)
+
+@Composable
+private fun VirginWickEntryRow(
+    selected: VirginWickEntryPreset,
+    onSelect: (VirginWickEntryPreset) -> Unit,
+) = PresetChipRow("Entry", VirginWickEntryPreset.entries, selected, { it.label }, onSelect)
+
+@Composable
 private fun LiquiditySweepBiasRow(
     selected: LiquiditySweepBiasPreset,
     onSelect: (LiquiditySweepBiasPreset) -> Unit,
@@ -1322,6 +1381,10 @@ private fun activeStudies(t: IndicatorToggles): List<ActiveStudy> = buildList {
             add(ActiveStudy(StudyControlId.LIQUIDITY_SWEEP, "Liquidity Sweep"))
             return@buildList
         }
+        ProductionAnalysisSystem.VIRGIN_WICK -> {
+            add(ActiveStudy(StudyControlId.VIRGIN_WICK, "Virgin Wick"))
+            return@buildList
+        }
         ProductionAnalysisSystem.PIVOT_SWEEP_DIVERGENCE -> {
             add(ActiveStudy(StudyControlId.PIVOT_SWEEP_DIVERGENCE, "Pivot Sweep Divergence"))
             return@buildList
@@ -1363,6 +1426,7 @@ private fun activeStudies(t: IndicatorToggles): List<ActiveStudy> = buildList {
     if (t.rsiOrderFlow) add(ActiveStudy(StudyControlId.RSI_ORDER_FLOW, "RSI OF"))
     if (t.rsiReversal) add(ActiveStudy(StudyControlId.RSI_REVERSAL, "RSI Rev"))
     if (t.liquiditySweep) add(ActiveStudy(StudyControlId.LIQUIDITY_SWEEP, "Liq Sweep"))
+    if (t.virginWick) add(ActiveStudy(StudyControlId.VIRGIN_WICK, "Virgin Wick"))
     if (t.pivotSweepDivergence) add(ActiveStudy(StudyControlId.PIVOT_SWEEP_DIVERGENCE, "PSD"))
     if (t.valueAreaLiquidityRejection) add(ActiveStudy(StudyControlId.VALUE_AREA_LIQUIDITY_REJECTION, "VALR"))
     if (t.amd) add(ActiveStudy(StudyControlId.AMD, "AMD"))
@@ -1412,6 +1476,7 @@ private fun removeStudy(
         StudyControlId.RSI_ORDER_FLOW -> t.withProductionAnalysisSystem(null)
         StudyControlId.RSI_REVERSAL -> t.withProductionAnalysisSystem(null)
         StudyControlId.LIQUIDITY_SWEEP -> t.withProductionAnalysisSystem(null)
+        StudyControlId.VIRGIN_WICK -> t.withProductionAnalysisSystem(null)
         StudyControlId.PIVOT_SWEEP_DIVERGENCE -> t.withProductionAnalysisSystem(null)
         StudyControlId.VALUE_AREA_LIQUIDITY_REJECTION -> t.withProductionAnalysisSystem(null)
         StudyControlId.AMD -> t.copy(amd = false)
@@ -1439,6 +1504,7 @@ private enum class StudyControlId(val title: String) {
     RSI_ORDER_FLOW("RSI OrderFlow settings"),
     RSI_REVERSAL("RSI Orderflow Reversal settings"),
     LIQUIDITY_SWEEP("Liquidity Sweep settings"),
+    VIRGIN_WICK("Virgin Wick settings"),
     PIVOT_SWEEP_DIVERGENCE("Pivot Sweep Divergence settings"),
     VALUE_AREA_LIQUIDITY_REJECTION("Value Area Liquidity Rejection settings"),
     AMD("AMD settings"),

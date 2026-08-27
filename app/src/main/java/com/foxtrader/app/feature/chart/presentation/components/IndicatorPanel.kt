@@ -113,6 +113,9 @@ fun IndicatorPanel(
                         StudyItem("Liquidity Sweep", ChartStudyId.LIQUIDITY_SWEEP, toggles.liquiditySweep) { t ->
                             t.copy(liquiditySweep = !t.liquiditySweep)
                         },
+                        StudyItem("Virgin Wick", ChartStudyId.VIRGIN_WICK, toggles.virginWick) { t ->
+                            t.copy(virginWick = !t.virginWick)
+                        },
                         StudyItem("Pivot Sweep Divergence", ChartStudyId.PIVOT_SWEEP_DIVERGENCE, toggles.pivotSweepDivergence) { t ->
                             t.copy(pivotSweepDivergence = !t.pivotSweepDivergence)
                         },
