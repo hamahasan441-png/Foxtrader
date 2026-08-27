@@ -61,6 +61,7 @@ import com.foxtrader.app.domain.usecase.nascent.NascentEngine
 import com.foxtrader.app.domain.usecase.liquiditysweep.LiquiditySweepEngine
 import com.foxtrader.app.domain.usecase.rsireversal.RsiReversalEngine
 import com.foxtrader.app.domain.usecase.apex.ApexEngine
+import com.foxtrader.app.domain.usecase.compass.CompassEngine
 import com.foxtrader.app.domain.usecase.virginwick.VirginWickEngine
 import com.foxtrader.app.domain.usecase.signalintel.AccumulationManipulationDistributionEngine
 import com.foxtrader.app.domain.usecase.signalintel.PivotSweepDivergenceEngine
@@ -140,6 +141,7 @@ class ChartViewModel @Inject constructor(
     private val liquiditySweepEngine: LiquiditySweepEngine,
     private val virginWickEngine: VirginWickEngine,
     private val apexEngine: ApexEngine,
+    private val compassEngine: CompassEngine,
     private val rsiReversalLtfProvider: RsiReversalLtfProvider,
     private val heikinAshiTransformer: HeikinAshiTransformer,
     private val candleRenkoBuilder: CandleRenkoBuilder,
@@ -866,6 +868,25 @@ class ChartViewModel @Inject constructor(
         val apexSignals: List<ChartSignal> = apexAnalysis?.signals.orEmpty()
             .map { it.toChartSignal(latestConfirmedIndex) }
 
+        // Compass runs the member engines and fits its scorer over this same
+        // series, so like Apex it only runs when the study is switched on.
+        val compassAnalysis = if (
+            ind.compass && barMode == ChartBarMode.TIME && signalCandles.isNotEmpty()
+        ) {
+            withContext(defaultDispatcher) {
+                containedOrNull {
+                    compassEngine.analyze(
+                        symbol = symbol,
+                        timeframe = timeframe,
+                        candles = signalCandles,
+                        config = ind.settings.compass.toEngineConfig(),
+                    )
+                }
+            }
+        } else null
+        val compassSignals: List<ChartSignal> = compassAnalysis?.signals.orEmpty()
+            .map { it.toChartSignal(latestConfirmedIndex) }
+
         // Backfill previously confirmed LiT arrows. Each bar is evaluated only
         // through its own closed prefix, so later data cannot create, move or
         // delete an earlier marker (non-repaint by construction).
@@ -992,7 +1013,7 @@ class ChartViewModel @Inject constructor(
             emptyList()
         }
 
-        val chartStrategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + nascentSignals + rsiReversalSignals + liquiditySweepSignals + virginWickSignals + apexSignals + strategySignals + binary3mSignals
+        val chartStrategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + nascentSignals + rsiReversalSignals + liquiditySweepSignals + virginWickSignals + apexSignals + compassSignals + strategySignals + binary3mSignals
 
         // Drop stale frames: a newer computation (e.g. from a rapid indicator
         // toggle) has already started, so publishing this older result would
@@ -1302,6 +1323,23 @@ class ChartViewModel @Inject constructor(
         val apexSignals: List<ChartSignal> = apexAnalysis?.signals.orEmpty()
             .map { it.toChartSignal(candles.lastIndex) }
 
+        val compassAnalysis = if (
+            ind.compass && current.barMode == ChartBarMode.TIME && candles.isNotEmpty()
+        ) {
+            withContext(defaultDispatcher) {
+                containedOrNull {
+                    compassEngine.analyze(
+                        symbol = symbol,
+                        timeframe = timeframe,
+                        candles = candles,
+                        config = ind.settings.compass.toEngineConfig(),
+                    )
+                }
+            }
+        } else null
+        val compassSignals: List<ChartSignal> = compassAnalysis?.signals.orEmpty()
+            .map { it.toChartSignal(candles.lastIndex) }
+
         val productionHistory = if ((ind.litX || ind.lit) && candles.isNotEmpty()) {
             withContext(defaultDispatcher) {
                 scanProductionSignalHistory(
@@ -1393,7 +1431,7 @@ class ChartViewModel @Inject constructor(
             tradeProAnalysis = null,
             smtDivergences = emptyList(),
             candles = candles,
-            strategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + nascentSignals + rsiReversalSignals + liquiditySweepSignals + virginWickSignals + apexSignals + strategySignals + binary3mSignals,
+            strategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + nascentSignals + rsiReversalSignals + liquiditySweepSignals + virginWickSignals + apexSignals + compassSignals + strategySignals + binary3mSignals,
             litAnalysis = litAnalysis,
             smsAnalysis = smsAnalysis,
             rsiOrderFlowSignals = rsiOrderFlowSignals,
@@ -2656,6 +2694,35 @@ private fun com.foxtrader.app.domain.usecase.apex.model.ApexSignal.toChartSignal
         confirmationIndex = index,
     ),
     variant = candidate.members.joinToString("+") { it.name },
+)
+
+private fun com.foxtrader.app.domain.usecase.compass.model.CompassSignal.toChartSignal(
+    latestConfirmedIndex: Int,
+): ChartSignal = ChartSignal(
+    id = "compass_${symbol}_${timestamp}_${direction.name}_$index",
+    source = SignalSource.COMPASS,
+    direction = direction,
+    entry = price,
+    // The symmetric barrier the accuracy was actually measured against, so the
+    // levels on the chart are the ones the number describes.
+    sl = if (direction == Direction.BULLISH) price - barrier else price + barrier,
+    tp = if (direction == Direction.BULLISH) price + barrier else price - barrier,
+    barIndex = index,
+    timestamp = timestamp,
+    // A calibrated probability of being right, not a score: this is the number
+    // the published threshold was compared against.
+    confidence = probability * 100.0,
+    isLive = index == latestConfirmedIndex,
+    label = "Compass ${(probability * 100).toInt()}% · ${call.source} · " +
+        reasons.take(1).joinToString(" · "),
+    eventKey = SignalIdentity.compass(
+        symbol = symbol,
+        timeframe = timeframe,
+        timestamp = timestamp,
+        direction = direction,
+        confirmationIndex = index,
+    ),
+    variant = call.source,
 )
 
 private fun AccumulationManipulationDistributionEngine.Signal.toChartSignal(latestConfirmedIndex: Int): ChartSignal =

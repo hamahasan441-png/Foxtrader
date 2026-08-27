@@ -280,6 +280,7 @@ class SignalComputer @Inject constructor(
         SignalSource.ACCUMULATION_MANIPULATION_DISTRIBUTION -> 91
         SignalSource.NASCENT -> 94
         SignalSource.APEX -> 97
+        SignalSource.COMPASS -> 98
         SignalSource.SMT -> 85
         SignalSource.TRADEPRO -> 80
         SignalSource.BINARY3M -> 70
@@ -309,7 +310,9 @@ class SignalComputer @Inject constructor(
         // it contribute a family would count the same evidence twice.
         val liveFamiliesByDirection: Map<Direction, Set<SignalEvidenceReducer.Family>> =
             signals
-                .filter { it.isLive && it.source != SignalSource.BINARY3M && it.source != SignalSource.APEX }
+                .filter { it.isLive && it.source != SignalSource.BINARY3M &&
+                        it.source != SignalSource.APEX && it.source != SignalSource.COMPASS
+                }
                 .groupBy { it.direction }
                 .mapValues { (_, group) -> group.map { evidenceReducer.family(it.source) }.toSet() }
 
@@ -321,6 +324,11 @@ class SignalComputer @Inject constructor(
             // it for the agreement it is made of would inflate a number whose
             // whole value is that it means one specific thing.
             if (signal.source == SignalSource.APEX) return@map signal
+            // Compass's confidence is a calibrated probability of being right.
+            // A confluence boost would push a number whose entire value is that
+            // it means one specific thing, and it is not independent of the
+            // engine whose call it republishes.
+            if (signal.source == SignalSource.COMPASS) return@map signal
             // TradePro confidence has already been adjusted by the Phase-13
             // fusion engine. Do not apply a second chart-level boost.
             if (phase13TradeProAlreadyFused && signal.source == SignalSource.TRADEPRO) return@map signal

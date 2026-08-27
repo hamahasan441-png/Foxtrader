@@ -85,6 +85,13 @@ enum class BacktestStrategyTemplate(
             "the required hit rate. Backtesting it shows what the gate actually did — including the long " +
             "stretches where it correctly published nothing at all.",
     ),
+    COMPASS(
+        displayName = "Compass Accuracy",
+        description = "Scores every call the other engines make and publishes only those clearing an accuracy " +
+            "threshold earned on calls already proved right or wrong. The barrier is the same distance on both " +
+            "sides, so the figure is direction alone and cannot be improved by moving a target closer; accuracy " +
+            "is always judged against what a constant-direction rule would have scored on the same bars.",
+    ),
     DERIV_BINARY_3M(
         displayName = "Deriv Binary 3m Precision",
         description = "M1 closed-bar EMA/ADX pullback-reclaim setup; enters next bar and settles after 3 minutes. Non-repainting and fixed-expiry backtestable.",
@@ -92,7 +99,7 @@ enum class BacktestStrategyTemplate(
 
     companion object {
         /** The only built-in methodologies exposed in FoxTrader's primary Lab. */
-        val primaryEntries = listOf(LITX, LIT_MAY_MADNESS, SMT, RSI_ORDERFLOW, RSI_REVERSAL, AMD, NASCENT, LIQUIDITY_SWEEP, VIRGIN_WICK, APEX)
+        val primaryEntries = listOf(LITX, LIT_MAY_MADNESS, SMT, RSI_ORDERFLOW, RSI_REVERSAL, AMD, NASCENT, LIQUIDITY_SWEEP, VIRGIN_WICK, APEX, COMPASS)
     }
 }
 

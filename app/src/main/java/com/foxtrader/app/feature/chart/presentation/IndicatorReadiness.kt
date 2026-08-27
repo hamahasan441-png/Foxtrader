@@ -3,6 +3,7 @@ package com.foxtrader.app.feature.chart.presentation
 import com.foxtrader.app.domain.model.ChartBarMode
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import com.foxtrader.app.domain.usecase.apex.ApexEngine
+import com.foxtrader.app.domain.usecase.compass.CompassEngine
 import com.foxtrader.app.domain.usecase.liquiditysweep.LiquiditySweepEngine
 import com.foxtrader.app.domain.usecase.smc.SmcDetector
 import com.foxtrader.app.domain.usecase.virginwick.VirginWickEngine
@@ -72,6 +73,14 @@ enum class ChartStudyId(
         // resolved to measure the hit rate being asked of it, which normally
         // takes far more history than this minimum.
         contextHint = "stays silent until its own record is measured",
+    ),
+    COMPASS(
+        "Compass Accuracy",
+        CompassEngine.MIN_BARS,
+        requiresTimeAxis = true,
+        // Bars enough to run is not bars enough to justify a threshold: the
+        // calibration needs calls that have already been proved right or wrong.
+        contextHint = "needs resolved calls before it will publish any",
     ),
     MACD("MACD", 35),
     STOCHASTIC("Stochastic", 15),
