@@ -63,7 +63,10 @@ class SignalEvidenceReducer @Inject constructor() {
         // Compass republishes another engine's call with a probability attached.
         // It is never independent of whatever made the call, so it shares the
         // composite family and is excluded from confluence entirely.
-        SignalSource.COMPASS -> Family.COMPOSITE
+        SignalSource.COMPASS,
+        // Crucible's rules are mined from the same price features every other
+        // engine reads, so it is not independent evidence from any of them.
+        SignalSource.CRUCIBLE -> Family.COMPOSITE
         SignalSource.VALUE_AREA_LIQUIDITY_REJECTION -> Family.AUCTION_PROFILE
         SignalSource.ACCUMULATION_MANIPULATION_DISTRIBUTION -> Family.STRUCTURE_LIQUIDITY
         SignalSource.NASCENT -> Family.STRUCTURE_LIQUIDITY

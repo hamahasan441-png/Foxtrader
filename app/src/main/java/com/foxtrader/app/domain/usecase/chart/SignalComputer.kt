@@ -281,6 +281,7 @@ class SignalComputer @Inject constructor(
         SignalSource.NASCENT -> 94
         SignalSource.APEX -> 97
         SignalSource.COMPASS -> 98
+        SignalSource.CRUCIBLE -> 95
         SignalSource.SMT -> 85
         SignalSource.TRADEPRO -> 80
         SignalSource.BINARY3M -> 70
@@ -311,7 +312,8 @@ class SignalComputer @Inject constructor(
         val liveFamiliesByDirection: Map<Direction, Set<SignalEvidenceReducer.Family>> =
             signals
                 .filter { it.isLive && it.source != SignalSource.BINARY3M &&
-                        it.source != SignalSource.APEX && it.source != SignalSource.COMPASS
+                        it.source != SignalSource.APEX && it.source != SignalSource.COMPASS &&
+                        it.source != SignalSource.CRUCIBLE
                 }
                 .groupBy { it.direction }
                 .mapValues { (_, group) -> group.map { evidenceReducer.family(it.source) }.toSet() }
@@ -329,6 +331,10 @@ class SignalComputer @Inject constructor(
             // it means one specific thing, and it is not independent of the
             // engine whose call it republishes.
             if (signal.source == SignalSource.COMPASS) return@map signal
+            // Crucible's confidence is a measured out-of-sample accuracy. It is
+            // mined from the same features the other engines read, so it is
+            // neither independent of them nor improvable by their agreement.
+            if (signal.source == SignalSource.CRUCIBLE) return@map signal
             // TradePro confidence has already been adjusted by the Phase-13
             // fusion engine. Do not apply a second chart-level boost.
             if (phase13TradeProAlreadyFused && signal.source == SignalSource.TRADEPRO) return@map signal

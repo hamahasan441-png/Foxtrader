@@ -130,6 +130,21 @@ object SignalIdentity {
         confirmationIndex = confirmationIndex,
     )
 
+    fun crucible(
+        symbol: String,
+        timeframe: Timeframe,
+        timestamp: Long,
+        direction: Direction,
+        confirmationIndex: Int,
+    ): String = methodology(
+        prefix = "crucible",
+        symbol = symbol,
+        timeframe = timeframe,
+        timestamp = timestamp,
+        direction = direction,
+        confirmationIndex = confirmationIndex,
+    )
+
     fun pivotSweepDivergence(
         symbol: String,
         timeframe: Timeframe,

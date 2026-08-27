@@ -32,6 +32,7 @@ import com.foxtrader.app.domain.usecase.liquiditysweep.LiquiditySweepEngine
 import com.foxtrader.app.domain.usecase.nascent.NascentEngine
 import com.foxtrader.app.domain.usecase.apex.ApexEngine
 import com.foxtrader.app.domain.usecase.compass.CompassEngine
+import com.foxtrader.app.domain.usecase.crucible.CrucibleEngine
 import com.foxtrader.app.domain.usecase.virginwick.VirginWickEngine
 import com.foxtrader.app.domain.usecase.rsireversal.RsiReversalEngine
 import com.foxtrader.app.domain.usecase.signalintel.AccumulationManipulationDistributionEngine
@@ -77,6 +78,7 @@ class BacktestLabViewModel @Inject constructor(
     private val virginWickEngine: VirginWickEngine,
     private val apexEngine: ApexEngine,
     private val compassEngine: CompassEngine,
+    private val crucibleEngine: CrucibleEngine,
     private val rsiReversalEngine: RsiReversalEngine,
     private val smtSignalEngine: SmtSignalEngine,
     private val mtfContextProvider: MtfContextProvider,
@@ -614,6 +616,11 @@ class BacktestLabViewModel @Inject constructor(
             // Same reasoning as Apex: the engine is non-repainting, so one pass
             // equals per-bar replay and is the only one that finishes.
             BacktestStrategyTemplate.COMPASS -> compassEngine.backtestFunction(
+                symbol = state.symbol,
+                timeframe = state.timeframe,
+                candles = candles,
+            )
+            BacktestStrategyTemplate.CRUCIBLE -> crucibleEngine.backtestFunction(
                 symbol = state.symbol,
                 timeframe = state.timeframe,
                 candles = candles,

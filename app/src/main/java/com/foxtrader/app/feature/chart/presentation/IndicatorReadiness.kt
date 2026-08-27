@@ -4,6 +4,7 @@ import com.foxtrader.app.domain.model.ChartBarMode
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import com.foxtrader.app.domain.usecase.apex.ApexEngine
 import com.foxtrader.app.domain.usecase.compass.CompassEngine
+import com.foxtrader.app.domain.usecase.crucible.CrucibleEngine
 import com.foxtrader.app.domain.usecase.liquiditysweep.LiquiditySweepEngine
 import com.foxtrader.app.domain.usecase.smc.SmcDetector
 import com.foxtrader.app.domain.usecase.virginwick.VirginWickEngine
@@ -81,6 +82,15 @@ enum class ChartStudyId(
         // Bars enough to run is not bars enough to justify a threshold: the
         // calibration needs calls that have already been proved right or wrong.
         contextHint = "needs resolved calls before it will publish any",
+    ),
+    CRUCIBLE(
+        "Crucible Discovery",
+        CrucibleEngine.MIN_BARS,
+        requiresTimeAxis = true,
+        // A full rule search is the heaviest study here by a wide margin, and
+        // it needs a long series before its folds are big enough to mean
+        // anything. It is worth switching on deliberately, not by default.
+        contextHint = "searches thousands of rules; slow, and needs long history",
     ),
     MACD("MACD", 35),
     STOCHASTIC("Stochastic", 15),

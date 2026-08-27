@@ -32,6 +32,10 @@ enum class ProductionAnalysisSystem(val label: String) {
     // attached, so showing it alongside the engines it judges would put the
     // same call on the chart twice.
     COMPASS("Compass Accuracy"),
+
+    // Crucible mines its own rules from the same price features the other
+    // engines read, so what it draws is not additional evidence alongside them.
+    CRUCIBLE("Crucible Discovery"),
 }
 
 /** Resolve a single selected canonical engine when the state is unambiguous. */
@@ -48,6 +52,7 @@ fun IndicatorToggles.productionAnalysisSystem(): ProductionAnalysisSystem? {
         ProductionAnalysisSystem.VALUE_AREA_LIQUIDITY_REJECTION.takeIf { valueAreaLiquidityRejection },
         ProductionAnalysisSystem.APEX.takeIf { apex },
         ProductionAnalysisSystem.COMPASS.takeIf { compass },
+        ProductionAnalysisSystem.CRUCIBLE.takeIf { crucible },
     )
     return selected.singleOrNull()
 }
@@ -76,6 +81,7 @@ fun IndicatorToggles.withProductionAnalysisSystem(
         valueAreaLiquidityRejection = false,
         apex = false,
         compass = false,
+        crucible = false,
     )
 
     return when (system) {
@@ -90,6 +96,7 @@ fun IndicatorToggles.withProductionAnalysisSystem(
         ProductionAnalysisSystem.VALUE_AREA_LIQUIDITY_REJECTION -> preserved.copy(valueAreaLiquidityRejection = true)
         ProductionAnalysisSystem.APEX -> preserved.copy(apex = true)
         ProductionAnalysisSystem.COMPASS -> preserved.copy(compass = true)
+        ProductionAnalysisSystem.CRUCIBLE -> preserved.copy(crucible = true)
         null -> preserved
     }
 }

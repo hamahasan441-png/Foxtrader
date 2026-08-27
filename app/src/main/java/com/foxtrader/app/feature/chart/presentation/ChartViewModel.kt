@@ -62,6 +62,7 @@ import com.foxtrader.app.domain.usecase.liquiditysweep.LiquiditySweepEngine
 import com.foxtrader.app.domain.usecase.rsireversal.RsiReversalEngine
 import com.foxtrader.app.domain.usecase.apex.ApexEngine
 import com.foxtrader.app.domain.usecase.compass.CompassEngine
+import com.foxtrader.app.domain.usecase.crucible.CrucibleEngine
 import com.foxtrader.app.domain.usecase.virginwick.VirginWickEngine
 import com.foxtrader.app.domain.usecase.signalintel.AccumulationManipulationDistributionEngine
 import com.foxtrader.app.domain.usecase.signalintel.PivotSweepDivergenceEngine
@@ -142,6 +143,7 @@ class ChartViewModel @Inject constructor(
     private val virginWickEngine: VirginWickEngine,
     private val apexEngine: ApexEngine,
     private val compassEngine: CompassEngine,
+    private val crucibleEngine: CrucibleEngine,
     private val rsiReversalLtfProvider: RsiReversalLtfProvider,
     private val heikinAshiTransformer: HeikinAshiTransformer,
     private val candleRenkoBuilder: CandleRenkoBuilder,
@@ -887,6 +889,25 @@ class ChartViewModel @Inject constructor(
         val compassSignals: List<ChartSignal> = compassAnalysis?.signals.orEmpty()
             .map { it.toChartSignal(latestConfirmedIndex) }
 
+        // Crucible runs a full rule search and is by far the heaviest study
+        // here, so it only runs when explicitly switched on.
+        val crucibleAnalysis = if (
+            ind.crucible && barMode == ChartBarMode.TIME && signalCandles.isNotEmpty()
+        ) {
+            withContext(defaultDispatcher) {
+                containedOrNull {
+                    crucibleEngine.analyze(
+                        symbol = symbol,
+                        timeframe = timeframe,
+                        candles = signalCandles,
+                        config = ind.settings.crucible.toEngineConfig(),
+                    )
+                }
+            }
+        } else null
+        val crucibleSignals: List<ChartSignal> = crucibleAnalysis?.signals.orEmpty()
+            .map { it.toChartSignal(latestConfirmedIndex) }
+
         // Backfill previously confirmed LiT arrows. Each bar is evaluated only
         // through its own closed prefix, so later data cannot create, move or
         // delete an earlier marker (non-repaint by construction).
@@ -1013,7 +1034,7 @@ class ChartViewModel @Inject constructor(
             emptyList()
         }
 
-        val chartStrategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + nascentSignals + rsiReversalSignals + liquiditySweepSignals + virginWickSignals + apexSignals + compassSignals + strategySignals + binary3mSignals
+        val chartStrategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + nascentSignals + rsiReversalSignals + liquiditySweepSignals + virginWickSignals + apexSignals + compassSignals + crucibleSignals + strategySignals + binary3mSignals
 
         // Drop stale frames: a newer computation (e.g. from a rapid indicator
         // toggle) has already started, so publishing this older result would
@@ -1340,6 +1361,23 @@ class ChartViewModel @Inject constructor(
         val compassSignals: List<ChartSignal> = compassAnalysis?.signals.orEmpty()
             .map { it.toChartSignal(candles.lastIndex) }
 
+        val crucibleAnalysis = if (
+            ind.crucible && current.barMode == ChartBarMode.TIME && candles.isNotEmpty()
+        ) {
+            withContext(defaultDispatcher) {
+                containedOrNull {
+                    crucibleEngine.analyze(
+                        symbol = symbol,
+                        timeframe = timeframe,
+                        candles = candles,
+                        config = ind.settings.crucible.toEngineConfig(),
+                    )
+                }
+            }
+        } else null
+        val crucibleSignals: List<ChartSignal> = crucibleAnalysis?.signals.orEmpty()
+            .map { it.toChartSignal(candles.lastIndex) }
+
         val productionHistory = if ((ind.litX || ind.lit) && candles.isNotEmpty()) {
             withContext(defaultDispatcher) {
                 scanProductionSignalHistory(
@@ -1431,7 +1469,7 @@ class ChartViewModel @Inject constructor(
             tradeProAnalysis = null,
             smtDivergences = emptyList(),
             candles = candles,
-            strategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + nascentSignals + rsiReversalSignals + liquiditySweepSignals + virginWickSignals + apexSignals + compassSignals + strategySignals + binary3mSignals,
+            strategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + nascentSignals + rsiReversalSignals + liquiditySweepSignals + virginWickSignals + apexSignals + compassSignals + crucibleSignals + strategySignals + binary3mSignals,
             litAnalysis = litAnalysis,
             smsAnalysis = smsAnalysis,
             rsiOrderFlowSignals = rsiOrderFlowSignals,
@@ -2723,6 +2761,34 @@ private fun com.foxtrader.app.domain.usecase.compass.model.CompassSignal.toChart
         confirmationIndex = index,
     ),
     variant = call.source,
+)
+
+private fun com.foxtrader.app.domain.usecase.crucible.model.CrucibleSignal.toChartSignal(
+    latestConfirmedIndex: Int,
+): ChartSignal = ChartSignal(
+    id = "crucible_${symbol}_${timestamp}_${direction.name}_$index",
+    source = SignalSource.CRUCIBLE,
+    direction = direction,
+    entry = price,
+    // The same symmetric barrier the rule's accuracy was measured against.
+    sl = if (direction == Direction.BULLISH) price - barrier else price + barrier,
+    tp = if (direction == Direction.BULLISH) price + barrier else price - barrier,
+    barIndex = index,
+    timestamp = timestamp,
+    // The rule's measured out-of-sample accuracy, not an in-sample score: the
+    // in-sample figure is the one a search always flatters.
+    confidence = (finding.outOfSample.accuracy ?: 0.0) * 100.0,
+    isLive = index == latestConfirmedIndex,
+    label = "Crucible ${((finding.outOfSample.accuracy ?: 0.0) * 100).toInt()}% · " +
+        finding.rule.description,
+    eventKey = SignalIdentity.crucible(
+        symbol = symbol,
+        timeframe = timeframe,
+        timestamp = timestamp,
+        direction = direction,
+        confirmationIndex = index,
+    ),
+    variant = finding.rule.key,
 )
 
 private fun AccumulationManipulationDistributionEngine.Signal.toChartSignal(latestConfirmedIndex: Int): ChartSignal =

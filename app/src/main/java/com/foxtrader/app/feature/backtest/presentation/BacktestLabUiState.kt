@@ -92,6 +92,13 @@ enum class BacktestStrategyTemplate(
             "sides, so the figure is direction alone and cannot be improved by moving a target closer; accuracy " +
             "is always judged against what a constant-direction rule would have scored on the same bars.",
     ),
+    CRUCIBLE(
+        displayName = "Crucible Discovery",
+        description = "Searches thousands of candidate conditions and keeps only those that survive purged " +
+            "out-of-sample testing, a false-discovery correction for the size of the search, an effective-sample " +
+            "deflation for overlapping outcomes, and a measurement of how often the search's own winner fails " +
+            "out of sample. Publishes nothing when that measurement says the search cannot be trusted.",
+    ),
     DERIV_BINARY_3M(
         displayName = "Deriv Binary 3m Precision",
         description = "M1 closed-bar EMA/ADX pullback-reclaim setup; enters next bar and settles after 3 minutes. Non-repainting and fixed-expiry backtestable.",
@@ -99,7 +106,7 @@ enum class BacktestStrategyTemplate(
 
     companion object {
         /** The only built-in methodologies exposed in FoxTrader's primary Lab. */
-        val primaryEntries = listOf(LITX, LIT_MAY_MADNESS, SMT, RSI_ORDERFLOW, RSI_REVERSAL, AMD, NASCENT, LIQUIDITY_SWEEP, VIRGIN_WICK, APEX, COMPASS)
+        val primaryEntries = listOf(LITX, LIT_MAY_MADNESS, SMT, RSI_ORDERFLOW, RSI_REVERSAL, AMD, NASCENT, LIQUIDITY_SWEEP, VIRGIN_WICK, APEX, COMPASS, CRUCIBLE)
     }
 }
 

@@ -117,6 +117,13 @@ enum class SignalSource {
      */
     COMPASS,
 
+    /**
+     * Crucible: a condition discovered by search, published only after
+     * surviving purged out-of-sample testing, false-discovery control and a
+     * measurement of the search's own tendency to overfit.
+     */
+    CRUCIBLE,
+
     /** A rule from the backtestable [com.foxtrader.app.domain.usecase.strategies.StrategyLibrary]. */
     STRATEGY,
 }
