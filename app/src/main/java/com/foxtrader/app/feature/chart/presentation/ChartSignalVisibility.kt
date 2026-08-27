@@ -5,12 +5,13 @@ import com.foxtrader.app.domain.model.SignalSource
 
 /**
  * Selects chart arrows without allowing the global history toggle to hide an
- * active LiT Adventure indicator's confirmed signals.
+ * active LiT signal indicator's confirmed signals.
  */
 internal fun selectVisibleChartSignals(
     signals: List<ChartSignal>,
     showSignalHistory: Boolean,
     litAdventureEnabled: Boolean,
+    litMayMadnessEnabled: Boolean,
     displayCandleCount: Int,
 ): List<ChartSignal> {
     if (showSignalHistory) return signals
@@ -19,11 +20,14 @@ internal fun selectVisibleChartSignals(
     val recent = signals
         .filter { it.isLive || it.barIndex >= recentCutoff }
         .takeLast(RECENT_SIGNAL_LIMIT)
-    if (!litAdventureEnabled) return recent
+    if (!litAdventureEnabled && !litMayMadnessEnabled) return recent
 
     val selected = LinkedHashMap<String, ChartSignal>()
     signals.asSequence()
-        .filter { it.source == SignalSource.LITX }
+        .filter {
+            (litAdventureEnabled && it.source == SignalSource.LITX) ||
+                (litMayMadnessEnabled && it.source == SignalSource.LIT)
+        }
         .forEach { selected[signalVisibilityKey(it)] = it }
     recent.forEach { selected[signalVisibilityKey(it)] = it }
     return selected.values.sortedWith(compareBy<ChartSignal> { it.barIndex }.thenBy { it.id })
