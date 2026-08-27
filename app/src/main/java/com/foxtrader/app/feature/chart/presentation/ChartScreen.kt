@@ -167,21 +167,21 @@ fun ChartScreen(
         (if (replayState.isActive) replayState.visibleCandles else state.candles).asCandleSeries()
     }
 
-    // Keep the default price canvas clean: current/live confirmations remain
-    // visible, while historical strategy markers appear only when the trader
-    // explicitly enables Signal History from the chart toolbar.
-    val visibleSignals = remember(state.signals, state.showSignalHistory, displayCandles.size) {
-        if (state.showSignalHistory) {
-            state.signals
-        } else {
-            // Keep the canvas clean but do not hide every confirmed arrow the
-            // instant the next candle opens. The bounded trail makes signal
-            // engines visibly auditable without enabling full Signal History.
-            val recentCutoff = (displayCandles.size - 120).coerceAtLeast(0)
-            state.signals
-                .filter { it.isLive || it.barIndex >= recentCutoff }
-                .takeLast(24)
-        }
+    // LiT Adventure is a signal indicator: its confirmed arrows remain visible
+    // whenever the study is active, even if the global history tool is hidden.
+    // Other engines retain the compact recent-only behaviour in that mode.
+    val visibleSignals = remember(
+        state.signals,
+        state.showSignalHistory,
+        state.indicators.litX,
+        displayCandles.size,
+    ) {
+        selectVisibleChartSignals(
+            signals = state.signals,
+            showSignalHistory = state.showSignalHistory,
+            litAdventureEnabled = state.indicators.litX,
+            displayCandleCount = displayCandles.size,
+        )
     }
 
     val visibleBacktestMarkers = remember(
@@ -432,7 +432,6 @@ fun ChartScreen(
                             fairValueGaps = state.fairValueGaps,
                             liquidityPools = state.liquidityPools,
                             tradeProAnalysis = state.tradeProAnalysis,
-                            litXAnalysis = state.litXAnalysis,
                             smtDivergences = state.smtDivergences,
                             signals = visibleSignals,
                             backtestMarkers = visibleBacktestMarkers,
