@@ -36,6 +36,7 @@
     <string name="chart_drag">DRAG</string>
     <string name="chart_dragging">DRAGGING</string>
     <string name="chart_drag_panel_cd">Drag panel to reorder</string>
+    <string name="chart_resize_indicator_pane_cd">Drag vertically to resize indicator pane</string>
     <string name="chart_loading_history">Loading history…</string>
 
     <string name="chart_top_symbol_picker_label">Open symbol picker</string>
@@ -189,7 +190,6 @@
     <string name="settings_perf_mode_note">Caps chart detail to save battery/CPU. The chart still degrades further automatically under load. Smooth keeps full detail.</string>
 
     <!-- LIT X Institutional Framework -->
-    <string name="chart_insights">Toggle analysis insights</string>
     <string name="chart_open_litx">Open LIT X institutional analysis</string>
     <string name="settings_litx_title">LIT X Institutional Framework</string>
     <string name="settings_litx_enable">Enable LIT X</string>
