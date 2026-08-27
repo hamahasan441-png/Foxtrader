@@ -61,6 +61,9 @@ import com.foxtrader.app.feature.chart.presentation.PivotSweepDivergenceStudySet
 import com.foxtrader.app.feature.chart.presentation.ValueAreaLiquidityRejectionMode
 import com.foxtrader.app.feature.chart.presentation.ValueAreaLiquidityRejectionStudySettings
 import com.foxtrader.app.feature.chart.presentation.ProductionAnalysisSystem
+import com.foxtrader.app.feature.chart.presentation.LiquiditySweepBiasPreset
+import com.foxtrader.app.feature.chart.presentation.LiquiditySweepEntryPreset
+import com.foxtrader.app.feature.chart.presentation.LiquiditySweepStudySettings
 import com.foxtrader.app.feature.chart.presentation.RsiOrderFlowStudySettings
 import com.foxtrader.app.feature.chart.presentation.RsiReversalEntryPreset
 import com.foxtrader.app.feature.chart.presentation.RsiReversalStudySettings
@@ -480,6 +483,53 @@ ResetButton { updateSettings(onChange) { it.copy(rsiOrderFlow = RsiOrderFlowStud
                     }
                     SignalArrowNote()
                     ResetButton { updateSettings(onChange) { it.copy(rsiReversal = RsiReversalStudySettings()) } }
+                }
+
+                StudyControlId.LIQUIDITY_SWEEP -> {
+                    LiquiditySweepBiasRow(settings.liquiditySweep.biasMode) { mode ->
+                        updateSettings(onChange) { it.copy(liquiditySweep = it.liquiditySweep.copy(biasMode = mode)) }
+                    }
+                    LiquiditySweepEntryRow(settings.liquiditySweep.entryMode) { mode ->
+                        updateSettings(onChange) { it.copy(liquiditySweep = it.liquiditySweep.copy(entryMode = mode)) }
+                    }
+                    ToggleRow("Equal highs/lows", settings.liquiditySweep.useEqualLevels) { enabled ->
+                        updateSettings(onChange) { it.copy(liquiditySweep = it.liquiditySweep.copy(useEqualLevels = enabled)) }
+                    }
+                    ToggleRow("Previous HTF range", settings.liquiditySweep.usePreviousHtfRange) { enabled ->
+                        updateSettings(onChange) { it.copy(liquiditySweep = it.liquiditySweep.copy(usePreviousHtfRange = enabled)) }
+                    }
+                    ToggleRow("Target opposing liquidity", settings.liquiditySweep.targetOpposingLiquidity) { enabled ->
+                        updateSettings(onChange) { it.copy(liquiditySweep = it.liquiditySweep.copy(targetOpposingLiquidity = enabled)) }
+                    }
+                    DoubleStepper("Reward : risk", settings.liquiditySweep.riskReward, 0.25, 0.5, 20.0) { value ->
+                        updateSettings(onChange) { it.copy(liquiditySweep = it.liquiditySweep.copy(riskReward = value).sanitized()) }
+                    }
+                    DoubleStepper("Min R:R", settings.liquiditySweep.minRiskReward, 0.25, 0.1, 20.0) { value ->
+                        updateSettings(onChange) { it.copy(liquiditySweep = it.liquiditySweep.copy(minRiskReward = value).sanitized()) }
+                    }
+                    IntStepper("Reclaim window", settings.liquiditySweep.maxReclaimBars, 1, 20) { value ->
+                        updateSettings(onChange) { it.copy(liquiditySweep = it.liquiditySweep.copy(maxReclaimBars = value).sanitized()) }
+                    }
+                    IntStepper("Entry window", settings.liquiditySweep.entryWindowBars, 1, 200) { value ->
+                        updateSettings(onChange) { it.copy(liquiditySweep = it.liquiditySweep.copy(entryWindowBars = value).sanitized()) }
+                    }
+                    ToggleRow("Keep historical signals", settings.liquiditySweep.historicalSignals) { enabled ->
+                        updateSettings(onChange) { it.copy(liquiditySweep = it.liquiditySweep.copy(historicalSignals = enabled)) }
+                    }
+                    IntStepper("Live window bars", settings.liquiditySweep.liveWindowBars, 20, 5_000) { value ->
+                        updateSettings(onChange) { it.copy(liquiditySweep = it.liquiditySweep.copy(liveWindowBars = value).sanitized()) }
+                    }
+                    ToggleRow("Show marked levels", settings.liquiditySweep.showLevels) { enabled ->
+                        updateSettings(onChange) { it.copy(liquiditySweep = it.liquiditySweep.copy(showLevels = enabled)) }
+                    }
+                    Text(
+                        text = "Bias from the two timeframes above this chart → mark key liquidity → " +
+                            "wait for the sweep and reclaim → enter on the reaction → stop behind the swept extreme.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textSecondary,
+                    )
+                    SignalArrowNote()
+                    ResetButton { updateSettings(onChange) { it.copy(liquiditySweep = LiquiditySweepStudySettings()) } }
                 }
 
                 StudyControlId.PIVOT_SWEEP_DIVERGENCE -> {
@@ -993,6 +1043,47 @@ private fun SettingRow(label: String, value: String, onMinus: () -> Unit, onPlus
 }
 
 @Composable
+private fun LiquiditySweepBiasRow(
+    selected: LiquiditySweepBiasPreset,
+    onSelect: (LiquiditySweepBiasPreset) -> Unit,
+) = PresetChipRow("Bias", LiquiditySweepBiasPreset.entries, selected, { it.label }, onSelect)
+
+@Composable
+private fun LiquiditySweepEntryRow(
+    selected: LiquiditySweepEntryPreset,
+    onSelect: (LiquiditySweepEntryPreset) -> Unit,
+) = PresetChipRow("Entry", LiquiditySweepEntryPreset.entries, selected, { it.label }, onSelect)
+
+@Composable
+private fun <T> PresetChipRow(
+    label: String,
+    options: List<T>,
+    selected: T,
+    labelOf: (T) -> String,
+    onSelect: (T) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        options.forEach { option ->
+            FilterChip(
+                selected = option == selected,
+                onClick = { onSelect(option) },
+                label = { Text(labelOf(option), style = MaterialTheme.typography.labelSmall) },
+                modifier = Modifier.padding(start = 4.dp),
+            )
+        }
+    }
+}
+
+@Composable
 private fun RsiReversalEntryModeRow(
     selected: RsiReversalEntryPreset,
     onSelect: (RsiReversalEntryPreset) -> Unit,
@@ -1227,6 +1318,10 @@ private fun activeStudies(t: IndicatorToggles): List<ActiveStudy> = buildList {
             add(ActiveStudy(StudyControlId.RSI_REVERSAL, "RSI Orderflow Reversal"))
             return@buildList
         }
+        ProductionAnalysisSystem.LIQUIDITY_SWEEP -> {
+            add(ActiveStudy(StudyControlId.LIQUIDITY_SWEEP, "Liquidity Sweep"))
+            return@buildList
+        }
         ProductionAnalysisSystem.PIVOT_SWEEP_DIVERGENCE -> {
             add(ActiveStudy(StudyControlId.PIVOT_SWEEP_DIVERGENCE, "Pivot Sweep Divergence"))
             return@buildList
@@ -1267,6 +1362,7 @@ private fun activeStudies(t: IndicatorToggles): List<ActiveStudy> = buildList {
     if (t.rsi) add(ActiveStudy(StudyControlId.RSI, "RSI ${t.settings.rsi.sanitized().period}"))
     if (t.rsiOrderFlow) add(ActiveStudy(StudyControlId.RSI_ORDER_FLOW, "RSI OF"))
     if (t.rsiReversal) add(ActiveStudy(StudyControlId.RSI_REVERSAL, "RSI Rev"))
+    if (t.liquiditySweep) add(ActiveStudy(StudyControlId.LIQUIDITY_SWEEP, "Liq Sweep"))
     if (t.pivotSweepDivergence) add(ActiveStudy(StudyControlId.PIVOT_SWEEP_DIVERGENCE, "PSD"))
     if (t.valueAreaLiquidityRejection) add(ActiveStudy(StudyControlId.VALUE_AREA_LIQUIDITY_REJECTION, "VALR"))
     if (t.amd) add(ActiveStudy(StudyControlId.AMD, "AMD"))
@@ -1315,6 +1411,7 @@ private fun removeStudy(
         StudyControlId.RSI -> t.copy(rsi = false)
         StudyControlId.RSI_ORDER_FLOW -> t.withProductionAnalysisSystem(null)
         StudyControlId.RSI_REVERSAL -> t.withProductionAnalysisSystem(null)
+        StudyControlId.LIQUIDITY_SWEEP -> t.withProductionAnalysisSystem(null)
         StudyControlId.PIVOT_SWEEP_DIVERGENCE -> t.withProductionAnalysisSystem(null)
         StudyControlId.VALUE_AREA_LIQUIDITY_REJECTION -> t.withProductionAnalysisSystem(null)
         StudyControlId.AMD -> t.copy(amd = false)
@@ -1341,6 +1438,7 @@ private enum class StudyControlId(val title: String) {
     TRADE_PRO("TradePro"), BINARY_3M("Deriv 3m"), RSI("RSI settings"),
     RSI_ORDER_FLOW("RSI OrderFlow settings"),
     RSI_REVERSAL("RSI Orderflow Reversal settings"),
+    LIQUIDITY_SWEEP("Liquidity Sweep settings"),
     PIVOT_SWEEP_DIVERGENCE("Pivot Sweep Divergence settings"),
     VALUE_AREA_LIQUIDITY_REJECTION("Value Area Liquidity Rejection settings"),
     AMD("AMD settings"),

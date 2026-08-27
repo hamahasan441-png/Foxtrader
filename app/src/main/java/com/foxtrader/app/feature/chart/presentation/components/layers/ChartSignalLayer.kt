@@ -270,6 +270,7 @@ internal fun DrawScope.drawSignalMarkers(
                 SignalSource.SMT -> "SMT"
                 SignalSource.RSI_ORDERFLOW -> "ROF"
                 SignalSource.RSI_REVERSAL -> "RSR"
+                SignalSource.LIQUIDITY_SWEEP -> "LSW"
                 SignalSource.PIVOT_SWEEP_DIVERGENCE -> "PSD"
                 SignalSource.VALUE_AREA_LIQUIDITY_REJECTION -> "VALR"
                 SignalSource.ACCUMULATION_MANIPULATION_DISTRIBUTION -> "AMD"

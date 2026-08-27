@@ -28,6 +28,7 @@ import com.foxtrader.app.domain.usecase.tradepro.TradeProSignalEngine
 import com.foxtrader.app.domain.usecase.preferences.AppPreferences
 import com.foxtrader.app.domain.usecase.indicators.TechnicalIndicators
 import com.foxtrader.app.domain.usecase.strategies.StrategyLibrary
+import com.foxtrader.app.domain.usecase.liquiditysweep.LiquiditySweepEngine
 import com.foxtrader.app.domain.usecase.nascent.NascentEngine
 import com.foxtrader.app.domain.usecase.rsireversal.RsiReversalEngine
 import com.foxtrader.app.domain.usecase.signalintel.AccumulationManipulationDistributionEngine
@@ -69,6 +70,7 @@ class BacktestLabViewModel @Inject constructor(
     private val rsiOrderFlowSignalEngine: RsiOrderFlowSignalEngine,
     private val amdEngine: AccumulationManipulationDistributionEngine,
     private val nascentEngine: NascentEngine,
+    private val liquiditySweepEngine: LiquiditySweepEngine,
     private val rsiReversalEngine: RsiReversalEngine,
     private val smtSignalEngine: SmtSignalEngine,
     private val mtfContextProvider: MtfContextProvider,
@@ -583,6 +585,10 @@ class BacktestLabViewModel @Inject constructor(
             // Deliberately the same engine the chart runs: one deterministic
             // core, so a backtest statistic describes the arrows a trader saw.
             BacktestStrategyTemplate.NASCENT -> nascentEngine.strategyFunction(
+                symbol = state.symbol,
+                timeframe = state.timeframe,
+            )
+            BacktestStrategyTemplate.LIQUIDITY_SWEEP -> liquiditySweepEngine.strategyFunction(
                 symbol = state.symbol,
                 timeframe = state.timeframe,
             )

@@ -77,6 +77,12 @@ enum class SignalSource {
      */
     RSI_REVERSAL,
 
+    /**
+     * Liquidity Sweep: higher-timeframe bias, a marked liquidity level taken
+     * and reclaimed, entered on the reaction.
+     */
+    LIQUIDITY_SWEEP,
+
     /** Previous-day pivot sweep/reclaim + confirmed dual divergence setup. */
     PIVOT_SWEEP_DIVERGENCE,
 

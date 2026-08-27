@@ -273,6 +273,7 @@ class SignalComputer @Inject constructor(
         SignalSource.SMS -> 90
         SignalSource.RSI_ORDERFLOW -> 88
         SignalSource.RSI_REVERSAL -> 96
+        SignalSource.LIQUIDITY_SWEEP -> 89
         SignalSource.PIVOT_SWEEP_DIVERGENCE -> 92
         SignalSource.VALUE_AREA_LIQUIDITY_REJECTION -> 93
         SignalSource.ACCUMULATION_MANIPULATION_DISTRIBUTION -> 91

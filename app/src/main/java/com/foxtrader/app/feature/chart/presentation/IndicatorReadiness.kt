@@ -1,6 +1,8 @@
 package com.foxtrader.app.feature.chart.presentation
 
 import com.foxtrader.app.domain.model.ChartBarMode
+import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
+import com.foxtrader.app.domain.usecase.liquiditysweep.LiquiditySweepEngine
 import com.foxtrader.app.domain.usecase.rsireversal.RsiReversalEngine
 import kotlin.math.max
 
@@ -22,6 +24,12 @@ enum class ChartStudyId(
         220,
         requiresTimeAxis = true,
         contextHint = "arms on this timeframe, confirms one below",
+    ),
+    LIQUIDITY_SWEEP(
+        "Liquidity Sweep",
+        120,
+        requiresTimeAxis = true,
+        contextHint = "needs two closed timeframes above the chart",
     ),
     PIVOT_SWEEP_DIVERGENCE(
         "Pivot Sweep Divergence",
@@ -159,6 +167,9 @@ object IndicatorReadinessCatalog {
             // The warmup exclusion dominates: below it the engine is correctly
             // silent rather than publishing decisions a scroll-back could flip.
             RsiReversalEngine().minimumBars(settings.rsiReversal.toEngineConfig())
+        ChartStudyId.LIQUIDITY_SWEEP ->
+            LiquiditySweepEngine(AnalyzeMarketStructureUseCase())
+                .minimumBars(settings.liquiditySweep.toEngineConfig())
         ChartStudyId.PIVOT_SWEEP_DIVERGENCE ->
             maxOf(
                 settings.pivotSweepDivergence.rsiPeriod,
