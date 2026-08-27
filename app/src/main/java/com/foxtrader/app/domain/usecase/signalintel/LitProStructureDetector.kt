@@ -27,7 +27,7 @@ import kotlin.math.abs
  * rules before a trade signal is allowed to leave the domain layer.
  */
 @Singleton
-class LitProStructureDetector @Inject constructor(
+open class LitProStructureDetector @Inject constructor(
     private val equalLevels: EqualLevelDetector,
 ) {
 
@@ -51,7 +51,14 @@ class LitProStructureDetector @Inject constructor(
         val confirmationIndex: Int,
     )
 
-    fun detect(candles: List<Candle>, config: LitConfig): LitProContext {
+    /** One causally coherent IDM -> continuation BOS -> reversal CHOCH chain. */
+    private data class ActiveSequence(
+        val idm: LitLevel,
+        val bos: BreakEvent,
+        val choch: BreakEvent,
+    )
+
+    open fun detect(candles: List<Candle>, config: LitConfig): LitProContext {
         val cfg = config.sanitized()
         val minimum = cfg.swingLeftBars + cfg.swingRightBars + 8
         if (candles.size < minimum) return LitProContext(notes = listOf("Waiting for confirmed LiT pivots"))
@@ -74,19 +81,39 @@ class LitProStructureDetector @Inject constructor(
             )
         }
 
-        val pullback = latestPullback(swings, latest.direction, latest.confirmationIndex)
-        val idm = findInducement(candles, swings, latest, cfg)
-        val lastBos = breaks.lastOrNull { it.type == BreakType.BOS && it.confirmationIndex <= latest.confirmationIndex }
-        val lastChoch = breaks.lastOrNull { it.type == BreakType.CHOCH && it.confirmationIndex <= latest.confirmationIndex }
-        val poi = selectPoi(candles, latest, cfg)
-        val scob = poi?.let { detectScob(candles, latest.direction, it, latest.confirmationIndex, cfg) }
+        // Build the three events as one chain. The old implementation selected
+        // the latest BOS/CHOCH independently, then searched IDM relative to the
+        // CHOCH. That commonly selected an IDM *after* the BOS, so the sequence
+        // validator correctly rejected virtually every production setup.
+        val sequence = activeSequence(candles, swings, breaks, latest, cfg)
+        val activeEvent = sequence?.choch ?: latest
+        val pullback = latestPullback(swings, activeEvent.direction, activeEvent.confirmationIndex)
+        val idm = sequence?.idm ?: findInducement(
+            candles = candles,
+            swings = swings,
+            beforeIndex = activeEvent.confirmationIndex,
+            direction = activeEvent.direction,
+            cfg = cfg,
+        )
+        val activeChoch = sequence?.choch ?: latest.takeIf { it.type == BreakType.CHOCH }
+        val activeBos = sequence?.bos ?: if (activeChoch != null) {
+            breaks.lastOrNull {
+                it.type == BreakType.BOS && it.confirmationIndex < activeChoch.confirmationIndex
+            }
+        } else {
+            latest.takeIf { it.type == BreakType.BOS }
+        }
+        val poi = activeChoch?.let { selectPoi(candles, it, cfg) }
+        val scob = poi?.let {
+            detectScob(candles, activeChoch.direction, it, activeChoch.confirmationIndex, cfg)
+        }
 
         return LitProContext(
             trend = trend,
             pullback = pullback,
             inducement = idm,
-            bos = lastBos?.toLevel(LitEventType.BOS),
-            choch = lastChoch?.toLevel(LitEventType.CHOCH),
+            bos = activeBos?.toLevel(LitEventType.BOS),
+            choch = activeChoch?.toLevel(LitEventType.CHOCH),
             poi = poi,
             scob = scob,
             protectedHigh = swings.lastOrNull {
@@ -102,6 +129,40 @@ class LitProStructureDetector @Inject constructor(
                 if (scob != null) add("SCOB rejection confirmed")
             },
         )
+    }
+
+    /**
+     * Resolve only the sequence ending at the newest structural event. Falling
+     * back to an older CHOCH after a newer break would resurrect a consumed POI
+     * and repaint a stale setup on the right edge.
+     */
+    private fun activeSequence(
+        candles: List<Candle>,
+        swings: List<Swing>,
+        breaks: List<BreakEvent>,
+        latest: BreakEvent,
+        cfg: LitConfig,
+    ): ActiveSequence? {
+        if (latest.type != BreakType.CHOCH) return null
+
+        val bos = breaks.asReversed().firstOrNull { candidate ->
+            candidate.type == BreakType.BOS &&
+                candidate.direction != latest.direction &&
+                candidate.confirmationIndex < latest.confirmationIndex &&
+                latest.confirmationIndex - candidate.confirmationIndex <= cfg.maxBosToChochBars
+        } ?: return null
+
+        val idm = findInducement(
+            candles = candles,
+            swings = swings,
+            beforeIndex = bos.confirmationIndex,
+            direction = latest.direction,
+            cfg = cfg,
+        ) ?: return null
+        val idmToBosBars = bos.confirmationIndex - idm.confirmationIndex
+        if (idmToBosBars !in 1..cfg.maxIdmToBosBars) return null
+
+        return ActiveSequence(idm = idm, bos = bos, choch = latest)
     }
 
     private fun detectSwings(candles: List<Candle>, cfg: LitConfig): List<Swing> {
@@ -202,7 +263,7 @@ class LitProStructureDetector @Inject constructor(
     }
 
     /**
-     * Locate the inducement pool that was swept ahead of [event].
+     * Locate the inducement pool swept before a structural boundary.
      *
      * Two sources, tried in order of how much resting liquidity they represent:
      *
@@ -223,15 +284,16 @@ class LitProStructureDetector @Inject constructor(
     private fun findInducement(
         candles: List<Candle>,
         swings: List<Swing>,
-        event: BreakEvent,
+        beforeIndex: Int,
+        direction: Direction,
         cfg: LitConfig,
     ): LitLevel? {
-        val single = findSingleSwingInducement(candles, swings, event, cfg)
-        val shelf = findEqualLevelInducement(candles, swings, event, cfg)
+        val single = findSingleSwingInducement(candles, swings, beforeIndex, direction, cfg)
+        val shelf = findEqualLevelInducement(candles, swings, beforeIndex, direction, cfg)
         if (shelf == null) return single
         if (single == null) return shelf
         // Prefer the shelf only when it is the outer (further) pool.
-        val shelfIsOuter = when (event.direction) {
+        val shelfIsOuter = when (direction) {
             Direction.BULLISH -> shelf.price <= single.price
             Direction.BEARISH -> shelf.price >= single.price
         }
@@ -241,39 +303,40 @@ class LitProStructureDetector @Inject constructor(
     private fun findEqualLevelInducement(
         candles: List<Candle>,
         swings: List<Swing>,
-        event: BreakEvent,
+        beforeIndex: Int,
+        direction: Direction,
         cfg: LitConfig,
     ): LitLevel? {
-        val atr = averageRange(candles, event.confirmationIndex) ?: return null
+        val atr = averageRange(candles, beforeIndex) ?: return null
         val tolerance = atr * EqualLevelDetector.DEFAULT_TOLERANCE_ATR_FRACTION
         if (tolerance <= 0.0) return null
 
-        val wanted = if (event.direction == Direction.BULLISH) SwingType.LOW else SwingType.HIGH
-        val earliest = (event.confirmationIndex - cfg.maxIdmToBosBars - cfg.maxBosToChochBars)
+        val wanted = if (direction == Direction.BULLISH) SwingType.LOW else SwingType.HIGH
+        val earliest = (beforeIndex - cfg.maxIdmToBosBars)
             .coerceAtLeast(0)
         // Only pivots already confirmed before the event may contribute, so the
         // shelf cannot be assembled out of bars the event could not have seen.
         val pivots = swings
-            .filter { it.type == wanted && it.confirmationIndex < event.confirmationIndex }
+            .filter { it.type == wanted && it.confirmationIndex < beforeIndex }
             .map { it.index }
 
         val clusters = equalLevels.detect(
             candles = candles,
             pivots = pivots,
-            direction = event.direction,
+            direction = direction,
             tolerance = tolerance,
         )
-        val cluster = equalLevels.mostRecentBefore(clusters, event.confirmationIndex)
+        val cluster = equalLevels.mostRecentBefore(clusters, beforeIndex)
             ?.takeIf { it.confirmationIndex >= earliest }
             ?: return null
 
-        val sweepIndex = (cluster.confirmationIndex until event.confirmationIndex).firstOrNull { index ->
-            isSweepAndReclaim(candles[index], cluster.level, event.direction)
+        val sweepIndex = (cluster.confirmationIndex until beforeIndex).firstOrNull { index ->
+            isSweepAndReclaim(candles[index], cluster.level, direction)
         } ?: return null
 
         return LitLevel(
             type = LitEventType.IDM,
-            direction = event.direction,
+            direction = direction,
             price = cluster.level,
             originIndex = cluster.firstIndex,
             confirmationIndex = sweepIndex,
@@ -284,22 +347,23 @@ class LitProStructureDetector @Inject constructor(
     private fun findSingleSwingInducement(
         candles: List<Candle>,
         swings: List<Swing>,
-        event: BreakEvent,
+        beforeIndex: Int,
+        direction: Direction,
         cfg: LitConfig,
     ): LitLevel? {
-        val wanted = if (event.direction == Direction.BULLISH) SwingType.LOW else SwingType.HIGH
-        val start = (event.confirmationIndex - cfg.maxIdmToBosBars - cfg.maxBosToChochBars)
+        val wanted = if (direction == Direction.BULLISH) SwingType.LOW else SwingType.HIGH
+        val start = (beforeIndex - cfg.maxIdmToBosBars)
             .coerceAtLeast(0)
         return swings.asReversed().firstNotNullOfOrNull { swing ->
-            if (swing.type != wanted || swing.confirmationIndex !in start until event.confirmationIndex) {
+            if (swing.type != wanted || swing.confirmationIndex !in start until beforeIndex) {
                 return@firstNotNullOfOrNull null
             }
-            val sweepIndex = (swing.confirmationIndex until event.confirmationIndex).firstOrNull { index ->
-                isSweepAndReclaim(candles[index], swing.price, event.direction)
+            val sweepIndex = (swing.confirmationIndex until beforeIndex).firstOrNull { index ->
+                isSweepAndReclaim(candles[index], swing.price, direction)
             } ?: return@firstNotNullOfOrNull null
             LitLevel(
                 type = LitEventType.IDM,
-                direction = event.direction,
+                direction = direction,
                 price = swing.price,
                 originIndex = swing.index,
                 confirmationIndex = sweepIndex,
