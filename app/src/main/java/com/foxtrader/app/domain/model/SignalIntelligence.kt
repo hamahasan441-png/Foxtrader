@@ -24,6 +24,9 @@ enum class LitBreakMode { SHADOW, BODY, BODY_PLUS_SWEEP }
 @Serializable
 enum class LitPoiKind { DECISIONAL, EXTREME, BREAKER, FLIP }
 
+/** Fixed closed-candle window used by LiT May Madness in live/replay/backtest. */
+const val LIT_MAY_MADNESS_LIVE_BARS = 400
+
 /** Structural events emitted by the LiT Pro state machine. */
 enum class LitEventType { PULLBACK, IDM, BOS, CHOCH, POI, SCOB }
 
@@ -75,7 +78,7 @@ data class LitConfig(
     val historicalSignals: Boolean = true,
 
     /** Trailing bars re-analysed as live on every update. */
-    val liveWindowBars: Int = 100,
+    val liveWindowBars: Int = LIT_MAY_MADNESS_LIVE_BARS,
 ) {
     fun sanitized(): LitConfig = copy(
         minConfidence = minConfidence.coerceIn(50, 95),
@@ -153,6 +156,12 @@ data class LitConfig(
         }
     }
 }
+
+/** Enforces the trader-facing signal-only contract on legacy persisted config. */
+fun LitConfig.asLitMayMadnessSignalConfig(): LitConfig = sanitized().copy(
+    historicalSignals = true,
+    liveWindowBars = LIT_MAY_MADNESS_LIVE_BARS,
+)
 
 /** User-editable SMT synchronization/divergence settings. */
 @Serializable
