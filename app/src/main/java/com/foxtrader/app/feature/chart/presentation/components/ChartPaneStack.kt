@@ -63,6 +63,7 @@ fun ChartPaneStack(
     val active = buildList {
         if (indicators.rsi && rsiValues != null && candles.isNotEmpty()) add(StudyPane.RSI)
         if (indicators.rsiOrderFlow && candles.isNotEmpty()) add(StudyPane.RSI_ORDER_FLOW)
+        if (indicators.rsiReversal && candles.isNotEmpty()) add(StudyPane.RSI_CANDLE)
         if (indicators.macd && macdLine != null && macdSignal != null && macdHistogram != null) add(StudyPane.MACD)
         if (indicators.stochastic && stochasticK != null && stochasticD != null) add(StudyPane.STOCHASTIC)
         if (indicators.obv && obv != null) add(StudyPane.OBV)
@@ -168,6 +169,14 @@ fun ChartPaneStack(
                     settings = indicators.settings.rsiOrderFlow,
                 )
 
+                StudyPane.RSI_CANDLE -> RsiCandleSubChart(
+                    candles = candles,
+                    startIndex = startIndex,
+                    visibleBars = visibleBars,
+                    canvasHeight = canvasHeight,
+                    settings = indicators.settings.rsiReversal,
+                )
+
                 StudyPane.MACD -> if (macdLine != null && macdSignal != null && macdHistogram != null) {
                     MacdSubChart(
                         macdLine = macdLine,
@@ -240,6 +249,7 @@ private fun StudyTab(label: String, selected: Boolean, onClick: () -> Unit) {
 private enum class StudyPane(val key: String, val label: String) {
     RSI("rsi", "RSI"),
     RSI_ORDER_FLOW("rsi_order_flow", "RSI OF"),
+    RSI_CANDLE("rsi_candle", "RSI Candle"),
     MACD("macd", "MACD"),
     STOCHASTIC("stochastic", "Stoch"),
     OBV("obv", "OBV"),
