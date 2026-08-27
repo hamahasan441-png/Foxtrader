@@ -56,6 +56,12 @@ enum class BacktestStrategyTemplate(
             "entered on a lower-timeframe sweep/CHOCH with a fixed 4R target. The selected timeframe " +
             "is the entry timeframe; the context timeframe is reconstructed from it by resampling.",
     ),
+    LIQUIDITY_SWEEP(
+        displayName = "Liquidity Sweep",
+        description = "Higher-timeframe bias, a marked liquidity level taken and reclaimed, entered on the " +
+            "reaction with the stop behind the swept extreme. The two timeframes above the chart are derived " +
+            "from it by resampling, so no second data feed can disagree with what the chart showed.",
+    ),
     NASCENT(
         displayName = "Nascent FX Primary Analysis",
         description = "External key level (ILQ/SLQ/TLQ or EPA+DP) gating an internal MSU / EPA+DP setup, " +
@@ -72,7 +78,7 @@ enum class BacktestStrategyTemplate(
 
     companion object {
         /** The only built-in methodologies exposed in FoxTrader's primary Lab. */
-        val primaryEntries = listOf(LITX, LIT_MAY_MADNESS, SMT, RSI_ORDERFLOW, RSI_REVERSAL, AMD, NASCENT)
+        val primaryEntries = listOf(LITX, LIT_MAY_MADNESS, SMT, RSI_ORDERFLOW, RSI_REVERSAL, AMD, NASCENT, LIQUIDITY_SWEEP)
     }
 }
 

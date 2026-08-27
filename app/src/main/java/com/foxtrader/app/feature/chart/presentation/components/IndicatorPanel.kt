@@ -110,6 +110,9 @@ fun IndicatorPanel(
                         StudyItem("RSI Orderflow Reversal", ChartStudyId.RSI_REVERSAL, toggles.rsiReversal) { t ->
                             t.copy(rsiReversal = !t.rsiReversal)
                         },
+                        StudyItem("Liquidity Sweep", ChartStudyId.LIQUIDITY_SWEEP, toggles.liquiditySweep) { t ->
+                            t.copy(liquiditySweep = !t.liquiditySweep)
+                        },
                         StudyItem("Pivot Sweep Divergence", ChartStudyId.PIVOT_SWEEP_DIVERGENCE, toggles.pivotSweepDivergence) { t ->
                             t.copy(pivotSweepDivergence = !t.pivotSweepDivergence)
                         },

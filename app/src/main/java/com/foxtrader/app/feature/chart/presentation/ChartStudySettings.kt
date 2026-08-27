@@ -16,6 +16,7 @@ data class ChartStudySettings(
     val rsi: RsiStudySettings = RsiStudySettings(),
     val rsiOrderFlow: RsiOrderFlowStudySettings = RsiOrderFlowStudySettings(),
     val rsiReversal: RsiReversalStudySettings = RsiReversalStudySettings(),
+    val liquiditySweep: LiquiditySweepStudySettings = LiquiditySweepStudySettings(),
     val pivotSweepDivergence: PivotSweepDivergenceStudySettings = PivotSweepDivergenceStudySettings(),
     val valueAreaLiquidityRejection: ValueAreaLiquidityRejectionStudySettings = ValueAreaLiquidityRejectionStudySettings(),
     val amd: AmdStudySettings = AmdStudySettings(),
@@ -35,6 +36,7 @@ data class ChartStudySettings(
         rsi = rsi.sanitized(),
         rsiOrderFlow = rsiOrderFlow.sanitized(),
         rsiReversal = rsiReversal.sanitized(),
+        liquiditySweep = liquiditySweep.sanitized(),
         pivotSweepDivergence = pivotSweepDivergence.sanitized(),
         valueAreaLiquidityRejection = valueAreaLiquidityRejection.sanitized(),
         amd = amd.sanitized(),
@@ -87,6 +89,55 @@ enum class RsiReversalEntryPreset(val label: String) {
     AGGRESSIVE("Aggressive"),
     BALANCED("Balanced"),
     STRICT("Strict"),
+}
+
+/**
+ * Trader-facing settings for the Liquidity Sweep multi-timeframe engine.
+ *
+ * Narrower than the engine's own configuration on purpose: the engine keeps its
+ * full surface for research, while the chart exposes the choices a trader
+ * should actually be making. What is left out — penetration thresholds, level
+ * clustering, ageing — is the part the methodology fixes rather than the part a
+ * trader tunes.
+ */
+@Immutable
+data class LiquiditySweepStudySettings(
+    val biasMode: LiquiditySweepBiasPreset = LiquiditySweepBiasPreset.HIGHER_TIMEFRAME,
+    val entryMode: LiquiditySweepEntryPreset = LiquiditySweepEntryPreset.RETEST,
+    val useEqualLevels: Boolean = true,
+    val usePreviousHtfRange: Boolean = false,
+    val targetOpposingLiquidity: Boolean = true,
+    val riskReward: Double = 2.0,
+    val minRiskReward: Double = 1.5,
+    val entryWindowBars: Int = 12,
+    val maxReclaimBars: Int = 3,
+    /** Keep previously confirmed arrows rather than only the live window. */
+    val historicalSignals: Boolean = true,
+    val liveWindowBars: Int = 200,
+    /** Draw the marked liquidity levels on the price chart. */
+    val showLevels: Boolean = false,
+) {
+    fun sanitized(): LiquiditySweepStudySettings = copy(
+        riskReward = riskReward.coerceIn(0.5, 20.0),
+        minRiskReward = minRiskReward.coerceIn(0.1, 20.0),
+        entryWindowBars = entryWindowBars.coerceIn(1, 200),
+        maxReclaimBars = maxReclaimBars.coerceIn(1, 20),
+        liveWindowBars = liveWindowBars.coerceIn(20, 5_000),
+    )
+}
+
+/** How the directional bias is established. */
+enum class LiquiditySweepBiasPreset(val label: String) {
+    OFF("Off"),
+    HIGHER_TIMEFRAME("HTF"),
+    BOTH_AGREE("HTF+MTF"),
+}
+
+/** What the engine waits for after the reclaim. */
+enum class LiquiditySweepEntryPreset(val label: String) {
+    RECLAIM("Reclaim"),
+    RETEST("Retest"),
+    CHOCH_RETEST("CHOCH"),
 }
 
 enum class PivotSweepDivergenceMode { FAST, PRECISION, POWER }

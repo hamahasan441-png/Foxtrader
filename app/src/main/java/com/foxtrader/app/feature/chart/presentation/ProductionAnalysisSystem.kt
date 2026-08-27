@@ -18,6 +18,7 @@ enum class ProductionAnalysisSystem(val label: String) {
     // to the engine that actually draws RSI OHLC candles.
     RSI_ORDERFLOW_CANDLE("RSI Orderflow Divergence"),
     RSI_REVERSAL("RSI Orderflow Reversal"),
+    LIQUIDITY_SWEEP("Liquidity Sweep"),
     PIVOT_SWEEP_DIVERGENCE("Pivot Sweep Divergence"),
     VALUE_AREA_LIQUIDITY_REJECTION("Value Area Liquidity Rejection"),
 }
@@ -30,6 +31,7 @@ fun IndicatorToggles.productionAnalysisSystem(): ProductionAnalysisSystem? {
         ProductionAnalysisSystem.SMT.takeIf { smt },
         ProductionAnalysisSystem.RSI_ORDERFLOW_CANDLE.takeIf { rsiOrderFlow },
         ProductionAnalysisSystem.RSI_REVERSAL.takeIf { rsiReversal },
+        ProductionAnalysisSystem.LIQUIDITY_SWEEP.takeIf { liquiditySweep },
         ProductionAnalysisSystem.PIVOT_SWEEP_DIVERGENCE.takeIf { pivotSweepDivergence },
         ProductionAnalysisSystem.VALUE_AREA_LIQUIDITY_REJECTION.takeIf { valueAreaLiquidityRejection },
     )
@@ -54,6 +56,7 @@ fun IndicatorToggles.withProductionAnalysisSystem(
         smt = false,
         rsiOrderFlow = false,
         rsiReversal = false,
+        liquiditySweep = false,
         pivotSweepDivergence = false,
         valueAreaLiquidityRejection = false,
     )
@@ -64,6 +67,7 @@ fun IndicatorToggles.withProductionAnalysisSystem(
         ProductionAnalysisSystem.SMT -> preserved.withSmtSuite(true)
         ProductionAnalysisSystem.RSI_ORDERFLOW_CANDLE -> preserved.copy(rsiOrderFlow = true)
         ProductionAnalysisSystem.RSI_REVERSAL -> preserved.copy(rsiReversal = true)
+        ProductionAnalysisSystem.LIQUIDITY_SWEEP -> preserved.copy(liquiditySweep = true)
         ProductionAnalysisSystem.PIVOT_SWEEP_DIVERGENCE -> preserved.copy(pivotSweepDivergence = true)
         ProductionAnalysisSystem.VALUE_AREA_LIQUIDITY_REJECTION -> preserved.copy(valueAreaLiquidityRejection = true)
         null -> preserved

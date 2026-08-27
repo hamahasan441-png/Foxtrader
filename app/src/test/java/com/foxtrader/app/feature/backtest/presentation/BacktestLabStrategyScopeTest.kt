@@ -17,6 +17,7 @@ class BacktestLabStrategyScopeTest {
                 BacktestStrategyTemplate.RSI_REVERSAL,
                 BacktestStrategyTemplate.AMD,
                 BacktestStrategyTemplate.NASCENT,
+                BacktestStrategyTemplate.LIQUIDITY_SWEEP,
             ),
             BacktestStrategyTemplate.primaryEntries,
         )

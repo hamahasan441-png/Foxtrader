@@ -70,6 +70,21 @@ object SignalIdentity {
         confirmationIndex = confirmationIndex,
     )
 
+    fun liquiditySweep(
+        symbol: String,
+        timeframe: Timeframe,
+        timestamp: Long,
+        direction: Direction,
+        confirmationIndex: Int,
+    ): String = methodology(
+        prefix = "liq_sweep",
+        symbol = symbol,
+        timeframe = timeframe,
+        timestamp = timestamp,
+        direction = direction,
+        confirmationIndex = confirmationIndex,
+    )
+
     fun pivotSweepDivergence(
         symbol: String,
         timeframe: Timeframe,
