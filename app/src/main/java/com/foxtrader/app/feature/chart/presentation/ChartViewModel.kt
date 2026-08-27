@@ -1321,8 +1321,21 @@ class ChartViewModel @Inject constructor(
         }
 
         val lastIndex = candles.lastIndex
+
+        // LiT May Madness scans its own depth. With historical signals on it
+        // backfills the full window so previously confirmed arrows are present
+        // and stay; with them off only the live window is ever evaluated, so
+        // the study reports what is forming now and nothing older.
+        val litScanBars = if (key.litConfig.historicalSignals) {
+            PRODUCTION_HISTORY_SCAN_BARS
+        } else {
+            key.litConfig.liveWindowBars
+        }
+        val litFirstWanted = (lastIndex - litScanBars + 1).coerceAtLeast(0)
+
         if (lastIndex > productionHistoryScannedThrough) {
-            val firstWanted = (lastIndex - PRODUCTION_HISTORY_SCAN_BARS + 1).coerceAtLeast(0)
+            val deepest = if (indicators.litX) PRODUCTION_HISTORY_SCAN_BARS else litScanBars
+            val firstWanted = (lastIndex - deepest + 1).coerceAtLeast(0)
             val scanFrom = maxOf(productionHistoryScannedThrough + 1, firstWanted)
             for (confirmationIndex in scanFrom..lastIndex) {
                 val contextStart = (confirmationIndex - PRODUCTION_HISTORY_CONTEXT_BARS + 1).coerceAtLeast(0)
@@ -1368,7 +1381,7 @@ class ChartViewModel @Inject constructor(
                         }
                 }
 
-                if (indicators.lit) {
+                if (indicators.lit && confirmationIndex >= litFirstWanted) {
                     containedOrNull {
                         litEngine.analyze(symbol, timeframe, prefix, key.litConfig)
                     }?.signal
@@ -1415,6 +1428,14 @@ class ChartViewModel @Inject constructor(
         productionHistorySignals.values
             .asSequence()
             .filter { it.barIndex <= lastIndex }
+            // With history kept, every LiT arrow ever confirmed for this
+            // context stays drawn, including ones found before a scroll-back
+            // widened the series. With it off, only the live window shows.
+            .filter {
+                it.source != SignalSource.LIT ||
+                    key.litConfig.historicalSignals ||
+                    it.barIndex >= lastIndex - key.litConfig.liveWindowBars + 1
+            }
             .map { it.copy(isLive = it.barIndex == lastIndex) }
             .sortedBy { it.barIndex }
             .toList()
