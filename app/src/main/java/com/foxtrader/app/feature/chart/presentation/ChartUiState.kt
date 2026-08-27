@@ -81,7 +81,6 @@ data class IndicatorToggles(
     val rsi: Boolean = false,
     val rsiOrderFlow: Boolean = false,
     val rsiReversal: Boolean = false,
-    val liquiditySweep: Boolean = false,
     val pivotSweepDivergence: Boolean = false,
     val valueAreaLiquidityRejection: Boolean = false,
     val amd: Boolean = false,
@@ -102,7 +101,7 @@ data class IndicatorToggles(
             ichimoku || keltner || donchian || pivotPoints || volumeProfile || marketProfile ||
             supportResistance || fibonacci || confluence || orderBlocks || fairValueGaps ||
             liquidity || sessions || structure || litX || lit || sms || smt || tradePro || binary3m ||
-            rsi || rsiOrderFlow || rsiReversal || liquiditySweep || pivotSweepDivergence || valueAreaLiquidityRejection || amd || nascent || macd || volume || stochastic || obv || moneyFlowIndex ||
+            rsi || rsiOrderFlow || rsiReversal || pivotSweepDivergence || valueAreaLiquidityRejection || amd || nascent || macd || volume || stochastic || obv || moneyFlowIndex ||
             activeStrategy != null || activeBlueprintId != null || allStrategies
 
     val smcSuiteActive: Boolean
@@ -120,9 +119,7 @@ data class IndicatorToggles(
         copy(litX = true, structure = true, orderBlocks = true, fairValueGaps = true, liquidity = true, sessions = true)
     } else copy(litX = false)
 
-    fun withLitSuite(enabled: Boolean): IndicatorToggles = if (enabled) {
-        copy(lit = true, structure = true, orderBlocks = true, fairValueGaps = true, liquidity = true, sessions = true)
-    } else copy(lit = false)
+    fun withLitSuite(enabled: Boolean): IndicatorToggles = copy(lit = enabled)
 
     fun withSmsSuite(enabled: Boolean): IndicatorToggles = if (enabled) {
         copy(sms = true, structure = true, liquidity = true)
