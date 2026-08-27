@@ -13,6 +13,7 @@ import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.LitConfig
+import com.foxtrader.app.domain.model.asLitMayMadnessSignalConfig
 import com.foxtrader.app.domain.model.LitXConfig
 import com.foxtrader.app.domain.model.SmsConfig
 import com.foxtrader.app.domain.model.SmtConfig
@@ -57,7 +58,6 @@ import com.foxtrader.app.domain.usecase.signalintel.ConfirmedBarPolicy
 import com.foxtrader.app.domain.usecase.signalintel.LitEngine
 import com.foxtrader.app.domain.usecase.signalintel.RsiOrderFlowSignalEngine
 import com.foxtrader.app.domain.usecase.nascent.NascentEngine
-import com.foxtrader.app.domain.usecase.liquiditysweep.LiquiditySweepEngine
 import com.foxtrader.app.domain.usecase.rsireversal.RsiReversalEngine
 import com.foxtrader.app.domain.usecase.signalintel.AccumulationManipulationDistributionEngine
 import com.foxtrader.app.domain.usecase.signalintel.PivotSweepDivergenceEngine
@@ -134,7 +134,6 @@ class ChartViewModel @Inject constructor(
     private val amdEngine: AccumulationManipulationDistributionEngine,
     private val nascentEngine: NascentEngine,
     private val rsiReversalEngine: RsiReversalEngine,
-    private val liquiditySweepEngine: LiquiditySweepEngine,
     private val rsiReversalLtfProvider: RsiReversalLtfProvider,
     private val heikinAshiTransformer: HeikinAshiTransformer,
     private val candleRenkoBuilder: CandleRenkoBuilder,
@@ -636,7 +635,14 @@ class ChartViewModel @Inject constructor(
 
         val litAnalysis = if (needLit && signalCandles.isNotEmpty()) {
             withContext(defaultDispatcher) {
-                containedOrNull { litEngine.analyze(symbol, timeframe, signalCandles, appPreferences.litConfig.value) }
+                containedOrNull {
+                    litEngine.analyze(
+                        symbol,
+                        timeframe,
+                        signalCandles,
+                        appPreferences.litConfig.value.asLitMayMadnessSignalConfig(),
+                    )
+                }
             }
         } else null
 
@@ -794,28 +800,6 @@ class ChartViewModel @Inject constructor(
         val rsiReversalSignals: List<ChartSignal> = rsiReversalAnalysis?.signals.orEmpty()
             .map { it.toChartSignal(signalCandles, latestConfirmedIndex) }
 
-        // Liquidity Sweep derives its higher timeframes from this same series
-        // by resampling, so it needs no second fetch and the chart, replay and
-        // backtester cannot disagree about what the higher timeframe said.
-        val liquiditySweepAnalysis = if (
-            ind.liquiditySweep &&
-            barMode == ChartBarMode.TIME &&
-            signalCandles.isNotEmpty()
-        ) {
-            withContext(defaultDispatcher) {
-                containedOrNull {
-                    liquiditySweepEngine.analyze(
-                        symbol = symbol,
-                        timeframe = timeframe,
-                        candles = signalCandles,
-                        config = ind.settings.liquiditySweep.toEngineConfig(),
-                    )
-                }
-            }
-        } else null
-        val liquiditySweepSignals: List<ChartSignal> = liquiditySweepAnalysis?.signals.orEmpty()
-            .map { it.toChartSignal(latestConfirmedIndex) }
-
         // Backfill previously confirmed LiT arrows. Each bar is evaluated only
         // through its own closed prefix, so later data cannot create, move or
         // delete an earlier marker (non-repaint by construction).
@@ -828,7 +812,7 @@ class ChartViewModel @Inject constructor(
                     barMode = barMode,
                     candles = signalCandles,
                     litXConfig = litXConfig,
-                    litConfig = appPreferences.litConfig.value.sanitized(),
+                    litConfig = appPreferences.litConfig.value.asLitMayMadnessSignalConfig(),
                 )
             }
         } else {
@@ -942,7 +926,7 @@ class ChartViewModel @Inject constructor(
             emptyList()
         }
 
-        val chartStrategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + nascentSignals + rsiReversalSignals + liquiditySweepSignals + strategySignals + binary3mSignals
+        val chartStrategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + nascentSignals + rsiReversalSignals + strategySignals + binary3mSignals
 
         // Drop stale frames: a newer computation (e.g. from a rapid indicator
         // toggle) has already started, so publishing this older result would
@@ -988,7 +972,7 @@ class ChartViewModel @Inject constructor(
             configuration = LiveSignalConfiguration(
                 indicators = ind,
                 litXConfig = litXConfig,
-                litConfig = appPreferences.litConfig.value.sanitized(),
+                litConfig = appPreferences.litConfig.value.asLitMayMadnessSignalConfig(),
                 smtConfig = appPreferences.smtConfig.value.sanitized(),
             ),
         )
@@ -1065,7 +1049,14 @@ class ChartViewModel @Inject constructor(
         } else null
         val litAnalysis = if (ind.lit) {
             withContext(defaultDispatcher) {
-                containedOrNull { litEngine.analyze(symbol, timeframe, candles, appPreferences.litConfig.value) }
+                containedOrNull {
+                    litEngine.analyze(
+                        symbol,
+                        timeframe,
+                        candles,
+                        appPreferences.litConfig.value.asLitMayMadnessSignalConfig(),
+                    )
+                }
             }
         } else null
         val smsAnalysis = if (ind.sms) {
@@ -1192,25 +1183,6 @@ class ChartViewModel @Inject constructor(
         val rsiReversalSignals: List<ChartSignal> = rsiReversalAnalysis?.signals.orEmpty()
             .map { it.toChartSignal(candles, candles.lastIndex) }
 
-        // Replay hands the engine the revealed prefix, which is exactly what
-        // live hands it, so the same arrows appear at the same bars.
-        val liquiditySweepAnalysis = if (
-            ind.liquiditySweep && current.barMode == ChartBarMode.TIME && candles.isNotEmpty()
-        ) {
-            withContext(defaultDispatcher) {
-                containedOrNull {
-                    liquiditySweepEngine.analyze(
-                        symbol = symbol,
-                        timeframe = timeframe,
-                        candles = candles,
-                        config = ind.settings.liquiditySweep.toEngineConfig(),
-                    )
-                }
-            }
-        } else null
-        val liquiditySweepSignals: List<ChartSignal> = liquiditySweepAnalysis?.signals.orEmpty()
-            .map { it.toChartSignal(candles.lastIndex) }
-
         val productionHistory = if ((ind.litX || ind.lit) && candles.isNotEmpty()) {
             withContext(defaultDispatcher) {
                 scanProductionSignalHistory(
@@ -1220,7 +1192,7 @@ class ChartViewModel @Inject constructor(
                     barMode = current.barMode,
                     candles = candles,
                     litXConfig = litXConfig,
-                    litConfig = appPreferences.litConfig.value.sanitized(),
+                    litConfig = appPreferences.litConfig.value.asLitMayMadnessSignalConfig(),
                 )
             }
         } else {
@@ -1302,7 +1274,7 @@ class ChartViewModel @Inject constructor(
             tradeProAnalysis = null,
             smtDivergences = emptyList(),
             candles = candles,
-            strategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + nascentSignals + rsiReversalSignals + liquiditySweepSignals + strategySignals + binary3mSignals,
+            strategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + nascentSignals + rsiReversalSignals + strategySignals + binary3mSignals,
             litAnalysis = litAnalysis,
             smsAnalysis = smsAnalysis,
             rsiOrderFlowSignals = rsiOrderFlowSignals,
@@ -1355,7 +1327,7 @@ class ChartViewModel @Inject constructor(
             litXEnabled = indicators.litX,
             litEnabled = indicators.lit,
             litXConfig = litXConfig.copy(enabled = true).sanitized(),
-            litConfig = litConfig.sanitized(),
+            litConfig = litConfig.asLitMayMadnessSignalConfig(),
         )
         if (productionHistoryKey != key) {
             productionHistoryKey = key
@@ -1463,8 +1435,13 @@ class ChartViewModel @Inject constructor(
             }
             productionHistoryScannedThrough = lastIndex
             while (productionHistorySignals.size > PRODUCTION_HISTORY_MAX_SIGNALS) {
-                val oldest = productionHistorySignals.keys.firstOrNull() ?: break
-                productionHistorySignals.remove(oldest)
+                // LiT May Madness is a persistent signal indicator: once a
+                // closed-bar event is confirmed, never prune its chart arrow.
+                val oldestNonMay = productionHistorySignals.entries
+                    .firstOrNull { it.value.source != SignalSource.LIT }
+                    ?.key
+                    ?: break
+                productionHistorySignals.remove(oldestNonMay)
             }
         }
 
@@ -1953,7 +1930,7 @@ class ChartViewModel @Inject constructor(
     }
 
     fun currentLitXConfig(): LitXConfig = appPreferences.litXConfig.value.copy(enabled = true).sanitized()
-    fun currentLitConfig(): LitConfig = appPreferences.litConfig.value.sanitized()
+    fun currentLitConfig(): LitConfig = appPreferences.litConfig.value.asLitMayMadnessSignalConfig()
     fun currentSmtConfig(): SmtConfig = appPreferences.smtConfig.value.sanitized()
     fun currentSmsConfig(): SmsConfig = appPreferences.smsConfig.value.sanitized()
 
@@ -1962,7 +1939,7 @@ class ChartViewModel @Inject constructor(
     }
 
     fun updateLitConfig(config: LitConfig) {
-        appPreferences.setLitConfig(config.sanitized())
+        appPreferences.setLitConfig(config.asLitMayMadnessSignalConfig())
     }
 
     fun updateSmtConfig(config: SmtConfig) {
@@ -2475,34 +2452,6 @@ private fun com.foxtrader.app.domain.usecase.rsireversal.model.RsiReversalSignal
         confirmationIndex = contextIndex,
     ),
     variant = if (setup.recursiveDepth == 0) "DIRECT" else "RECURSIVE_${setup.recursiveDepth}",
-)
-
-private fun com.foxtrader.app.domain.usecase.liquiditysweep.model.LiquiditySweepSignal.toChartSignal(
-    latestConfirmedIndex: Int,
-): ChartSignal = ChartSignal(
-    id = "liq_sweep_${symbol}_${timestamp}_${direction.name}_${sweep.sweepIndex}",
-    source = SignalSource.LIQUIDITY_SWEEP,
-    direction = direction,
-    entry = entry,
-    sl = stop,
-    tp = target,
-    barIndex = entryIndex,
-    timestamp = timestamp,
-    // The model is a structural rule, not a scored one: every confirmed setup
-    // satisfied the same conditions, so a spread of confidences here would be
-    // inventing a distinction the rules do not make.
-    confidence = 100.0,
-    isLive = entryIndex == latestConfirmedIndex,
-    label = "Liquidity Sweep ${sweep.level.timeframe.label} · RR ${"%.1f".format(riskReward)} · " +
-        reasons.take(2).joinToString(" · "),
-    eventKey = SignalIdentity.liquiditySweep(
-        symbol = symbol,
-        timeframe = executionTimeframe,
-        timestamp = timestamp,
-        direction = direction,
-        confirmationIndex = entryIndex,
-    ),
-    variant = "${entryType.name}/${sweep.level.source.name}",
 )
 
 private fun AccumulationManipulationDistributionEngine.Signal.toChartSignal(latestConfirmedIndex: Int): ChartSignal =
