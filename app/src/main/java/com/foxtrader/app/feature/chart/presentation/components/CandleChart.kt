@@ -37,7 +37,6 @@ import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.ChartSignal
 import com.foxtrader.app.domain.model.BacktestChartMarker
 import com.foxtrader.app.domain.model.Direction
-import com.foxtrader.app.domain.model.LitXAnalysis
 import com.foxtrader.app.domain.model.StructureBreak
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.analysis.FibonacciEngine
@@ -78,7 +77,6 @@ import com.foxtrader.app.feature.chart.presentation.components.layers.drawStruct
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawSupportResistanceZones
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawSuperTrend
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawTimeAxis
-import com.foxtrader.app.feature.chart.presentation.components.layers.drawLitXSignals
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawSmtDivergences
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawSignalMarkers
 import com.foxtrader.app.feature.chart.presentation.components.layers.drawValueAreaLiquidityProfiles
@@ -158,7 +156,6 @@ fun CandleChart(
     fairValueGaps: ImmutableList<com.foxtrader.app.domain.model.FairValueGap> = persistentListOf(),
     liquidityPools: ImmutableList<com.foxtrader.app.domain.model.LiquidityPool> = persistentListOf(),
     tradeProAnalysis: com.foxtrader.app.domain.model.tradepro.TradeProAnalysis? = null,
-    litXAnalysis: LitXAnalysis? = null,
     smtDivergences: List<SmtDivergenceDetector.SmtDivergence> = emptyList(),
     signals: List<ChartSignal> = emptyList(),
     backtestMarkers: List<BacktestChartMarker> = emptyList(),
@@ -733,16 +730,7 @@ fun CandleChart(
         }
 
         // ====================================================================
-        // LAYER 1.4.1: LIT X signal overlays (entry/SL/TP + direction arrow)
-        // ====================================================================
-        if (litXAnalysis != null && indicators.litX) {
-            clipRect(right = cw, bottom = ch) {
-                drawLitXSignals(litXAnalysis, viewport, cw, ch)
-            }
-        }
-
-        // ====================================================================
-        // LAYER 1.4.2: SMT divergence markers
+        // LAYER 1.4.1: SMT divergence markers
         // ====================================================================
         if (smtDivergences.isNotEmpty() && indicators.smt) {
             clipRect(right = cw, bottom = ch) {
@@ -751,7 +739,7 @@ fun CandleChart(
         }
 
         // ====================================================================
-        // LAYER 1.4.3: Unified signal markers (live + history)
+        // LAYER 1.4.2: Unified signal markers (live + history)
         // ====================================================================
         if (signals.isNotEmpty()) {
             clipRect(right = cw, bottom = ch) {
@@ -760,7 +748,7 @@ fun CandleChart(
         }
 
         // ====================================================================
-        // LAYER 1.4.4: Completed on-chart backtest entries/exits
+        // LAYER 1.4.3: Completed on-chart backtest entries/exits
         // ====================================================================
         if (backtestMarkers.isNotEmpty()) {
             clipRect(right = cw, bottom = ch) {
