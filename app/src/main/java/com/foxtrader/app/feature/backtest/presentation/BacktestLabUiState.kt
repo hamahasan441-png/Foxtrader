@@ -62,6 +62,13 @@ enum class BacktestStrategyTemplate(
             "reaction with the stop behind the swept extreme. The two timeframes above the chart are derived " +
             "from it by resampling, so no second data feed can disagree with what the chart showed.",
     ),
+    VIRGIN_WICK(
+        displayName = "Virgin Wick",
+        description = "An untested wick the context timeframe closed away from becomes a zone; price returning " +
+            "to it and an inverted fair value gap confirming the rejection is the trade. Stop behind the safer " +
+            "of the inversion and the entry bar; target the next untested wick, or a fixed multiple when that " +
+            "draw is out of reach.",
+    ),
     NASCENT(
         displayName = "Nascent FX Primary Analysis",
         description = "External key level (ILQ/SLQ/TLQ or EPA+DP) gating an internal MSU / EPA+DP setup, " +
@@ -78,7 +85,7 @@ enum class BacktestStrategyTemplate(
 
     companion object {
         /** The only built-in methodologies exposed in FoxTrader's primary Lab. */
-        val primaryEntries = listOf(LITX, LIT_MAY_MADNESS, SMT, RSI_ORDERFLOW, RSI_REVERSAL, AMD, NASCENT, LIQUIDITY_SWEEP)
+        val primaryEntries = listOf(LITX, LIT_MAY_MADNESS, SMT, RSI_ORDERFLOW, RSI_REVERSAL, AMD, NASCENT, LIQUIDITY_SWEEP, VIRGIN_WICK)
     }
 }
 

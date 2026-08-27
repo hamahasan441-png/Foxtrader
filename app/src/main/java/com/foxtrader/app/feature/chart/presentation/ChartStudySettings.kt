@@ -17,6 +17,7 @@ data class ChartStudySettings(
     val rsiOrderFlow: RsiOrderFlowStudySettings = RsiOrderFlowStudySettings(),
     val rsiReversal: RsiReversalStudySettings = RsiReversalStudySettings(),
     val liquiditySweep: LiquiditySweepStudySettings = LiquiditySweepStudySettings(),
+    val virginWick: VirginWickStudySettings = VirginWickStudySettings(),
     val pivotSweepDivergence: PivotSweepDivergenceStudySettings = PivotSweepDivergenceStudySettings(),
     val valueAreaLiquidityRejection: ValueAreaLiquidityRejectionStudySettings = ValueAreaLiquidityRejectionStudySettings(),
     val amd: AmdStudySettings = AmdStudySettings(),
@@ -37,6 +38,7 @@ data class ChartStudySettings(
         rsiOrderFlow = rsiOrderFlow.sanitized(),
         rsiReversal = rsiReversal.sanitized(),
         liquiditySweep = liquiditySweep.sanitized(),
+        virginWick = virginWick.sanitized(),
         pivotSweepDivergence = pivotSweepDivergence.sanitized(),
         valueAreaLiquidityRejection = valueAreaLiquidityRejection.sanitized(),
         amd = amd.sanitized(),
@@ -124,6 +126,53 @@ data class LiquiditySweepStudySettings(
         maxReclaimBars = maxReclaimBars.coerceIn(1, 20),
         liveWindowBars = liveWindowBars.coerceIn(20, 5_000),
     )
+}
+
+/**
+ * Trader-facing settings for the Virgin Wick engine.
+ *
+ * The noise floors, ageing and cluster tolerances stay on the engine: those are
+ * the part of the model that is fixed, not the part a trader tunes. What is
+ * exposed is what the methodology actually asks a trader to decide.
+ */
+@Immutable
+data class VirginWickStudySettings(
+    val testMode: VirginWickTestPreset = VirginWickTestPreset.ANY_TOUCH,
+    val entryMode: VirginWickEntryPreset = VirginWickEntryPreset.IFVG,
+    /** Restrict entries to the New York and London opens. */
+    val killZonesOnly: Boolean = false,
+    val closesBeyondToActivate: Int = 1,
+    val confirmationWindowBars: Int = 60,
+    val defaultRewardMultiple: Double = 2.0,
+    val minRewardMultiple: Double = 1.5,
+    val maxDolRewardMultiple: Double = 4.0,
+    val historicalSignals: Boolean = true,
+    val liveWindowBars: Int = 500,
+    /** Draw the untested wick zones on the price chart. */
+    val showZones: Boolean = false,
+) {
+    fun sanitized(): VirginWickStudySettings = copy(
+        closesBeyondToActivate = closesBeyondToActivate.coerceIn(1, 10),
+        confirmationWindowBars = confirmationWindowBars.coerceIn(1, 600),
+        defaultRewardMultiple = defaultRewardMultiple.coerceIn(0.5, 20.0),
+        minRewardMultiple = minRewardMultiple.coerceIn(0.1, 20.0),
+        maxDolRewardMultiple = maxDolRewardMultiple.coerceIn(0.5, 50.0),
+        liveWindowBars = liveWindowBars.coerceIn(20, 10_000),
+    )
+}
+
+/** How much of a wick price must take before it stops being untested. */
+enum class VirginWickTestPreset(val label: String) {
+    ANY_TOUCH("Touch"),
+    MIDPOINT("Half"),
+    EXTREME("Full"),
+}
+
+/** What must confirm the return to the zone. */
+enum class VirginWickEntryPreset(val label: String) {
+    POI_TOUCH("Touch"),
+    IFVG("iFVG"),
+    IFVG_IN_POI("In-zone"),
 }
 
 /** How the directional bias is established. */

@@ -3,6 +3,8 @@ package com.foxtrader.app.feature.chart.presentation
 import com.foxtrader.app.domain.model.ChartBarMode
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import com.foxtrader.app.domain.usecase.liquiditysweep.LiquiditySweepEngine
+import com.foxtrader.app.domain.usecase.smc.SmcDetector
+import com.foxtrader.app.domain.usecase.virginwick.VirginWickEngine
 import com.foxtrader.app.domain.usecase.rsireversal.RsiReversalEngine
 import kotlin.math.max
 
@@ -30,6 +32,12 @@ enum class ChartStudyId(
         120,
         requiresTimeAxis = true,
         contextHint = "needs two closed timeframes above the chart",
+    ),
+    VIRGIN_WICK(
+        "Virgin Wick",
+        200,
+        requiresTimeAxis = true,
+        contextHint = "needs a closed context timeframe above the chart",
     ),
     PIVOT_SWEEP_DIVERGENCE(
         "Pivot Sweep Divergence",
@@ -170,6 +178,8 @@ object IndicatorReadinessCatalog {
         ChartStudyId.LIQUIDITY_SWEEP ->
             LiquiditySweepEngine(AnalyzeMarketStructureUseCase())
                 .minimumBars(settings.liquiditySweep.toEngineConfig())
+        ChartStudyId.VIRGIN_WICK ->
+            VirginWickEngine(SmcDetector()).minimumBars(settings.virginWick.toEngineConfig())
         ChartStudyId.PIVOT_SWEEP_DIVERGENCE ->
             maxOf(
                 settings.pivotSweepDivergence.rsiPeriod,

@@ -60,6 +60,7 @@ import com.foxtrader.app.domain.usecase.signalintel.RsiOrderFlowSignalEngine
 import com.foxtrader.app.domain.usecase.nascent.NascentEngine
 import com.foxtrader.app.domain.usecase.liquiditysweep.LiquiditySweepEngine
 import com.foxtrader.app.domain.usecase.rsireversal.RsiReversalEngine
+import com.foxtrader.app.domain.usecase.virginwick.VirginWickEngine
 import com.foxtrader.app.domain.usecase.signalintel.AccumulationManipulationDistributionEngine
 import com.foxtrader.app.domain.usecase.signalintel.PivotSweepDivergenceEngine
 import com.foxtrader.app.domain.usecase.signalintel.ValueAreaLiquidityRejectionEngine
@@ -136,6 +137,7 @@ class ChartViewModel @Inject constructor(
     private val nascentEngine: NascentEngine,
     private val rsiReversalEngine: RsiReversalEngine,
     private val liquiditySweepEngine: LiquiditySweepEngine,
+    private val virginWickEngine: VirginWickEngine,
     private val rsiReversalLtfProvider: RsiReversalLtfProvider,
     private val heikinAshiTransformer: HeikinAshiTransformer,
     private val candleRenkoBuilder: CandleRenkoBuilder,
@@ -824,6 +826,25 @@ class ChartViewModel @Inject constructor(
         val liquiditySweepSignals: List<ChartSignal> = liquiditySweepAnalysis?.signals.orEmpty()
             .map { it.toChartSignal(latestConfirmedIndex) }
 
+        // Virgin Wick reads its context timeframe from this same series by
+        // resampling, so it needs no second fetch either.
+        val virginWickAnalysis = if (
+            ind.virginWick && barMode == ChartBarMode.TIME && signalCandles.isNotEmpty()
+        ) {
+            withContext(defaultDispatcher) {
+                containedOrNull {
+                    virginWickEngine.analyze(
+                        symbol = symbol,
+                        timeframe = timeframe,
+                        candles = signalCandles,
+                        config = ind.settings.virginWick.toEngineConfig(),
+                    )
+                }
+            }
+        } else null
+        val virginWickSignals: List<ChartSignal> = virginWickAnalysis?.signals.orEmpty()
+            .map { it.toChartSignal(latestConfirmedIndex) }
+
         // Backfill previously confirmed LiT arrows. Each bar is evaluated only
         // through its own closed prefix, so later data cannot create, move or
         // delete an earlier marker (non-repaint by construction).
@@ -950,7 +971,7 @@ class ChartViewModel @Inject constructor(
             emptyList()
         }
 
-        val chartStrategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + nascentSignals + rsiReversalSignals + liquiditySweepSignals + strategySignals + binary3mSignals
+        val chartStrategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + nascentSignals + rsiReversalSignals + liquiditySweepSignals + virginWickSignals + strategySignals + binary3mSignals
 
         // Drop stale frames: a newer computation (e.g. from a rapid indicator
         // toggle) has already started, so publishing this older result would
@@ -1226,6 +1247,23 @@ class ChartViewModel @Inject constructor(
         val liquiditySweepSignals: List<ChartSignal> = liquiditySweepAnalysis?.signals.orEmpty()
             .map { it.toChartSignal(candles.lastIndex) }
 
+        val virginWickAnalysis = if (
+            ind.virginWick && current.barMode == ChartBarMode.TIME && candles.isNotEmpty()
+        ) {
+            withContext(defaultDispatcher) {
+                containedOrNull {
+                    virginWickEngine.analyze(
+                        symbol = symbol,
+                        timeframe = timeframe,
+                        candles = candles,
+                        config = ind.settings.virginWick.toEngineConfig(),
+                    )
+                }
+            }
+        } else null
+        val virginWickSignals: List<ChartSignal> = virginWickAnalysis?.signals.orEmpty()
+            .map { it.toChartSignal(candles.lastIndex) }
+
         val productionHistory = if ((ind.litX || ind.lit) && candles.isNotEmpty()) {
             withContext(defaultDispatcher) {
                 scanProductionSignalHistory(
@@ -1317,7 +1355,7 @@ class ChartViewModel @Inject constructor(
             tradeProAnalysis = null,
             smtDivergences = emptyList(),
             candles = candles,
-            strategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + nascentSignals + rsiReversalSignals + liquiditySweepSignals + strategySignals + binary3mSignals,
+            strategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + nascentSignals + rsiReversalSignals + liquiditySweepSignals + virginWickSignals + strategySignals + binary3mSignals,
             litAnalysis = litAnalysis,
             smsAnalysis = smsAnalysis,
             rsiOrderFlowSignals = rsiOrderFlowSignals,
@@ -2523,6 +2561,34 @@ private fun com.foxtrader.app.domain.usecase.liquiditysweep.model.LiquiditySweep
         confirmationIndex = entryIndex,
     ),
     variant = "${entryType.name}/${sweep.level.source.name}",
+)
+
+private fun com.foxtrader.app.domain.usecase.virginwick.model.VirginWickSignal.toChartSignal(
+    latestConfirmedIndex: Int,
+): ChartSignal = ChartSignal(
+    id = "virgin_wick_${symbol}_${timestamp}_${direction.name}_${poi.wick.contextIndex}",
+    source = SignalSource.VIRGIN_WICK,
+    direction = direction,
+    entry = entry,
+    sl = stop,
+    tp = target,
+    barIndex = entryIndex,
+    timestamp = timestamp,
+    // Structural rule, not a scored one: every confirmed setup satisfied the
+    // same conditions, so a spread of confidences would invent a distinction
+    // the rules do not make.
+    confidence = 100.0,
+    isLive = entryIndex == latestConfirmedIndex,
+    label = "Virgin Wick ${poi.wick.timeframe.label} · RR ${"%.1f".format(rewardMultiple)} · " +
+        reasons.take(2).joinToString(" · "),
+    eventKey = SignalIdentity.virginWick(
+        symbol = symbol,
+        timeframe = executionTimeframe,
+        timestamp = timestamp,
+        direction = direction,
+        confirmationIndex = entryIndex,
+    ),
+    variant = "${entryType.name}/${targetSource.name}",
 )
 
 private fun AccumulationManipulationDistributionEngine.Signal.toChartSignal(latestConfirmedIndex: Int): ChartSignal =

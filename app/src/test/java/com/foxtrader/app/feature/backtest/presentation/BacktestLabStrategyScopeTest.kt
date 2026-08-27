@@ -18,6 +18,7 @@ class BacktestLabStrategyScopeTest {
                 BacktestStrategyTemplate.AMD,
                 BacktestStrategyTemplate.NASCENT,
                 BacktestStrategyTemplate.LIQUIDITY_SWEEP,
+                BacktestStrategyTemplate.VIRGIN_WICK,
             ),
             BacktestStrategyTemplate.primaryEntries,
         )

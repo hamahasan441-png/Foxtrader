@@ -6,6 +6,7 @@ import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import com.foxtrader.app.domain.usecase.liquiditysweep.model.LiquidityLevel
+import com.foxtrader.app.domain.usecase.mtf.MultiTimeframeSeries
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
