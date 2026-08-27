@@ -26,7 +26,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Calculate
-import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Fullscreen
@@ -87,7 +86,6 @@ import com.foxtrader.app.domain.model.StrategyBlueprint
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.ui.theme.FoxWarning
 import com.foxtrader.app.feature.chart.presentation.components.CandleChart
-import com.foxtrader.app.feature.chart.presentation.components.ChartAnalysisSheet
 import com.foxtrader.app.feature.chart.presentation.components.ChartOhlcLegend
 import com.foxtrader.app.feature.chart.presentation.components.ChartStudyCornerControls
 import com.foxtrader.app.feature.chart.presentation.components.DrawingManagerDialog
@@ -159,19 +157,8 @@ fun ChartScreen(
     // --- Per-object drawing manager sheet (list-based delete) ---
     var showDrawingManager by remember { mutableStateOf(false) }
 
-    // --- Bottom "Analysis" sheet expand/collapse (R2) ---
-    // Consolidates the AI decision, market context, MTF confluence and TRADEPRO
-    // setup that previously floated over the price action into one on-demand
-    // sheet, keeping the canvas clean (TradingView-style).
-    var analysisExpanded by remember { mutableStateOf(false) }
-
     // --- Price-scale lock (R7): freezes the Y auto-fit during pan/zoom ---
     var scaleLocked by remember { mutableStateOf(false) }
-
-    // Room reserved at the bottom of the canvas for the collapsed Analysis
-    // handle. During replay that handle is hidden (the replay control bar owns
-    // the bottom edge instead) so the chart reclaims the space.
-    val chartBottomInset = if (replayState.isActive) 0.dp else ChartDimens.analysisHandleHeight
 
     // The candle series shown right now (replay bars while replaying, else the
     // live series), as a stable CandleSeries. Shared by the main chart and the
@@ -227,7 +214,6 @@ fun ChartScreen(
                     activeMenu = if (activeMenu == ChartMenu.PROVIDER) ChartMenu.NONE else ChartMenu.PROVIDER
                 },
                 onLiveToggle = viewModel::toggleLive,
-                onToggleAnalysis = { analysisExpanded = !analysisExpanded },
             )
         }
 
@@ -412,12 +398,7 @@ fun ChartScreen(
                             // chart when inputs are unchanged (R5). Shared with the
                             // volume pane for index alignment (R3).
                             candles = displayCandles,
-                            // Keep the time axis and the lowest grid line clear
-                            // of the collapsed Analysis handle overlaying the
-                            // bottom of this Box.
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(bottom = chartBottomInset),
+                            modifier = Modifier.fillMaxSize(),
                             structureBreaks = state.structureBreaks,
                             timeframe = state.timeframe,
                             seriesKey = "${state.symbol}:${state.timeframe.label}",
@@ -539,12 +520,6 @@ fun ChartScreen(
                 }
             }
 
-            // NOTE (R2): the AI decision, market context, MTF confluence and
-            // TRADEPRO setup cards no longer float over the price action. They
-            // are consolidated into the collapsible ChartAnalysisSheet anchored
-            // at the bottom of this Box, so the canvas stays clean and the
-            // detail is available on demand (TradingView-style).
-
             // --- Exit full-screen button (only in immersive focus mode, R1) ---
             // The chrome + bottom nav are hidden in immersive mode, so this is
             // the way back out. Top-end keeps it clear of the bottom overlays.
@@ -617,29 +592,12 @@ fun ChartScreen(
                 }
             }
 
-            // --- Consolidated Analysis sheet (bottom overlay, R2) ---
-            // Hidden during replay so it never fights the replay control bar,
-            // which also anchors to the bottom-centre.
+            // Signal history remains an explicit on-chart tool. The former AI
+            // Analysis sheet has been removed from the chart workspace.
             if (!replayState.isActive) {
-                // Signal history panel (toggleable, above the analysis sheet).
-                // Extracted into a scope-free helper so overload resolution binds
-                // to the top-level AnimatedVisibility rather than the ColumnScope
-                // overload leaking in from the outer Column.
                 SignalHistoryOverlay(
                     visible = state.showSignalHistory,
                     signals = state.signals,
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                )
-
-                ChartAnalysisSheet(
-                    expanded = analysisExpanded,
-                    onToggleExpanded = { analysisExpanded = !analysisExpanded },
-                    bias = state.bias,
-                    decision = state.aiDecision,
-                    explanation = state.marketExplanation,
-                    confluence = if (state.indicators.confluence) state.confluence else null,
-                    tradeProAnalysis = state.tradeProAnalysis,
-                    phase13Fusion = state.signalFusion,
                     modifier = Modifier.align(Alignment.BottomCenter),
                 )
             }
@@ -723,7 +681,6 @@ private fun ChartTopBar(
     onSymbolClick: () -> Unit,
     onProviderClick: () -> Unit,
     onLiveToggle: () -> Unit,
-    onToggleAnalysis: () -> Unit,
 ) {
     val currentSymbolDescription = stringResource(R.string.chart_current_symbol_cd, state.symbol)
     val live = connectionState == ConnectionState.CONNECTED &&
@@ -842,14 +799,6 @@ private fun ChartTopBar(
                 Icons.Default.Calculate,
                 contentDescription = stringResource(R.string.chart_open_position_size_calculator),
                 tint = FoxNeutral60,
-                modifier = Modifier.size(18.dp),
-            )
-        }
-        IconButton(onClick = onToggleAnalysis, modifier = Modifier.size(32.dp)) {
-            Icon(
-                Icons.Default.Insights,
-                contentDescription = stringResource(R.string.chart_insights),
-                tint = FoxAmber50,
                 modifier = Modifier.size(18.dp),
             )
         }
