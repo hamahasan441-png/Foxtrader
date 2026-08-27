@@ -56,6 +56,10 @@ class SignalEvidenceReducer @Inject constructor() {
         SignalSource.RSI_ORDERFLOW,
         SignalSource.RSI_REVERSAL -> Family.MOMENTUM_ORDERFLOW
         SignalSource.PIVOT_SWEEP_DIVERGENCE -> Family.COMPOSITE
+        // Apex is an aggregate of the other members, so it is not independent
+        // of any of them. Its family only decides where it lands here; the
+        // reason it can never reinforce them is handled at the confluence step.
+        SignalSource.APEX -> Family.COMPOSITE
         SignalSource.VALUE_AREA_LIQUIDITY_REJECTION -> Family.AUCTION_PROFILE
         SignalSource.ACCUMULATION_MANIPULATION_DISTRIBUTION -> Family.STRUCTURE_LIQUIDITY
         SignalSource.NASCENT -> Family.STRUCTURE_LIQUIDITY

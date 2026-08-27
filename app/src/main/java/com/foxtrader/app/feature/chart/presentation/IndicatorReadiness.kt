@@ -2,6 +2,7 @@ package com.foxtrader.app.feature.chart.presentation
 
 import com.foxtrader.app.domain.model.ChartBarMode
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
+import com.foxtrader.app.domain.usecase.apex.ApexEngine
 import com.foxtrader.app.domain.usecase.liquiditysweep.LiquiditySweepEngine
 import com.foxtrader.app.domain.usecase.smc.SmcDetector
 import com.foxtrader.app.domain.usecase.virginwick.VirginWickEngine
@@ -61,6 +62,16 @@ enum class ChartStudyId(
         120,
         requiresTimeAxis = true,
         contextHint = "needs completed external-timeframe structure",
+    ),
+    APEX(
+        "Apex Consensus",
+        ApexEngine.MIN_BARS,
+        requiresTimeAxis = true,
+        // Having enough bars to run is not the same as having enough record to
+        // publish. Apex stays silent until enough of its own trades have
+        // resolved to measure the hit rate being asked of it, which normally
+        // takes far more history than this minimum.
+        contextHint = "stays silent until its own record is measured",
     ),
     MACD("MACD", 35),
     STOCHASTIC("Stochastic", 15),

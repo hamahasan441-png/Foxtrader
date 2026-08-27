@@ -78,6 +78,13 @@ enum class BacktestStrategyTemplate(
         displayName = "AMD (Accumulation/Manipulation/Distribution)",
         description = "Range compression, a liquidity sweep beyond it, then a displaced reversal back through the whole range. Structural — works on every timeframe.",
     ),
+    APEX(
+        displayName = "Apex Consensus",
+        description = "Several methodologies must independently reach the same trade within a short window; " +
+            "the engine then measures its own resolved trades and publishes only while that record supports " +
+            "the required hit rate. Backtesting it shows what the gate actually did — including the long " +
+            "stretches where it correctly published nothing at all.",
+    ),
     DERIV_BINARY_3M(
         displayName = "Deriv Binary 3m Precision",
         description = "M1 closed-bar EMA/ADX pullback-reclaim setup; enters next bar and settles after 3 minutes. Non-repainting and fixed-expiry backtestable.",
@@ -85,7 +92,7 @@ enum class BacktestStrategyTemplate(
 
     companion object {
         /** The only built-in methodologies exposed in FoxTrader's primary Lab. */
-        val primaryEntries = listOf(LITX, LIT_MAY_MADNESS, SMT, RSI_ORDERFLOW, RSI_REVERSAL, AMD, NASCENT, LIQUIDITY_SWEEP, VIRGIN_WICK)
+        val primaryEntries = listOf(LITX, LIT_MAY_MADNESS, SMT, RSI_ORDERFLOW, RSI_REVERSAL, AMD, NASCENT, LIQUIDITY_SWEEP, VIRGIN_WICK, APEX)
     }
 }
 

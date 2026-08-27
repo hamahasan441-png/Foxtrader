@@ -65,6 +65,8 @@ import com.foxtrader.app.feature.chart.presentation.LiquiditySweepBiasPreset
 import com.foxtrader.app.feature.chart.presentation.LiquiditySweepEntryPreset
 import com.foxtrader.app.feature.chart.presentation.LiquiditySweepStudySettings
 import com.foxtrader.app.feature.chart.presentation.RsiOrderFlowStudySettings
+import com.foxtrader.app.feature.chart.presentation.ApexPresetOption
+import com.foxtrader.app.feature.chart.presentation.ApexStudySettings
 import com.foxtrader.app.feature.chart.presentation.VirginWickEntryPreset
 import com.foxtrader.app.feature.chart.presentation.VirginWickStudySettings
 import com.foxtrader.app.feature.chart.presentation.VirginWickTestPreset
@@ -567,6 +569,55 @@ ResetButton { updateSettings(onChange) { it.copy(rsiOrderFlow = RsiOrderFlowStud
                     )
                     SignalArrowNote()
                     ResetButton { updateSettings(onChange) { it.copy(virginWick = VirginWickStudySettings()) } }
+                }
+
+                StudyControlId.APEX -> {
+                    ApexPresetRow(settings.apex.preset) { preset ->
+                        updateSettings(onChange) { it.copy(apex = it.apex.copy(preset = preset)) }
+                    }
+                    IntStepper("Members must agree", settings.apex.minAgreeingMembers, 1, 6) { value ->
+                        updateSettings(onChange) { it.copy(apex = it.apex.copy(minAgreeingMembers = value).sanitized()) }
+                    }
+                    IntStepper("Required hit rate %", (settings.apex.minHitRate * 100).toInt(), 0, 100) { value ->
+                        updateSettings(onChange) {
+                            it.copy(apex = it.apex.copy(minHitRate = value / 100.0).sanitized())
+                        }
+                    }
+                    IntStepper("Min resolved trades", settings.apex.minResolvedSample, 1, 500) { value ->
+                        updateSettings(onChange) { it.copy(apex = it.apex.copy(minResolvedSample = value).sanitized()) }
+                    }
+                    IntStepper("Measured over", settings.apex.precisionWindow, 1, 1_000) { value ->
+                        updateSettings(onChange) { it.copy(apex = it.apex.copy(precisionWindow = value).sanitized()) }
+                    }
+                    ToggleRow("Judge at 95% confidence", settings.apex.useConfidenceBound) { enabled ->
+                        updateSettings(onChange) { it.copy(apex = it.apex.copy(useConfidenceBound = enabled)) }
+                    }
+                    ToggleRow("Publish before measured", settings.apex.publishBeforeMeasured) { enabled ->
+                        updateSettings(onChange) { it.copy(apex = it.apex.copy(publishBeforeMeasured = enabled)) }
+                    }
+                    ToggleRow("Keep historical signals", settings.apex.historicalSignals) { enabled ->
+                        updateSettings(onChange) { it.copy(apex = it.apex.copy(historicalSignals = enabled)) }
+                    }
+                    IntStepper("Live window bars", settings.apex.liveWindowBars, 20, 10_000) { value ->
+                        updateSettings(onChange) { it.copy(apex = it.apex.copy(liveWindowBars = value).sanitized()) }
+                    }
+                    Text(
+                        text = "Several methodologies must independently reach the same trade → the engine " +
+                            "then checks its own recent resolved trades → it publishes only while that " +
+                            "measured record supports the hit rate you asked for.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textSecondary,
+                    )
+                    Text(
+                        text = "The required hit rate is a bar this engine holds itself to, not a promise " +
+                            "about your next trade. Raising it does not improve the method — it makes the " +
+                            "engine quieter, and silence is the correct answer when the record cannot " +
+                            "support the number.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textSecondary,
+                    )
+                    SignalArrowNote()
+                    ResetButton { updateSettings(onChange) { it.copy(apex = ApexStudySettings()) } }
                 }
 
                 StudyControlId.PIVOT_SWEEP_DIVERGENCE -> {
@@ -1080,6 +1131,12 @@ private fun SettingRow(label: String, value: String, onMinus: () -> Unit, onPlus
 }
 
 @Composable
+private fun ApexPresetRow(
+    selected: ApexPresetOption,
+    onSelect: (ApexPresetOption) -> Unit,
+) = PresetChipRow("Style", ApexPresetOption.entries, selected, { it.label }, onSelect)
+
+@Composable
 private fun VirginWickTestRow(
     selected: VirginWickTestPreset,
     onSelect: (VirginWickTestPreset) -> Unit,
@@ -1383,6 +1440,10 @@ private fun activeStudies(t: IndicatorToggles): List<ActiveStudy> = buildList {
             add(ActiveStudy(StudyControlId.VALUE_AREA_LIQUIDITY_REJECTION, "Value Area Liquidity Rejection"))
             return@buildList
         }
+        ProductionAnalysisSystem.APEX -> {
+            add(ActiveStudy(StudyControlId.APEX, "Apex Consensus"))
+            return@buildList
+        }
         null -> Unit
     }
 
@@ -1421,6 +1482,7 @@ private fun activeStudies(t: IndicatorToggles): List<ActiveStudy> = buildList {
     if (t.valueAreaLiquidityRejection) add(ActiveStudy(StudyControlId.VALUE_AREA_LIQUIDITY_REJECTION, "VALR"))
     if (t.amd) add(ActiveStudy(StudyControlId.AMD, "AMD"))
     if (t.nascent) add(ActiveStudy(StudyControlId.NASCENT, "Nascent FX"))
+    if (t.apex) add(ActiveStudy(StudyControlId.APEX, "Apex"))
     if (t.macd) add(ActiveStudy(StudyControlId.MACD, "MACD"))
     if (t.volume) add(ActiveStudy(StudyControlId.VOLUME, "Volume"))
     if (t.stochastic) add(ActiveStudy(StudyControlId.STOCHASTIC, "Stoch"))
@@ -1471,6 +1533,7 @@ private fun removeStudy(
         StudyControlId.VALUE_AREA_LIQUIDITY_REJECTION -> t.withProductionAnalysisSystem(null)
         StudyControlId.AMD -> t.copy(amd = false)
         StudyControlId.NASCENT -> t.copy(nascent = false)
+        StudyControlId.APEX -> t.withProductionAnalysisSystem(null)
         StudyControlId.MACD -> t.copy(macd = false)
         StudyControlId.VOLUME -> t.copy(volume = false)
         StudyControlId.STOCHASTIC -> t.copy(stochastic = false)
@@ -1499,6 +1562,7 @@ private enum class StudyControlId(val title: String) {
     VALUE_AREA_LIQUIDITY_REJECTION("Value Area Liquidity Rejection settings"),
     AMD("AMD settings"),
     NASCENT("Nascent FX settings"),
+    APEX("Apex Consensus settings"),
     MACD("MACD settings"), VOLUME("Volume"),
     STOCHASTIC("Stochastic settings"), OBV("OBV"), MFI("MFI settings"), STRATEGY("Strategy settings"),
     CUSTOM_STRATEGY("Custom strategy"), ALL_STRATEGIES("All strategies"),
