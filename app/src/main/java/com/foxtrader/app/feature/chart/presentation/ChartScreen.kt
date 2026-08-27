@@ -167,19 +167,22 @@ fun ChartScreen(
         (if (replayState.isActive) replayState.visibleCandles else state.candles).asCandleSeries()
     }
 
-    // LiT Adventure is a signal indicator: its confirmed arrows remain visible
-    // whenever the study is active, even if the global history tool is hidden.
+    // LiT Adventure and LiT May Madness are signal indicators: their confirmed
+    // arrows remain visible whenever the study is active, even if the global
+    // history tool is hidden.
     // Other engines retain the compact recent-only behaviour in that mode.
     val visibleSignals = remember(
         state.signals,
         state.showSignalHistory,
         state.indicators.litX,
+        state.indicators.lit,
         displayCandles.size,
     ) {
         selectVisibleChartSignals(
             signals = state.signals,
             showSignalHistory = state.showSignalHistory,
             litAdventureEnabled = state.indicators.litX,
+            litMayMadnessEnabled = state.indicators.lit,
             displayCandleCount = displayCandles.size,
         )
     }
