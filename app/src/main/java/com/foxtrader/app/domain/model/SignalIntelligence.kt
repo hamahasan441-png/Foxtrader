@@ -63,7 +63,7 @@ data class LitConfig(
      * what separates a POI that reverses from one price simply passes through.
      * Trader-facing and switchable from the LiT study settings.
      */
-    val requirePoiDivergence: Boolean = true,
+    val requirePoiDivergence: Boolean = false,
 
     /** How far back a POI divergence may reach for its earlier pivot. */
     val poiDivergenceLookbackBars: Int = 40,

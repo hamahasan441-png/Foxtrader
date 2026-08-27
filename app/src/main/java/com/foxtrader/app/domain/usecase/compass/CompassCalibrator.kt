@@ -67,10 +67,14 @@ object CompassCalibrator {
             val bound = accuracy.accuracyLowerBound ?: continue
             val lift = accuracy.lift ?: continue
 
-            // Both bars must clear: the absolute accuracy asked for, and enough
+            // Both bars must clear: the accuracy asked for, and enough
             // separation from the base rate that the number is skill and not
-            // the majority outcome restated.
-            if (bound < config.minAccuracy) continue
+            // the majority outcome restated. Which accuracy is read — the
+            // measured one or its confidence bound — is the caller's choice,
+            // because the bound is the honest reading of a small sample and
+            // also the thing that keeps the study silent on one.
+            val judged = if (config.useConfidenceBound) bound else accuracy.accuracy ?: continue
+            if (judged < config.minAccuracy) continue
             if (lift < config.minLiftOverBaseRate) continue
 
             val candidate = CompassCalibration(
@@ -113,7 +117,9 @@ object CompassCalibrator {
                 )
             }
         }
-        val bestBound = attempts.maxByOrNull { it.second.accuracyLowerBound ?: 0.0 }
+        val bestBound = attempts.maxByOrNull {
+            if (config.useConfidenceBound) it.second.accuracyLowerBound ?: 0.0 else it.second.accuracy ?: 0.0
+        }
             ?: return "Compass silent — no threshold retained ${config.minCalibrationSample} calls to judge."
 
         val accuracy = bestBound.second

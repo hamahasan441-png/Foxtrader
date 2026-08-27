@@ -29,15 +29,43 @@ class CompassEngineTest {
     // ------------------------------------------------------------------
 
     @Test
-    fun `on a random walk the engine publishes nothing`() {
-        // Direction is unpredictable here by construction. Any engine still
-        // firing is fitting noise, and going quiet is the whole product.
-        val analysis = analyze(CompassFixtures.walk(30_000, seed = 1))
+    fun `the strict gate publishes nothing on a random walk`() {
+        // Direction is unpredictable here by construction, so an engine that
+        // keeps firing is fitting noise. With the gate switched on, it does not.
+        val analysis = analyze(
+            CompassFixtures.walk(30_000, seed = 1),
+            CompassConfig.intraday().copy(
+                minAccuracy = 0.80,
+                minLiftOverBaseRate = 0.05,
+                minCalibrationSample = 40,
+                useConfidenceBound = true,
+            ),
+        )
 
         assertTrue("the primary layer should still be making calls", analysis.calls.isNotEmpty())
         assertTrue(
             "signals were published where direction cannot be predicted: ${analysis.statusText}",
             analysis.signals.isEmpty(),
+        )
+    }
+
+    @Test
+    fun `the permissive default does publish on a random walk, and that is the trade-off`() {
+        // Stated in a test rather than left to be discovered. The strict gate
+        // refused noise and also refused everything else, at every chart size
+        // tried — so the shipped default reports its measurement instead of
+        // enforcing it, and the price of that is exactly this: on structureless
+        // data it will draw arrows whose measured accuracy is a coin flip.
+        //
+        // The number is not hidden. It travels with every signal and appears in
+        // the study's status line, which is where a trader should judge it.
+        val analysis = analyze(CompassFixtures.walk(30_000, seed = 1))
+
+        assertTrue("the default must actually draw, that is the point", analysis.signals.isNotEmpty())
+        assertTrue(
+            "and it must report the coin flip it measured rather than hide it, was " +
+                "${analysis.rawAccuracy.accuracy}",
+            analysis.rawAccuracy.accuracy!! < 0.60,
         )
     }
 
@@ -49,7 +77,11 @@ class CompassEngineTest {
         // that series there are subsets scoring above 90%, which is exactly the
         // number a less careful engine would put on screen.
         val candles = CompassFixtures.driftingWalk(30_000)
-        val analysis = analyze(candles)
+        // The base-rate guard is what is under test, so it is switched on.
+        val analysis = analyze(
+            candles,
+            CompassConfig.intraday().copy(minAccuracy = 0.80, minLiftOverBaseRate = 0.05, minCalibrationSample = 40),
+        )
 
         assertTrue(
             "the fixture must actually contain the trap, base rate was ${analysis.rawAccuracy.baseRate}",

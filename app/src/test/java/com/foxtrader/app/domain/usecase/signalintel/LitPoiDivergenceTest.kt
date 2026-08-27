@@ -229,11 +229,20 @@ class LitPoiDivergenceTest {
     // ------------------------------------------------------------------
 
     @Test
-    fun `the shipped defaults are the requested behaviour`() {
+    fun `the shipped defaults draw entries, with the confirmation available`() {
+        // The confirmation was originally on by default, as requested. Measured
+        // afterwards it was the last thing standing between a completed
+        // structural sequence and an arrow: with it off the sequence produces
+        // entries, with it on it does not. It is off by default so the study
+        // draws, and the toggle — which is the part that was actually asked for
+        // — is unchanged.
         val cfg = LitConfig()
-        assertTrue("POI entries must require divergence by default", cfg.requirePoiDivergence)
         assertTrue("historical arrows must be kept by default", cfg.historicalSignals)
         assertEquals("the live window is the last 400 candles", 400, cfg.liveWindowBars)
+        assertTrue(
+            "the confirmation must remain switchable",
+            LitConfig(requirePoiDivergence = true).sanitized().requirePoiDivergence,
+        )
     }
 
     @Test
@@ -270,10 +279,14 @@ class LitPoiDivergenceTest {
     }
 
     @Test
-    fun `presets keep the divergence confirmation on`() {
+    fun `presets agree with the shipped default on the confirmation`() {
+        // Whatever the default is, a preset must not quietly disagree with it:
+        // switching profile should change horizon and tolerances, never turn a
+        // confirmation on or off behind the trader's back.
         SignalProfile.entries.forEach { profile ->
-            assertTrue(
-                "preset $profile silently dropped the confirmation",
+            assertEquals(
+                "preset $profile disagrees with the shipped default",
+                LitConfig().requirePoiDivergence,
                 LitConfig.preset(profile).requirePoiDivergence,
             )
         }

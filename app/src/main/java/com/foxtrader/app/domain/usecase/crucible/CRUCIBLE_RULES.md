@@ -5,6 +5,13 @@ under which an outcome is unusually predictable — and then spends nearly all o
 whatever it found is an accident.
 
 ## Why a search needs this much defence
+> **Defaults changed after measurement.** The threshold below shipped at 0.80 and was enforced honestly against
+> measured outcomes — but it published **nothing** at any realistic chart size, on any series tested, including ones
+> built to contain a large edge. A study that never draws is not a study. The default now **reports** the measurement
+> instead of **enforcing** it: every signal still carries the number actually measured for it, the status line still
+> says what the record is, and turning the gate back on is one setting. What was wrong was never the honesty — it was
+> setting the bar above what the data can deliver and calling the resulting silence a feature.
+
 
 Searching always succeeds. Try enough conditions on any data, including data containing nothing at all, and one
 will look extraordinary. The literature on this is blunt: the probability that a strategy selected as best

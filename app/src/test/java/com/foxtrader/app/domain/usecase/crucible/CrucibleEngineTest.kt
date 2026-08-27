@@ -23,7 +23,7 @@ class CrucibleEngineTest {
     fun `a search over a random walk finds nothing`() {
         // Thousands of rules tested against data with no structure. Something
         // will look excellent in sample; nothing may be published.
-        val analysis = analyze(CrucibleFixtures.walk(30_000, seed = 1))
+        val analysis = analyze(CrucibleFixtures.walk(30_000, seed = 1), CrucibleConfig.intraday().copy(minAccuracy = 0.80))
 
         assertTrue("the search must actually have run", analysis.rulesTested > 100)
         assertTrue("the search must have observations", analysis.observations > 400)
@@ -105,8 +105,15 @@ class CrucibleEngineTest {
         // two questions — at the same 80% bar.
         val candles = CrucibleFixtures.clusteredVolatility(30_000, seed = 1)
 
-        val direction = analyze(candles, CrucibleConfig.intraday().copy(target = CrucibleTarget.DIRECTION))
-        val movement = analyze(candles, CrucibleConfig.intraday().copy(target = CrucibleTarget.MOVEMENT))
+        // The 80% bar is the comparison being made, so both sides ask for it.
+        val direction = analyze(
+            candles,
+            CrucibleConfig.intraday().copy(target = CrucibleTarget.DIRECTION, minAccuracy = 0.80),
+        )
+        val movement = analyze(
+            candles,
+            CrucibleConfig.intraday().copy(target = CrucibleTarget.MOVEMENT, minAccuracy = 0.80),
+        )
 
         assertTrue(
             "direction must not be predictable here: ${direction.statusText}",
@@ -136,7 +143,7 @@ class CrucibleEngineTest {
         // be a property of the method rather than of the data.
         val analysis = analyze(
             CrucibleFixtures.walk(30_000, seed = 1),
-            CrucibleConfig.intraday().copy(target = CrucibleTarget.MOVEMENT),
+            CrucibleConfig.intraday().copy(target = CrucibleTarget.MOVEMENT, minAccuracy = 0.80),
         )
         assertTrue(
             "a structureless series produced an 80% rule: ${analysis.statusText}",

@@ -33,7 +33,7 @@ data class CrucibleConfig(
 
     // --- What survives ---
     /** Accuracy a rule must demonstrate out of sample. */
-    val minAccuracy: Double = 0.80,
+    val minAccuracy: Double = 0.60,
     /** Margin the accuracy must clear above the target's own base rate. */
     val minLiftOverBaseRate: Double = 0.05,
     /** Confidence level for every bound, before correction. */

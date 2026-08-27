@@ -19,6 +19,21 @@ class ApexEngineTest {
 
     private val engine = ApexFixtures.engine()
 
+    /**
+     * The measured gate, switched on.
+     *
+     * It is no longer the default: an 80% bar enforced against measured
+     * outcomes is honest but publishes nothing at any realistic chart size, and
+     * a study that never draws is not a study. The behaviour still matters and
+     * is still tested — it is now something a trader turns on deliberately.
+     */
+    private fun gated(minHitRate: Double = 0.80) = ApexConfig.intraday().copy(
+        minHitRate = minHitRate,
+        minResolvedSample = 30,
+        useConfidenceBound = true,
+        warmupPolicy = WarmupPolicy.WITHHOLD,
+    )
+
     private fun analyze(candles: List<Candle>, config: ApexConfig = ApexConfig()) =
         engine.analyze(ApexFixtures.SYMBOL, Timeframe.M5, candles, config)
 
@@ -37,7 +52,7 @@ class ApexEngineTest {
     fun `on structureless data the engine publishes nothing`() {
         // A random walk has no edge to find. Any engine that keeps firing here
         // is fitting noise, and going quiet is the whole point of the gate.
-        val analysis = analyze(ApexFixtures.walk(12_000, seed = 1))
+        val analysis = analyze(ApexFixtures.walk(12_000, seed = 1), gated())
 
         assertTrue("the members should still be producing votes", analysis.votes.isNotEmpty())
         assertTrue(
@@ -52,7 +67,7 @@ class ApexEngineTest {
         listOf(0.5, 0.65, 0.80, 0.95).forEach { threshold ->
             assertTrue(
                 "a random walk cannot earn $threshold",
-                analyze(candles, ApexConfig.intraday().copy(minHitRate = threshold)).signals.isEmpty(),
+                analyze(candles, gated(threshold)).signals.isEmpty(),
             )
         }
     }
@@ -84,7 +99,7 @@ class ApexEngineTest {
         // bars a particular fixture needs to get there.
         val analysis = analyze(
             ApexFixtures.reverting(30_000, seed = 1),
-            ApexConfig.intraday().copy(minHitRate = 0.5, minResolvedSample = 8, useConfidenceBound = false),
+            gated().copy(minHitRate = 0.5, minResolvedSample = 8, useConfidenceBound = false),
         )
         assertTrue("the gate must be able to open at all", analysis.signals.isNotEmpty())
         analysis.signals.forEach {
@@ -104,7 +119,7 @@ class ApexEngineTest {
         val candles = ApexFixtures.reverting(30_000, seed = 1)
         fun count(threshold: Double) = analyze(
             candles,
-            ApexConfig.intraday().copy(minHitRate = threshold, minResolvedSample = 8, useConfidenceBound = false),
+            gated().copy(minHitRate = threshold, minResolvedSample = 8, useConfidenceBound = false),
         ).signals.size
 
         val low = count(0.4)
@@ -120,7 +135,7 @@ class ApexEngineTest {
         val candles = ApexFixtures.reverting(30_000, seed = 1)
         fun count(bound: Boolean) = analyze(
             candles,
-            ApexConfig.intraday().copy(minHitRate = 0.5, minResolvedSample = 8, useConfidenceBound = bound),
+            gated().copy(minHitRate = 0.5, minResolvedSample = 8, useConfidenceBound = bound),
         ).signals.size
 
         assertTrue("gating on the bound admitted more than the raw rate", count(true) <= count(false))
@@ -194,7 +209,7 @@ class ApexEngineTest {
         // admitted it read only trades resolved before its own bar, all of
         // which are inside the prefix too.
         val candles = ApexFixtures.reverting(20_000, seed = 1)
-        val config = ApexConfig.intraday().copy(minHitRate = 0.5, minResolvedSample = 8, useConfidenceBound = false)
+        val config = gated().copy(minHitRate = 0.5, minResolvedSample = 8, useConfidenceBound = false)
         val full = analyze(candles, config)
         assertTrue("fixture must publish to compare", full.signals.isNotEmpty())
 
@@ -234,7 +249,7 @@ class ApexEngineTest {
     fun `every published signal has a distinct identity`() {
         val keys = analyze(
             ApexFixtures.reverting(30_000, seed = 1),
-            ApexConfig.intraday().copy(minHitRate = 0.5, minResolvedSample = 8, useConfidenceBound = false),
+            gated().copy(minHitRate = 0.5, minResolvedSample = 8, useConfidenceBound = false),
         ).signals.map { it.key }
         assertEquals("duplicate signal keys were published", keys.size, keys.distinct().size)
     }
@@ -305,7 +320,7 @@ class ApexEngineTest {
         // path publishes on (it must not invent one), and a spread of bars it
         // does not (it must not miss one).
         val candles = ApexFixtures.reverting(20_000, seed = 1)
-        val config = ApexConfig.intraday().copy(minHitRate = 0.5, minResolvedSample = 8, useConfidenceBound = false)
+        val config = gated().copy(minHitRate = 0.5, minResolvedSample = 8, useConfidenceBound = false)
         val fast = engine.backtestFunction(ApexFixtures.SYMBOL, Timeframe.M5, candles, config)
 
         val published = analyze(candles, config).signals.map { it.index }
