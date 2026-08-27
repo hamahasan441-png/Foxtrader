@@ -2533,9 +2533,26 @@ class ChartViewModel @Inject constructor(
         // Twelve hours of M1 bars (or materially more context on higher TFs)
         // gives the trader a useful visual accuracy sample without turning an
         // on-chart toggle into an unbounded full-database backtest.
-        const val PRODUCTION_HISTORY_SCAN_BARS = 720
+        /**
+         * How far back LiT May Madness is evaluated, bar by bar.
+         *
+         * Each bar is analysed through its own closed prefix, so a deeper scan
+         * adds arrows to the left of the chart without ever changing one
+         * already drawn. The cost is paid once per series: the scan is
+         * incremental, and only bars past the last one scanned are evaluated on
+         * later updates.
+         */
+        const val PRODUCTION_HISTORY_SCAN_BARS = 5_000
         const val PRODUCTION_HISTORY_CONTEXT_BARS = 640
-        const val PRODUCTION_HISTORY_MAX_SIGNALS = 160
+
+        /**
+         * Cap on retained markers.
+         *
+         * Raised with the scan depth: a 5 000-bar scan that could only keep 160
+         * markers would quietly drop the older half of what it just found.
+         * LiT markers are never pruned regardless — see the eviction below.
+         */
+        const val PRODUCTION_HISTORY_MAX_SIGNALS = 2_000
         /** Bars sampled when deriving an automatic Renko brick from volatility. */
         const val RENKO_AUTO_ATR_WINDOW = 100
 

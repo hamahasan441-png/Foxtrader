@@ -95,7 +95,12 @@ open class LitProStructureDetector @Inject constructor(
             direction = activeEvent.direction,
             cfg = cfg,
         )
-        val activeChoch = sequence?.choch ?: latest.takeIf { it.type == BreakType.CHOCH }
+        // Surface the most recent change of character even when the full
+        // IDM -> BOS -> CHOCH chain does not resolve, so the context still
+        // describes what structure did. The engine's sequence validator remains
+        // the thing that decides whether a trade may be taken from it, so this
+        // reports without permitting.
+        val activeChoch = sequence?.choch ?: breaks.lastOrNull { it.type == BreakType.CHOCH }
         val activeBos = sequence?.bos ?: if (activeChoch != null) {
             breaks.lastOrNull {
                 it.type == BreakType.BOS && it.confirmationIndex < activeChoch.confirmationIndex
@@ -132,9 +137,36 @@ open class LitProStructureDetector @Inject constructor(
     }
 
     /**
-     * Resolve only the sequence ending at the newest structural event. Falling
-     * back to an older CHOCH after a newer break would resurrect a consumed POI
-     * and repaint a stale setup on the right edge.
+     * Resolve the sequence governed by the most recent change of character.
+     *
+     * The CHOCH is the event that defines the setup: it says the trend has
+     * turned, and everything after it — the POI, the retest, the entry — hangs
+     * off that one bar. It therefore has to stay the active event until
+     * something actually contradicts it.
+     *
+     * An earlier version required the CHOCH to be the *newest* structural break
+     * of any kind. That reads as a non-repaint guard and is not one. In a
+     * trending market a break of structure prints every few bars, so the CHOCH
+     * stopped being newest almost immediately — long before price had time to
+     * return to the POI it created. Measured on a structured series, the engine
+     * reached CHOCH 17 times in 2 300 bars and produced a POI on none of them.
+     * The setup could not mature, so the study was silent.
+     *
+     * Two things end a CHOCH's life here, and neither is "some other break
+     * happened":
+     *
+     * - a **newer CHOCH**, which supersedes it and starts its own sequence;
+     * - a **BOS against its direction**, which is structure continuing the way
+     *   the CHOCH said it would stop — the reversal failed.
+     *
+     * A BOS *with* the CHOCH's direction is continuation in its favour and
+     * leaves the setup intact. Staleness is bounded downstream by
+     * `maxPoiAgeBars`, which already limits how long a POI may wait.
+     *
+     * This does not repaint. What is resolved here is a function of the closed
+     * bars visible in the prefix, so a later bar cannot change what an earlier
+     * one reported; and the engine's one-shot rule still requires the retest to
+     * land on the newest candle before an arrow is drawn.
      */
     private fun activeSequence(
         candles: List<Candle>,
@@ -143,26 +175,33 @@ open class LitProStructureDetector @Inject constructor(
         latest: BreakEvent,
         cfg: LitConfig,
     ): ActiveSequence? {
-        if (latest.type != BreakType.CHOCH) return null
+        val choch = breaks.lastOrNull { it.type == BreakType.CHOCH } ?: return null
+
+        val contradicted = breaks.any {
+            it.confirmationIndex > choch.confirmationIndex &&
+                it.type == BreakType.BOS &&
+                it.direction != choch.direction
+        }
+        if (contradicted) return null
 
         val bos = breaks.asReversed().firstOrNull { candidate ->
             candidate.type == BreakType.BOS &&
-                candidate.direction != latest.direction &&
-                candidate.confirmationIndex < latest.confirmationIndex &&
-                latest.confirmationIndex - candidate.confirmationIndex <= cfg.maxBosToChochBars
+                candidate.direction != choch.direction &&
+                candidate.confirmationIndex < choch.confirmationIndex &&
+                choch.confirmationIndex - candidate.confirmationIndex <= cfg.maxBosToChochBars
         } ?: return null
 
         val idm = findInducement(
             candles = candles,
             swings = swings,
             beforeIndex = bos.confirmationIndex,
-            direction = latest.direction,
+            direction = choch.direction,
             cfg = cfg,
         ) ?: return null
         val idmToBosBars = bos.confirmationIndex - idm.confirmationIndex
         if (idmToBosBars !in 1..cfg.maxIdmToBosBars) return null
 
-        return ActiveSequence(idm = idm, bos = bos, choch = latest)
+        return ActiveSequence(idm = idm, bos = bos, choch = choch)
     }
 
     private fun detectSwings(candles: List<Candle>, cfg: LitConfig): List<Swing> {
@@ -190,6 +229,25 @@ open class LitProStructureDetector @Inject constructor(
         return result.sortedWith(compareBy<Swing> { it.index }.thenBy { it.type.ordinal })
     }
 
+    /**
+     * Find level breaks and label each one continuation or change of character.
+     *
+     * A break is only a *change* of character relative to what came before it.
+     * The chain used to start with no trend at all, which made the first break
+     * inside the lookback window unconditionally a continuation: a market that
+     * had been rising for a hundred bars and then broke down was labelled
+     * "trend continues", because as far as this function was concerned no trend
+     * had ever been established.
+     *
+     * That mattered far more than it looks. A change of character is the event
+     * the entire LiT sequence hangs off, and the window is only `setupLookback`
+     * bars wide, so whole stretches of chart could contain no CHOCH at all and
+     * the study would stay silent no matter what price did.
+     *
+     * The fix is only to the seed: the trend is taken from the structure that
+     * precedes the window, so the first actionable break is judged against what
+     * it actually broke. Which breaks count as actionable is unchanged.
+     */
     private fun classifyBreaks(
         candles: List<Candle>,
         swings: List<Swing>,
@@ -213,7 +271,9 @@ open class LitProStructureDetector @Inject constructor(
             .mapNotNull { group -> group.maxByOrNull { it.originIndex } }
             .sortedWith(compareBy<BreakEvent> { it.confirmationIndex }.thenBy { it.originIndex })
 
-        var trend: Direction? = null
+        // Seed the chain from structure older than the window, so the first
+        // actionable break is judged against the trend it actually broke.
+        var trend: Direction? = inferTrend(swings.filter { it.confirmationIndex < lookbackStart })
         val classified = mutableListOf<BreakEvent>()
         for (event in raw) {
             val type = if (trend == null || trend == event.direction) BreakType.BOS else BreakType.CHOCH

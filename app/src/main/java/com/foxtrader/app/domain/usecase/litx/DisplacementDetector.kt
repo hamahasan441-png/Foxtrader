@@ -22,6 +22,32 @@ class DisplacementDetector @Inject constructor() {
         atrMultiple: Double = 1.2,
         bodyRatioMin: Double = 0.6,
         lookback: Int = 30,
+    ): Displacement? = scan(candles, atrMultiple, bodyRatioMin, lookback, direction = null)
+
+    /**
+     * The most recent qualifying impulse **in a given direction**.
+     *
+     * Callers that need corroboration for a directional event want this rather
+     * than [detectLatest]. Taking the latest impulse of any direction and then
+     * checking whether it happens to point the right way answers a different
+     * question: a single opposing candle inside the window hides an aligned
+     * impulse one bar earlier, and the event goes unconfirmed for a reason that
+     * has nothing to do with whether the impulse was there.
+     */
+    fun detectLatestInDirection(
+        candles: List<Candle>,
+        direction: Direction,
+        atrMultiple: Double = 1.2,
+        bodyRatioMin: Double = 0.6,
+        lookback: Int = 30,
+    ): Displacement? = scan(candles, atrMultiple, bodyRatioMin, lookback, direction)
+
+    private fun scan(
+        candles: List<Candle>,
+        atrMultiple: Double,
+        bodyRatioMin: Double,
+        lookback: Int,
+        direction: Direction?,
     ): Displacement? {
         if (candles.size < MIN_BARS) return null
 
@@ -37,11 +63,12 @@ class DisplacementDetector @Inject constructor() {
             val atrMult = c.bodySize / vol
             if (bodyRatio < bodyRatioMin || atrMult < atrMultiple) continue
 
-            val direction = if (c.isBullish) Direction.BULLISH else Direction.BEARISH
+            val candleDirection = if (c.isBullish) Direction.BULLISH else Direction.BEARISH
+            if (direction != null && candleDirection != direction) continue
             // Three-candle FVG left by the impulse (needs the following bar).
             val hasFvg = when {
                 i + 1 >= candles.size -> false
-                direction == Direction.BULLISH -> candles[i + 1].low > candles[i - 1].high
+                candleDirection == Direction.BULLISH -> candles[i + 1].low > candles[i - 1].high
                 else -> candles[i + 1].high < candles[i - 1].low
             }
 
@@ -49,7 +76,7 @@ class DisplacementDetector @Inject constructor() {
             // last assignment wins). Selecting the strongest instead let a stale
             // impulse wrongly corroborate a fresh CHOCH into an "MSS".
             best = Displacement(
-                direction = direction,
+                direction = candleDirection,
                 startIndex = i,
                 endIndex = i,
                 startPrice = c.open,
