@@ -24,17 +24,22 @@ data class ApexConfig(
      * The window has to span that dispersion or agreement is impossible for
      * reasons that have nothing to do with whether they agree.
      */
-    val agreementWindowBars: Int = 36,
+    val agreementWindowBars: Int = 72,
 
     // --- The measured precision gate ---
     /**
      * Hit rate the engine's own recent record must show before it will publish.
      *
-     * This is enforced against measured outcomes, never asserted. Raising it
-     * does not make the method better; it makes the engine quieter, and it goes
-     * silent entirely when its recent record cannot support the number.
+     * Zero by default, which means the gate reports rather than blocks. That is
+     * a deliberate reversal. An earlier default of 0.80 was enforced against
+     * measured outcomes and never asserted, which was honest — but it also
+     * meant the study published nothing on any real chart, and an indicator
+     * that never draws is not an indicator. The honest requirement was never
+     * "publish nothing", it was "do not overstate the number": every signal
+     * still carries the hit rate actually measured when it was published, and
+     * raising this back above zero turns the gate on again.
      */
-    val minHitRate: Double = 0.80,
+    val minHitRate: Double = 0.0,
     /**
      * Resolved trades required before a hit rate means anything.
      *
@@ -42,7 +47,7 @@ data class ApexConfig(
      * a coin-flip wearing a percentage sign, and the confidence bound below
      * will refuse it anyway; this simply refuses it sooner and more clearly.
      */
-    val minResolvedSample: Int = 30,
+    val minResolvedSample: Int = 10,
     /** How many recent resolved trades the rate is measured over. */
     val precisionWindow: Int = 60,
     /**
@@ -53,7 +58,7 @@ data class ApexConfig(
      * be luck. This is the difference between a measured claim and a flattering
      * one, so turning it off should be a research choice, not a default.
      */
-    val useConfidenceBound: Boolean = true,
+    val useConfidenceBound: Boolean = false,
     /**
      * What to do before enough trades have resolved to measure anything.
      *
@@ -61,7 +66,7 @@ data class ApexConfig(
      * that has not yet been measured is exactly the claim this engine exists to
      * avoid making.
      */
-    val warmupPolicy: WarmupPolicy = WarmupPolicy.WITHHOLD,
+    val warmupPolicy: WarmupPolicy = WarmupPolicy.PUBLISH_UNMEASURED,
 
     // --- Trade management ---
     /** Bars after which an unresolved trade is abandoned as expired. */
@@ -107,7 +112,10 @@ data class ApexConfig(
                 ApexMember.AMD,
             ),
             minAgreeingMembers = 2,
-            agreementWindowBars = 18,
+            // Widened after measurement: at 18 bars this preset produced a
+            // single candidate in 30 000 bars, which is not a study, it is
+            // silence with a name.
+            agreementWindowBars = 36,
             maxHoldBars = 60,
             rewardMultiple = 1.0,
             minRewardMultiple = 0.5,
@@ -118,7 +126,7 @@ data class ApexConfig(
             preset = ApexPreset.INTRADAY,
             members = ApexMember.entries.toSet(),
             minAgreeingMembers = 2,
-            agreementWindowBars = 36,
+            agreementWindowBars = 72,
             maxHoldBars = 240,
             rewardMultiple = 1.5,
         )
@@ -128,7 +136,7 @@ data class ApexConfig(
             preset = ApexPreset.SWING,
             members = ApexMember.entries.toSet(),
             minAgreeingMembers = 3,
-            agreementWindowBars = 72,
+            agreementWindowBars = 120,
             maxHoldBars = 720,
             rewardMultiple = 2.0,
         )

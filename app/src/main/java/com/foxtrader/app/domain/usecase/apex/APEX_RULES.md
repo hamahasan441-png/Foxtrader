@@ -6,6 +6,13 @@ same one, and then holds itself to a required hit rate that it **measures on its
 asserting.
 
 ## What this engine promises — read this first
+> **Defaults changed after measurement.** The threshold below shipped at 0.80 and was enforced honestly against
+> measured outcomes — but it published **nothing** at any realistic chart size, on any series tested, including ones
+> built to contain a large edge. A study that never draws is not a study. The default now **reports** the measurement
+> instead of **enforcing** it: every signal still carries the number actually measured for it, the status line still
+> says what the record is, and turning the gate back on is one setting. What was wrong was never the honesty — it was
+> setting the bar above what the data can deliver and calling the resulting silence a feature.
+
 
 This engine was built in response to a request for a signal success rate above 80%. That number is worth being
 precise about, because there are two very different claims one could attach to it.

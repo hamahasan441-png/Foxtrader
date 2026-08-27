@@ -222,13 +222,25 @@ class ApexGateTest {
     }
 
     @Test
-    fun `the default warmup policy is to stay silent`() {
-        assertEquals(
-            "publishing under an unmeasured threshold is the claim this engine avoids",
-            WarmupPolicy.WITHHOLD,
-            ApexConfig().warmupPolicy,
-        )
+    fun `the defaults report the record rather than withholding on it`() {
+        // Reversed deliberately. Withholding until the record supported an 80%
+        // claim was honest and made the study draw nothing at any realistic
+        // chart size. The measurement is still made and still travels with
+        // every signal; it no longer decides whether one appears.
+        assertEquals(WarmupPolicy.PUBLISH_UNMEASURED, ApexConfig().warmupPolicy)
+        assertEquals("the gate reports by default rather than blocking", 0.0, ApexConfig().minHitRate, 1e-9)
         assertNotNull(ApexConfig().members)
-        assertTrue("the confidence bound is on by default", ApexConfig().useConfidenceBound)
+    }
+
+    @Test
+    fun `the strict gate is still available and still refuses a short record`() {
+        // Turning it back on must restore exactly the old behaviour.
+        val strict = ApexConfig(minHitRate = 0.80, minResolvedSample = 30, useConfidenceBound = true)
+        val lucky = ApexPrecision.of(List(4) { ApexOutcome.WIN to 1.5 } + listOf(ApexOutcome.LOSS to -1.0))
+
+        assertTrue(
+            "four wins from five must not clear an 80% bar",
+            !lucky.meets(strict.minHitRate, strict.minResolvedSample, strict.useConfidenceBound),
+        )
     }
 }

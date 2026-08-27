@@ -116,4 +116,58 @@ class ChartScaleStudyContractTest {
             ChartDataController.CHART_HISTORY_BARS >= 5_000,
         )
     }
+
+    /**
+     * The defaults must actually draw something on the history the chart holds.
+     *
+     * This is the guard that was missing, and its absence let three studies ship
+     * that could not draw an arrow on any real chart. Their thresholds were
+     * enforced honestly against measured outcomes — they were simply set above
+     * what the data supports, so the studies were silent rather than wrong, and
+     * an indicator that never draws is not an indicator.
+     *
+     * A signal here is not a claim that the signal is good. Each one carries the
+     * accuracy actually measured for it, and that number is what a trader should
+     * judge it by.
+     */
+    @Test
+    fun `the default settings publish signals at chart history depth`() {
+        val candles = series(ChartDataController.CHART_HISTORY_BARS)
+
+        val apex = apex().analyze("EURUSD", Timeframe.M5, candles, ApexConfig.intraday())
+        assertTrue(
+            "Apex published nothing under its own defaults: ${apex.statusText}",
+            apex.signals.isNotEmpty(),
+        )
+        assertTrue(
+            "every Apex signal must carry the record it was published under",
+            apex.signals.all { it.precisionAtPublication.resolved >= 0 },
+        )
+
+        val compass = compass().analyze("EURUSD", Timeframe.M5, candles, CompassConfig.intraday())
+        assertTrue(
+            "Compass published nothing under its own defaults: ${compass.statusText}",
+            compass.signals.isNotEmpty(),
+        )
+
+        val crucible = CrucibleEngine().analyze("EURUSD", Timeframe.M5, candles, CrucibleConfig.intraday())
+        assertTrue(
+            "Crucible published nothing under its own defaults: ${crucible.statusText}",
+            crucible.signals.isNotEmpty(),
+        )
+    }
+
+    @Test
+    fun `a study does not put an arrow on every other bar`() {
+        // The opposite failure, and just as useless. A rule describes a state
+        // that persists, so emitting on every bar it holds turns a signal into
+        // a shaded region drawn one arrow at a time.
+        val candles = series(ChartDataController.CHART_HISTORY_BARS)
+        val crucible = CrucibleEngine().analyze("EURUSD", Timeframe.M5, candles, CrucibleConfig.intraday())
+
+        assertTrue(
+            "Crucible emitted ${crucible.signals.size} signals over ${candles.size} bars",
+            crucible.signals.size < candles.size / 10,
+        )
+    }
 }

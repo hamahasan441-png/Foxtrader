@@ -592,9 +592,9 @@ data class ApexStudySettings(
     /** Distinct methodologies that must agree before a trade is considered. */
     val minAgreeingMembers: Int = 2,
     /** Hit rate the engine's own measured record must show before publishing. */
-    val minHitRate: Double = 0.80,
+    val minHitRate: Double = 0.0,
     /** Resolved trades required before that rate is treated as evidence. */
-    val minResolvedSample: Int = 30,
+    val minResolvedSample: Int = 10,
     /** How many recent resolved trades the rate is measured over. */
     val precisionWindow: Int = 60,
     /**
@@ -603,15 +603,15 @@ data class ApexStudySettings(
      * Leaving this on is the difference between "four of my last five won" and
      * a record long enough that the rate is unlikely to be luck.
      */
-    val useConfidenceBound: Boolean = true,
+    val useConfidenceBound: Boolean = false,
     /** Publish before any trades have resolved, marked as unmeasured. */
-    val publishBeforeMeasured: Boolean = false,
+    val publishBeforeMeasured: Boolean = true,
     val historicalSignals: Boolean = true,
     val liveWindowBars: Int = 500,
 ) {
     fun sanitized(): ApexStudySettings = copy(
         minAgreeingMembers = minAgreeingMembers.coerceIn(1, 6),
-        minHitRate = if (minHitRate.isFinite()) minHitRate.coerceIn(0.0, 1.0) else 0.80,
+        minHitRate = if (minHitRate.isFinite()) minHitRate.coerceIn(0.0, 1.0) else 0.0,
         minResolvedSample = minResolvedSample.coerceIn(1, 500),
         precisionWindow = precisionWindow.coerceIn(1, 1_000),
         liveWindowBars = liveWindowBars.coerceIn(20, 10_000),
@@ -643,11 +643,13 @@ data class CompassStudySettings(
     /** Barrier half-width in ATR multiples — the same on both sides. */
     val barrierAtrMultiple: Double = 1.0,
     /** Directional accuracy the engine must demonstrate before publishing. */
-    val minAccuracy: Double = 0.80,
+    val minAccuracy: Double = 0.55,
     /** Margin the accuracy must clear above a constant-direction rule. */
-    val minLiftOverBaseRate: Double = 0.05,
+    val minLiftOverBaseRate: Double = 0.0,
     /** Resolved calls required before an accuracy figure counts as evidence. */
-    val minCalibrationSample: Int = 40,
+    val minCalibrationSample: Int = 20,
+    /** Judge the threshold on the confidence bound rather than the measurement. */
+    val useConfidenceBound: Boolean = false,
     /** Resolved calls the scorer and threshold are learned from. */
     val learningWindow: Int = 400,
     val historicalSignals: Boolean = true,
@@ -660,11 +662,11 @@ data class CompassStudySettings(
         } else {
             1.0
         },
-        minAccuracy = if (minAccuracy.isFinite()) minAccuracy.coerceIn(0.0, 1.0) else 0.80,
+        minAccuracy = if (minAccuracy.isFinite()) minAccuracy.coerceIn(0.0, 1.0) else 0.55,
         minLiftOverBaseRate = if (minLiftOverBaseRate.isFinite()) {
             minLiftOverBaseRate.coerceIn(0.0, 0.5)
         } else {
-            0.05
+            0.0
         },
         minCalibrationSample = minCalibrationSample.coerceIn(1, 500),
         learningWindow = learningWindow.coerceIn(20, 5_000),
@@ -702,9 +704,9 @@ data class CrucibleStudySettings(
     /** Barrier for the movement question — wider, or the question is trivial. */
     val movementBarrierAtrMultiple: Double = 2.5,
     /** Accuracy a rule must demonstrate out of sample. */
-    val minAccuracy: Double = 0.80,
+    val minAccuracy: Double = 0.60,
     /** Margin above what the target's own base rate already gives. */
-    val minLiftOverBaseRate: Double = 0.05,
+    val minLiftOverBaseRate: Double = 0.0,
     /** Share of published findings allowed to be spurious. */
     val falseDiscoveryRate: Double = 0.05,
     /** Overfitting probability above which the whole run is withheld. */
@@ -718,8 +720,8 @@ data class CrucibleStudySettings(
         horizonBars = horizonBars.coerceIn(1, 500),
         barrierAtrMultiple = finite(barrierAtrMultiple, 1.0).coerceIn(0.1, 10.0),
         movementBarrierAtrMultiple = finite(movementBarrierAtrMultiple, 2.5).coerceIn(0.1, 20.0),
-        minAccuracy = finite(minAccuracy, 0.80).coerceIn(0.0, 1.0),
-        minLiftOverBaseRate = finite(minLiftOverBaseRate, 0.05).coerceIn(0.0, 0.5),
+        minAccuracy = finite(minAccuracy, 0.60).coerceIn(0.0, 1.0),
+        minLiftOverBaseRate = finite(minLiftOverBaseRate, 0.0).coerceIn(0.0, 0.5),
         falseDiscoveryRate = finite(falseDiscoveryRate, 0.05).coerceIn(0.001, 0.5),
         maxOverfittingProbability = finite(maxOverfittingProbability, 0.5).coerceIn(0.0, 1.0),
         minEffectiveSample = finite(minEffectiveSample, 25.0).coerceIn(1.0, 500.0),

@@ -262,9 +262,31 @@ class CrucibleEngine @Inject constructor() {
         val out = ArrayList<CrucibleSignal>()
         val cutoff = if (config.historicalSignals) 0 else candles.lastIndex - config.liveWindowBars + 1
 
+        // A rule describes a market *state*, and a state persists. Emitting on
+        // every bar the state holds put an arrow on roughly half the chart —
+        // 2 593 of 5 000 bars in one measurement — which is not a signal, it is
+        // a shaded region drawn one arrow at a time. Only the bar a rule first
+        // becomes true is an event a trader can act on.
+        var previous: String? = null
+        var lastEmitted: Int? = null
+
         for (observation in observations) {
+            val match = findings.firstOrNull { it.rule.matches(observation.buckets) }
+            val entered = match != null && match.rule.key != previous
+            previous = match?.rule.let { it?.key }
+
             if (observation.index < cutoff) continue
-            val finding = findings.firstOrNull { it.rule.matches(observation.buckets) } ?: continue
+            if (!entered) continue
+            // One trade at a time. A rule's conditions flicker in and out from
+            // bar to bar, and every flicker was becoming an arrow — a thousand
+            // of them across five thousand bars. A signal whose own outcome has
+            // not been decided yet cannot be replaced by another; holding off
+            // for the horizon is what makes each arrow a trade rather than a
+            // restatement of the same market state.
+            val since = lastEmitted?.let { observation.index - it }
+            if (since != null && since < config.horizonBars) continue
+
+            val finding = match ?: continue
             val side = finding.rule.side ?: continue
             val atr = CompassLabeler.atrAt(candles, observation.index, config.atrPeriod)
             if (atr <= 0.0) continue
@@ -279,6 +301,7 @@ class CrucibleEngine @Inject constructor() {
                 price = observation.price,
                 barrier = atr * config.effectiveBarrierMultiple,
             )
+            lastEmitted = observation.index
         }
         return out
     }

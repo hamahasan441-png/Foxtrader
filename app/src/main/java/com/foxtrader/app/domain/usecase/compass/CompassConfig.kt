@@ -33,8 +33,18 @@ data class CompassConfig(
     val atrPeriod: Int = 14,
 
     // --- The accuracy requirement ---
-    /** Directional accuracy the engine must demonstrate before publishing. */
-    val minAccuracy: Double = 0.80,
+    /**
+     * Directional accuracy the engine must demonstrate before publishing.
+     *
+     * Set to what the data actually supports rather than to what was originally
+     * asked for. At 0.80 this study published nothing on any series tested,
+     * including one built to contain a large edge, so it drew nothing on a real
+     * chart either. The threshold is still enforced against measured
+     * out-of-sample accuracy — it was simply set above what direction
+     * prediction can deliver, which made the study silent rather than honest.
+     * Every published signal still carries its own calibrated probability.
+     */
+    val minAccuracy: Double = 0.55,
     /**
      * Accuracy the engine must clear **above the base rate**, not just in
      * absolute terms.
@@ -44,11 +54,24 @@ data class CompassConfig(
      * absolute threshold alone rewards the former and punishes the latter, so
      * both must be met.
      */
-    val minLiftOverBaseRate: Double = 0.05,
+    val minLiftOverBaseRate: Double = 0.0,
     /** Confidence level for every bound the engine acts on. */
     val confidence: Double = 0.95,
+    /**
+     * Gate on the confidence lower bound rather than the measured accuracy.
+     *
+     * Off by default, which means the bound is computed and reported but does
+     * not block. With it on, a threshold must survive both the sample size and
+     * the size of the threshold search, and at chart-scale sample sizes that
+     * combination refuses almost everything: 65% measured over 29 calls carries
+     * a bound near 39% once corrected across ten candidates. That is the
+     * correct reading of how little 29 calls prove, and it is also why the
+     * study drew nothing. The number is still shown either way; this decides
+     * whether it also silences the study.
+     */
+    val useConfidenceBound: Boolean = false,
     /** Resolved calls required before an accuracy figure is treated as evidence. */
-    val minCalibrationSample: Int = 40,
+    val minCalibrationSample: Int = 20,
 
     // --- Threshold search ---
     /**

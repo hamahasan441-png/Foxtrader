@@ -29,10 +29,21 @@ class CompassCalibratorTest {
             verdict = verdict,
         )
 
+    /**
+     * The strict reading, switched on.
+     *
+     * Judging a threshold by its Bonferroni-corrected confidence bound is the
+     * honest reading of a small sample, and it is also what kept the study
+     * silent on every real chart. It is now opt-in, so the tests that exercise
+     * it ask for it.
+     */
+    private fun strict(config: CompassConfig = CompassConfig()) =
+        config.copy(minAccuracy = 0.80, minLiftOverBaseRate = 0.05, minCalibrationSample = 40, useConfidenceBound = true)
+
     private fun run(
         scored: List<CompassCalibrator.Scored>,
         config: CompassConfig = CompassConfig(),
-    ) = CompassCalibrator.calibrate(scored, config)
+    ) = CompassCalibrator.calibrate(scored, strict(config))
 
     // ------------------------------------------------------------------
     // The trap this exists to avoid

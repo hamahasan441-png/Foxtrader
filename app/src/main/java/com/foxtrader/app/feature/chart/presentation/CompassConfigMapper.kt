@@ -26,6 +26,7 @@ fun CompassStudySettings.toEngineConfig(): CompassConfig {
         minAccuracy = s.minAccuracy,
         minLiftOverBaseRate = s.minLiftOverBaseRate,
         minCalibrationSample = s.minCalibrationSample,
+        useConfidenceBound = s.useConfidenceBound,
         learningWindow = s.learningWindow,
         historicalSignals = s.historicalSignals,
         liveWindowBars = s.liveWindowBars,
