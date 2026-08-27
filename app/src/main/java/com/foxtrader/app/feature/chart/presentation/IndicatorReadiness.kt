@@ -69,28 +69,31 @@ enum class ChartStudyId(
         "Apex Consensus",
         ApexEngine.MIN_BARS,
         requiresTimeAxis = true,
-        // Having enough bars to run is not the same as having enough record to
-        // publish. Apex stays silent until enough of its own trades have
-        // resolved to measure the hit rate being asked of it, which normally
-        // takes far more history than this minimum.
-        contextHint = "stays silent until its own record is measured",
+        // Bars enough to run is not bars enough to publish. Consensus between
+        // independent methodologies is rare — measured at roughly one candidate
+        // per 900 bars — so the default 30-trade evidence requirement needs
+        // tens of thousands of bars. On a normal chart Apex reports what it has
+        // measured so far and publishes nothing, which is the gate working.
+        contextHint = "needs ~27k bars for its default 30-trade evidence bar",
     ),
     COMPASS(
         "Compass Accuracy",
         CompassEngine.MIN_BARS,
         requiresTimeAxis = true,
-        // Bars enough to run is not bars enough to justify a threshold: the
-        // calibration needs calls that have already been proved right or wrong.
-        contextHint = "needs resolved calls before it will publish any",
+        // The calibration needs calls already proved right or wrong, and calls
+        // arrive at roughly one per 130 bars, so the default 40-call
+        // requirement is met somewhere around 5k bars. Below that it reports
+        // how many it still needs rather than drawing anything.
+        contextHint = "needs ~5k bars before its threshold can be calibrated",
     ),
     CRUCIBLE(
         "Crucible Discovery",
         CrucibleEngine.MIN_BARS,
         requiresTimeAxis = true,
-        // A full rule search is the heaviest study here by a wide margin, and
-        // it needs a long series before its folds are big enough to mean
-        // anything. It is worth switching on deliberately, not by default.
-        contextHint = "searches thousands of rules; slow, and needs long history",
+        // A full rule search is the heaviest study here by a wide margin and
+        // needs a long series before its folds mean anything. It is worth
+        // switching on deliberately rather than leaving on.
+        contextHint = "searches thousands of rules; slow, needs 2k+ bars",
     ),
     MACD("MACD", 35),
     STOCHASTIC("Stochastic", 15),

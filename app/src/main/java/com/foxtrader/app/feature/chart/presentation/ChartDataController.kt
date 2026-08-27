@@ -156,7 +156,7 @@ internal class ChartDataController(
         val timeframe = timeframeFlow.value
         liveRecoveryJob = scope.launch {
             try {
-                repository.refreshCandles(symbol, timeframe)
+                repository.refreshCandles(symbol, timeframe, CHART_HISTORY_BARS)
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -413,7 +413,7 @@ internal class ChartDataController(
 
     fun refresh(onError: (String) -> Unit) {
         scope.launch {
-            repository.refreshCandles(symbolFlow.value, timeframeFlow.value)
+            repository.refreshCandles(symbolFlow.value, timeframeFlow.value, CHART_HISTORY_BARS)
                 .onFailure { e -> onError(e.message ?: "Failed to load market data") }
         }
     }
@@ -466,6 +466,20 @@ internal class ChartDataController(
     companion object {
         const val HISTORY_PAGE_SIZE = 500
         const val MAX_BACKTEST_VISIBLE_BARS = 20_000
+
+        /**
+         * How much history the chart asks its provider for.
+         *
+         * This was the repository default of 500, which quietly capped every
+         * study on the chart. The measured engines need far more than that
+         * before their own evidence can support any threshold — on 500 bars
+         * Apex sees a single candidate against a 30-trade requirement and
+         * Compass six calls against forty — and LiT's history scan had nothing
+         * older than 500 bars to scan. Matching the default cache ceiling means
+         * the chart holds as much history as the app is already configured to
+         * keep, rather than a tenth of it.
+         */
+        const val CHART_HISTORY_BARS = 5_000
     }
 }
 
@@ -477,4 +491,5 @@ internal class ConcatenatedCandleList(
 
     override fun get(index: Int): Candle =
         if (index < older.size) older[index] else newer[index - older.size]
+
 }
