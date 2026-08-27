@@ -48,6 +48,7 @@ class LitEngine @Inject constructor(
     private val premiumDiscount: PremiumDiscountCalculator,
     private val structureDetector: LitProStructureDetector = LitProStructureDetector(),
     private val sequenceValidator: LitSequenceValidator = LitSequenceValidator(),
+    private val poiDivergenceDetector: LitPoiDivergenceDetector = LitPoiDivergenceDetector(),
 ) {
 
     fun analyze(
@@ -178,6 +179,33 @@ class LitEngine @Inject constructor(
             )
         }
 
+        // Momentum confirmation at the decision point. The structural sequence
+        // proves price arrived at the POI; it says nothing about whether the
+        // move into it is exhausted, and a POI price passes straight through
+        // looks identical to one that reverses until something says otherwise.
+        // Switchable, because it is a genuine selectivity trade-off rather than
+        // a correctness fix: it removes real setups along with the bad ones.
+        val poiDivergence = if (cfg.requirePoiDivergence) {
+            poiDivergenceDetector.detect(
+                candles = candles,
+                retestIndex = retestIndex,
+                direction = direction,
+                lookback = cfg.poiDivergenceLookbackBars,
+                rsiPeriod = cfg.poiDivergenceRsiPeriod,
+                minRsiGap = cfg.poiDivergenceMinRsiGap,
+                pivotLeft = cfg.swingLeftBars,
+                pivotRight = cfg.swingRightBars,
+            ) ?: return result(
+                symbol,
+                timeframe,
+                LitStage.RETEST_READY,
+                context,
+                "LiT Pro: POI retested; waiting for RSI divergence confirmation.",
+            )
+        } else {
+            null
+        }
+
         val entry = candles[retestIndex].close
         val stop = stopPrice(direction, poi, scob, volatility, cfg.stopAtrBuffer)
         if (!entry.isFinite() || entry <= 0.0 || !stop.isFinite() || stop <= 0.0) {
@@ -258,6 +286,7 @@ class LitEngine @Inject constructor(
             add("SEQUENCE_VALIDATED")
             add("DISPLACEMENT")
             add("POI_${poi.kind.name}")
+            poiDivergence?.let { add("POI_DIVERGENCE_${format2(it.rsiGap)}") }
             if (scob != null) add("SCOB")
             if (directionalZone) add("PREMIUM_DISCOUNT")
             add("RR_${format2(rr)}")
@@ -265,7 +294,8 @@ class LitEngine @Inject constructor(
         }
         val rationale = "LiT Pro ${direction.name.lowercase()}: validated IDM -> opposite BOS -> " +
             "CHOCH + displacement -> ${poi.kind.name.lowercase()} POI" +
-            (if (scob != null) " -> SCOB" else "") + " -> first retest."
+            (if (scob != null) " -> SCOB" else "") + " -> first retest" +
+            (if (poiDivergence != null) " confirmed by RSI divergence" else "") + "."
         val signal = LitSignal(
             symbol = symbol,
             timeframe = timeframe,

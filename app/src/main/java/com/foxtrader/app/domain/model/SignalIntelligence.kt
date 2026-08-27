@@ -51,6 +51,31 @@ data class LitConfig(
     val requireScob: Boolean = false,
     val hiddenShadowMaxAtrFraction: Double = 0.35,
     val stopAtrBuffer: Double = 0.15,
+
+    /**
+     * Require a confirmed RSI divergence before a POI retest may be entered.
+     *
+     * The structural sequence says the market *reached* a decision point; a
+     * divergence says momentum is actually failing there. Requiring both is
+     * what separates a POI that reverses from one price simply passes through.
+     * Trader-facing and switchable from the LiT study settings.
+     */
+    val requirePoiDivergence: Boolean = true,
+
+    /** How far back a POI divergence may reach for its earlier pivot. */
+    val poiDivergenceLookbackBars: Int = 40,
+
+    /** RSI period used for the POI divergence check. */
+    val poiDivergenceRsiPeriod: Int = 14,
+
+    /** Minimum RSI separation, in RSI points, for a divergence to count. */
+    val poiDivergenceMinRsiGap: Double = 1.5,
+
+    /** Keep previously confirmed arrows on the chart instead of only live ones. */
+    val historicalSignals: Boolean = true,
+
+    /** Trailing bars re-analysed as live on every update. */
+    val liveWindowBars: Int = 100,
 ) {
     fun sanitized(): LitConfig = copy(
         minConfidence = minConfidence.coerceIn(50, 95),
@@ -66,6 +91,10 @@ data class LitConfig(
         maxPoiAgeBars = maxPoiAgeBars.coerceIn(4, 80),
         hiddenShadowMaxAtrFraction = hiddenShadowMaxAtrFraction.coerceIn(0.05, 1.0),
         stopAtrBuffer = stopAtrBuffer.coerceIn(0.02, 0.75),
+        poiDivergenceLookbackBars = poiDivergenceLookbackBars.coerceIn(10, 200),
+        poiDivergenceRsiPeriod = poiDivergenceRsiPeriod.coerceIn(2, 100),
+        poiDivergenceMinRsiGap = poiDivergenceMinRsiGap.coerceIn(0.0, 30.0),
+        liveWindowBars = liveWindowBars.coerceIn(20, 2_000),
     )
 
     companion object {

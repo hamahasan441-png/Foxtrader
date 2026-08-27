@@ -292,8 +292,39 @@ private fun StudySettingsCard(
                     ToggleRow("Require SCOB", litConfig.requireScob) { enabled ->
                         onLitConfigChange(litConfig.copy(requireScob = enabled).sanitized())
                     }
+                    ToggleRow("POI divergence confirmation", litConfig.requirePoiDivergence) { enabled ->
+                        onLitConfigChange(litConfig.copy(requirePoiDivergence = enabled).sanitized())
+                    }
+                    if (litConfig.requirePoiDivergence) {
+                        IntStepper("Divergence RSI period", litConfig.poiDivergenceRsiPeriod, 2, 100) { value ->
+                            onLitConfigChange(litConfig.copy(poiDivergenceRsiPeriod = value).sanitized())
+                        }
+                        IntStepper("Divergence lookback", litConfig.poiDivergenceLookbackBars, 10, 200) { value ->
+                            onLitConfigChange(litConfig.copy(poiDivergenceLookbackBars = value).sanitized())
+                        }
+                        DoubleStepper("Min RSI gap", litConfig.poiDivergenceMinRsiGap, 0.5, 0.0, 30.0) { value ->
+                            onLitConfigChange(litConfig.copy(poiDivergenceMinRsiGap = value).sanitized())
+                        }
+                    }
+                    ToggleRow("Keep historical signals", litConfig.historicalSignals) { enabled ->
+                        onLitConfigChange(litConfig.copy(historicalSignals = enabled).sanitized())
+                    }
+                    IntStepper("Live analysis bars", litConfig.liveWindowBars, 20, 2_000) { value ->
+                        onLitConfigChange(litConfig.copy(liveWindowBars = value).sanitized())
+                    }
                     Text(
-                        text = "Hard sequence: pullback → IDM sweep/reclaim → BOS → CHOCH + displacement → POI/SCOB → first retest.",
+                        text = "Hard sequence: pullback → IDM sweep/reclaim → BOS → CHOCH + displacement → POI/SCOB → first retest" +
+                            (if (litConfig.requirePoiDivergence) " → RSI divergence." else "."),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textSecondary,
+                    )
+                    Text(
+                        text = if (litConfig.historicalSignals) {
+                            "New setups are found in the last ${litConfig.liveWindowBars} candles as they close; " +
+                                "previously confirmed arrows stay on the chart."
+                        } else {
+                            "Only the last ${litConfig.liveWindowBars} candles are shown; older arrows are hidden."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = colors.textSecondary,
                     )
