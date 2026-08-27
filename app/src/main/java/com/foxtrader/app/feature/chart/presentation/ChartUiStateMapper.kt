@@ -35,34 +35,16 @@ internal fun ChartUiState.withComputation(
     // When the bar mode does not preserve the time axis (e.g. Renko), SMC
     // overlays that rely on accurate bar-index-to-time mapping are invalid.
     val gateSmcOverlays = !barMode.preservesTimeAxis
-    val litProjection = if (!gateSmcOverlays && toggles.lit) {
-        litAnalysis.toLitProChartProjection(candles)
-    } else {
-        LitProChartProjection()
-    }
-
     val visibleStructureBreaks = when {
         gateSmcOverlays -> emptyList()
-        toggles.structure -> (computation.structureBreaks + litProjection.structureBreaks)
-            .distinctBy { breakEvent ->
-                listOf(
-                    breakEvent.type,
-                    breakEvent.breakIndex,
-                    breakEvent.breakPrice,
-                    breakEvent.labelOverride,
-                )
-            }
-            .sortedBy { it.breakIndex }
+        toggles.structure -> computation.structureBreaks
         else -> emptyList()
     }
 
     val visibleOrderBlocks = if (gateSmcOverlays) {
         emptyList()
     } else {
-        (computation.overlays.orderBlocks + litProjection.zones)
-            .distinctBy { zone ->
-                listOf(zone.type, zone.startIndex, zone.highPrice, zone.lowPrice)
-            }
+        computation.overlays.orderBlocks
     }
 
     return copy(

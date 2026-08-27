@@ -10,6 +10,7 @@ import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.DecisionConfig
 import com.foxtrader.app.domain.model.LitBreakMode
 import com.foxtrader.app.domain.model.LitConfig
+import com.foxtrader.app.domain.model.asLitMayMadnessSignalConfig
 import com.foxtrader.app.domain.model.LitXConfig
 import com.foxtrader.app.domain.model.LitXGrade
 import com.foxtrader.app.domain.model.PositionSizingMethod
@@ -223,13 +224,13 @@ class SettingsViewModel @Inject constructor(
     }
 
     private fun updateLit(transform: (LitConfig) -> LitConfig) {
-        val cfg = transform(_uiState.value.litConfig).sanitized()
+        val cfg = transform(_uiState.value.litConfig).asLitMayMadnessSignalConfig()
         appPreferences.setLitConfig(cfg)
         _uiState.update { it.copy(litConfig = cfg, saved = false) }
     }
 
     fun setLitProfile(profile: SignalProfile) {
-        val cfg = LitConfig.preset(profile)
+        val cfg = LitConfig.preset(profile).asLitMayMadnessSignalConfig()
         appPreferences.setLitConfig(cfg)
         _uiState.update { it.copy(litConfig = cfg, saved = false) }
     }

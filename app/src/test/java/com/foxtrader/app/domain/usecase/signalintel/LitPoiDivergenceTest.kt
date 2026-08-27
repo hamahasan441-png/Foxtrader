@@ -5,6 +5,7 @@ import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.LitConfig
 import com.foxtrader.app.domain.model.SignalProfile
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.model.asLitMayMadnessSignalConfig
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import com.foxtrader.app.domain.usecase.litx.DisplacementDetector
 import com.foxtrader.app.domain.usecase.litx.PremiumDiscountCalculator
@@ -232,7 +233,7 @@ class LitPoiDivergenceTest {
         val cfg = LitConfig()
         assertTrue("POI entries must require divergence by default", cfg.requirePoiDivergence)
         assertTrue("historical arrows must be kept by default", cfg.historicalSignals)
-        assertEquals("the live window is the last 100 candles", 100, cfg.liveWindowBars)
+        assertEquals("the live window is the last 400 candles", 400, cfg.liveWindowBars)
     }
 
     @Test
@@ -248,6 +249,24 @@ class LitPoiDivergenceTest {
         assertTrue(wild.poiDivergenceRsiPeriod <= 100)
         assertTrue(wild.poiDivergenceMinRsiGap >= 0.0)
         assertTrue(wild.liveWindowBars >= 20)
+    }
+
+    @Test
+    fun `legacy settings cannot disable history or change the live window`() {
+        val migrated = LitConfig(
+            historicalSignals = false,
+            liveWindowBars = 100,
+        ).asLitMayMadnessSignalConfig()
+
+        assertTrue(migrated.historicalSignals)
+        assertEquals(400, migrated.liveWindowBars)
+    }
+
+    @Test
+    fun `live analysis selects exactly the newest 400 closed candles`() {
+        assertEquals(0, litMayMadnessWindowStart(399))
+        assertEquals(0, litMayMadnessWindowStart(400))
+        assertEquals(250, litMayMadnessWindowStart(650))
     }
 
     @Test

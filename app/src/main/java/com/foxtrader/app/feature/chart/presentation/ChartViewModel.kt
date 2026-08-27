@@ -13,6 +13,7 @@ import com.foxtrader.app.domain.model.ConnectionState
 import com.foxtrader.app.domain.model.DataProvider
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.model.LitConfig
+import com.foxtrader.app.domain.model.asLitMayMadnessSignalConfig
 import com.foxtrader.app.domain.model.LitXConfig
 import com.foxtrader.app.domain.model.SmsConfig
 import com.foxtrader.app.domain.model.SmtConfig
@@ -636,7 +637,14 @@ class ChartViewModel @Inject constructor(
 
         val litAnalysis = if (needLit && signalCandles.isNotEmpty()) {
             withContext(defaultDispatcher) {
-                containedOrNull { litEngine.analyze(symbol, timeframe, signalCandles, appPreferences.litConfig.value) }
+                containedOrNull {
+                    litEngine.analyze(
+                        symbol,
+                        timeframe,
+                        signalCandles,
+                        appPreferences.litConfig.value.asLitMayMadnessSignalConfig(),
+                    )
+                }
             }
         } else null
 
@@ -828,7 +836,7 @@ class ChartViewModel @Inject constructor(
                     barMode = barMode,
                     candles = signalCandles,
                     litXConfig = litXConfig,
-                    litConfig = appPreferences.litConfig.value.sanitized(),
+                    litConfig = appPreferences.litConfig.value.asLitMayMadnessSignalConfig(),
                 )
             }
         } else {
@@ -988,7 +996,7 @@ class ChartViewModel @Inject constructor(
             configuration = LiveSignalConfiguration(
                 indicators = ind,
                 litXConfig = litXConfig,
-                litConfig = appPreferences.litConfig.value.sanitized(),
+                litConfig = appPreferences.litConfig.value.asLitMayMadnessSignalConfig(),
                 smtConfig = appPreferences.smtConfig.value.sanitized(),
             ),
         )
@@ -1065,7 +1073,14 @@ class ChartViewModel @Inject constructor(
         } else null
         val litAnalysis = if (ind.lit) {
             withContext(defaultDispatcher) {
-                containedOrNull { litEngine.analyze(symbol, timeframe, candles, appPreferences.litConfig.value) }
+                containedOrNull {
+                    litEngine.analyze(
+                        symbol,
+                        timeframe,
+                        candles,
+                        appPreferences.litConfig.value.asLitMayMadnessSignalConfig(),
+                    )
+                }
             }
         } else null
         val smsAnalysis = if (ind.sms) {
@@ -1220,7 +1235,7 @@ class ChartViewModel @Inject constructor(
                     barMode = current.barMode,
                     candles = candles,
                     litXConfig = litXConfig,
-                    litConfig = appPreferences.litConfig.value.sanitized(),
+                    litConfig = appPreferences.litConfig.value.asLitMayMadnessSignalConfig(),
                 )
             }
         } else {
@@ -1355,7 +1370,7 @@ class ChartViewModel @Inject constructor(
             litXEnabled = indicators.litX,
             litEnabled = indicators.lit,
             litXConfig = litXConfig.copy(enabled = true).sanitized(),
-            litConfig = litConfig.sanitized(),
+            litConfig = litConfig.asLitMayMadnessSignalConfig(),
         )
         if (productionHistoryKey != key) {
             productionHistoryKey = key
@@ -1463,8 +1478,13 @@ class ChartViewModel @Inject constructor(
             }
             productionHistoryScannedThrough = lastIndex
             while (productionHistorySignals.size > PRODUCTION_HISTORY_MAX_SIGNALS) {
-                val oldest = productionHistorySignals.keys.firstOrNull() ?: break
-                productionHistorySignals.remove(oldest)
+                // LiT May Madness is a persistent signal indicator: once a
+                // closed-bar event is confirmed, never prune its chart arrow.
+                val oldestNonMay = productionHistorySignals.entries
+                    .firstOrNull { it.value.source != SignalSource.LIT }
+                    ?.key
+                    ?: break
+                productionHistorySignals.remove(oldestNonMay)
             }
         }
 
@@ -1953,7 +1973,7 @@ class ChartViewModel @Inject constructor(
     }
 
     fun currentLitXConfig(): LitXConfig = appPreferences.litXConfig.value.copy(enabled = true).sanitized()
-    fun currentLitConfig(): LitConfig = appPreferences.litConfig.value.sanitized()
+    fun currentLitConfig(): LitConfig = appPreferences.litConfig.value.asLitMayMadnessSignalConfig()
     fun currentSmtConfig(): SmtConfig = appPreferences.smtConfig.value.sanitized()
     fun currentSmsConfig(): SmsConfig = appPreferences.smsConfig.value.sanitized()
 
@@ -1962,7 +1982,7 @@ class ChartViewModel @Inject constructor(
     }
 
     fun updateLitConfig(config: LitConfig) {
-        appPreferences.setLitConfig(config.sanitized())
+        appPreferences.setLitConfig(config.asLitMayMadnessSignalConfig())
     }
 
     fun updateSmtConfig(config: SmtConfig) {

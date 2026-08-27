@@ -120,9 +120,7 @@ data class IndicatorToggles(
         copy(litX = true, structure = true, orderBlocks = true, fairValueGaps = true, liquidity = true, sessions = true)
     } else copy(litX = false)
 
-    fun withLitSuite(enabled: Boolean): IndicatorToggles = if (enabled) {
-        copy(lit = true, structure = true, orderBlocks = true, fairValueGaps = true, liquidity = true, sessions = true)
-    } else copy(lit = false)
+    fun withLitSuite(enabled: Boolean): IndicatorToggles = copy(lit = enabled)
 
     fun withSmsSuite(enabled: Boolean): IndicatorToggles = if (enabled) {
         copy(sms = true, structure = true, liquidity = true)

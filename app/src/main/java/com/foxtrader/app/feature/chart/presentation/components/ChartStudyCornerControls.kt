@@ -309,12 +309,6 @@ private fun StudySettingsCard(
                             onLitConfigChange(litConfig.copy(poiDivergenceMinRsiGap = value).sanitized())
                         }
                     }
-                    ToggleRow("Keep historical signals", litConfig.historicalSignals) { enabled ->
-                        onLitConfigChange(litConfig.copy(historicalSignals = enabled).sanitized())
-                    }
-                    IntStepper("Live analysis bars", litConfig.liveWindowBars, 20, 2_000) { value ->
-                        onLitConfigChange(litConfig.copy(liveWindowBars = value).sanitized())
-                    }
                     Text(
                         text = "Hard sequence: pullback → IDM sweep/reclaim → BOS → CHOCH + displacement → POI/SCOB → first retest" +
                             (if (litConfig.requirePoiDivergence) " → RSI divergence." else "."),
@@ -322,12 +316,8 @@ private fun StudySettingsCard(
                         color = colors.textSecondary,
                     )
                     Text(
-                        text = if (litConfig.historicalSignals) {
-                            "New setups are found in the last ${litConfig.liveWindowBars} candles as they close; " +
-                                "previously confirmed arrows stay on the chart."
-                        } else {
-                            "Only the last ${litConfig.liveWindowBars} candles are shown; older arrows are hidden."
-                        },
+                        text = "Signal-only: every update analyses the latest 400 closed candles; " +
+                            "every confirmed BUY/SELL arrow stays on the chart.",
                         style = MaterialTheme.typography.bodySmall,
                         color = colors.textSecondary,
                     )

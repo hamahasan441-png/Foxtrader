@@ -28,6 +28,7 @@ import com.foxtrader.app.domain.model.WorkspaceProfile
 import com.foxtrader.app.domain.model.tradepro.AlertRule
 import com.foxtrader.app.domain.model.LitXConfig
 import com.foxtrader.app.domain.model.LitConfig
+import com.foxtrader.app.domain.model.asLitMayMadnessSignalConfig
 import com.foxtrader.app.domain.model.SmtConfig
 import com.foxtrader.app.domain.model.SmsConfig
 import com.foxtrader.app.domain.model.tradepro.TradeProConfig
@@ -251,7 +252,7 @@ class AppPreferences @Inject constructor(
                 }?.sanitized() ?: LitXConfig()
                 _litConfig.value = prefs[KEY_LIT_CONFIG]?.let { raw ->
                     runCatching { json.decodeFromString<LitConfig>(raw) }.getOrDefault(LitConfig())
-                }?.sanitized() ?: LitConfig()
+                }?.asLitMayMadnessSignalConfig() ?: LitConfig().asLitMayMadnessSignalConfig()
                 _smtConfig.value = prefs[KEY_SMT_CONFIG]?.let { raw ->
                     runCatching { json.decodeFromString<SmtConfig>(raw) }.getOrDefault(SmtConfig())
                 }?.sanitized() ?: SmtConfig()
@@ -334,7 +335,7 @@ class AppPreferences @Inject constructor(
     }
 
     fun setLitConfig(config: LitConfig) {
-        val safe = config.sanitized()
+        val safe = config.asLitMayMadnessSignalConfig()
         _litConfig.value = safe
         scope.launch { context.dataStore.edit { it[KEY_LIT_CONFIG] = json.encodeToString(safe) } }
     }

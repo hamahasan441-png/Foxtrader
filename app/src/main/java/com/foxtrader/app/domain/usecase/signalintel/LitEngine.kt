@@ -10,8 +10,10 @@ import com.foxtrader.app.domain.model.LitProContext
 import com.foxtrader.app.domain.model.LitScob
 import com.foxtrader.app.domain.model.LitSignal
 import com.foxtrader.app.domain.model.LitStage
+import com.foxtrader.app.domain.model.LIT_MAY_MADNESS_LIVE_BARS
 import com.foxtrader.app.domain.model.PriceZoneKind
 import com.foxtrader.app.domain.model.Timeframe
+import com.foxtrader.app.domain.model.asLitMayMadnessSignalConfig
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import com.foxtrader.app.domain.usecase.litx.DisplacementDetector
 import com.foxtrader.app.domain.usecase.litx.PremiumDiscountCalculator
@@ -56,6 +58,18 @@ class LitEngine @Inject constructor(
         timeframe: Timeframe,
         candles: List<Candle>,
         config: LitConfig = LitConfig(),
+    ): LitAnalysis {
+        val cfg = config.asLitMayMadnessSignalConfig()
+        val windowStart = litMayMadnessWindowStart(candles.size)
+        val window = if (windowStart == 0) candles else candles.subList(windowStart, candles.size)
+        return analyzeWindow(symbol, timeframe, window, cfg).withIndexOffset(windowStart)
+    }
+
+    private fun analyzeWindow(
+        symbol: String,
+        timeframe: Timeframe,
+        candles: List<Candle>,
+        config: LitConfig,
     ): LitAnalysis {
         val integrity = SignalSeriesIntegrity.validate(candles, MIN_BARS)
         if (!integrity.valid) {
@@ -443,3 +457,38 @@ class LitEngine @Inject constructor(
         const val MIN_PRICE_EPSILON = 1e-9
     }
 }
+
+internal fun litMayMadnessWindowStart(candleCount: Int): Int =
+    (candleCount - LIT_MAY_MADNESS_LIVE_BARS).coerceAtLeast(0)
+
+private fun LitAnalysis.withIndexOffset(offset: Int): LitAnalysis {
+    if (offset == 0) return this
+    return copy(
+        signal = signal?.let { confirmed ->
+            confirmed.copy(
+                sweepIndex = confirmed.sweepIndex + offset,
+                shiftIndex = confirmed.shiftIndex + offset,
+                confirmationIndex = confirmed.confirmationIndex + offset,
+            )
+        },
+        context = context.copy(
+            pullback = context.pullback?.withIndexOffset(offset),
+            inducement = context.inducement?.withIndexOffset(offset),
+            bos = context.bos?.withIndexOffset(offset),
+            choch = context.choch?.withIndexOffset(offset),
+            poi = context.poi?.copy(
+                originIndex = context.poi.originIndex + offset,
+                confirmationIndex = context.poi.confirmationIndex + offset,
+            ),
+            scob = context.scob?.copy(
+                originIndex = context.scob.originIndex + offset,
+                confirmationIndex = context.scob.confirmationIndex + offset,
+            ),
+        ),
+    )
+}
+
+private fun LitLevel.withIndexOffset(offset: Int): LitLevel = copy(
+    originIndex = originIndex + offset,
+    confirmationIndex = confirmationIndex + offset,
+)
