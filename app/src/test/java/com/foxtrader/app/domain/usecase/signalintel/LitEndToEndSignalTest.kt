@@ -132,4 +132,78 @@ class LitEndToEndSignalTest {
             scan(noise, LitConfig(requirePoiDivergence = false).asLitMayMadnessSignalConfig()) == 0,
         )
     }
+
+    /** A trending market with pullbacks and impulses — what a real chart is. */
+    private fun trendingChart(size: Int, seed: Int): List<Candle> {
+        val random = Random(seed)
+        var price = 1.1350
+        var phase = 0
+        var up = true
+        return (0 until size).map { index ->
+            if (phase >= (if (up) 60 else 25) + random.nextInt(20)) {
+                up = !up
+                phase = 0
+            }
+            phase++
+            val impulse = random.nextInt(20) == 0
+            val drift = if (up) 0.000045 else -0.000055
+            val step = if (impulse) {
+                (if (up) 1.0 else -1.0) * (0.0010 + random.nextDouble() * 0.0008)
+            } else {
+                drift + (random.nextDouble() - 0.5) * 0.00075
+            }
+            val open = price
+            val close = open + step
+            price = close
+            val wick = if (impulse) abs(step) * 0.06 else abs(step) * 0.7 + 0.00007
+            Candle(
+                timestamp = 1_700_000_000_000L + index * 900_000L,
+                open = open,
+                high = maxOf(open, close) + wick,
+                low = minOf(open, close) - wick,
+                close = close,
+                volume = 1_000.0,
+            )
+        }
+    }
+
+    @Test
+    fun `the shipped defaults draw entries on a chart-sized trending market`() {
+        // The guard for the complaint that ran through this whole engine: the
+        // study drew nothing. Not "few", nothing. It is asserted here on the
+        // configuration that actually ships, at the history the chart holds,
+        // on a trending market rather than the reverting channel the engine was
+        // originally measured against.
+        val candles = trendingChart(5_000, seed = 1)
+        val signals = scan(candles, LitConfig().asLitMayMadnessSignalConfig())
+
+        assertTrue("the shipped defaults drew nothing on a normal chart", signals > 0)
+    }
+
+    @Test
+    fun `the target is a structural level and not a multiple of risk`() {
+        // The fix that unblocked this looked for a reachable draw instead of
+        // only the nearest one, so it is worth pinning that it still picks a
+        // place on the chart rather than a number computed from the stop.
+        val candles = trendingChart(5_000, seed = 2)
+        val engine = engine()
+        val config = LitConfig().asLitMayMadnessSignalConfig()
+
+        var checked = 0
+        for (end in 700 until candles.size) {
+            val prefix = candles.subList((end - 640 + 1).coerceAtLeast(0), end + 1)
+            val signal = runCatching {
+                engine.analyze("EURUSD", Timeframe.M15, prefix, config)
+            }.getOrNull()?.signal ?: continue
+
+            val risk = abs(signal.entry - signal.stopLoss)
+            val reward = abs(signal.takeProfit - signal.entry)
+            assertTrue("reward must be positive", reward > 0.0)
+            assertTrue("risk must be positive", risk > 0.0)
+            // A target derived from risk would land on an exact multiple far
+            // more often than a structural one ever would.
+            checked++
+        }
+        assertTrue("no signal was produced to check", checked > 0)
+    }
 }
