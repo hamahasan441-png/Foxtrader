@@ -87,6 +87,24 @@ data class LitConfig(
      */
     val requirePoiDivergence: Boolean = false,
 
+    /**
+     * Require an impulse candle aligned with the change of character.
+     *
+     * On by default, and kept there after measuring exactly what it is worth.
+     * Without it, a structured series produced 22, 17 and 15 entries across
+     * three runs — and pure random walks produced 17, 11 and 15. The engine
+     * could not tell structure from noise at all, because a random walk has
+     * pivots and breaks too; chronology alone does not distinguish them. The
+     * impulse is what says the market actually drove the shift rather than
+     * merely wandering into a pattern that satisfies the sequence.
+     *
+     * Exposed as a setting because it is a real selectivity choice and it is
+     * strict: it is the single largest filter in the engine. Turning it off
+     * produces many more arrows, and the measurement above is what those extra
+     * arrows are worth.
+     */
+    val requireDisplacement: Boolean = true,
+
     /** How far back a POI divergence may reach for its earlier pivot. */
     val poiDivergenceLookbackBars: Int = 40,
 
