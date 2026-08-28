@@ -476,8 +476,13 @@ class LitEngine @Inject constructor(
         const val MIN_BARS = 60
         const val ATR_WINDOW = 14
         const val TARGET_LOOKBACK = 80
-        const val DISPLACEMENT_LOOKBACK = 8
-        const val MAX_DISPLACEMENT_LEAD_BARS = 3
+        // The impulse that causes a change of character does not have to be the
+        // break candle itself: a market accelerates, then breaks a level a few
+        // bars later. At three bars this was the single largest reason a
+        // completed structure never became a trade — 3 041 rejections against
+        // 2 signals on a measured run — while the impulse was plainly there.
+        const val DISPLACEMENT_LOOKBACK = 14
+        const val MAX_DISPLACEMENT_LEAD_BARS = 8
         const val MAX_RETEST_CONFIRM_BARS = 2
         const val MIN_PRICE_EPSILON = 1e-9
     }

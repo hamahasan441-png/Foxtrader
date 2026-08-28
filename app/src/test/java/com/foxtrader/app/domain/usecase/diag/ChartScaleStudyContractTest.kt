@@ -19,6 +19,7 @@ import com.foxtrader.app.domain.usecase.smc.SmcDetector
 import com.foxtrader.app.domain.usecase.virginwick.VirginWickEngine
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.feature.chart.presentation.ChartDataController
+import com.foxtrader.app.data.remote.dukascopy.DukascopyDataSource
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.abs
@@ -38,6 +39,48 @@ class ChartScaleStudyContractTest {
             price = c
             val w = abs(c - o) * 0.6 + 0.00006
             Candle(1_700_000_000_000L + i * 300_000L, o, maxOf(o, c) + w, minOf(o, c) - w, c, 1000.0)
+        }
+    }
+
+    /**
+     * A trending market with pullbacks and real impulse candles — what a chart
+     * usually looks like, and what the reverting fixture above is not.
+     *
+     * Both matter. The studies were only ever measured on a mean-reverting
+     * channel, and a trending market gives the member engines a different diet
+     * entirely; a study that works on one and not the other is a study that
+     * works by accident.
+     */
+    private fun trending(size: Int, seed: Int = 1): List<Candle> {
+        val random = Random(seed)
+        var price = 1.1350
+        var phase = 0
+        var up = true
+        return (0 until size).map { index ->
+            if (phase >= (if (up) 60 else 25) + random.nextInt(20)) {
+                up = !up
+                phase = 0
+            }
+            phase++
+            val impulse = random.nextInt(20) == 0
+            val drift = if (up) 0.000045 else -0.000055
+            val step = if (impulse) {
+                (if (up) 1.0 else -1.0) * (0.0010 + random.nextDouble() * 0.0008)
+            } else {
+                drift + (random.nextDouble() - 0.5) * 0.00075
+            }
+            val open = price
+            val close = open + step
+            price = close
+            val wick = if (impulse) abs(step) * 0.06 else abs(step) * 0.7 + 0.00007
+            Candle(
+                timestamp = 1_700_000_000_000L + index * 900_000L,
+                open = open,
+                high = maxOf(open, close) + wick,
+                low = minOf(open, close) - wick,
+                close = close,
+                volume = 1_000.0,
+            )
         }
     }
 
@@ -168,6 +211,34 @@ class ChartScaleStudyContractTest {
         assertTrue(
             "Crucible emitted ${crucible.signals.size} signals over ${candles.size} bars",
             crucible.signals.size < candles.size / 10,
+        )
+    }
+
+    @Test
+    fun `the studies publish on a trending market too`() {
+        // A real chart trends far more often than it oscillates, and these
+        // studies had only ever been measured on a mean-reverting channel.
+        val candles = trending(ChartDataController.CHART_HISTORY_BARS)
+
+        val apex = apex().analyze("EURUSD", Timeframe.M15, candles, ApexConfig.intraday())
+        assertTrue("Apex drew nothing on a trending market: ${apex.statusText}", apex.signals.isNotEmpty())
+
+        val compass = compass().analyze("EURUSD", Timeframe.M15, candles, CompassConfig.intraday())
+        assertTrue(
+            "Compass drew nothing on a trending market: ${compass.statusText}",
+            compass.signals.isNotEmpty(),
+        )
+    }
+
+    @Test
+    fun `the provider will hand over as much history as the chart asks for`() {
+        // The chart's request was silently clamped to a fifth of what it asked
+        // for, which is a ceiling no setting could lift. Compass needs roughly
+        // two thousand bars before it can calibrate at all, so the clamp and the
+        // requirement were set against each other and the study stayed quiet.
+        assertTrue(
+            "the data source clamps below what the chart requests",
+            DukascopyDataSource.MAX_CANDLE_LIMIT >= ChartDataController.CHART_HISTORY_BARS,
         )
     }
 }

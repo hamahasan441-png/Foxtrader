@@ -647,7 +647,7 @@ data class CompassStudySettings(
     /** Margin the accuracy must clear above a constant-direction rule. */
     val minLiftOverBaseRate: Double = 0.0,
     /** Resolved calls required before an accuracy figure counts as evidence. */
-    val minCalibrationSample: Int = 20,
+    val minCalibrationSample: Int = 12,
     /** Judge the threshold on the confidence bound rather than the measurement. */
     val useConfidenceBound: Boolean = false,
     /** Resolved calls the scorer and threshold are learned from. */

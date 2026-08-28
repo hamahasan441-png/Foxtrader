@@ -88,13 +88,7 @@ open class LitProStructureDetector @Inject constructor(
         val sequence = activeSequence(candles, swings, breaks, latest, cfg)
         val activeEvent = sequence?.choch ?: latest
         val pullback = latestPullback(swings, activeEvent.direction, activeEvent.confirmationIndex)
-        val idm = sequence?.idm ?: findInducement(
-            candles = candles,
-            swings = swings,
-            beforeIndex = activeEvent.confirmationIndex,
-            direction = activeEvent.direction,
-            cfg = cfg,
-        )
+
         // Surface the most recent change of character even when the full
         // IDM -> BOS -> CHOCH chain does not resolve, so the context still
         // describes what structure did. The engine's sequence validator remains
@@ -102,12 +96,36 @@ open class LitProStructureDetector @Inject constructor(
         // reports without permitting.
         val activeChoch = sequence?.choch ?: breaks.lastOrNull { it.type == BreakType.CHOCH }
         val activeBos = sequence?.bos ?: if (activeChoch != null) {
+            // The continuation break must run *against* the shift that follows
+            // it — that opposition is what makes the CHOCH a change of
+            // character rather than more of the same. Selecting the newest BOS
+            // regardless of direction handed the validator a sequence it then
+            // rejected for precisely that, which is a disagreement inside this
+            // file rather than anything the market did.
             breaks.lastOrNull {
-                it.type == BreakType.BOS && it.confirmationIndex < activeChoch.confirmationIndex
+                it.type == BreakType.BOS &&
+                    it.direction != activeChoch.direction &&
+                    it.confirmationIndex < activeChoch.confirmationIndex
             }
         } else {
             latest.takeIf { it.type == BreakType.BOS }
         }
+
+        // The inducement belongs to the BOS it precedes, not to whatever broke
+        // most recently. Searching it relative to the newest break routinely
+        // found a level swept *after* the BOS that was actually selected, and
+        // the validator then rejected the sequence for exactly that — the
+        // chronology it was handed really was wrong. Anchoring the search to the
+        // chosen BOS makes the three events describe one story.
+        val idmAnchor = activeBos?.confirmationIndex ?: activeEvent.confirmationIndex
+        val idmDirection = activeChoch?.direction ?: activeEvent.direction
+        val idm = sequence?.idm ?: findInducement(
+            candles = candles,
+            swings = swings,
+            beforeIndex = idmAnchor,
+            direction = idmDirection,
+            cfg = cfg,
+        )
         val poi = activeChoch?.let { selectPoi(candles, it, cfg) }
         val scob = poi?.let {
             detectScob(candles, activeChoch.direction, it, activeChoch.confirmationIndex, cfg)
@@ -372,7 +390,10 @@ open class LitProStructureDetector @Inject constructor(
         if (tolerance <= 0.0) return null
 
         val wanted = if (direction == Direction.BULLISH) SwingType.LOW else SwingType.HIGH
-        val earliest = (beforeIndex - cfg.maxIdmToBosBars)
+        // Same correction as the single-swing case: a shelf is built out of
+        // pivots that formed over time, and requiring all of them inside the
+        // IDM-to-BOS window means no shelf can ever qualify.
+        val earliest = (beforeIndex - cfg.setupLookback)
             .coerceAtLeast(0)
         // Only pivots already confirmed before the event may contribute, so the
         // shelf cannot be assembled out of bars the event could not have seen.
@@ -390,7 +411,9 @@ open class LitProStructureDetector @Inject constructor(
             ?.takeIf { it.confirmationIndex >= earliest }
             ?: return null
 
-        val sweepIndex = (cluster.confirmationIndex until beforeIndex).firstOrNull { index ->
+        // The sweep still has to be recent, even though the shelf need not be.
+        val sweepFrom = maxOf(cluster.confirmationIndex, beforeIndex - cfg.maxIdmToBosBars)
+        val sweepIndex = (sweepFrom.coerceAtLeast(0) until beforeIndex).firstOrNull { index ->
             isSweepAndReclaim(candles[index], cluster.level, direction)
         } ?: return null
 
@@ -412,13 +435,22 @@ open class LitProStructureDetector @Inject constructor(
         cfg: LitConfig,
     ): LitLevel? {
         val wanted = if (direction == Direction.BULLISH) SwingType.LOW else SwingType.HIGH
-        val start = (beforeIndex - cfg.maxIdmToBosBars)
-            .coerceAtLeast(0)
+        // The inducement is a level price *swept* shortly before the break. How
+        // long ago the level itself formed is a different question, and the two
+        // were previously conflated: the swing's own confirmation had to fall
+        // inside maxIdmToBosBars, which is the IDM-to-BOS limit and belongs to
+        // the sweep. A shelf that had been sitting there for thirty bars — the
+        // ordinary case, and the more meaningful pool — could not be an
+        // inducement at all, so live charts reported "missing confirmed IDM"
+        // while the level was plainly on screen.
+        val sweepFrom = (beforeIndex - cfg.maxIdmToBosBars).coerceAtLeast(0)
+        val levelFrom = (beforeIndex - cfg.setupLookback).coerceAtLeast(0)
         return swings.asReversed().firstNotNullOfOrNull { swing ->
-            if (swing.type != wanted || swing.confirmationIndex !in start until beforeIndex) {
+            if (swing.type != wanted || swing.confirmationIndex !in levelFrom until beforeIndex) {
                 return@firstNotNullOfOrNull null
             }
-            val sweepIndex = (swing.confirmationIndex until beforeIndex).firstOrNull { index ->
+            val searchFrom = maxOf(swing.confirmationIndex, sweepFrom)
+            val sweepIndex = (searchFrom until beforeIndex).firstOrNull { index ->
                 isSweepAndReclaim(candles[index], swing.price, direction)
             } ?: return@firstNotNullOfOrNull null
             LitLevel(
