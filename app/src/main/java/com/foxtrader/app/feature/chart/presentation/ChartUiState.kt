@@ -262,16 +262,6 @@ data class ChartUiState(
     val fairValueGaps: ImmutableList<FairValueGap> = persistentListOf(),
     val liquidityPools: ImmutableList<LiquidityPool> = persistentListOf(),
     val tradeProAnalysis: TradeProAnalysis? = null,
-    /**
-     * Why each gated study is drawing what it is drawing — most importantly,
-     * why it is drawing nothing.
-     *
-     * The measured engines publish only when their own evidence supports the
-     * bar they were given, which on a short chart is often never. Without this
-     * the trader sees an empty chart and cannot tell a working filter from a
-     * broken indicator, and those two look identical.
-     */
-    val studyStatuses: ImmutableList<StudyStatus> = persistentListOf(),
     val litXAnalysis: LitXAnalysis? = null,
     val litAnalysis: LitAnalysis? = null,
     val smsAnalysis: SmsAnalysis? = null,
@@ -360,19 +350,3 @@ data class ChartUiState(
     val hasSmcData: Boolean
         get() = orderBlocks.isNotEmpty() || fairValueGaps.isNotEmpty() || liquidityPools.isNotEmpty()
 }
-
-/**
- * One line of explanation from a study that gates its own output.
- *
- * Silence from a measured engine is information, not an absence of it: it means
- * the evidence did not support the threshold being asked for. Showing that
- * sentence is the difference between "this indicator is broken" and "this
- * indicator is telling you the data does not support what you asked".
- */
-@Immutable
-data class StudyStatus(
-    val study: String,
-    val message: String,
-    /** True when the study is drawing something, false when it is withholding. */
-    val publishing: Boolean,
-)

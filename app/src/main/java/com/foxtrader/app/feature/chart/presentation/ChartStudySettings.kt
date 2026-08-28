@@ -650,6 +650,8 @@ data class CompassStudySettings(
     val minCalibrationSample: Int = 12,
     /** Judge the threshold on the confidence bound rather than the measurement. */
     val useConfidenceBound: Boolean = false,
+    /** Draw the underlying setups before a threshold can be calibrated. */
+    val publishBeforeCalibrated: Boolean = true,
     /** Resolved calls the scorer and threshold are learned from. */
     val learningWindow: Int = 400,
     val historicalSignals: Boolean = true,

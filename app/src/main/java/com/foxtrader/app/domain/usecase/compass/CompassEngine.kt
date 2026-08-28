@@ -196,9 +196,22 @@ class CompassEngine @Inject constructor(
                 recalibratedAt = call.index
             }
 
-            val threshold = calibration.threshold ?: continue
+            // Never draw where the engine itself could not have run. Below its
+            // minimum the analysis refuses outright, so a signal there is one no
+            // live chart could ever have shown — visible only because a longer
+            // series was available afterwards.
+            if (call.index < MIN_BARS) continue
+
+            val threshold = calibration.threshold
             val probability = scorer.probability(call.features)
-            if (probability < threshold) continue
+            when {
+                // Calibrated: the threshold selects, which is the study's job.
+                threshold != null -> if (probability < threshold) continue
+                // Not calibrated yet. Draw the setups the member engines found
+                // and attach whatever the scorer can say about them, rather
+                // than showing an empty chart until a cut-off can be justified.
+                !config.publishBeforeCalibrated -> continue
+            }
 
             out += CompassSignal(
                 symbol = symbol,

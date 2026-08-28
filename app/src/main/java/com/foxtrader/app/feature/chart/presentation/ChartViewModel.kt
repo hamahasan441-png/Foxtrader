@@ -1059,12 +1059,6 @@ class ChartViewModel @Inject constructor(
             amdZones = amdAnalysisSignals.toPersistentList(),
             nascentKeyLevels = nascentAnalysis?.keyLevels.orEmpty().toPersistentList(),
             rsiReversalSetups = rsiReversalAnalysis?.armedSetups.orEmpty().toPersistentList(),
-            studyStatuses = studyStatusesOf(
-                apexAnalysis,
-                compassAnalysis,
-                crucibleAnalysis,
-                litAnalysis.takeIf { ind.lit },
-            ),
         )
         val frameSignals = signalComputer.computeSignals(
             litXAnalysis = litXAnalysis.takeIf { ind.litX },
@@ -1497,12 +1491,6 @@ class ChartViewModel @Inject constructor(
             amdZones = amdAnalysisSignals.toPersistentList(),
             nascentKeyLevels = nascentAnalysis?.keyLevels.orEmpty().toPersistentList(),
             rsiReversalSetups = rsiReversalAnalysis?.armedSetups.orEmpty().toPersistentList(),
-            studyStatuses = studyStatusesOf(
-                apexAnalysis,
-                compassAnalysis,
-                crucibleAnalysis,
-                litAnalysis.takeIf { ind.lit },
-            ),
         )
     }
 
@@ -1667,31 +1655,6 @@ class ChartViewModel @Inject constructor(
             .sortedBy { it.barIndex }
             .toList()
     }
-
-    /**
-     * Collect the self-reported status of the gated studies.
-     *
-     * These three publish only when their own measured evidence supports the
-     * threshold they were given, and on a short chart that is frequently never.
-     * Without their own words on screen, a correctly withholding engine and a
-     * broken one look exactly the same, and the trader has no way to tell which
-     * they are looking at.
-     */
-    private fun studyStatusesOf(
-        apex: com.foxtrader.app.domain.usecase.apex.model.ApexAnalysis?,
-        compass: com.foxtrader.app.domain.usecase.compass.model.CompassAnalysis?,
-        crucible: com.foxtrader.app.domain.usecase.crucible.model.CrucibleAnalysis?,
-        lit: com.foxtrader.app.domain.model.LitAnalysis?,
-    ): kotlinx.collections.immutable.ImmutableList<StudyStatus> = buildList {
-        // LiT names the stage its sequence is waiting on. That sentence is what
-        // distinguishes "no setup here" from "a setup formed and one optional
-        // confirmation you switched on is holding it back" — and without it the
-        // two are the same empty chart.
-        lit?.let { add(StudyStatus("LiT May Madness", it.narrative, it.signal != null)) }
-        apex?.let { add(StudyStatus("Apex", it.statusText, it.signals.isNotEmpty())) }
-        compass?.let { add(StudyStatus("Compass", it.statusText, it.signals.isNotEmpty())) }
-        crucible?.let { add(StudyStatus("Crucible", it.statusText, it.signals.isNotEmpty())) }
-    }.toPersistentList()
 
     private fun compactSignalLabel(name: String, confidence: Int, confirmations: List<String>): String {
         val reasons = confirmations.take(3).joinToString(" · ")
