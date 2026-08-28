@@ -72,6 +72,18 @@ data class CompassConfig(
     val useConfidenceBound: Boolean = false,
     /** Resolved calls required before an accuracy figure is treated as evidence. */
     val minCalibrationSample: Int = 12,
+    /**
+     * Publish the underlying calls before a threshold can be calibrated.
+     *
+     * On by default, so the study behaves like an indicator rather than a
+     * research instrument: the setups its member engines find are drawn, and
+     * the calibrated probability is attached to each one as information. Early
+     * in a series there is no measured threshold yet, and withholding until
+     * there is meant a fresh chart showed nothing at all for no reason a trader
+     * could see. Turning this off restores the stricter behaviour, where
+     * nothing is drawn until the record can justify a cut-off.
+     */
+    val publishBeforeCalibrated: Boolean = true,
 
     // --- Threshold search ---
     /**

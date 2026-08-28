@@ -10,7 +10,7 @@ import com.foxtrader.app.domain.model.LitProContext
 import com.foxtrader.app.domain.model.LitScob
 import com.foxtrader.app.domain.model.LitSignal
 import com.foxtrader.app.domain.model.LitStage
-import com.foxtrader.app.domain.model.LIT_MAY_MADNESS_LIVE_BARS
+import com.foxtrader.app.domain.model.LIT_ANALYSIS_CONTEXT_BARS
 import com.foxtrader.app.domain.model.PriceZoneKind
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.model.asLitMayMadnessSignalConfig
@@ -488,8 +488,17 @@ class LitEngine @Inject constructor(
     }
 }
 
+/**
+ * Where the analysis window starts.
+ *
+ * This is the engine's *context*, not the live window. They used to be the same
+ * number, so shortening the live read to a hundred candles would also have
+ * blinded the detector to the structure it needs — pivots, a break, a point of
+ * interest — and the study would have gone quiet for a reason that has nothing
+ * to do with the market.
+ */
 internal fun litMayMadnessWindowStart(candleCount: Int): Int =
-    (candleCount - LIT_MAY_MADNESS_LIVE_BARS).coerceAtLeast(0)
+    (candleCount - LIT_ANALYSIS_CONTEXT_BARS).coerceAtLeast(0)
 
 private fun LitAnalysis.withIndexOffset(offset: Int): LitAnalysis {
     if (offset == 0) return this

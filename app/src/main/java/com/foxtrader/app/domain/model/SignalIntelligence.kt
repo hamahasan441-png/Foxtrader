@@ -25,7 +25,25 @@ enum class LitBreakMode { SHADOW, BODY, BODY_PLUS_SWEEP }
 enum class LitPoiKind { DECISIONAL, EXTREME, BREAKER, FLIP }
 
 /** Fixed closed-candle window used by LiT May Madness in live/replay/backtest. */
-const val LIT_MAY_MADNESS_LIVE_BARS = 400
+/**
+ * Bars LiT May Madness treats as its live read.
+ *
+ * The most recent hundred candles are "now"; everything older is history and
+ * stays drawn, because `historicalSignals` is forced on for the chart. This
+ * bounds what counts as live, never what is kept.
+ */
+const val LIT_MAY_MADNESS_LIVE_BARS = 100
+
+/**
+ * Bars the engine is given to *see* when it analyses.
+ *
+ * Deliberately separate from the live window above, and much larger. The
+ * structural sequence needs pivots, breaks and a point of interest behind it,
+ * and a hundred candles cannot contain that chain — feeding the engine only its
+ * live window would leave it unable to find the very structure the live window
+ * is meant to be showing.
+ */
+const val LIT_ANALYSIS_CONTEXT_BARS = 640
 
 /** Structural events emitted by the LiT Pro state machine. */
 enum class LitEventType { PULLBACK, IDM, BOS, CHOCH, POI, SCOB }

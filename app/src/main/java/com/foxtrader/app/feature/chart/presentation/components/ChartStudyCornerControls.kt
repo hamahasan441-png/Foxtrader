@@ -68,7 +68,6 @@ import com.foxtrader.app.feature.chart.presentation.RsiOrderFlowStudySettings
 import com.foxtrader.app.feature.chart.presentation.ApexPresetOption
 import com.foxtrader.app.feature.chart.presentation.CompassPresetOption
 import com.foxtrader.app.feature.chart.presentation.CruciblePresetOption
-import com.foxtrader.app.feature.chart.presentation.StudyStatus
 import com.foxtrader.app.feature.chart.presentation.CrucibleStudySettings
 import com.foxtrader.app.feature.chart.presentation.CrucibleTargetOption
 import com.foxtrader.app.feature.chart.presentation.CompassStudySettings
@@ -106,7 +105,6 @@ fun ChartStudyCornerControls(
     onLitConfigChange: (LitConfig) -> Unit = {},
     onSmtConfigChange: (SmtConfig) -> Unit = {},
     onSmsConfigChange: (SmsConfig) -> Unit = {},
-    studyStatuses: List<StudyStatus> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
     val active = remember(toggles) { activeStudies(toggles) }
@@ -147,52 +145,9 @@ fun ChartStudyCornerControls(
                 onSmtConfigChange = onSmtConfigChange,
                 onSmsConfigChange = onSmsConfigChange,
                 onClose = { editing = null },
-                status = studyStatuses.firstOrNull { it.study == statusNameFor(id) },
             )
         }
     }
-}
-
-/**
- * What the study is currently doing, shown inside its settings card.
- *
- * This used to sit on the chart itself, where it covered price — the one place
- * it must not be. It is still worth having: a measured study that draws nothing
- * because its own evidence fell short is indistinguishable from a broken one
- * until it says so. Putting it behind the study's own gear keeps the answer one
- * tap from the question without spending chart space on it.
- */
-@Composable
-private fun StudyStatusLine(status: StudyStatus) {
-    val colors = FoxTheme.colors
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(6.dp))
-            .background(colors.surface.copy(alpha = 0.60f))
-            .padding(horizontal = 8.dp, vertical = 5.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Text(
-            text = if (status.publishing) "●" else "○",
-            style = MaterialTheme.typography.labelSmall,
-            color = if (status.publishing) colors.accent else colors.textSecondary,
-        )
-        Text(
-            text = status.message,
-            style = MaterialTheme.typography.labelSmall,
-            color = if (status.publishing) colors.textPrimary else colors.textSecondary,
-        )
-    }
-}
-
-/** Maps a settings card to the study whose status belongs in it. */
-private fun statusNameFor(id: StudyControlId): String? = when (id) {
-    StudyControlId.LIT -> "LiT May Madness"
-    StudyControlId.APEX -> "Apex"
-    StudyControlId.COMPASS -> "Compass"
-    StudyControlId.CRUCIBLE -> "Crucible"
-    else -> null
 }
 
 @Composable
@@ -248,7 +203,6 @@ private fun StudySettingsCard(
     onSmtConfigChange: (SmtConfig) -> Unit,
     onSmsConfigChange: (SmsConfig) -> Unit,
     onClose: () -> Unit,
-    status: StudyStatus? = null,
 ) {
     val colors = FoxTheme.colors
     val settings = toggles.settings.sanitized()
@@ -279,8 +233,6 @@ private fun StudySettingsCard(
                     modifier = Modifier.clickable(onClick = onClose).padding(4.dp),
                 )
             }
-
-            status?.let { StudyStatusLine(it) }
 
             when (id) {
                 StudyControlId.LITX -> {

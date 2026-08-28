@@ -2,6 +2,7 @@ package com.foxtrader.app.domain.usecase.signalintel
 
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
+import com.foxtrader.app.domain.model.LIT_MAY_MADNESS_LIVE_BARS
 import com.foxtrader.app.domain.model.LitConfig
 import com.foxtrader.app.domain.model.SignalProfile
 import com.foxtrader.app.domain.model.Timeframe
@@ -238,7 +239,7 @@ class LitPoiDivergenceTest {
         // — is unchanged.
         val cfg = LitConfig()
         assertTrue("historical arrows must be kept by default", cfg.historicalSignals)
-        assertEquals("the live window is the last 400 candles", 400, cfg.liveWindowBars)
+        assertEquals("the live window is the last 100 candles", 100, cfg.liveWindowBars)
         assertTrue(
             "the confirmation must remain switchable",
             LitConfig(requirePoiDivergence = true).sanitized().requirePoiDivergence,
@@ -268,14 +269,16 @@ class LitPoiDivergenceTest {
         ).asLitMayMadnessSignalConfig()
 
         assertTrue(migrated.historicalSignals)
-        assertEquals(400, migrated.liveWindowBars)
+        assertEquals(LIT_MAY_MADNESS_LIVE_BARS, migrated.liveWindowBars)
     }
 
     @Test
     fun `live analysis selects exactly the newest 400 closed candles`() {
-        assertEquals(0, litMayMadnessWindowStart(399))
-        assertEquals(0, litMayMadnessWindowStart(400))
-        assertEquals(250, litMayMadnessWindowStart(650))
+        // The analysis context, which is deliberately larger than the live
+        // window: the engine must see the structure behind what it reports on.
+        assertEquals(0, litMayMadnessWindowStart(639))
+        assertEquals(0, litMayMadnessWindowStart(640))
+        assertEquals(250, litMayMadnessWindowStart(890))
     }
 
     @Test

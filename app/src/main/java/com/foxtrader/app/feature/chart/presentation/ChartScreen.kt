@@ -484,7 +484,6 @@ fun ChartScreen(
                             onLitConfigChange = viewModel::updateLitConfig,
                             onSmtConfigChange = viewModel::updateSmtConfig,
                             onSmsConfigChange = viewModel::updateSmsConfig,
-                            studyStatuses = state.studyStatuses,
                             modifier = Modifier
                                 .align(Alignment.TopStart)
                                 .padding(start = 8.dp, top = 40.dp, end = 72.dp),

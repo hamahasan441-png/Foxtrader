@@ -39,6 +39,7 @@ class CompassEngineTest {
                 minLiftOverBaseRate = 0.05,
                 minCalibrationSample = 40,
                 useConfidenceBound = true,
+                publishBeforeCalibrated = false,
             ),
         )
 
@@ -80,7 +81,12 @@ class CompassEngineTest {
         // The base-rate guard is what is under test, so it is switched on.
         val analysis = analyze(
             candles,
-            CompassConfig.intraday().copy(minAccuracy = 0.80, minLiftOverBaseRate = 0.05, minCalibrationSample = 40),
+            CompassConfig.intraday().copy(
+                minAccuracy = 0.80,
+                minLiftOverBaseRate = 0.05,
+                minCalibrationSample = 40,
+                publishBeforeCalibrated = false,
+            ),
         )
 
         assertTrue(
@@ -109,8 +115,12 @@ class CompassEngineTest {
         val candles = CompassFixtures.reverting(30_000, seed = 1)
         fun count(required: Double) = analyze(
             candles,
-            CompassConfig.intraday()
-                .copy(minAccuracy = required, minLiftOverBaseRate = 0.0, minCalibrationSample = 20),
+            CompassConfig.intraday().copy(
+                minAccuracy = required,
+                minLiftOverBaseRate = 0.0,
+                minCalibrationSample = 20,
+                publishBeforeCalibrated = false,
+            ),
         ).signals.size
 
         val counts = listOf(0.50, 0.60, 0.80, 0.95).map(::count)
@@ -122,7 +132,12 @@ class CompassEngineTest {
     fun `every published signal carries the calibration that admitted it`() {
         val analysis = analyze(
             CompassFixtures.reverting(30_000, seed = 1),
-            CompassConfig.intraday().copy(minAccuracy = 0.5, minLiftOverBaseRate = 0.0, minCalibrationSample = 20),
+            CompassConfig.intraday().copy(
+                minAccuracy = 0.5,
+                minLiftOverBaseRate = 0.0,
+                minCalibrationSample = 20,
+                publishBeforeCalibrated = false,
+            ),
         )
         analysis.signals.forEach {
             assertTrue("a signal was published with no threshold", it.calibration.guaranteed)
@@ -167,8 +182,12 @@ class CompassEngineTest {
         // the scorer were fitted on the call it is scoring, accuracy would be
         // near perfect and would mean nothing at all.
         val candles = CompassFixtures.reverting(24_000, seed = 1)
-        val config = CompassConfig.intraday()
-            .copy(minAccuracy = 0.5, minLiftOverBaseRate = 0.0, minCalibrationSample = 20)
+        val config = CompassConfig.intraday().copy(
+            minAccuracy = 0.5,
+            minLiftOverBaseRate = 0.0,
+            minCalibrationSample = 20,
+            publishBeforeCalibrated = false,
+        )
         val analysis = analyze(candles, config)
 
         analysis.signals.forEach { signal ->
