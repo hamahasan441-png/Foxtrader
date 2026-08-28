@@ -85,7 +85,9 @@ class LitProStructureDetectorTest {
         assertTrue(cfg.swingLeftBars == 2)
         assertTrue(cfg.swingRightBars == 8)
         assertTrue(cfg.maxIdmToBosBars == 3)
-        assertTrue(cfg.maxBosToChochBars == 36)
+        // The sequence ceilings were widened after measuring how often a
+        // completed structure was rejected for being a few bars too slow.
+        assertTrue(cfg.maxBosToChochBars == 80)
         assertTrue(cfg.maxPoiAgeBars == 4)
         assertTrue(cfg.hiddenShadowMaxAtrFraction == 1.0)
         assertTrue(cfg.stopAtrBuffer == 0.02)

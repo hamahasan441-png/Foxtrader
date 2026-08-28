@@ -46,9 +46,13 @@ data class LitConfig(
     val swingLeftBars: Int = 3,
     val swingRightBars: Int = 3,
     val breakMode: LitBreakMode = LitBreakMode.BODY_PLUS_SWEEP,
-    val maxIdmToBosBars: Int = 12,
-    val maxBosToChochBars: Int = 14,
-    val maxPoiAgeBars: Int = 24,
+    // Widened after measuring how often a completed structure was rejected for
+    // being a few bars too slow rather than for being wrong. Real structure does
+    // not keep to a fourteen-bar schedule: on a 15m chart that is three and a
+    // half hours between a break and the shift that reverses it.
+    val maxIdmToBosBars: Int = 25,
+    val maxBosToChochBars: Int = 30,
+    val maxPoiAgeBars: Int = 60,
     val allowInsideBarMother: Boolean = true,
     val followDeeperPoiCandle: Boolean = true,
     val requireScob: Boolean = false,
@@ -89,9 +93,9 @@ data class LitConfig(
         displacementAtrMultiple = displacementAtrMultiple.coerceIn(0.8, 3.0),
         swingLeftBars = swingLeftBars.coerceIn(2, 8),
         swingRightBars = swingRightBars.coerceIn(2, 8),
-        maxIdmToBosBars = maxIdmToBosBars.coerceIn(3, 30),
-        maxBosToChochBars = maxBosToChochBars.coerceIn(3, 36),
-        maxPoiAgeBars = maxPoiAgeBars.coerceIn(4, 80),
+        maxIdmToBosBars = maxIdmToBosBars.coerceIn(3, 60),
+        maxBosToChochBars = maxBosToChochBars.coerceIn(3, 80),
+        maxPoiAgeBars = maxPoiAgeBars.coerceIn(4, 160),
         hiddenShadowMaxAtrFraction = hiddenShadowMaxAtrFraction.coerceIn(0.05, 1.0),
         stopAtrBuffer = stopAtrBuffer.coerceIn(0.02, 0.75),
         poiDivergenceLookbackBars = poiDivergenceLookbackBars.coerceIn(10, 200),

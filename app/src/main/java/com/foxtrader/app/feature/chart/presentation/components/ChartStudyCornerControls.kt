@@ -133,14 +133,6 @@ fun ChartStudyCornerControls(
             }
         }
 
-        // A measured study that publishes nothing has a reason, and it is the
-        // only thing on screen that can distinguish a working filter from a
-        // broken indicator. Withheld studies are shown first because those are
-        // the ones the trader is currently wondering about.
-        studyStatuses
-            .sortedBy { it.publishing }
-            .forEach { status -> StudyStatusLine(status) }
-
         editing?.let { id ->
             StudySettingsCard(
                 id = id,
@@ -155,11 +147,21 @@ fun ChartStudyCornerControls(
                 onSmtConfigChange = onSmtConfigChange,
                 onSmsConfigChange = onSmsConfigChange,
                 onClose = { editing = null },
+                status = studyStatuses.firstOrNull { it.study == statusNameFor(id) },
             )
         }
     }
 }
 
+/**
+ * What the study is currently doing, shown inside its settings card.
+ *
+ * This used to sit on the chart itself, where it covered price — the one place
+ * it must not be. It is still worth having: a measured study that draws nothing
+ * because its own evidence fell short is indistinguishable from a broken one
+ * until it says so. Putting it behind the study's own gear keeps the answer one
+ * tap from the question without spending chart space on it.
+ */
 @Composable
 private fun StudyStatusLine(status: StudyStatus) {
     val colors = FoxTheme.colors
@@ -167,7 +169,7 @@ private fun StudyStatusLine(status: StudyStatus) {
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(6.dp))
-            .background(colors.surface.copy(alpha = 0.90f))
+            .background(colors.surface.copy(alpha = 0.60f))
             .padding(horizontal = 8.dp, vertical = 5.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -182,6 +184,15 @@ private fun StudyStatusLine(status: StudyStatus) {
             color = if (status.publishing) colors.textPrimary else colors.textSecondary,
         )
     }
+}
+
+/** Maps a settings card to the study whose status belongs in it. */
+private fun statusNameFor(id: StudyControlId): String? = when (id) {
+    StudyControlId.LIT -> "LiT May Madness"
+    StudyControlId.APEX -> "Apex"
+    StudyControlId.COMPASS -> "Compass"
+    StudyControlId.CRUCIBLE -> "Crucible"
+    else -> null
 }
 
 @Composable
@@ -237,6 +248,7 @@ private fun StudySettingsCard(
     onSmtConfigChange: (SmtConfig) -> Unit,
     onSmsConfigChange: (SmsConfig) -> Unit,
     onClose: () -> Unit,
+    status: StudyStatus? = null,
 ) {
     val colors = FoxTheme.colors
     val settings = toggles.settings.sanitized()
@@ -267,6 +279,8 @@ private fun StudySettingsCard(
                     modifier = Modifier.clickable(onClick = onClose).padding(4.dp),
                 )
             }
+
+            status?.let { StudyStatusLine(it) }
 
             when (id) {
                 StudyControlId.LITX -> {
