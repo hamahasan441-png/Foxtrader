@@ -472,7 +472,13 @@ class DukascopyDataSource @Inject constructor(
         const val ONE_HOUR_MS = 3_600_000L
         private const val ONE_DAY_MS = 86_400_000L
         private const val USER_AGENT = "FoxTrader/6 Dukascopy Market Data"
-        private const val MAX_CANDLE_LIMIT = 2_000
+        // Raised to match what the chart asks for. The chart requests the
+        // history its studies need and this clamped it to a fifth of that
+        // without saying so, which is a hard ceiling no setting could lift:
+        // Compass needs roughly two thousand bars before it can calibrate at
+        // all, so the clamp and the requirement were set against each other.
+        // The per-request bucket budget below still bounds the actual work.
+        const val MAX_CANDLE_LIMIT = 5_000
         private const val MAX_CANDLE_BUCKET_REQUESTS = 96
         // Matches the public market-data client's per-host dispatcher budget so
         // a batch is actually issued in parallel instead of queueing in OkHttp.

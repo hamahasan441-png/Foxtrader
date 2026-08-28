@@ -71,7 +71,7 @@ data class CompassConfig(
      */
     val useConfidenceBound: Boolean = false,
     /** Resolved calls required before an accuracy figure is treated as evidence. */
-    val minCalibrationSample: Int = 20,
+    val minCalibrationSample: Int = 12,
 
     // --- Threshold search ---
     /**
