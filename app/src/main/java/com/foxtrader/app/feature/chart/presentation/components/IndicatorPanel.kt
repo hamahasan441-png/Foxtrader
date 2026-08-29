@@ -137,6 +137,9 @@ fun IndicatorPanel(
                         StudyItem("Crucible Discovery", ChartStudyId.CRUCIBLE, toggles.crucible) { t ->
                             t.copy(crucible = !t.crucible)
                         },
+                        StudyItem("Keystone Sweep + SMT", ChartStudyId.KEYSTONE, toggles.keystone) { t ->
+                            t.copy(keystone = !t.keystone)
+                        },
                         StudyItem("SMS", ChartStudyId.SMS, toggles.sms) { t -> t.withSmsSuite(!t.sms) },
                         StudyItem("TradePro", ChartStudyId.TRADE_PRO, toggles.tradePro) { t -> t.withTradeProSuite(!t.tradePro) },
                         StudyItem("Deriv 3m", ChartStudyId.BINARY_3M, toggles.binary3m) { t ->

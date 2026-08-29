@@ -10,6 +10,11 @@ import com.foxtrader.app.domain.usecase.compass.CompassConfig
 import com.foxtrader.app.domain.usecase.compass.CompassEngine
 import com.foxtrader.app.domain.usecase.crucible.CrucibleConfig
 import com.foxtrader.app.domain.usecase.crucible.CrucibleEngine
+import com.foxtrader.app.domain.usecase.keystone.KeystoneConfig
+import com.foxtrader.app.domain.usecase.keystone.KeystoneEngine
+import com.foxtrader.app.domain.usecase.keystone.KeystoneFixtures
+import com.foxtrader.app.domain.usecase.keystone.model.KeystonePeerSeries
+import com.foxtrader.app.domain.usecase.keystone.model.KeystonePolarity
 import com.foxtrader.app.domain.usecase.liquiditysweep.LiquiditySweepEngine
 import com.foxtrader.app.domain.usecase.signalintel.AccumulationManipulationDistributionEngine
 import com.foxtrader.app.domain.usecase.signalintel.PivotSweepDivergenceEngine
@@ -95,6 +100,37 @@ class ChartScaleStudyContractTest {
         ),
     )
 
+    private fun keystone() = KeystoneEngine(AnalyzeMarketStructureUseCase())
+
+    /**
+     * A peer that genuinely moves with the primary.
+     *
+     * Two independently generated walks are uncorrelated, and a divergence
+     * between uncorrelated markets is not evidence of anything — the engine
+     * would refuse them on the correlation test and this fixture would prove
+     * only that the test works. Building the peer from the primary's own
+     * returns plus noise produces a pair that correlates the way a real one
+     * does, and that disagrees where a real one disagrees.
+     */
+    private fun correlatedPeer(
+        primary: List<Candle>,
+        beta: Double = 0.85,
+        seed: Int = 99,
+    ): List<KeystonePeerSeries> {
+        val random = Random(seed)
+        var price = primary.first().open
+        val bars = primary.mapIndexed { i, bar ->
+            val primaryStep = if (i == 0) 0.0 else bar.close - primary[i - 1].close
+            val step = beta * primaryStep + (1.0 - beta) * (random.nextDouble() - 0.5) * 0.0018
+            val open = price
+            val close = open + step
+            price = close
+            val wick = abs(step) * 0.6 + 0.00006
+            Candle(bar.timestamp, open, maxOf(open, close) + wick, minOf(open, close) - wick, close, 1_000.0)
+        }
+        return listOf(KeystonePeerSeries("GBPUSD", bars, KeystonePolarity.POSITIVE))
+    }
+
     private fun compass() = CompassEngine(
         CompassCallSource(
             LiquiditySweepEngine(AnalyzeMarketStructureUseCase()),
@@ -140,6 +176,26 @@ class ChartScaleStudyContractTest {
             crucible.observations > 0,
         )
         assertTrue("Crucible must say what it is doing", crucible.statusText.isNotBlank())
+
+        // Keystone is selective by design and may legitimately find nothing on
+        // a given stretch of market. What it may never do is find nothing
+        // silently: it has to reach the market, and it has to be able to say
+        // which step it stood down on.
+        val keystone = keystone().analyze(
+            "EURUSD", Timeframe.M5, candles, correlatedPeer(candles), KeystoneConfig.intraday(),
+        )
+        assertTrue(
+            "Keystone must reach the market at chart depth: ${keystone.note}",
+            keystone.sweeps.isNotEmpty(),
+        )
+        assertTrue(
+            "Keystone must say why it published nothing",
+            keystone.signals.isNotEmpty() || keystone.note != null,
+        )
+        assertTrue(
+            "Keystone must record which step it stood down on",
+            keystone.signals.isNotEmpty() || keystone.rejections.isNotEmpty(),
+        )
     }
 
     @Test
@@ -157,6 +213,10 @@ class ChartScaleStudyContractTest {
         assertTrue(
             "the chart fetches less history than the LiT history scan reads",
             ChartDataController.CHART_HISTORY_BARS >= 5_000,
+        )
+        assertTrue(
+            "the chart fetches less history than Keystone needs to run at all",
+            ChartDataController.CHART_HISTORY_BARS >= KeystoneEngine.MIN_BARS,
         )
     }
 
@@ -211,6 +271,64 @@ class ChartScaleStudyContractTest {
         assertTrue(
             "Crucible emitted ${crucible.signals.size} signals over ${candles.size} bars",
             crucible.signals.size < candles.size / 10,
+        )
+
+        val keystone = keystone().analyze(
+            "EURUSD", Timeframe.M5, candles, correlatedPeer(candles), KeystoneConfig.intraday(),
+        )
+        assertTrue(
+            "Keystone emitted ${keystone.signals.size} signals over ${candles.size} bars",
+            keystone.signals.size < candles.size / 10,
+        )
+    }
+
+    /**
+     * Keystone must be able to draw at the depth the chart holds.
+     *
+     * Deliberately measured on a series that contains the sequence rather than
+     * on a random walk, because Keystone asks for four specific things at once
+     * and a walk owes it none of them. What this pins is the thing that failed
+     * before: that the study is *reachable* at chart-history depth rather than
+     * needing more bars than any chart will ever hand it.
+     *
+     * The honest counterpart is recorded rather than asserted. On the synthetic
+     * trending series above, 5 000 bars produced 235 sweeps, of which 109
+     * opposed the higher-timeframe bias, 45 never displaced, and 9 of the 11
+     * that reached an entry had no divergence to support them — so the intraday
+     * preset published nothing and the swing preset published four. That is
+     * selectivity, not silence: the engine names the step it stood down on
+     * every time. It is not evidence that the model is rare on real markets,
+     * because a generated walk has no reason to produce this sequence at all.
+     */
+    @Test
+    fun `Keystone publishes at chart history depth when the sequence is present`() {
+        val built = KeystoneFixtures.sequence(cycles = 120)
+        assertTrue(
+            "the fixture must be at least as long as the history the chart holds",
+            built.primary.size >= ChartDataController.CHART_HISTORY_BARS,
+        )
+        val candles = built.primary.take(ChartDataController.CHART_HISTORY_BARS)
+        val peer = built.peer.take(ChartDataController.CHART_HISTORY_BARS)
+
+        val keystone = keystone().analyze(
+            symbol = KeystoneFixtures.SYMBOL,
+            timeframe = Timeframe.M15,
+            candles = candles,
+            peers = listOf(KeystonePeerSeries(KeystoneFixtures.PEER, peer, KeystonePolarity.POSITIVE)),
+            config = KeystoneConfig.intraday(),
+        )
+
+        assertTrue(
+            "Keystone published nothing under its own defaults at chart depth: ${keystone.note}",
+            keystone.signals.isNotEmpty(),
+        )
+        assertTrue(
+            "every Keystone signal must carry the divergence it claims",
+            keystone.signals.all { it.divergence != null },
+        )
+        assertTrue(
+            "the verdict must state that the win rate is not a criterion",
+            keystone.acceptance.summary.contains("not a criterion"),
         )
     }
 

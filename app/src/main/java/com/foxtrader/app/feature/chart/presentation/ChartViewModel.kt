@@ -63,6 +63,8 @@ import com.foxtrader.app.domain.usecase.rsireversal.RsiReversalEngine
 import com.foxtrader.app.domain.usecase.apex.ApexEngine
 import com.foxtrader.app.domain.usecase.compass.CompassEngine
 import com.foxtrader.app.domain.usecase.crucible.CrucibleEngine
+import com.foxtrader.app.domain.usecase.keystone.KeystoneEngine
+import com.foxtrader.app.domain.usecase.keystone.KeystonePeerProvider
 import com.foxtrader.app.domain.usecase.virginwick.VirginWickEngine
 import com.foxtrader.app.domain.usecase.signalintel.AccumulationManipulationDistributionEngine
 import com.foxtrader.app.domain.usecase.signalintel.PivotSweepDivergenceEngine
@@ -144,6 +146,8 @@ class ChartViewModel @Inject constructor(
     private val apexEngine: ApexEngine,
     private val compassEngine: CompassEngine,
     private val crucibleEngine: CrucibleEngine,
+    private val keystoneEngine: KeystoneEngine,
+    private val keystonePeerProvider: KeystonePeerProvider,
     private val rsiReversalLtfProvider: RsiReversalLtfProvider,
     private val heikinAshiTransformer: HeikinAshiTransformer,
     private val candleRenkoBuilder: CandleRenkoBuilder,
@@ -908,6 +912,32 @@ class ChartViewModel @Inject constructor(
         val crucibleSignals: List<ChartSignal> = crucibleAnalysis?.signals.orEmpty()
             .map { it.toChartSignal(latestConfirmedIndex) }
 
+        // Keystone is the only study here that needs a second symbol. The peer
+        // fetch is therefore made only when the study is on, and it is allowed
+        // one real-provider refresh: an SMT leg with no trustworthy peer is a
+        // reason for the engine to stand down, not a reason to publish the
+        // sequence without the evidence that defines it.
+        val keystoneAnalysis = if (
+            ind.keystone && barMode == ChartBarMode.TIME && signalCandles.isNotEmpty()
+        ) {
+            val peers = containedOrNull {
+                keystonePeerProvider.peersFor(symbol, timeframe, refreshMissing = true)
+            }.orEmpty()
+            withContext(defaultDispatcher) {
+                containedOrNull {
+                    keystoneEngine.analyze(
+                        symbol = symbol,
+                        timeframe = timeframe,
+                        candles = signalCandles,
+                        peers = peers,
+                        config = ind.settings.keystone.toEngineConfig(),
+                    )
+                }
+            }
+        } else null
+        val keystoneSignals: List<ChartSignal> = keystoneAnalysis?.signals.orEmpty()
+            .map { it.toChartSignal(latestConfirmedIndex) }
+
         // Backfill previously confirmed LiT arrows. Each bar is evaluated only
         // through its own closed prefix, so later data cannot create, move or
         // delete an earlier marker (non-repaint by construction).
@@ -1034,7 +1064,7 @@ class ChartViewModel @Inject constructor(
             emptyList()
         }
 
-        val chartStrategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + nascentSignals + rsiReversalSignals + liquiditySweepSignals + virginWickSignals + apexSignals + compassSignals + crucibleSignals + strategySignals + binary3mSignals
+        val chartStrategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + nascentSignals + rsiReversalSignals + liquiditySweepSignals + virginWickSignals + apexSignals + compassSignals + crucibleSignals + keystoneSignals + strategySignals + binary3mSignals
 
         // Drop stale frames: a newer computation (e.g. from a rapid indicator
         // toggle) has already started, so publishing this older result would
@@ -1378,6 +1408,27 @@ class ChartViewModel @Inject constructor(
         val crucibleSignals: List<ChartSignal> = crucibleAnalysis?.signals.orEmpty()
             .map { it.toChartSignal(candles.lastIndex) }
 
+        val keystoneAnalysis = if (
+            ind.keystone && current.barMode == ChartBarMode.TIME && candles.isNotEmpty()
+        ) {
+            val peers = containedOrNull {
+                keystonePeerProvider.peersFor(symbol, timeframe, refreshMissing = true)
+            }.orEmpty()
+            withContext(defaultDispatcher) {
+                containedOrNull {
+                    keystoneEngine.analyze(
+                        symbol = symbol,
+                        timeframe = timeframe,
+                        candles = candles,
+                        peers = peers,
+                        config = ind.settings.keystone.toEngineConfig(),
+                    )
+                }
+            }
+        } else null
+        val keystoneSignals: List<ChartSignal> = keystoneAnalysis?.signals.orEmpty()
+            .map { it.toChartSignal(candles.lastIndex) }
+
         val productionHistory = if ((ind.litX || ind.lit) && candles.isNotEmpty()) {
             withContext(defaultDispatcher) {
                 scanProductionSignalHistory(
@@ -1469,7 +1520,7 @@ class ChartViewModel @Inject constructor(
             tradeProAnalysis = null,
             smtDivergences = emptyList(),
             candles = candles,
-            strategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + nascentSignals + rsiReversalSignals + liquiditySweepSignals + virginWickSignals + apexSignals + compassSignals + crucibleSignals + strategySignals + binary3mSignals,
+            strategySignals = productionHistory + pivotSweepDivergenceSignals + valueAreaLiquiditySignals + amdSignals + nascentSignals + rsiReversalSignals + liquiditySweepSignals + virginWickSignals + apexSignals + compassSignals + crucibleSignals + keystoneSignals + strategySignals + binary3mSignals,
             litAnalysis = litAnalysis,
             smsAnalysis = smsAnalysis,
             rsiOrderFlowSignals = rsiOrderFlowSignals,
@@ -2807,6 +2858,64 @@ private fun com.foxtrader.app.domain.usecase.crucible.model.CrucibleSignal.toCha
     ),
     variant = finding.rule.key,
 )
+
+/**
+ * Keystone's confidence is a **setup-quality score**, not a probability.
+ *
+ * Apex, Compass and Crucible each publish a measured statistic — a hit rate, a
+ * calibrated probability, an out-of-sample accuracy — and are excluded from the
+ * chart's confluence boost for that reason. Keystone publishes no such number
+ * per signal: what it measures is the strategy's expectancy over the whole run,
+ * and that belongs to the run rather than to any one arrow. So this is a score,
+ * it is built only from what the setup itself shows, and it is left inside the
+ * ordinary confluence system. The expectancy and profit factor live in
+ * [com.foxtrader.app.domain.usecase.keystone.model.KeystoneAnalysis.acceptance].
+ */
+private fun com.foxtrader.app.domain.usecase.keystone.model.KeystoneSignal.toChartSignal(
+    latestConfirmedIndex: Int,
+): ChartSignal = ChartSignal(
+    id = "keystone_${symbol}_${timestamp}_${direction.name}_$index",
+    source = SignalSource.KEYSTONE,
+    direction = direction,
+    entry = entry,
+    sl = stopLoss,
+    tp = takeProfit,
+    barIndex = index,
+    timestamp = timestamp,
+    confidence = keystoneScore() * 100.0,
+    isLive = index == latestConfirmedIndex,
+    label = "Keystone ${"%.1f".format(rewardMultiple)}R · ${sweep.pool.label}" +
+        (divergence?.let { " · ${it.peerSymbol} divergence" } ?: ""),
+    eventKey = SignalIdentity.keystone(
+        symbol = symbol,
+        timeframe = timeframe,
+        timestamp = timestamp,
+        direction = direction,
+        confirmationIndex = index,
+    ),
+    variant = if (entryFromGap) "fvg" else "equilibrium",
+)
+
+private fun com.foxtrader.app.domain.usecase.keystone.model.KeystoneSignal.keystoneScore(): Double {
+    var score = KEYSTONE_BASE_SCORE
+    score += (rewardMultiple / KEYSTONE_REWARD_SCALE).coerceAtMost(1.0) * 0.15
+    score += ((divergence?.strength ?: 0.0) / KEYSTONE_STRENGTH_SCALE).coerceAtMost(1.0) * 0.15
+    score += ((displacement.atrMultiple - 1.0) / KEYSTONE_DISPLACEMENT_SCALE).coerceIn(0.0, 1.0) * 0.10
+    if (entryFromGap) score += 0.05
+    return score.coerceIn(0.0, KEYSTONE_MAX_SCORE)
+}
+
+/**
+ * A complete Keystone sequence starts well above the middle because every one
+ * of its stages has already passed; the remainder distinguishes a textbook
+ * example from a marginal one. It never reaches certainty, because nothing here
+ * is entitled to claim it.
+ */
+private const val KEYSTONE_BASE_SCORE = 0.55
+private const val KEYSTONE_MAX_SCORE = 0.95
+private const val KEYSTONE_REWARD_SCALE = 4.0
+private const val KEYSTONE_STRENGTH_SCALE = 0.5
+private const val KEYSTONE_DISPLACEMENT_SCALE = 2.0
 
 private fun AccumulationManipulationDistributionEngine.Signal.toChartSignal(latestConfirmedIndex: Int): ChartSignal =
     ChartSignal(

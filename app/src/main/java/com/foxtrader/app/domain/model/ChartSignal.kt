@@ -124,6 +124,13 @@ enum class SignalSource {
      */
     CRUCIBLE,
 
+    /**
+     * Keystone: a sweep of known liquidity that a correlated market refused to
+     * confirm, entered on the first retracement into the displacement that
+     * broke structure behind it.
+     */
+    KEYSTONE,
+
     /** A rule from the backtestable [com.foxtrader.app.domain.usecase.strategies.StrategyLibrary]. */
     STRATEGY,
 }

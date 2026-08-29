@@ -164,6 +164,7 @@ internal fun DrawScope.drawSignalMarkers(
                 SignalSource.APEX -> "APX"
                 SignalSource.COMPASS -> "CMP"
                 SignalSource.CRUCIBLE -> "CRU"
+                SignalSource.KEYSTONE -> "KEY"
                 SignalSource.BINARY3M -> "B3"
                 SignalSource.STRATEGY -> "ST"
             }

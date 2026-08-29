@@ -42,7 +42,7 @@ class KeystoneBias(
         mid: MultiTimeframeSeries,
         config: KeystoneConfig,
     ): KeystoneBiasRead? {
-        val sessionDirection = sessionDirectionAt(executionIndex, candles)
+        val sessionDirection = sessionDirectionAt(executionIndex, candles, config)
 
         if (config.biasMode == KeystoneBiasMode.NONE) {
             return KeystoneBiasRead(
@@ -101,20 +101,24 @@ class KeystoneBias(
             Bias.BEARISH -> direction == Direction.BEARISH
         }
         if (!structureOk) return false
-        if (!config.requireSessionAlignment) return true
-        // An unknown session direction is not an endorsement. With alignment
-        // demanded and nothing to align to, the setup waits.
-        val session = read.sessionDirection ?: return false
+        if (!config.avoidTradingAgainstSession) return true
+        // An unknown session direction is not an objection. The filter exists to
+        // refuse a specific bad situation, not to demand a specific good one, so
+        // the absence of a reading lets the setup through rather than blocking
+        // it for want of evidence it was never going to have.
+        val session = read.sessionDirection ?: return true
         return session == direction
     }
 
     /**
-     * Direction the current UTC day has travelled up to [index].
+     * The direction the current UTC day has committed to, if it has committed
+     * to one.
      *
-     * Null before the session has produced enough bars to have a direction at
-     * all, which is a different statement from "no direction".
+     * Null covers two different situations and treats them the same, which is
+     * correct here: the session is too young to read, or it has gone nowhere.
+     * In both cases there is nothing to object to.
      */
-    private fun sessionDirectionAt(index: Int, candles: List<Candle>): Direction? {
+    private fun sessionDirectionAt(index: Int, candles: List<Candle>, config: KeystoneConfig): Direction? {
         if (index !in candles.indices) return null
         val calendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
         calendar.timeInMillis = candles[index].timestamp
@@ -141,8 +145,8 @@ class KeystoneBias(
         if (range <= 0.0) return null
         val travelled = (close - open) / range
         return when {
-            travelled >= MIN_SESSION_TRAVEL -> Direction.BULLISH
-            travelled <= -MIN_SESSION_TRAVEL -> Direction.BEARISH
+            travelled >= config.maxSessionOpposition -> Direction.BULLISH
+            travelled <= -config.maxSessionOpposition -> Direction.BEARISH
             else -> null
         }
     }
@@ -151,11 +155,5 @@ class KeystoneBias(
         /** Bars beyond the swing window before a structure call means anything. */
         const val MIN_STRUCTURE_BARS = 6
         const val MIN_SESSION_BARS = 4
-
-        /**
-         * Share of the session's own range the close must sit away from the
-         * open before the session counts as directional.
-         */
-        const val MIN_SESSION_TRAVEL = 0.2
     }
 }

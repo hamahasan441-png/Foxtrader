@@ -98,6 +98,54 @@ neither silently passes everything.
   several configurations was reported. Beating zero proves nothing; this is the
   bar that has to be cleared instead.
 
+## What was measured, including the unflattering part
+
+On 5 000 bars of a synthetic trending series with a correlated peer, the
+intraday preset found 235 sweeps and published **nothing**:
+
+| Stage | Lost |
+|---|---|
+| Sweep opposed the higher-timeframe bias | 109 |
+| No confirmed bias to read | 41 |
+| Session had already travelled hard against it | 18 |
+| No closed displacement broke structure | 45 |
+| Price never returned to the entry | 11 |
+| Reached entry, no divergence to support it | 9 |
+| Reached entry, outside the permitted sessions | 2 |
+
+The swing preset published four. On a series that actually contains the
+sequence, the same defaults publish at roughly 26 signals per 5 000 bars.
+
+Two things are worth being clear about. **This is selectivity, not silence** —
+the engine names the step it stood down on every time, and
+`KeystoneAnalysis.note` reports the dominant one. And **it is not evidence about
+real markets**: a generated walk has no reason to produce a sweep, a divergence,
+a displacement and a retracement in that order, so the low yield says more about
+the fixture than about the model. What the measurement does establish is that no
+stage is silently refusing everything for a reason unrelated to the market, which
+is the failure this engine was built after.
+
+Two defaults were loosened once measured, and both were wrong rather than
+merely strict:
+
+- **Session alignment** originally demanded that the session already be
+  travelling *with* the setup. That fights the model — a sweep of a low happens
+  during a pullback, and a pullback is a stretch where the session is going the
+  other way. It now refuses only the narrower thing the rule is for: buying into
+  a day that has spent itself selling.
+- **Internal structure** was read back across the whole sweep-to-displacement
+  window, which quietly turned "break the minor high" into "clear a twenty-bar
+  breakout". It is now the handful of bars the trap was built from.
+
+## A note on the timeframes
+
+The specification names 1H and 15m. On a 1–5 minute execution chart the ladder
+gives exactly that. On an M15 chart it gives H4/H1 — one step higher than the
+specification's letter, because the alternative is to demand a bias from a
+timeframe at or below the one being traded, which carries no independent
+information. The rule is the relationship, and the ladder keeps the relationship
+true on every chart.
+
 ## Presets
 
 | | Scalping | Intraday | Swing |

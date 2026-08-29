@@ -231,10 +231,12 @@ class KeystoneTrigger {
      * The internal swing the displacement's close took out, or null if it took
      * out none.
      *
-     * "Internal" means since the sweep: the structure the market built while
-     * setting the trap is what the impulse has to break to show the trap is
-     * being sprung. Falling back to the bars just before the sweep keeps the
-     * test meaningful when the sweep and the displacement are adjacent.
+     * "Internal" means the minor high or low the market built on its way into
+     * the trap, plus everything since: a handful of bars before the sweep
+     * through to the displacement itself. The width matters more than it looks
+     * — read it too wide and the test silently becomes a multi-leg breakout,
+     * which is a far stronger demand than the model makes and which refuses
+     * most real sequences.
      */
     private fun internalBreakLevel(
         candles: List<Candle>,
@@ -243,7 +245,7 @@ class KeystoneTrigger {
         sweepIndex: Int,
         config: KeystoneConfig,
     ): Double? {
-        val from = minOf(sweepIndex, (index - config.maxSweepToDisplacementBars).coerceAtLeast(0))
+        val from = (sweepIndex - config.internalStructureBars).coerceAtLeast(0)
         if (index - from < 2) return null
         val window = candles.subList(from, index)
         val level = if (direction == Direction.BULLISH) {

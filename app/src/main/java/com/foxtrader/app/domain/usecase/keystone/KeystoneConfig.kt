@@ -39,12 +39,27 @@ data class KeystoneConfig(
     val mtfSwingLeft: Int = 2,
     val mtfSwingRight: Int = 2,
     /**
-     * Require the sweep to point the same way as the session's own direction.
+     * Stand down when the session has already travelled hard against the trade.
      *
-     * The session direction is measured from where the session opened to where
-     * price stands, so it is knowable at the bar it is used on.
+     * Deliberately asymmetric, and the asymmetry is the point. An earlier
+     * version demanded that the session already be travelling *with* the setup,
+     * which fights the model rather than filtering it: a sweep of a low happens
+     * during a pullback, and a pullback is by definition a stretch where the
+     * session is going the other way. Measured on a realistic trending series
+     * that version removed roughly a fifth of otherwise-complete sequences and
+     * left the intraday preset drawing nothing at all.
+     *
+     * What the rule is actually for is narrower — do not buy into a day that
+     * has spent itself selling — so that is what it now tests. The session's
+     * travel is measured from its open to the current close, so it is knowable
+     * at the bar it is used on.
      */
-    val requireSessionAlignment: Boolean = true,
+    val avoidTradingAgainstSession: Boolean = true,
+    /**
+     * Share of the session's own range it must have travelled *against* the
+     * trade before the setup is refused.
+     */
+    val maxSessionOpposition: Double = 0.5,
 
     // --- Step 2: liquidity ---
     /** Which pools of resting liquidity count as a valid location. */
@@ -103,6 +118,19 @@ data class KeystoneConfig(
      * for the break, not the candle.
      */
     val requireInternalBreak: Boolean = true,
+    /**
+     * How far back before the sweep the internal structure is read from.
+     *
+     * This is the level the impulse has to clear, so its width decides what
+     * "break" means. An earlier version reached back by the whole
+     * sweep-to-displacement window, which turned the test into a twenty-bar
+     * breakout and refused about a fifth of all bias-passing sweeps — a far
+     * stronger demand than the model makes, and enough on its own to leave the
+     * intraday preset silent on a realistic chart. What the model asks for is
+     * the minor high or low the market built on its way into the trap, which is
+     * a handful of bars, not a whole leg.
+     */
+    val internalStructureBars: Int = 6,
 
     // --- Step 5: entry ---
     val entryMode: KeystoneEntryMode = KeystoneEntryMode.FVG_THEN_EQUILIBRIUM,
@@ -209,6 +237,7 @@ data class KeystoneConfig(
         require(swingLeft >= 1 && swingRight >= 1) { "swing bars must be >= 1" }
         require(maxPoolAgeBars >= 1) { "maxPoolAgeBars must be >= 1" }
         require(minSweepPenetrationAtr >= 0.0) { "minSweepPenetrationAtr must be >= 0" }
+        require(maxSessionOpposition in 0.0..1.0) { "maxSessionOpposition must be within 0..1" }
         require(poolClusterFraction >= 0.0) { "poolClusterFraction must be >= 0" }
         require(smtWindowBars >= 1) { "smtWindowBars must be >= 1" }
         require(smtSwingLookback >= 1) { "smtSwingLookback must be >= 1" }
@@ -217,6 +246,7 @@ data class KeystoneConfig(
         require(displacementAtrMultiple > 0.0) { "displacementAtrMultiple must be > 0" }
         require(displacementBodyRatio in 0.0..1.0) { "displacementBodyRatio must be within 0..1" }
         require(maxSweepToDisplacementBars >= 1) { "maxSweepToDisplacementBars must be >= 1" }
+        require(internalStructureBars >= 1) { "internalStructureBars must be >= 1" }
         require(retracementMin > 0.0 && retracementMax > retracementMin && retracementMax < 1.0) {
             "retracement band must satisfy 0 < min < max < 1"
         }
@@ -303,6 +333,7 @@ data class KeystoneConfig(
             maxPoolAgeBars = 240,
             smtWindowBars = 8,
             maxSweepToDisplacementBars = 12,
+            internalStructureBars = 4,
             maxEntryWaitBars = 18,
             minRewardMultiple = 1.5,
             defaultRewardMultiple = 1.5,
@@ -320,6 +351,7 @@ data class KeystoneConfig(
             maxPoolAgeBars = 900,
             smtWindowBars = 18,
             maxSweepToDisplacementBars = 30,
+            internalStructureBars = 8,
             maxEntryWaitBars = 45,
             minRewardMultiple = 2.0,
             defaultRewardMultiple = 3.0,
@@ -327,7 +359,6 @@ data class KeystoneConfig(
             maxDailySignals = 2,
             // A swing entry is not a session decision: the sequence spans them.
             sessions = KeystoneSession.entries.toSet(),
-            requireSessionAlignment = false,
         )
 
         fun forPreset(preset: KeystonePreset): KeystoneConfig = when (preset) {

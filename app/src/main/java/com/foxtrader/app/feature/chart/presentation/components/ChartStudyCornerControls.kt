@@ -69,6 +69,9 @@ import com.foxtrader.app.feature.chart.presentation.ApexPresetOption
 import com.foxtrader.app.feature.chart.presentation.CompassPresetOption
 import com.foxtrader.app.feature.chart.presentation.CruciblePresetOption
 import com.foxtrader.app.feature.chart.presentation.CrucibleStudySettings
+import com.foxtrader.app.feature.chart.presentation.KeystoneEntryOption
+import com.foxtrader.app.feature.chart.presentation.KeystonePresetOption
+import com.foxtrader.app.feature.chart.presentation.KeystoneStudySettings
 import com.foxtrader.app.feature.chart.presentation.CrucibleTargetOption
 import com.foxtrader.app.feature.chart.presentation.CompassStudySettings
 import com.foxtrader.app.feature.chart.presentation.ApexStudySettings
@@ -752,6 +755,95 @@ ResetButton { updateSettings(onChange) { it.copy(rsiOrderFlow = RsiOrderFlowStud
                     ResetButton { updateSettings(onChange) { it.copy(crucible = CrucibleStudySettings()) } }
                 }
 
+                StudyControlId.KEYSTONE -> {
+                    KeystonePresetRow(settings.keystone.preset) { preset ->
+                        updateSettings(onChange) { it.copy(keystone = it.keystone.copy(preset = preset)) }
+                    }
+                    KeystoneEntryRow(settings.keystone.entryMode) { mode ->
+                        updateSettings(onChange) { it.copy(keystone = it.keystone.copy(entryMode = mode)) }
+                    }
+                    ToggleRow("Require SMT divergence", settings.keystone.requireSmt) { enabled ->
+                        updateSettings(onChange) { it.copy(keystone = it.keystone.copy(requireSmt = enabled)) }
+                    }
+                    ToggleRow("Avoid trading against the session", settings.keystone.avoidTradingAgainstSession) { enabled ->
+                        updateSettings(onChange) {
+                            it.copy(keystone = it.keystone.copy(avoidTradingAgainstSession = enabled))
+                        }
+                    }
+                    DoubleStepper("Reward floor (R)", settings.keystone.minRewardMultiple, 0.1, 0.5, 10.0) { value ->
+                        updateSettings(onChange) {
+                            it.copy(keystone = it.keystone.copy(minRewardMultiple = value).sanitized())
+                        }
+                    }
+                    DoubleStepper("Default target (R)", settings.keystone.defaultRewardMultiple, 0.25, 0.5, 20.0) { value ->
+                        updateSettings(onChange) {
+                            it.copy(keystone = it.keystone.copy(defaultRewardMultiple = value).sanitized())
+                        }
+                    }
+                    DoubleStepper("Stop buffer (ATR)", settings.keystone.stopAtrBuffer, 0.05, 0.0, 3.0) { value ->
+                        updateSettings(onChange) {
+                            it.copy(keystone = it.keystone.copy(stopAtrBuffer = value).sanitized())
+                        }
+                    }
+                    DoubleStepper("Displacement (ATR)", settings.keystone.displacementAtrMultiple, 0.1, 0.2, 6.0) { value ->
+                        updateSettings(onChange) {
+                            it.copy(keystone = it.keystone.copy(displacementAtrMultiple = value).sanitized())
+                        }
+                    }
+                    DoubleStepper("Risk per trade %", settings.keystone.riskPercent, 0.05, 0.05, 5.0) { value ->
+                        updateSettings(onChange) {
+                            it.copy(keystone = it.keystone.copy(riskPercent = value).sanitized())
+                        }
+                    }
+                    IntStepper("Max losses per day", settings.keystone.maxDailyLosses, 1, 10) { value ->
+                        updateSettings(onChange) {
+                            it.copy(keystone = it.keystone.copy(maxDailyLosses = value).sanitized())
+                        }
+                    }
+                    IntStepper("Max signals per day", settings.keystone.maxDailySignals, 1, 20) { value ->
+                        updateSettings(onChange) {
+                            it.copy(keystone = it.keystone.copy(maxDailySignals = value).sanitized())
+                        }
+                    }
+                    IntStepper("News blackout (min)", settings.keystone.newsBlackoutMinutes, 0, 120) { value ->
+                        updateSettings(onChange) {
+                            it.copy(keystone = it.keystone.copy(newsBlackoutMinutes = value).sanitized())
+                        }
+                    }
+                    ToggleRow("Only publish once accepted", settings.keystone.enforceAcceptance) { enabled ->
+                        updateSettings(onChange) {
+                            it.copy(keystone = it.keystone.copy(enforceAcceptance = enabled))
+                        }
+                    }
+                    ToggleRow("Keep historical signals", settings.keystone.historicalSignals) { enabled ->
+                        updateSettings(onChange) {
+                            it.copy(keystone = it.keystone.copy(historicalSignals = enabled))
+                        }
+                    }
+                    Text(
+                        text = "Sweep of known liquidity → a correlated market refuses to confirm it → a " +
+                            "closed candle displaces and breaks structure → entry on the first retracement " +
+                            "into the gap it left. Any one of the four missing and nothing is taken.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textSecondary,
+                    )
+                    Text(
+                        text = "Judged on expectancy, profit factor and drawdown — never on win rate. This " +
+                            "model is wrong more often than it is right when it is working correctly, and " +
+                            "lowering the reward floor to change that would cost more than it gained.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textSecondary,
+                    )
+                    Text(
+                        text = "The SMT leg needs a correlated market with real data. Without one the study " +
+                            "stands down rather than dropping its own requirement.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textSecondary,
+                    )
+                    SignalArrowNote()
+                    ResetButton { updateSettings(onChange) { it.copy(keystone = KeystoneStudySettings()) } }
+                }
+
                 StudyControlId.PIVOT_SWEEP_DIVERGENCE -> {
                     PsdModeSelector(settings.pivotSweepDivergence.mode) { mode ->
                         updateSettings(onChange) {
@@ -1275,6 +1367,18 @@ private fun CruciblePresetRow(
 ) = PresetChipRow("Style", CruciblePresetOption.entries, selected, { it.label }, onSelect)
 
 @Composable
+private fun KeystonePresetRow(
+    selected: KeystonePresetOption,
+    onSelect: (KeystonePresetOption) -> Unit,
+) = PresetChipRow("Style", KeystonePresetOption.entries, selected, { it.label }, onSelect)
+
+@Composable
+private fun KeystoneEntryRow(
+    selected: KeystoneEntryOption,
+    onSelect: (KeystoneEntryOption) -> Unit,
+) = PresetChipRow("Entry", KeystoneEntryOption.entries, selected, { it.label }, onSelect)
+
+@Composable
 private fun CompassPresetRow(
     selected: CompassPresetOption,
     onSelect: (CompassPresetOption) -> Unit,
@@ -1598,6 +1702,10 @@ private fun activeStudies(t: IndicatorToggles): List<ActiveStudy> = buildList {
             add(ActiveStudy(StudyControlId.COMPASS, "Compass Accuracy"))
             return@buildList
         }
+        ProductionAnalysisSystem.KEYSTONE -> {
+            add(ActiveStudy(StudyControlId.KEYSTONE, "Keystone Sweep + SMT"))
+            return@buildList
+        }
         ProductionAnalysisSystem.CRUCIBLE -> {
             add(ActiveStudy(StudyControlId.CRUCIBLE, "Crucible Discovery"))
             return@buildList
@@ -1643,6 +1751,7 @@ private fun activeStudies(t: IndicatorToggles): List<ActiveStudy> = buildList {
     if (t.apex) add(ActiveStudy(StudyControlId.APEX, "Apex"))
     if (t.compass) add(ActiveStudy(StudyControlId.COMPASS, "Compass"))
     if (t.crucible) add(ActiveStudy(StudyControlId.CRUCIBLE, "Crucible"))
+    if (t.keystone) add(ActiveStudy(StudyControlId.KEYSTONE, "Keystone"))
     if (t.macd) add(ActiveStudy(StudyControlId.MACD, "MACD"))
     if (t.volume) add(ActiveStudy(StudyControlId.VOLUME, "Volume"))
     if (t.stochastic) add(ActiveStudy(StudyControlId.STOCHASTIC, "Stoch"))
@@ -1696,6 +1805,7 @@ private fun removeStudy(
         StudyControlId.APEX -> t.withProductionAnalysisSystem(null)
         StudyControlId.COMPASS -> t.withProductionAnalysisSystem(null)
         StudyControlId.CRUCIBLE -> t.withProductionAnalysisSystem(null)
+        StudyControlId.KEYSTONE -> t.withProductionAnalysisSystem(null)
         StudyControlId.MACD -> t.copy(macd = false)
         StudyControlId.VOLUME -> t.copy(volume = false)
         StudyControlId.STOCHASTIC -> t.copy(stochastic = false)
@@ -1727,6 +1837,7 @@ private enum class StudyControlId(val title: String) {
     APEX("Apex Consensus settings"),
     COMPASS("Compass Accuracy settings"),
     CRUCIBLE("Crucible Discovery settings"),
+    KEYSTONE("Keystone Sweep + SMT settings"),
     MACD("MACD settings"), VOLUME("Volume"),
     STOCHASTIC("Stochastic settings"), OBV("OBV"), MFI("MFI settings"), STRATEGY("Strategy settings"),
     CUSTOM_STRATEGY("Custom strategy"), ALL_STRATEGIES("All strategies"),
