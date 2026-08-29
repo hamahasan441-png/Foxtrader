@@ -3,6 +3,7 @@ package com.foxtrader.app.domain.usecase.keystone
 import com.foxtrader.app.domain.model.Bias
 import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
+import com.foxtrader.app.domain.model.StrategySignal
 import com.foxtrader.app.domain.model.Timeframe
 import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import com.foxtrader.app.domain.usecase.keystone.model.KeystoneAcceptance
@@ -157,6 +158,47 @@ class KeystoneEngine @Inject constructor(
                 else -> "Keystone: no complete sequence formed. ${dominantRejection(run.rejections)}"
             },
         )
+    }
+
+    /**
+     * The engine as a backtest strategy: one analysis, replayed by index.
+     *
+     * A single pass rather than one analysis per bar, and legitimate only
+     * because the prefix property above is proven rather than assumed — the two
+     * are equal, and this is the one that finishes. Keystone runs a bias read,
+     * a liquidity scan and a divergence scan over two symbols per call, so a
+     * per-bar replay of a five-thousand-bar series would not complete in any
+     * useful time.
+     *
+     * The timestamp is checked as well as the index, so a strategy handed a
+     * different slice of the same symbol reports nothing rather than reporting
+     * the wrong bar's setup.
+     */
+    fun backtestFunction(
+        symbol: String,
+        timeframe: Timeframe,
+        candles: List<Candle>,
+        peers: List<KeystonePeerSeries> = emptyList(),
+        config: KeystoneConfig = KeystoneConfig(),
+    ): (List<Candle>, Int) -> StrategySignal? {
+        val byIndex = analyze(symbol, timeframe, candles, peers, config).signals.associateBy { it.index }
+        return { visible, index ->
+            val bar = visible.getOrNull(index)
+            byIndex[index]
+                ?.takeIf { bar != null && bar.timestamp == it.timestamp }
+                ?.let { signal ->
+                    StrategySignal(
+                        index = index,
+                        timestamp = signal.timestamp,
+                        direction = signal.direction,
+                        entry = signal.entry,
+                        stopLoss = signal.stopLoss,
+                        takeProfit = signal.takeProfit,
+                        confidence = (signal.rewardMultiple * 10).toInt().coerceIn(0, 100),
+                        setupType = "Keystone ${signal.sweep.pool.label}",
+                    )
+                }
+        }
     }
 
     private class Run(

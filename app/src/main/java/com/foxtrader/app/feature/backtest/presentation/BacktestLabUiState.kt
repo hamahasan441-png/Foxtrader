@@ -99,6 +99,14 @@ enum class BacktestStrategyTemplate(
             "deflation for overlapping outcomes, and a measurement of how often the search's own winner fails " +
             "out of sample. Publishes nothing when that measurement says the search cannot be trusted.",
     ),
+    KEYSTONE(
+        displayName = "Keystone Sweep + SMT",
+        description = "Takes only one sequence: a sweep of known resting liquidity that a correlated market " +
+            "refused to confirm, a closed candle that displaces and breaks internal structure, and an entry on " +
+            "the first retracement into the gap it left. Judged on expectancy, profit factor and drawdown — " +
+            "never on win rate, because a rule that risks one to make two is wrong more often than it is right " +
+            "when it is working correctly.",
+    ),
     DERIV_BINARY_3M(
         displayName = "Deriv Binary 3m Precision",
         description = "M1 closed-bar EMA/ADX pullback-reclaim setup; enters next bar and settles after 3 minutes. Non-repainting and fixed-expiry backtestable.",
@@ -106,7 +114,7 @@ enum class BacktestStrategyTemplate(
 
     companion object {
         /** The only built-in methodologies exposed in FoxTrader's primary Lab. */
-        val primaryEntries = listOf(LITX, LIT_MAY_MADNESS, SMT, RSI_ORDERFLOW, RSI_REVERSAL, AMD, NASCENT, LIQUIDITY_SWEEP, VIRGIN_WICK, APEX, COMPASS, CRUCIBLE)
+        val primaryEntries = listOf(LITX, LIT_MAY_MADNESS, SMT, RSI_ORDERFLOW, RSI_REVERSAL, AMD, NASCENT, LIQUIDITY_SWEEP, VIRGIN_WICK, APEX, COMPASS, CRUCIBLE, KEYSTONE)
     }
 }
 
