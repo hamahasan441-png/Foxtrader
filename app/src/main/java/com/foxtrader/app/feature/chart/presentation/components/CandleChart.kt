@@ -416,6 +416,38 @@ fun CandleChart(
         candles.size
     }
 
+    /**
+     * Bring a newly enabled study's newest marker into view.
+     *
+     * The chart analyses five thousand bars and shows about a hundred of them.
+     * Measured on real EURUSD, the studies here produce between twelve and
+     * eighty-three markers across those five thousand bars — so switching one
+     * on and looking at the live edge shows nothing at all far more often than
+     * it shows something, and the study reads as broken when it is working
+     * exactly as intended.
+     *
+     * The key is the set of sources present, so this fires when a study is
+     * switched on and not when new bars arrive, and it moves the camera only
+     * when there is genuinely nothing of that study on screen. A trader who has
+     * scrolled somewhere deliberately and can already see markers is left where
+     * they are.
+     */
+    val signalSourceKey = remember(signals) {
+        signals.asSequence().map { it.source }.distinct().sorted().joinToString(",")
+    }
+    LaunchedEffect(signalSourceKey, seriesKey) {
+        if (signals.isEmpty() || candles.isEmpty()) return@LaunchedEffect
+        if (signals.any { viewport.isIndexVisible(it.barIndex) }) return@LaunchedEffect
+        val newest = signals.maxByOrNull { it.barIndex } ?: return@LaunchedEffect
+        if (viewport.focusOnIndex(newest.barIndex, candles.size)) {
+            followLiveEdge[0] = false
+            viewport.clamp(candles.size)
+            rescale()
+            publishViewportState()
+            invalidateTick++
+        }
+    }
+
     LaunchedEffect(seriesKey, candles.size) {
         publishViewportState()
     }

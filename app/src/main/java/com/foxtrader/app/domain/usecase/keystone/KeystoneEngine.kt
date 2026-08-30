@@ -126,13 +126,14 @@ class KeystoneEngine @Inject constructor(
         val atr = KeystoneAtr.series(candles, config.atrPeriod)
         val medianAtr = KeystoneAtr.rollingMedian(atr, config.volatilityMedianWindow)
         val pools = liquidity.pools(candles, config)
-        val divergences = if (usablePeers.isEmpty()) {
-            emptyList()
-        } else {
-            smt.detect(candles, usablePeers, config)
+        val alignments = if (usablePeers.isEmpty()) emptyList() else smt.align(candles, usablePeers, config)
+        if (config.requireSmt && alignments.isEmpty()) {
+            return KeystoneAnalysis.empty(
+                "Keystone: SMT is required and no correlated market could be aligned with this series.",
+            )
         }
 
-        val run = walk(symbol, timeframe, candles, pools, divergences, atr, medianAtr, higher, mid, config)
+        val run = walk(symbol, timeframe, candles, pools, alignments, atr, medianAtr, higher, mid, config)
 
         val trades = validation.resolve(run.signals, candles, config)
         val performance = validation.performance(trades)
@@ -223,7 +224,7 @@ class KeystoneEngine @Inject constructor(
         timeframe: Timeframe,
         candles: List<Candle>,
         pools: List<KeystonePool>,
-        divergences: List<KeystoneDivergence>,
+        alignments: List<KeystoneSmt.Alignment>,
         atr: DoubleArray,
         medianAtr: DoubleArray,
         higher: MultiTimeframeSeries,
@@ -240,7 +241,17 @@ class KeystoneEngine @Inject constructor(
         // Liquidity that has been collected is gone. Without this a single
         // shelf re-arms on every pullback that touches it, which multiplies the
         // model's frequency without multiplying its edge.
-        val consumed = ArrayList<Pair<Boolean, Double>>()
+        //
+        // It is gone for a while, not forever, and the difference is not
+        // academic. Each taken shelf blocks a band of prices around it, so with
+        // no expiry those bands accumulate: on two years of fifteen-minute
+        // EURUSD five hundred taken shelves covered close to half the pair's
+        // entire range, and the engine spent the back half of the series
+        // refusing to see liquidity because of trades it had considered in the
+        // first half. Entries older than the pool horizon are dropped, which is
+        // the same horizon after which a pool at that price is new liquidity
+        // anyway.
+        val consumed = ArrayList<KeystoneLiquidity.Consumed>()
         val waiting = ArrayList<WaitingSweep>()
         val confirmed = ArrayList<ConfirmedSweep>()
         val armed = ArrayList<ArmedSetup>()
@@ -282,12 +293,13 @@ class KeystoneEngine @Inject constructor(
                     reject(KeystoneRejection.GEOMETRY)
                     continue
                 }
-                armed += ArmedSetup(pending, target, entry.biasRead)
+                armed += ArmedSetup(pending, target, entry.biasRead, entry.divergence)
             }
             confirmed.removeAll(armingNow.toSet())
 
             // 2. Fills, never on the arming bar itself.
             val settled = ArrayList<ArmedSetup>()
+            val publishedHere = ArrayList<KeystoneSweep>()
             for (setup in armed) {
                 val pending = setup.pending
                 if (i <= pending.armedIndex) continue
@@ -305,21 +317,17 @@ class KeystoneEngine @Inject constructor(
 
                 settled += setup
 
-                // The divergence is demanded here rather than at the sweep or
-                // the displacement, because this is the bar the trade is
-                // actually taken on and therefore the bar every piece of
-                // evidence has to be knowable by. Asking earlier would reject
-                // most real events for a reason that has nothing to do with the
-                // market: a swing is confirmed some bars after it forms, and
-                // the second leg of a divergence routinely confirms after the
-                // impulse that follows the sweep.
-                val divergence = smt
-                    .near(divergences, pending.sweep.index, pending.direction, config)
-                    ?.takeIf { it.confirmationIndex <= i }
-                if (config.requireSmt && divergence == null) {
-                    reject(KeystoneRejection.NO_SMT)
+                // Several setups can fill on one bar. Removing the others from
+                // the pending lists only takes effect from the next bar, so
+                // without this the duplicates are published before the cleanup
+                // below ever runs.
+                if (config.oneSignalPerLiquidityEvent &&
+                    publishedHere.any { sameLiquidityEvent(it, pending.sweep, config) }
+                ) {
+                    reject(KeystoneRejection.DUPLICATE_EVENT)
                     continue
                 }
+
                 val risk = abs(pending.entry - pending.stopLoss)
                 val refusal = refuse(
                     bar = bar,
@@ -352,20 +360,21 @@ class KeystoneEngine @Inject constructor(
                     riskPercent = config.riskPercent,
                     sweep = pending.sweep,
                     biasRead = setup.biasRead,
-                    divergence = divergence,
+                    divergence = setup.divergence,
                     displacement = pending.displacement,
                     session = filters.sessionAt(bar.timestamp),
                     entryFromGap = pending.fromGap,
-                    reasons = reasonsFor(setup, divergence, pending.fromGap, reward),
+                    reasons = reasonsFor(setup, pending.fromGap, reward),
                 )
                 signals += signal
                 signalsByDay[today] = (signalsByDay[today] ?: 0) + 1
                 unresolved += validation.resolve(listOf(signal), candles, config).first()
 
                 if (config.oneSignalPerLiquidityEvent) {
-                    // Everything else born of the same sweep goes with it.
-                    settled += armed.filter { it.pending.sweep.index == pending.sweep.index }
-                    confirmed.removeAll { it.sweep.index == pending.sweep.index }
+                    publishedHere += pending.sweep
+                    settled += armed.filter { sameLiquidityEvent(it.pending.sweep, pending.sweep, config) }
+                    confirmed.removeAll { sameLiquidityEvent(it.sweep, pending.sweep, config) }
+                    waiting.removeAll { sameLiquidityEvent(it.sweep, pending.sweep, config) }
                 }
             }
             armed.removeAll(settled.toSet())
@@ -380,12 +389,13 @@ class KeystoneEngine @Inject constructor(
                 }
                 val displacement = trigger.displacementAt(candles, i, entry.sweep, atr, config)
                     ?: continue
-                confirmed += ConfirmedSweep(entry.sweep, entry.biasRead, displacement)
+                confirmed += ConfirmedSweep(entry.sweep, entry.biasRead, displacement, entry.divergence)
                 expired += entry
             }
             waiting.removeAll(expired.toSet())
 
             // 4. A new sweep on this bar.
+            consumed.removeAll { i - it.index > config.maxPoolAgeBars }
             val active = liquidity.activeAt(pools, i, consumed, config)
             val sweep = if (active.isEmpty()) {
                 null
@@ -394,7 +404,7 @@ class KeystoneEngine @Inject constructor(
             }
             if (sweep != null) {
                 sweeps += sweep
-                consumed += sweep.pool.aboveMarket to sweep.pool.price
+                consumed += KeystoneLiquidity.Consumed(sweep.pool.aboveMarket, sweep.pool.price, i)
 
                 val read = biasStage.readAt(i, candles, higher, mid, config)
                 when {
@@ -412,13 +422,52 @@ class KeystoneEngine @Inject constructor(
                             },
                         )
                     }
-                    else -> waiting += WaitingSweep(sweep, read)
+                    else -> {
+                        // The divergence is demanded at the sweep, which is
+                        // where the model puts it and — now that the test is a
+                        // window rather than a pair of pivots — where it is
+                        // knowable. Refusing here also prunes the funnel before
+                        // any displacement work is done for a setup that cannot
+                        // qualify.
+                        val divergence = smt.divergenceAt(
+                            i, sweep.direction, candles, alignments, config,
+                        )
+                        if (config.requireSmt && divergence == null) {
+                            reject(KeystoneRejection.NO_SMT)
+                        } else {
+                            waiting += WaitingSweep(sweep, read, divergence)
+                        }
+                    }
                 }
             }
         }
 
         return Run(signals, sweeps, rejections)
     }
+
+    /**
+     * Whether two sweeps are the same liquidity event.
+     *
+     * Not "the same sweep". One move down through a shelf takes the previous
+     * day's low, the Asian low and a swing low that all sit within a few pips
+     * of each other, and each of those is a separate sweep that arms its own
+     * setup. Measured on four years of hourly EURUSD, treating them separately
+     * produced three orders on one bar with almost identical entries and
+     * stops — one idea, sized three times, which is exactly what step 8 exists
+     * to prevent. So the test is the price that was swept, not the index of the
+     * sweep that took it.
+     *
+     * Scoped by construction rather than by a time window: only setups still
+     * armed or waiting are compared, and both expire within a few dozen bars.
+     * The same shelf revisited months later is a new event and is treated as
+     * one.
+     */
+    private fun sameLiquidityEvent(
+        a: KeystoneSweep,
+        b: KeystoneSweep,
+        config: KeystoneConfig,
+    ): Boolean = a.direction == b.direction &&
+        abs(a.extreme - b.extreme) <= abs(b.extreme) * config.poolClusterFraction
 
     /** The first filter this fill fails, or null when it passes them all. */
     @Suppress("LongParameterList", "ReturnCount")
@@ -443,15 +492,10 @@ class KeystoneEngine @Inject constructor(
         return null
     }
 
-    private fun reasonsFor(
-        setup: ArmedSetup,
-        divergence: KeystoneDivergence?,
-        fromGap: Boolean,
-        reward: Double,
-    ): List<String> = buildList {
+    private fun reasonsFor(setup: ArmedSetup, fromGap: Boolean, reward: Double): List<String> = buildList {
         add("Swept ${setup.pending.sweep.pool.label}")
         add(setup.biasRead.reason)
-        divergence?.let { add(it.detail) }
+        setup.divergence?.let { add(it.detail) }
         add("Displacement ${"%.1f".format(setup.pending.displacement.atrMultiple)}x ATR")
         add(if (fromGap) "Entry in displacement FVG" else "Entry at 50-62% retracement")
         add("${"%.1f".format(reward)}R to target")
@@ -483,19 +527,25 @@ class KeystoneEngine @Inject constructor(
     }
 
     /** A sweep that passed the bias test and is waiting for its displacement. */
-    private class WaitingSweep(val sweep: KeystoneSweep, val biasRead: KeystoneBiasRead)
+    private class WaitingSweep(
+        val sweep: KeystoneSweep,
+        val biasRead: KeystoneBiasRead,
+        val divergence: KeystoneDivergence?,
+    )
 
     /** A sweep whose displacement has closed, waiting for the next bar to arm. */
     private class ConfirmedSweep(
         val sweep: KeystoneSweep,
         val biasRead: KeystoneBiasRead,
         val displacement: KeystoneDisplacement,
+        val divergence: KeystoneDivergence?,
     )
 
     private class ArmedSetup(
         val pending: KeystoneTrigger.Pending,
         val target: Double,
         val biasRead: KeystoneBiasRead,
+        val divergence: KeystoneDivergence?,
     )
 
     companion object {

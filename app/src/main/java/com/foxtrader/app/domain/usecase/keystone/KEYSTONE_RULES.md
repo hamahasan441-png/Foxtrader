@@ -98,7 +98,50 @@ neither silently passes everything.
   several configurations was reported. Beating zero proves nothing; this is the
   bar that has to be cleared instead.
 
-## What was measured, including the unflattering part
+## Measured against the market, not against a fixture
+
+Everything below is EURUSD from Dukascopy — the same feed the app charts —
+against GBPUSD as the correlated peer: 49 322 fifteen-minute bars from August
+2024 to July 2026, and 24 397 hourly bars from September 2022.
+
+Running the engine on it found five defects that no synthetic series had
+exposed, every one of them a rule that read correctly and measured something
+else:
+
+| Defect | What it actually did |
+|---|---|
+| Displacement size compared a **body** to ATR | ATR is an average *range*. The median body is 0.35 ATR against a median range of 0.86, so `body ≥ 1.2 ATR` demanded a 93rd-percentile candle while reading as though it asked for a large one. Now measured on the range. |
+| Consumed shelves **never expired** | Each taken shelf blocks a price band forever. After five hundred sweeps those bands covered close to half the pair's whole range, and the engine spent the back half of the series blind because of trades it had considered in the first half. Fixing it quadrupled the sweeps found, 522 → 2 235. |
+| Duplicate orders on one bar | One move through a shelf takes the previous day's low, the Asian low and a swing low within pips of each other. Each armed its own setup and all filled together: three orders, near-identical entries and stops, one idea sized three times. |
+| SMT paired **swing pivots** rather than reading the sweep | It required both markets to form a detectable pivot within a few bars of each other and found divergences wherever two pivots happened to line up. Of 769 divergences it reported, only about one in five fell near a sweep. It now asks the question directly at the sweep bar: *the primary just made a new extreme for this window — did the peer?* |
+| Internal structure reached back **before** the sweep | That required the impulse to erase the entire approach *into* the trap rather than the structure built during it. It is now measured from the sweep forward. |
+
+## The frequency, and why it is not negotiable
+
+On 20 000 fifteen-minute EURUSD bars the intraday preset publishes **three**
+signals. That is roughly one trade per symbol per eight months, and no filter is
+responsible for it — removing any single one yields nought to two more. The
+scarcity is the conjunction the specification asks for.
+
+The divergence requirement is worth stating separately, because it is the one
+that looks most like an obstacle and is in fact the edge:
+
+| | signals | expectancy | profit factor |
+|---|---|---|---|
+| SMT required (default) | 3 | **+0.294R** | **1.82** |
+| SMT dropped | 20 | −0.332R | 0.50 |
+
+Seven times the signals, and the model stops making money. Anyone tempted to
+turn `requireSmt` off to get more arrows on the chart is turning a
+positive-expectancy rule into a negative one, and this table is here so that
+choice is made with the number in front of it.
+
+The practical consequence is that Keystone is a **scanner**, not a chart
+indicator: its natural use is many symbols at once, through the Backtesting Lab
+or across a watchlist, rather than waiting for one pair to produce its next
+sequence.
+
+## What was measured on synthetic data, including the unflattering part
 
 On 5 000 bars of a synthetic trending series with a correlated peer, the
 intraday preset found 235 sweeps and published **nothing**:

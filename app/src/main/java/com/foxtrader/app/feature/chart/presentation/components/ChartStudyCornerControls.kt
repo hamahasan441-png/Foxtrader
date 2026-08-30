@@ -785,7 +785,7 @@ ResetButton { updateSettings(onChange) { it.copy(rsiOrderFlow = RsiOrderFlowStud
                             it.copy(keystone = it.keystone.copy(stopAtrBuffer = value).sanitized())
                         }
                     }
-                    DoubleStepper("Displacement (ATR)", settings.keystone.displacementAtrMultiple, 0.1, 0.2, 6.0) { value ->
+                    DoubleStepper("Displacement range (ATR)", settings.keystone.displacementAtrMultiple, 0.1, 0.2, 6.0) { value ->
                         updateSettings(onChange) {
                             it.copy(keystone = it.keystone.copy(displacementAtrMultiple = value).sanitized())
                         }

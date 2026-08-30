@@ -70,11 +70,17 @@ class KeystoneTrigger {
         val candleDirection = if (bar.isBullish) Direction.BULLISH else Direction.BEARISH
         if (candleDirection != direction) return null
         val bodyRatio = bar.bodySize / bar.range
-        val atrMultiple = bar.bodySize / volatility
+        // Size is measured on the range, because ATR is itself an average
+        // range. Comparing a body to it is a category error that silently makes
+        // the filter several times stricter than it reads: on four years of
+        // hourly EURUSD the median body is 0.35 ATR, so "body >= 1.2 ATR" was
+        // asking for the 93rd percentile candle rather than a large one. The
+        // body-dominance test below is what keeps this from passing a long wick.
+        val atrMultiple = bar.range / volatility
         if (bodyRatio < config.displacementBodyRatio) return null
         if (atrMultiple < config.displacementAtrMultiple) return null
 
-        val broken = internalBreakLevel(candles, index, direction, sweep.index, config)
+        val broken = internalBreakLevel(candles, index, direction, sweep.index)
         if (config.requireInternalBreak && broken == null) return null
 
         return KeystoneDisplacement(
@@ -231,22 +237,26 @@ class KeystoneTrigger {
      * The internal swing the displacement's close took out, or null if it took
      * out none.
      *
-     * "Internal" means the minor high or low the market built on its way into
-     * the trap, plus everything since: a handful of bars before the sweep
-     * through to the displacement itself. The width matters more than it looks
-     * — read it too wide and the test silently becomes a multi-leg breakout,
-     * which is a far stronger demand than the model makes and which refuses
-     * most real sequences.
+     * "Internal" means since the sweep. The sweep bar is where the reversal leg
+     * begins, so the structure the impulse has to break is what the market has
+     * built from there — every high it has made while the trap was being sprung.
+     *
+     * The width of this window is not a detail. Reading it too wide turns the
+     * test into a multi-leg breakout: an earlier version reached back across the
+     * whole sweep-to-displacement window, and a later one across a handful of
+     * bars before the sweep, and both required the impulse to erase the entire
+     * approach *into* the trap rather than the structure built during it. On two
+     * years of fifteen-minute EURUSD that refused roughly four of every five
+     * sequences that had already passed the bias and divergence tests.
      */
     private fun internalBreakLevel(
         candles: List<Candle>,
         index: Int,
         direction: Direction,
         sweepIndex: Int,
-        config: KeystoneConfig,
     ): Double? {
-        val from = (sweepIndex - config.internalStructureBars).coerceAtLeast(0)
-        if (index - from < 2) return null
+        val from = sweepIndex.coerceAtLeast(0)
+        if (index <= from) return null
         val window = candles.subList(from, index)
         val level = if (direction == Direction.BULLISH) {
             window.maxOf { it.high }

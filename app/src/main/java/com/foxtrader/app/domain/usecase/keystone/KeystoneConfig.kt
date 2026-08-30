@@ -91,10 +91,15 @@ data class KeystoneConfig(
      * requirement.
      */
     val requireSmt: Boolean = true,
-    /** Bars either side of the sweep in which the divergence must confirm. */
-    val smtWindowBars: Int = 12,
-    /** Swing definition used on both legs of the divergence. */
-    val smtSwingLookback: Int = 3,
+    /**
+     * How far back the divergence compares.
+     *
+     * The test asks whether the primary just made a new extreme for this window
+     * that the peer did not, so the window is what "new" means. Too short and
+     * every sweep of a nearby shelf qualifies; too long and only multi-day
+     * extremes do.
+     */
+    val smtLookbackBars: Int = 24,
     /** Correlation the peer must show over [smtCorrelationPeriod] bars. */
     val minPeerCorrelation: Double = 0.45,
     val smtCorrelationPeriod: Int = 160,
@@ -104,8 +109,22 @@ data class KeystoneConfig(
     val maxTimestampSkewFraction: Double = 0.25,
 
     // --- Step 4: confirmation ---
-    /** Body size a displacement candle must reach, in ATR multiples. */
-    val displacementAtrMultiple: Double = 1.2,
+    /**
+     * Range a displacement candle must reach, in ATR multiples.
+     *
+     * Measured on the range rather than the body, because ATR is an average
+     * range and comparing a body to it is not a comparison at all. On four
+     * years of hourly EURUSD the median body is 0.35 ATR against a median range
+     * of 0.86, so the earlier body-against-ATR form of this test was asking for
+     * roughly the 93rd-percentile candle while reading as though it asked for a
+     * merely large one — and it was the single biggest reason the engine found
+     * nine setups in four years.
+     *
+     * At 1.5, with [displacementBodyRatio] also satisfied, about 8% of hourly
+     * bars qualify. That is a candle worth calling displacement; the structure
+     * break is what decides whether it means anything.
+     */
+    val displacementAtrMultiple: Double = 1.5,
     /** Share of the candle's range its body must occupy. */
     val displacementBodyRatio: Double = 0.55,
     /** Bars after the sweep in which displacement must appear. */
@@ -118,19 +137,6 @@ data class KeystoneConfig(
      * for the break, not the candle.
      */
     val requireInternalBreak: Boolean = true,
-    /**
-     * How far back before the sweep the internal structure is read from.
-     *
-     * This is the level the impulse has to clear, so its width decides what
-     * "break" means. An earlier version reached back by the whole
-     * sweep-to-displacement window, which turned the test into a twenty-bar
-     * breakout and refused about a fifth of all bias-passing sweeps — a far
-     * stronger demand than the model makes, and enough on its own to leave the
-     * intraday preset silent on a realistic chart. What the model asks for is
-     * the minor high or low the market built on its way into the trap, which is
-     * a handful of bars, not a whole leg.
-     */
-    val internalStructureBars: Int = 6,
 
     // --- Step 5: entry ---
     val entryMode: KeystoneEntryMode = KeystoneEntryMode.FVG_THEN_EQUILIBRIUM,
@@ -239,14 +245,12 @@ data class KeystoneConfig(
         require(minSweepPenetrationAtr >= 0.0) { "minSweepPenetrationAtr must be >= 0" }
         require(maxSessionOpposition in 0.0..1.0) { "maxSessionOpposition must be within 0..1" }
         require(poolClusterFraction >= 0.0) { "poolClusterFraction must be >= 0" }
-        require(smtWindowBars >= 1) { "smtWindowBars must be >= 1" }
-        require(smtSwingLookback >= 1) { "smtSwingLookback must be >= 1" }
+        require(smtLookbackBars >= 2) { "smtLookbackBars must be >= 2" }
         require(minPeerCorrelation in 0.0..1.0) { "minPeerCorrelation must be within 0..1" }
         require(smtCorrelationPeriod >= 20) { "smtCorrelationPeriod must be >= 20" }
         require(displacementAtrMultiple > 0.0) { "displacementAtrMultiple must be > 0" }
         require(displacementBodyRatio in 0.0..1.0) { "displacementBodyRatio must be within 0..1" }
         require(maxSweepToDisplacementBars >= 1) { "maxSweepToDisplacementBars must be >= 1" }
-        require(internalStructureBars >= 1) { "internalStructureBars must be >= 1" }
         require(retracementMin > 0.0 && retracementMax > retracementMin && retracementMax < 1.0) {
             "retracement band must satisfy 0 < min < max < 1"
         }
@@ -331,9 +335,8 @@ data class KeystoneConfig(
             swingLeft = 3,
             swingRight = 3,
             maxPoolAgeBars = 240,
-            smtWindowBars = 8,
+            smtLookbackBars = 16,
             maxSweepToDisplacementBars = 12,
-            internalStructureBars = 4,
             maxEntryWaitBars = 18,
             minRewardMultiple = 1.5,
             defaultRewardMultiple = 1.5,
@@ -349,9 +352,8 @@ data class KeystoneConfig(
             swingLeft = 5,
             swingRight = 5,
             maxPoolAgeBars = 900,
-            smtWindowBars = 18,
+            smtLookbackBars = 40,
             maxSweepToDisplacementBars = 30,
-            internalStructureBars = 8,
             maxEntryWaitBars = 45,
             minRewardMultiple = 2.0,
             defaultRewardMultiple = 3.0,

@@ -68,6 +68,7 @@ data class KeystoneDisplacement(
     val startPrice: Double,
     val endPrice: Double,
     val bodyToRangeRatio: Double,
+    /** The candle's full range in ATR multiples — like measured against like. */
     val atrMultiple: Double,
     /** The fair-value gap the impulse left, when it left one. */
     val fairValueGap: KeystoneGap?,
