@@ -82,19 +82,9 @@ class MtfContextProvider @Inject constructor(
             val peers = correlatedPeers(symbol).take(MAX_CORRELATED_PEERS)
             val result = LinkedHashMap<String, List<Candle>>(peers.size)
             for (peer in peers) {
-                var sourced = repositoryCallOrNull { repository.getSourcedCandles(peer, timeframe) }
-                if (refreshMissing && !sourced.isUsableContext() && shouldRefresh(peer, timeframe)) {
-                    // An explicit user SMT request gets one real-provider refresh
-                    // attempt before the peer is rejected as unavailable.
-                    repositoryCallOrNull {
-                        repository.refreshCandles(peer, timeframe, PEER_FETCH_LIMIT)
-                    }
-                    sourced = repositoryCallOrNull { repository.getSourcedCandles(peer, timeframe) }
-                }
-                // A random-walk peer can manufacture a convincing-looking SMT
-                // divergence against real prices. Provenance therefore gates
-                // peer data before it reaches any signal engine.
-                sourced?.takeIf { it.isUsableContext() }?.let { result[peer] = it.candles }
+                // An explicit user SMT request gets one real-provider refresh
+                // attempt before the peer is rejected as unavailable.
+                loadPeer(peer, timeframe, refreshMissing)?.let { result[peer] = it }
             }
             result
         } catch (cancel: CancellationException) {
@@ -102,6 +92,49 @@ class MtfContextProvider @Inject constructor(
         } catch (_: Exception) {
             emptyMap()
         }
+    }
+
+    /**
+     * Fetch a caller-chosen peer set on the same timeframe.
+     *
+     * [getCorrelatedContext] answers with this provider's own idea of which
+     * symbols pair with which. An engine that reasons about correlation itself
+     * — including which pairs move inversely, which this table does not express
+     * — needs to name its own peers, and this lets it do so without duplicating
+     * the provenance gate that keeps synthetic bars out of a divergence test.
+     */
+    suspend fun getPeerContext(
+        symbols: List<String>,
+        timeframe: Timeframe,
+        refreshMissing: Boolean = false,
+    ): Map<String, List<Candle>> {
+        return try {
+            val result = LinkedHashMap<String, List<Candle>>(symbols.size)
+            for (peer in symbols.distinct().take(MAX_CORRELATED_PEERS)) {
+                result[peer] = loadPeer(peer, timeframe, refreshMissing) ?: continue
+            }
+            result
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (_: Exception) {
+            emptyMap()
+        }
+    }
+
+    private suspend fun loadPeer(
+        peer: String,
+        timeframe: Timeframe,
+        refreshMissing: Boolean,
+    ): List<Candle>? {
+        var sourced = repositoryCallOrNull { repository.getSourcedCandles(peer, timeframe) }
+        if (refreshMissing && !sourced.isUsableContext() && shouldRefresh(peer, timeframe)) {
+            repositoryCallOrNull { repository.refreshCandles(peer, timeframe, PEER_FETCH_LIMIT) }
+            sourced = repositoryCallOrNull { repository.getSourcedCandles(peer, timeframe) }
+        }
+        // A random-walk peer can manufacture a convincing-looking SMT
+        // divergence against real prices. Provenance therefore gates peer data
+        // before it reaches any signal engine.
+        return sourced?.takeIf { it.isUsableContext() }?.candles
     }
 
     private suspend fun <T> repositoryCallOrNull(block: suspend () -> T): T? = try {

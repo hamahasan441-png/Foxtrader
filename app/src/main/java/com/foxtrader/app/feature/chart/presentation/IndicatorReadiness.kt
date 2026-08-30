@@ -5,6 +5,7 @@ import com.foxtrader.app.domain.usecase.AnalyzeMarketStructureUseCase
 import com.foxtrader.app.domain.usecase.apex.ApexEngine
 import com.foxtrader.app.domain.usecase.compass.CompassEngine
 import com.foxtrader.app.domain.usecase.crucible.CrucibleEngine
+import com.foxtrader.app.domain.usecase.keystone.KeystoneEngine
 import com.foxtrader.app.domain.usecase.liquiditysweep.LiquiditySweepEngine
 import com.foxtrader.app.domain.usecase.smc.SmcDetector
 import com.foxtrader.app.domain.usecase.virginwick.VirginWickEngine
@@ -85,6 +86,16 @@ enum class ChartStudyId(
         // requirement is met somewhere around 5k bars. Below that it reports
         // how many it still needs rather than drawing anything.
         contextHint = "needs ~5k bars before its threshold can be calibrated",
+    ),
+    KEYSTONE(
+        "Keystone Sweep + SMT",
+        KeystoneEngine.MIN_BARS,
+        requiresTimeAxis = true,
+        // The only study here that reaches for a second symbol. Without
+        // trustworthy peer data it stands down rather than dropping its own
+        // divergence requirement, and it says so instead of drawing nothing
+        // silently.
+        contextHint = "needs a correlated market with real data for its SMT leg",
     ),
     CRUCIBLE(
         "Crucible Discovery",

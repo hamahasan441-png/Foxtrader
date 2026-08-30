@@ -22,6 +22,7 @@ class BacktestLabStrategyScopeTest {
                 BacktestStrategyTemplate.APEX,
                 BacktestStrategyTemplate.COMPASS,
                 BacktestStrategyTemplate.CRUCIBLE,
+                BacktestStrategyTemplate.KEYSTONE,
             ),
             BacktestStrategyTemplate.primaryEntries,
         )

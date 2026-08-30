@@ -36,6 +36,12 @@ enum class ProductionAnalysisSystem(val label: String) {
     // Crucible mines its own rules from the same price features the other
     // engines read, so what it draws is not additional evidence alongside them.
     CRUCIBLE("Crucible Discovery"),
+
+    // Keystone reaches for a second symbol, which no other engine here does,
+    // and refuses to publish when that symbol is unavailable. It is exclusive
+    // for the same reason as the others: it already contains a sweep engine and
+    // a divergence engine, so drawing it beside them shows one read twice.
+    KEYSTONE("Keystone Sweep + SMT"),
 }
 
 /** Resolve a single selected canonical engine when the state is unambiguous. */
@@ -53,6 +59,7 @@ fun IndicatorToggles.productionAnalysisSystem(): ProductionAnalysisSystem? {
         ProductionAnalysisSystem.APEX.takeIf { apex },
         ProductionAnalysisSystem.COMPASS.takeIf { compass },
         ProductionAnalysisSystem.CRUCIBLE.takeIf { crucible },
+        ProductionAnalysisSystem.KEYSTONE.takeIf { keystone },
     )
     return selected.singleOrNull()
 }
@@ -82,6 +89,7 @@ fun IndicatorToggles.withProductionAnalysisSystem(
         apex = false,
         compass = false,
         crucible = false,
+        keystone = false,
     )
 
     return when (system) {
@@ -97,6 +105,7 @@ fun IndicatorToggles.withProductionAnalysisSystem(
         ProductionAnalysisSystem.APEX -> preserved.copy(apex = true)
         ProductionAnalysisSystem.COMPASS -> preserved.copy(compass = true)
         ProductionAnalysisSystem.CRUCIBLE -> preserved.copy(crucible = true)
+        ProductionAnalysisSystem.KEYSTONE -> preserved.copy(keystone = true)
         null -> preserved
     }
 }

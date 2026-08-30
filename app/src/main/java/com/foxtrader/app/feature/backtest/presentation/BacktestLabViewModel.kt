@@ -33,6 +33,9 @@ import com.foxtrader.app.domain.usecase.nascent.NascentEngine
 import com.foxtrader.app.domain.usecase.apex.ApexEngine
 import com.foxtrader.app.domain.usecase.compass.CompassEngine
 import com.foxtrader.app.domain.usecase.crucible.CrucibleEngine
+import com.foxtrader.app.domain.usecase.keystone.KeystoneEngine
+import com.foxtrader.app.domain.usecase.keystone.KeystonePeerProvider
+import com.foxtrader.app.domain.usecase.keystone.model.KeystonePeerSeries
 import com.foxtrader.app.domain.usecase.virginwick.VirginWickEngine
 import com.foxtrader.app.domain.usecase.rsireversal.RsiReversalEngine
 import com.foxtrader.app.domain.usecase.signalintel.AccumulationManipulationDistributionEngine
@@ -79,6 +82,8 @@ class BacktestLabViewModel @Inject constructor(
     private val apexEngine: ApexEngine,
     private val compassEngine: CompassEngine,
     private val crucibleEngine: CrucibleEngine,
+    private val keystoneEngine: KeystoneEngine,
+    private val keystonePeerProvider: KeystonePeerProvider,
     private val rsiReversalEngine: RsiReversalEngine,
     private val smtSignalEngine: SmtSignalEngine,
     private val mtfContextProvider: MtfContextProvider,
@@ -337,7 +342,23 @@ class BacktestLabViewModel @Inject constructor(
                 } else {
                     emptyMap()
                 }
-                val strategy = buildStrategy(state, candles, correlatedCandles)
+                // Keystone names its own peers, including the ones that pair
+                // inversely, so it cannot use the correlated set above.
+                val keystonePeers = if (state.strategy == BacktestStrategyTemplate.KEYSTONE) {
+                    keystonePeerProvider.peersFor(
+                        symbol = state.symbol,
+                        timeframe = state.timeframe,
+                        refreshMissing = true,
+                    ).also { peers ->
+                        require(peers.isNotEmpty()) {
+                            "Keystone requires at least one real correlated peer series for " +
+                                "${state.symbol} ${state.timeframe.label}."
+                        }
+                    }
+                } else {
+                    emptyList()
+                }
+                val strategy = buildStrategy(state, candles, correlatedCandles, keystonePeers)
 
                 val result = withContext(defaultDispatcher) {
                     if (state.aiScoringEnabled) {
@@ -549,6 +570,7 @@ class BacktestLabViewModel @Inject constructor(
         state: BacktestLabUiState,
         candles: List<Candle>,
         correlatedCandles: Map<String, List<Candle>> = emptyMap(),
+        keystonePeers: List<KeystonePeerSeries> = emptyList(),
     ): StrategyFunction {
         val blueprint = state.selectedBlueprint
         if (blueprint != null) {
@@ -624,6 +646,17 @@ class BacktestLabViewModel @Inject constructor(
                 symbol = state.symbol,
                 timeframe = state.timeframe,
                 candles = candles,
+            )
+            // Same reasoning again, and one addition: Keystone reads a second
+            // symbol, so the peers fetched above are handed straight through.
+            // With none available the engine stands down rather than dropping
+            // the divergence requirement, which is the behaviour a backtest of
+            // this model has to preserve or it is measuring a different one.
+            BacktestStrategyTemplate.KEYSTONE -> keystoneEngine.backtestFunction(
+                symbol = state.symbol,
+                timeframe = state.timeframe,
+                candles = candles,
+                peers = keystonePeers,
             )
             // The selected timeframe is the entry timeframe; the engine
             // reconstructs the context timeframe above it by resampling, which

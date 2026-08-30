@@ -25,6 +25,7 @@ data class ChartStudySettings(
     val apex: ApexStudySettings = ApexStudySettings(),
     val compass: CompassStudySettings = CompassStudySettings(),
     val crucible: CrucibleStudySettings = CrucibleStudySettings(),
+    val keystone: KeystoneStudySettings = KeystoneStudySettings(),
     val macd: MacdStudySettings = MacdStudySettings(),
     val bollinger: BollingerStudySettings = BollingerStudySettings(),
     val superTrend: SuperTrendStudySettings = SuperTrendStudySettings(),
@@ -49,6 +50,7 @@ data class ChartStudySettings(
         apex = apex.sanitized(),
         compass = compass.sanitized(),
         crucible = crucible.sanitized(),
+        keystone = keystone.sanitized(),
         macd = macd.sanitized(),
         bollinger = bollinger.sanitized(),
         superTrend = superTrend.sanitized(),
@@ -744,4 +746,79 @@ enum class CruciblePresetOption(val label: String) {
     SCALPING("Scalping"),
     INTRADAY("Intraday"),
     SWING("Swing"),
+}
+
+/**
+ * Trader-facing settings for the Keystone liquidity-sweep engine.
+ *
+ * The reward floor is the most consequential setting here, and it is the one
+ * that most invites being lowered. Dropping it raises the number of signals and
+ * lowers the expectancy of each, which looks like an improvement on a chart and
+ * is the opposite of one in the record — so the acceptance figures beside it are
+ * the thing to read after changing it, not the arrow count.
+ *
+ * The validation parameters — fold count, bootstrap runs, the exit grid the
+ * overfitting probability is measured across — are deliberately not exposed.
+ * Each of them determines how strong a claim the report is entitled to make,
+ * and an editable version would let the test be weakened until it passed.
+ */
+@Immutable
+data class KeystoneStudySettings(
+    val preset: KeystonePresetOption = KeystonePresetOption.INTRADAY,
+    /** Require a divergence against a correlated market. */
+    val requireSmt: Boolean = true,
+    /** Stand down when the session has already travelled hard against the setup. */
+    val avoidTradingAgainstSession: Boolean = true,
+    val entryMode: KeystoneEntryOption = KeystoneEntryOption.FVG_THEN_EQUILIBRIUM,
+    /** Reward the geometry must reach or the setup is dropped. */
+    val minRewardMultiple: Double = 1.5,
+    /** Reward used when no opposing pool sits far enough away. */
+    val defaultRewardMultiple: Double = 2.0,
+    /** Buffer beyond the swept extreme, in ATR multiples. */
+    val stopAtrBuffer: Double = 0.25,
+    /** Body size a displacement candle must reach, in ATR multiples. */
+    val displacementAtrMultiple: Double = 1.2,
+    /** Account risked per trade, in percent. */
+    val riskPercent: Double = 0.5,
+    /** Losing trades after which the engine stands down for the day. */
+    val maxDailyLosses: Int = 2,
+    /** Trades taken per day before the engine stops looking. */
+    val maxDailySignals: Int = 3,
+    /** Spread assumed when judging whether a stop is too tight to trade. */
+    val assumedSpreadFraction: Double = 0.00002,
+    /** Minutes either side of a scheduled release in which nothing is taken. */
+    val newsBlackoutMinutes: Int = 30,
+    /** Withhold every signal until the acceptance test passes. */
+    val enforceAcceptance: Boolean = false,
+    val historicalSignals: Boolean = true,
+    val liveWindowBars: Int = 500,
+) {
+    fun sanitized(): KeystoneStudySettings = copy(
+        minRewardMultiple = finite(minRewardMultiple, 1.5).coerceIn(0.5, 10.0),
+        defaultRewardMultiple = finite(defaultRewardMultiple, 2.0).coerceIn(0.5, 20.0),
+        stopAtrBuffer = finite(stopAtrBuffer, 0.25).coerceIn(0.0, 3.0),
+        displacementAtrMultiple = finite(displacementAtrMultiple, 1.2).coerceIn(0.2, 6.0),
+        riskPercent = finite(riskPercent, 0.5).coerceIn(0.05, 5.0),
+        maxDailyLosses = maxDailyLosses.coerceIn(1, 10),
+        maxDailySignals = maxDailySignals.coerceIn(1, 20),
+        assumedSpreadFraction = finite(assumedSpreadFraction, 0.00002).coerceIn(0.0, 0.01),
+        newsBlackoutMinutes = newsBlackoutMinutes.coerceIn(0, 120),
+        liveWindowBars = liveWindowBars.coerceIn(20, 10_000),
+    )
+
+    private fun finite(value: Double, fallback: Double): Double =
+        if (value.isFinite()) value else fallback
+}
+
+enum class KeystonePresetOption(val label: String) {
+    SCALPING("Scalping"),
+    INTRADAY("Intraday"),
+    SWING("Swing"),
+}
+
+/** Where the entry is taken once displacement has confirmed. */
+enum class KeystoneEntryOption(val label: String) {
+    FVG_THEN_EQUILIBRIUM("FVG, else 50-62%"),
+    FVG_ONLY("FVG only"),
+    EQUILIBRIUM_ONLY("50-62% only"),
 }

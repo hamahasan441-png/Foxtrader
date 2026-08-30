@@ -52,6 +52,11 @@ class SignalEvidenceReducer @Inject constructor() {
         SignalSource.SMS -> Family.STRUCTURE_LIQUIDITY
         SignalSource.SMT -> Family.DIVERGENCE
         SignalSource.LIQUIDITY_SWEEP,
+        // Keystone carries genuinely independent evidence in its SMT leg, but
+        // its sweep and displacement legs read the same structure primitives
+        // the engines above do. A family is single-valued, so it takes the one
+        // that prevents the larger double count.
+        SignalSource.KEYSTONE,
         SignalSource.VIRGIN_WICK -> Family.STRUCTURE_LIQUIDITY
         SignalSource.RSI_ORDERFLOW,
         SignalSource.RSI_REVERSAL -> Family.MOMENTUM_ORDERFLOW
