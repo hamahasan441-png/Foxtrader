@@ -181,10 +181,17 @@ class LitXEngine @Inject constructor(
         val zone = premiumDiscount.calculate(candles)
         val shift = mssClassifier.classify(
             breaks = structure.breaks,
-            displacement = displacement,
             displacementAtrMultiple = effectiveDisplacementAtr,
             minBreakIndex = setupStartIndex,
-        )
+        ) { direction, from, to ->
+            displacementDetector.detectInWindow(
+                candles = candles,
+                direction = direction,
+                from = from,
+                to = to,
+                atrMultiple = effectiveDisplacementAtr,
+            )
+        }
 
         // --- Directional intent ---
         val intended: Direction? = shift.direction ?: when (structure.bias) {
