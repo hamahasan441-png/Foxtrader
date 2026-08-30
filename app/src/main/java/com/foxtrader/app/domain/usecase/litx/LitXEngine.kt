@@ -164,7 +164,24 @@ class LitXEngine @Inject constructor(
         val effectiveShiftToRetest = cfg.maxShiftToRetestBars
 
         val now = candles.last().timestamp
-        val setupStartIndex = (candles.lastIndex - SETUP_LOOKBACK_BARS + 1).coerceAtLeast(0)
+        // The setup window has to be able to contain the sequence the other
+        // windows describe, or those settings are promises the engine cannot
+        // keep. A sweep, the shift that follows it, the bars structure needs to
+        // confirm that shift, and the retest after it span
+        // maxSweepToShift + STRUCTURE_RIGHT_BARS + maxShiftToRetest bars — 31
+        // at the defaults, against a fixed window of 30. So the last bar of a
+        // valid sequence always fell outside the window that was searched for
+        // its first bar, and widening either configured window made no
+        // difference because the fixed one still cut the sweep off.
+        //
+        // Measured on five thousand bars each of EURUSD, GBPUSD, AUDUSD,
+        // USDJPY and XAUUSD on M15 and H1 — ten real series — the study
+        // published nothing at all.
+        val setupLookbackBars = maxOf(
+            SETUP_LOOKBACK_BARS,
+            effectiveSweepToShift + STRUCTURE_RIGHT_BARS + effectiveShiftToRetest + SETUP_WINDOW_MARGIN,
+        )
+        val setupStartIndex = (candles.lastIndex - setupLookbackBars + 1).coerceAtLeast(0)
         val vol = candles.takeLast(VOL_WINDOW).map { it.range }.average().coerceAtLeast(1e-9)
         val price = candles.last().close
 
@@ -656,7 +673,17 @@ class LitXEngine @Inject constructor(
 
     private companion object {
         const val MIN_BARS = 50
+        /** Floor for the setup window; the configured windows can widen it. */
         const val SETUP_LOOKBACK_BARS = 30
+
+        /**
+         * Slack beyond the exact span the configured windows need.
+         *
+         * Without it the sequence only fits when every stage lands on its
+         * earliest possible bar, which is a boundary the market has no reason
+         * to respect.
+         */
+        const val SETUP_WINDOW_MARGIN = 5
         const val VOL_WINDOW = 14
         const val LONG_VOL_WINDOW = 50
         const val STRUCTURE_RIGHT_BARS = 5

@@ -78,8 +78,14 @@ class DisplacementDetector @Inject constructor() {
             // it happened in.
             val volatility = candles.subList((i - VOL_WINDOW).coerceAtLeast(0), i + 1)
                 .map { it.range }.average().coerceAtLeast(1e-9)
+            // Size measured on the range, because the volatility it is compared
+            // against is itself an average range. Comparing a body to it is a
+            // category error that makes the test several times stricter than it
+            // reads: on real EURUSD the median body is 0.35 of average range
+            // against a median range of 0.86. The body-dominance test above is
+            // what stops a long wick passing.
             val bodyRatio = candle.bodySize / candle.range
-            val multiple = candle.bodySize / volatility
+            val multiple = candle.range / volatility
             if (bodyRatio < bodyRatioMin || multiple < atrMultiple) continue
 
             val hasFvg = when {
