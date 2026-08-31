@@ -9,6 +9,7 @@ import com.foxtrader.app.domain.model.LiquidityPool
 import com.foxtrader.app.domain.model.LiquidityType
 import com.foxtrader.app.domain.model.LitXAnalysis
 import com.foxtrader.app.domain.model.LitXConfig
+import com.foxtrader.app.domain.model.gates
 import com.foxtrader.app.domain.model.LitXMode
 import com.foxtrader.app.domain.model.LitXSignal
 import com.foxtrader.app.domain.model.LitXStage
@@ -78,67 +79,6 @@ class LitXEngine @Inject constructor(
         val maxShiftToRetestBars: Int,
     )
 
-    /**
-     * The structural gates a [LitXMode] applies. Everything here answers
-     * "which conditions are mandatory", never "how strict is the threshold" —
-     * thresholds stay in [LitXConfig] / [ProfileRules].
-     *
-     * Read this table as the definition of the modes; the validation block below
-     * only applies it.
-     *
-     * | gate | SNIPER | PRECISION | MOMENTUM | SWEEP_REVERSAL |
-     * |---|---|---|---|---|
-     * | liquidity sweep required     | yes | yes | no  | yes |
-     * | POI retest required          | yes | yes | no  | yes |
-     * | in-band tap (not near-band)  | yes | no  | n/a | no  |
-     * | FVG admissible as POI origin | no  | yes | yes | yes |
-     * | aligned displacement required| yes | no  | yes | no  |
-     * | kill-zone session required   | yes | no  | no  | no  |
-     */
-    private data class ModeRules(
-        val requireSweep: Boolean,
-        val requireRetest: Boolean,
-        val requireInBandTap: Boolean,
-        val allowFvgPoi: Boolean,
-        val requireAlignedDisplacement: Boolean,
-        val requireKillZone: Boolean,
-    )
-
-    private fun modeRules(mode: LitXMode): ModeRules = when (mode) {
-        LitXMode.SNIPER -> ModeRules(
-            requireSweep = true,
-            requireRetest = true,
-            requireInBandTap = true,
-            allowFvgPoi = false,
-            requireAlignedDisplacement = true,
-            requireKillZone = true,
-        )
-        LitXMode.PRECISION -> ModeRules(
-            requireSweep = true,
-            requireRetest = true,
-            requireInBandTap = false,
-            allowFvgPoi = true,
-            requireAlignedDisplacement = false,
-            requireKillZone = false,
-        )
-        LitXMode.MOMENTUM -> ModeRules(
-            requireSweep = false,
-            requireRetest = false,
-            requireInBandTap = false,
-            allowFvgPoi = true,
-            requireAlignedDisplacement = true,
-            requireKillZone = false,
-        )
-        LitXMode.SWEEP_REVERSAL -> ModeRules(
-            requireSweep = true,
-            requireRetest = true,
-            requireInBandTap = false,
-            allowFvgPoi = true,
-            requireAlignedDisplacement = false,
-            requireKillZone = false,
-        )
-    }
-
     fun analyze(
         symbol: String,
         timeframe: Timeframe,
@@ -156,7 +96,7 @@ class LitXEngine @Inject constructor(
         }
 
         val cfg = config.sanitized()
-        val rules = modeRules(cfg.mode)
+        val rules = cfg.effectiveGates()
         val effectiveDisplacementAtr = cfg.displacementAtrMultiple
         val effectiveMinRr = cfg.minRiskReward
         val effectiveMinConfidence = cfg.minConfidenceScore
@@ -352,10 +292,15 @@ class LitXEngine @Inject constructor(
         val poiTapped = retestAfterShift && poi != null &&
             firstRetestIndex != null && candles[firstRetestIndex].low <= poi.high + vol &&
             candles[firstRetestIndex].high >= poi.low - vol
+        // "Longs from discount" means do not buy what is already expensive, not
+        // "buy only at the very bottom". Demanding DISCOUNT exactly also refused
+        // every setup at EQUILIBRIUM — which is where the 50% retracement of a
+        // displacement lands, so it rejected the entries the model is built
+        // around. Premium is what disqualifies a long; equilibrium does not.
         val directionalZoneAligned = when {
             zone == null -> true
-            bullish -> zone.currentZone == PriceZoneKind.DISCOUNT
-            else -> zone.currentZone == PriceZoneKind.PREMIUM
+            bullish -> zone.currentZone != PriceZoneKind.PREMIUM
+            else -> zone.currentZone != PriceZoneKind.DISCOUNT
         }
         val htfDirectionAligned = (bullish && effHtfBias == Bias.BULLISH) ||
             (!bullish && effHtfBias == Bias.BEARISH)
