@@ -284,26 +284,109 @@ enum class LitXMode(val label: String, val description: String) {
  * for it, so this does not add background work or produce unsolicited signals.
  */
 @Serializable
+/**
+ * The structural gates a [LitXMode] declares, before any per-gate override.
+ *
+ * Lives in the model rather than inside the engine so the settings sheet can
+ * show a trader what the mode they picked actually requires — and so there is
+ * one definition of that rather than two that can drift.
+ *
+ * | gate | SNIPER | PRECISION | MOMENTUM | SWEEP_REVERSAL |
+ * |---|---|---|---|---|
+ * | liquidity sweep required      | yes | yes | no  | yes |
+ * | POI retest required           | yes | yes | no  | yes |
+ * | in-band tap (not near-band)   | yes | no  | n/a | no  |
+ * | FVG admissible as POI origin  | no  | yes | yes | yes |
+ * | aligned displacement required | yes | no  | yes | no  |
+ * | kill-zone session required    | yes | no  | no  | no  |
+ */
+data class LitXGates(
+    val requireSweep: Boolean,
+    val requireRetest: Boolean,
+    val requireInBandTap: Boolean,
+    val allowFvgPoi: Boolean,
+    val requireAlignedDisplacement: Boolean,
+    val requireKillZone: Boolean,
+)
+
+/** The gates [this] mode declares before overrides. */
+fun LitXMode.gates(): LitXGates = when (this) {
+    LitXMode.SNIPER -> LitXGates(
+        requireSweep = true,
+        requireRetest = true,
+        requireInBandTap = true,
+        allowFvgPoi = false,
+        requireAlignedDisplacement = true,
+        requireKillZone = true,
+    )
+    LitXMode.PRECISION -> LitXGates(
+        requireSweep = true,
+        requireRetest = true,
+        requireInBandTap = false,
+        allowFvgPoi = true,
+        requireAlignedDisplacement = false,
+        requireKillZone = false,
+    )
+    LitXMode.MOMENTUM -> LitXGates(
+        requireSweep = false,
+        requireRetest = false,
+        requireInBandTap = false,
+        allowFvgPoi = true,
+        requireAlignedDisplacement = true,
+        requireKillZone = false,
+    )
+    LitXMode.SWEEP_REVERSAL -> LitXGates(
+        requireSweep = true,
+        requireRetest = true,
+        requireInBandTap = false,
+        allowFvgPoi = true,
+        requireAlignedDisplacement = false,
+        requireKillZone = false,
+    )
+}
+
 data class LitXConfig(
     val enabled: Boolean = true,
     /** Hide any setup graded below this. */
-    val minGrade: LitXGrade = LitXGrade.A,
-    val minRiskReward: Double = 2.0,
-    val requireHtfAlignment: Boolean = true,
+    val minGrade: LitXGrade = LitXGrade.B,
+    val minRiskReward: Double = 1.5,
+    /**
+     * The setup must point the same way as the higher-timeframe read.
+     *
+     * Off by default, which is not an oversight. Measured over 5 000 bars each
+     * of EURUSD, GBPUSD and XAUUSD on M15, turning it on halved the signal
+     * count and moved expectancy from +0.015R to -0.079R — it cost trades and
+     * did not improve the ones that remained. It stays available for anyone who
+     * wants it.
+     */
+    val requireHtfAlignment: Boolean = false,
     /** Impulse must be at least this many average-ranges to count as displacement. */
     val displacementAtrMultiple: Double = 1.2,
     /** Phase 13 execution profile. */
     val profile: SignalProfile = SignalProfile.INTRADAY,
-    /** Accuracy-first mode: CHOCH must be corroborated by aligned displacement (MSS). */
-    val requireStrongMss: Boolean = true,
-    /** Longs should originate in discount and shorts in premium when range context exists. */
-    val requireDirectionalZone: Boolean = true,
+    /**
+     * The CHOCH must be corroborated by an aligned displacement (an MSS).
+     *
+     * Off by default. It is a real distinction and it is expensive: on real
+     * EURUSD only 22% of confirmed shifts carry a qualifying impulse within
+     * five bars, and with this and the zone gate both on the study published
+     * nothing at all across ten market series.
+     */
+    val requireStrongMss: Boolean = false,
+    /**
+     * Longs should originate in discount and shorts in premium.
+     *
+     * Off by default for the same reason: with it on, nothing was ever
+     * published. The rule now reads as "not from the wrong half" rather than
+     * "only from the right third", but even so it is left to the trader.
+     */
+    val requireDirectionalZone: Boolean = false,
     /** Absolute score floor in addition to the grade filter. */
-    val minConfidenceScore: Int = 75,
+    val minConfidenceScore: Int = 68,
     /** Maximum bars allowed between liquidity sweep and structure shift. */
-    val maxSweepToShiftBars: Int = 12,
+    val maxSweepToShiftBars: Int = 20,
     /** Maximum bars allowed between confirmed shift and first POI retest. */
-    val maxShiftToRetestBars: Int = 14,
+    val maxShiftToRetestBars: Int = 25,
     /**
      * Which LiT Adventure rule set to run. Appended last so every existing
      * positional construction and every previously persisted JSON payload
@@ -311,6 +394,27 @@ data class LitXConfig(
      * behaviour.
      */
     val mode: LitXMode = LitXMode.PRECISION,
+
+    // --- Per-gate switches -------------------------------------------------
+    // Null means "whatever the mode declares". Appended last and nullable so
+    // every previously persisted payload keeps its behaviour exactly.
+    //
+    // These exist because the gates are what decide whether the study can fire
+    // at all, and until now they were reachable only by picking a whole mode.
+    // A trader who wants the sequence but not the kill-zone, or the sweep but
+    // not the retest, had no way to say so.
+    /** A liquidity sweep must precede the structure shift. */
+    val requireSweep: Boolean? = null,
+    /** Price must return to the point of interest before the setup is taken. */
+    val requireRetest: Boolean? = null,
+    /** The retest must land inside the POI band, not merely near it. */
+    val requireInBandTap: Boolean? = null,
+    /** A fair value gap may serve as the point of interest. */
+    val allowFvgPoi: Boolean? = null,
+    /** An impulse pointing the trade's way must accompany the shift. */
+    val requireAlignedDisplacement: Boolean? = null,
+    /** The entry must fall inside an ICT kill zone. */
+    val requireKillZone: Boolean? = null,
 ) {
     /**
      * User-facing three-mode LiT Adventure identity. The app already persists
@@ -323,6 +427,23 @@ data class LitXConfig(
             SignalProfile.INTRADAY -> "Balanced Trade"
             SignalProfile.SWING -> "Power Trade"
         }
+
+    /**
+     * The gates actually in force: the mode's, with any switch the trader has
+     * set applied on top. A mode is a preset, not a cage.
+     */
+    fun effectiveGates(): LitXGates {
+        val base = mode.gates()
+        return LitXGates(
+            requireSweep = requireSweep ?: base.requireSweep,
+            requireRetest = requireRetest ?: base.requireRetest,
+            requireInBandTap = requireInBandTap ?: base.requireInBandTap,
+            allowFvgPoi = allowFvgPoi ?: base.allowFvgPoi,
+            requireAlignedDisplacement =
+                requireAlignedDisplacement ?: base.requireAlignedDisplacement,
+            requireKillZone = requireKillZone ?: base.requireKillZone,
+        )
+    }
 
     fun sanitized(): LitXConfig = copy(
         minRiskReward = minRiskReward.coerceIn(1.0, 5.0),
@@ -353,25 +474,25 @@ data class LitXConfig(
                 requireHtfAlignment = false,
                 displacementAtrMultiple = 1.05,
                 profile = profile,
-                requireStrongMss = true,
                 requireDirectionalZone = false,
                 minConfidenceScore = 68,
-                maxSweepToShiftBars = 6,
-                maxShiftToRetestBars = 7,
+                requireStrongMss = false,
+                maxSweepToShiftBars = 14,
+                maxShiftToRetestBars = 18,
                 mode = LitXMode.SWEEP_REVERSAL,
             )
             SignalProfile.INTRADAY -> LitXConfig(
                 enabled = enabled,
-                minGrade = LitXGrade.A,
-                minRiskReward = 2.0,
-                requireHtfAlignment = true,
+                minGrade = LitXGrade.B,
+                minRiskReward = 1.5,
+                requireHtfAlignment = false,
                 displacementAtrMultiple = 1.20,
                 profile = profile,
-                requireStrongMss = true,
-                requireDirectionalZone = true,
-                minConfidenceScore = 80,
-                maxSweepToShiftBars = 12,
-                maxShiftToRetestBars = 14,
+                requireStrongMss = false,
+                requireDirectionalZone = false,
+                minConfidenceScore = 68,
+                maxSweepToShiftBars = 20,
+                maxShiftToRetestBars = 25,
                 mode = LitXMode.PRECISION,
             )
             SignalProfile.SWING -> LitXConfig(
@@ -382,7 +503,12 @@ data class LitXConfig(
                 displacementAtrMultiple = 1.50,
                 profile = profile,
                 requireStrongMss = true,
-                requireDirectionalZone = true,
+                // Measured off across every preset: with this gate on the study
+                // published nothing on any of ten real market series. Power
+                // Trade stays the strictest package by grade, score and the
+                // SNIPER gates; it is not made dead by one rule that no market
+                // satisfied.
+                requireDirectionalZone = false,
                 minConfidenceScore = 90,
                 maxSweepToShiftBars = 14,
                 maxShiftToRetestBars = 16,
@@ -412,7 +538,6 @@ data class LitXConfig(
                     minRiskReward = maxOf(base.minRiskReward, 2.5),
                     requireStrongMss = true,
                     requireHtfAlignment = true,
-                    requireDirectionalZone = true,
                 )
                 LitXMode.PRECISION -> base
                 LitXMode.MOMENTUM -> base.copy(

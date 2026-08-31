@@ -776,8 +776,8 @@ data class KeystoneStudySettings(
     val defaultRewardMultiple: Double = 2.0,
     /** Buffer beyond the swept extreme, in ATR multiples. */
     val stopAtrBuffer: Double = 0.25,
-    /** Body size a displacement candle must reach, in ATR multiples. */
-    val displacementAtrMultiple: Double = 1.2,
+    /** Range a displacement candle must reach, in ATR multiples. */
+    val displacementAtrMultiple: Double = 1.5,
     /** Account risked per trade, in percent. */
     val riskPercent: Double = 0.5,
     /** Losing trades after which the engine stands down for the day. */
@@ -797,7 +797,7 @@ data class KeystoneStudySettings(
         minRewardMultiple = finite(minRewardMultiple, 1.5).coerceIn(0.5, 10.0),
         defaultRewardMultiple = finite(defaultRewardMultiple, 2.0).coerceIn(0.5, 20.0),
         stopAtrBuffer = finite(stopAtrBuffer, 0.25).coerceIn(0.0, 3.0),
-        displacementAtrMultiple = finite(displacementAtrMultiple, 1.2).coerceIn(0.2, 6.0),
+        displacementAtrMultiple = finite(displacementAtrMultiple, 1.5).coerceIn(0.2, 6.0),
         riskPercent = finite(riskPercent, 0.5).coerceIn(0.05, 5.0),
         maxDailyLosses = maxDailyLosses.coerceIn(1, 10),
         maxDailySignals = maxDailySignals.coerceIn(1, 20),

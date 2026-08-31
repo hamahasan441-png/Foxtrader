@@ -260,6 +260,27 @@ class ChartViewport(
     }
 
     /**
+     * Bring [index] into view without changing the zoom.
+     *
+     * Placed a little right of centre so the bars that produced the signal are
+     * on screen alongside what happened after it, which is the context a marker
+     * is read in. Returns false when the index is already visible, so a caller
+     * can use this to mean "only move if there is nothing to see".
+     */
+    fun focusOnIndex(index: Int, total: Int): Boolean {
+        if (total <= 0 || index < 0 || index >= total) return false
+        if (isIndexVisible(index)) return false
+        startIndex = (index - visibleBars * FOCUS_ANCHOR_FRACTION)
+            .coerceIn(0f, maxFutureStartIndex(total))
+        stopFling()
+        return true
+    }
+
+    /** Whether [index] currently falls inside the visible window. */
+    fun isIndexVisible(index: Int): Boolean =
+        index >= startIndex && index <= startIndex + visibleBars
+
+    /**
      * Whether the camera is in the normal live-follow position.
      *
      * Panning into the deliberate future-space area must turn live-follow off;
@@ -538,6 +559,14 @@ class ChartViewport(
 
         /** Default window on first layout / after "go to now". */
         const val DEFAULT_VISIBLE_BARS = 80f
+
+        /**
+         * Where a focused index lands across the screen.
+         *
+         * Right of centre, so the bars that produced the marker are visible
+         * alongside what price did afterwards.
+         */
+        const val FOCUS_ANCHOR_FRACTION = 0.6f
 
         /** Furthest allowed future-space pan places the newest candle at 50% width. */
         const val LAST_CANDLE_CENTER_FRACTION = 0.5f

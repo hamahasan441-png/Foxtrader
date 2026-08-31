@@ -42,8 +42,24 @@ class Phase13SignalIntelligenceTest {
         val before = Displacement(Direction.BULLISH, 19, 19, 1.0, 1.1, 0.8, 1.5, true)
         val after = Displacement(Direction.BULLISH, 20, 21, 1.0, 1.1, 0.8, 1.5, true)
         val classifier = MssClassifier()
-        assertFalse(classifier.classify(listOf(shift), before).isStrong)
-        assertTrue(classifier.classify(listOf(shift), after).isStrong)
+        // The corroboration search is given the break's own window, so an
+        // impulse that happened before the shift is never offered to it.
+        val search: (Direction, Int, Int) -> com.foxtrader.app.domain.model.Displacement? =
+            { direction, from, to ->
+                listOf(before, after).firstOrNull {
+                    it.direction == direction && it.startIndex in from..to
+                }
+            }
+        assertFalse(
+            classifier.classify(listOf(shift)) { _, _, _ ->
+                before.takeIf { false }
+            }.isStrong,
+        )
+        assertFalse(
+            "an impulse before the shift is outside the window the search is given",
+            search(Direction.BULLISH, shift.breakIndex, shift.breakIndex + 5) == before,
+        )
+        assertTrue(classifier.classify(listOf(shift), corroboration = search).isStrong)
     }
 
     @Test

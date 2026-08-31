@@ -67,16 +67,46 @@ class LitXPrimitivesTest {
         val choch = StructureBreak(StructureBreakType.CHOCH, Direction.BULLISH, 1.10, 0L, 40, true)
         val alignedDisp = Displacement(Direction.BULLISH, 41, 41, 1.10, 1.13, 0.9, 1.5, true)
 
-        val strong = classifier.classify(listOf(choch), alignedDisp)
+        val strong = classifier.classify(listOf(choch)) { _, _, _ -> alignedDisp }
         assertTrue(strong.present)
         assertEquals(StructureBreakType.MSS, strong.type)
         assertTrue(strong.isStrong)
+        assertEquals(alignedDisp, strong.displacement)
 
-        val weak = classifier.classify(listOf(choch), displacement = null)
+        val weak = classifier.classify(listOf(choch)) { _, _, _ -> null }
         assertEquals(StructureBreakType.CHOCH, weak.type)
         assertFalse(weak.isStrong)
 
-        val none = classifier.classify(emptyList(), null)
+        val none = classifier.classify(emptyList()) { _, _, _ -> alignedDisp }
         assertFalse(none.present)
+    }
+
+    /**
+     * The corroborating impulse is looked for inside the break's own window.
+     *
+     * The classifier used to be handed one candidate impulse and asked whether
+     * it happened to sit in the window. Over five thousand bars of real EURUSD
+     * an aligned impulse existed inside the window 693 times and that form
+     * recognised 150 of them, which is why LiT Adventure could not reach its
+     * shift stage at all.
+     */
+    @Test
+    fun `the corroboration search is given the break's own window`() {
+        val classifier = MssClassifier()
+        val choch = StructureBreak(StructureBreakType.CHOCH, Direction.BULLISH, 1.10, 0L, 40, true)
+        var askedDirection: Direction? = null
+        var askedFrom = -1
+        var askedTo = -1
+
+        classifier.classify(listOf(choch), maxDisplacementGapBars = 5) { direction, from, to ->
+            askedDirection = direction
+            askedFrom = from
+            askedTo = to
+            null
+        }
+
+        assertEquals(Direction.BULLISH, askedDirection)
+        assertEquals(40, askedFrom)
+        assertEquals(45, askedTo)
     }
 }

@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.foxtrader.app.domain.model.LitConfig
 import com.foxtrader.app.domain.model.LitXConfig
+import com.foxtrader.app.domain.model.LitXGrade
 import com.foxtrader.app.domain.model.LitXMode
 import com.foxtrader.app.domain.model.SignalProfile
 import com.foxtrader.app.domain.model.SmsConfig
@@ -271,8 +272,45 @@ private fun StudySettingsCard(
                     IntStepper("Shift → retest", litXConfig.maxShiftToRetestBars, 3, 40) { value ->
                         onLitXConfigChange(litXConfig.copy(enabled = true, maxShiftToRetestBars = value).sanitized())
                     }
+                    LitXGradeSelector(litXConfig.minGrade) { grade ->
+                        onLitXConfigChange(litXConfig.copy(enabled = true, minGrade = grade).sanitized())
+                    }
+
+                    // Every structural gate, individually. The mode still sets
+                    // them; these say so explicitly and let any one of them be
+                    // switched off without abandoning the rest of the mode.
+                    val gates = litXConfig.effectiveGates()
+                    ToggleRow("Require liquidity sweep", gates.requireSweep) { enabled ->
+                        onLitXConfigChange(litXConfig.copy(enabled = true, requireSweep = enabled).sanitized())
+                    }
+                    ToggleRow("Require POI retest", gates.requireRetest) { enabled ->
+                        onLitXConfigChange(litXConfig.copy(enabled = true, requireRetest = enabled).sanitized())
+                    }
+                    ToggleRow("Retest must land inside the POI", gates.requireInBandTap) { enabled ->
+                        onLitXConfigChange(litXConfig.copy(enabled = true, requireInBandTap = enabled).sanitized())
+                    }
+                    ToggleRow("Allow a fair value gap as POI", gates.allowFvgPoi) { enabled ->
+                        onLitXConfigChange(litXConfig.copy(enabled = true, allowFvgPoi = enabled).sanitized())
+                    }
+                    ToggleRow("Require aligned displacement", gates.requireAlignedDisplacement) { enabled ->
+                        onLitXConfigChange(
+                            litXConfig.copy(enabled = true, requireAlignedDisplacement = enabled).sanitized(),
+                        )
+                    }
+                    ToggleRow("Require kill zone", gates.requireKillZone) { enabled ->
+                        onLitXConfigChange(litXConfig.copy(enabled = true, requireKillZone = enabled).sanitized())
+                    }
                     Text(
-                        text = "Logic modes: Sweep Reversal, Precision, Momentum and Sniper. Each emits only after its own closed-bar structural gates pass.",
+                        text = "Logic modes: Sweep Reversal, Precision, Momentum and Sniper. A mode sets the " +
+                            "gates below; each one can then be switched off on its own without leaving the mode.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textSecondary,
+                    )
+                    Text(
+                        text = "Measured on 5 000 bars each of EURUSD, GBPUSD, AUDUSD, USDJPY and XAUUSD on " +
+                            "M15 and H1: with the displacement-MSS and premium/discount gates both on, this " +
+                            "study published nothing on any of the ten. They are off by default and available " +
+                            "here.",
                         style = MaterialTheme.typography.bodySmall,
                         color = colors.textSecondary,
                     )
@@ -785,7 +823,7 @@ ResetButton { updateSettings(onChange) { it.copy(rsiOrderFlow = RsiOrderFlowStud
                             it.copy(keystone = it.keystone.copy(stopAtrBuffer = value).sanitized())
                         }
                     }
-                    DoubleStepper("Displacement (ATR)", settings.keystone.displacementAtrMultiple, 0.1, 0.2, 6.0) { value ->
+                    DoubleStepper("Displacement range (ATR)", settings.keystone.displacementAtrMultiple, 0.1, 0.2, 6.0) { value ->
                         updateSettings(onChange) {
                             it.copy(keystone = it.keystone.copy(displacementAtrMultiple = value).sanitized())
                         }
@@ -1365,6 +1403,12 @@ private fun CruciblePresetRow(
     selected: CruciblePresetOption,
     onSelect: (CruciblePresetOption) -> Unit,
 ) = PresetChipRow("Style", CruciblePresetOption.entries, selected, { it.label }, onSelect)
+
+@Composable
+private fun LitXGradeSelector(
+    selected: LitXGrade,
+    onSelect: (LitXGrade) -> Unit,
+) = PresetChipRow("Min grade", LitXGrade.entries, selected, { it.name.replace('_', '+') }, onSelect)
 
 @Composable
 private fun KeystonePresetRow(

@@ -45,17 +45,29 @@ class KeystoneLiquidity {
         return result.sortedBy { it.formedIndex }
     }
 
+    /**
+     * A shelf that has already been taken, and the bar it was taken on.
+     *
+     * The bar matters. Liquidity that has been collected is gone, but it is not
+     * gone forever — new stops accumulate at the same shelf over the following
+     * days, and by the time a pool at that price is being marked again it is
+     * genuinely new liquidity rather than the same resting orders.
+     */
+    data class Consumed(val aboveMarket: Boolean, val price: Double, val index: Int)
+
     /** Pools knowable at [index], still young enough, and not already taken. */
     fun activeAt(
         pools: List<KeystonePool>,
         index: Int,
-        consumed: List<Pair<Boolean, Double>>,
+        consumed: List<Consumed>,
         config: KeystoneConfig,
     ): List<KeystonePool> = pools.filter { pool ->
         pool.formedIndex < index &&
             index - pool.formedIndex <= config.maxPoolAgeBars &&
-            consumed.none { (side, price) ->
-                side == pool.aboveMarket && samePool(price, pool.price, config)
+            consumed.none { taken ->
+                taken.aboveMarket == pool.aboveMarket &&
+                    index - taken.index <= config.maxPoolAgeBars &&
+                    samePool(taken.price, pool.price, config)
             }
     }
 
