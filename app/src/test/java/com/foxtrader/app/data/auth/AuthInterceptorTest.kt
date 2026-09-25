@@ -10,8 +10,10 @@ import com.foxtrader.app.domain.model.RegisterRequest
 import com.foxtrader.app.domain.model.SyncPullResponse
 import com.foxtrader.app.domain.model.SyncPushRequest
 import com.foxtrader.app.domain.model.UserProfile
+import com.foxtrader.app.domain.model.AuthState
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import okhttp3.Interceptor
 import okhttp3.Protocol
 import okhttp3.Request
@@ -19,8 +21,10 @@ import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import retrofit2.HttpException
 import java.io.IOException
 import javax.inject.Provider
 
@@ -108,10 +112,13 @@ class AuthInterceptorTest {
         override fun get(): SyncApi = fakeApi
     }
 
+    private fun rejected(code: Int) =
+        HttpException(retrofit2.Response.error<Any>(code, "{}".toResponseBody()))
+
     @Test
     fun `refresh failure returns a readable 401 instead of the closed response`() {
         stubTokenManager(accessToken = "expired-access-token")
-        fakeApi.onRefresh = { throw IOException("refresh endpoint unreachable") }
+        fakeApi.onRefresh = { throw rejected(401) }
 
         val chain = stubChain(build401())
         val interceptor = AuthInterceptor(tokenManager, provider())
@@ -125,6 +132,42 @@ class AuthInterceptorTest {
         assertTrue("expected a readable session-expired body", text?.contains("Session expired") == true)
         // Status must still reflect the session having expired.
         assertEquals(401, result.code)
+    }
+
+    @Test
+    fun `a rejected refresh token ends the session`() {
+        stubTokenManager(accessToken = "expired-access-token")
+        fakeApi.onRefresh = { throw rejected(401) }
+
+        AuthInterceptor(tokenManager, provider()).intercept(stubChain(build401()))
+
+        verify(exactly = 1) { tokenManager.clearTokens() }
+        verify { tokenManager.setAuthState(AuthState.SESSION_EXPIRED) }
+    }
+
+    @Test
+    fun `a network failure during refresh keeps the session and surfaces as IOException`() {
+        // Regression: any refresh exception used to wipe the tokens, so losing
+        // connectivity at the moment the access token expired logged the user out.
+        stubTokenManager(accessToken = "expired-access-token")
+        fakeApi.onRefresh = { throw IOException("refresh endpoint unreachable") }
+
+        assertThrows(IOException::class.java) {
+            AuthInterceptor(tokenManager, provider()).intercept(stubChain(build401()))
+        }
+        verify(exactly = 0) { tokenManager.clearTokens() }
+        verify(exactly = 0) { tokenManager.setAuthState(AuthState.SESSION_EXPIRED) }
+    }
+
+    @Test
+    fun `a server error during refresh keeps the session`() {
+        stubTokenManager(accessToken = "expired-access-token")
+        fakeApi.onRefresh = { throw rejected(503) }
+
+        assertThrows(IOException::class.java) {
+            AuthInterceptor(tokenManager, provider()).intercept(stubChain(build401()))
+        }
+        verify(exactly = 0) { tokenManager.clearTokens() }
     }
 
     @Test
