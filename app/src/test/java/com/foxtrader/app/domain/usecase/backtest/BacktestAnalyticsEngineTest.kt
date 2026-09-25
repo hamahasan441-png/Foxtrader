@@ -36,6 +36,20 @@ class BacktestAnalyticsEngineTest {
     }
 
     @Test
+    fun `monte carlo final balances actually vary between runs`() {
+        // Regression: runs were permutations of the same trades, whose sum is
+        // order-independent, so best, median and worst final balance were
+        // always one identical number.
+        val mc = engine.analyze(backtestResult(sampleTrades()), monteCarloRuns = 200, seed = 3).monteCarlo!!
+
+        assertTrue(
+            "best ${mc.bestFinalBalance} must exceed worst ${mc.worstFinalBalance}",
+            mc.bestFinalBalance > mc.worstFinalBalance,
+        )
+        assertTrue(mc.medianFinalBalance in mc.worstFinalBalance..mc.bestFinalBalance)
+    }
+
+    @Test
     fun `binary analysis creates deterministic walk forward and monte carlo validation`() {
         val result = binaryBacktestResult()
 

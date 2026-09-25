@@ -128,11 +128,17 @@ class BacktestAnalyticsEngine @Inject constructor() {
         val drawdowns = mutableListOf<Double>()
         var ruinCount = 0
         repeat(runs.coerceIn(10, MAX_MONTE_CARLO_RUNS)) { run ->
-            val shuffled = pnl.shuffled(Random(seed + run))
+            // Bootstrap: draw with replacement. A permutation (shuffle) of the
+            // same trades always sums to the same total, so every run ended on
+            // the identical balance — median, best and worst final balance were
+            // one number, and the balance-based ruin test was the same for all
+            // runs. Resampling lets both the path and the outcome vary.
+            val random = Random(seed + run)
             var equity = initialBalance
             var peak = initialBalance
             var maxDrawdown = 0.0
-            for (value in shuffled) {
+            repeat(pnl.size) {
+                val value = pnl[random.nextInt(pnl.size)]
                 equity += value
                 peak = max(peak, equity)
                 maxDrawdown = max(maxDrawdown, peak - equity)
