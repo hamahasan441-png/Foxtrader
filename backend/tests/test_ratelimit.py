@@ -46,3 +46,38 @@ def test_invalid_constructor_raises():
         RateLimiter(0, 60)
     with pytest.raises(ValueError):
         RateLimiter(5, 0)
+
+
+def test_expired_keys_are_evicted(monkeypatch):
+    # Regression: every distinct key (client IP) was kept forever, so a caller
+    # rotating addresses could grow the limiter's memory without bound.
+    import app.core.ratelimit as ratelimit
+
+    clock = {"now": 1000.0}
+    monkeypatch.setattr(ratelimit.time, "monotonic", lambda: clock["now"])
+    limiter = ratelimit.RateLimiter(max_requests=5, window_seconds=60)
+
+    for i in range(ratelimit._PRUNE_THRESHOLD - 1):
+        limiter.allow(f"ip-{i}")
+    clock["now"] += 61  # every existing window has now expired
+    limiter.allow("fresh-a")  # crosses the threshold and triggers a sweep
+
+    assert limiter.tracked_keys() == 1
+    # Budget semantics are unchanged for a key seen again after eviction.
+    assert limiter.remaining("ip-0") == 5
+
+
+def test_live_keys_survive_pruning(monkeypatch):
+    import app.core.ratelimit as ratelimit
+
+    clock = {"now": 1000.0}
+    monkeypatch.setattr(ratelimit.time, "monotonic", lambda: clock["now"])
+    limiter = ratelimit.RateLimiter(max_requests=2, window_seconds=60)
+
+    limiter.allow("attacker")
+    limiter.allow("attacker")
+    for i in range(ratelimit._PRUNE_THRESHOLD):
+        limiter.allow(f"ip-{i}")
+
+    # Still inside its window, so the exhausted budget must not be forgotten.
+    assert limiter.allow("attacker") is False
