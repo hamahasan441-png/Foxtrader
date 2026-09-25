@@ -572,10 +572,14 @@ class ChartViewModel @Inject constructor(
         if (displayCandles.isEmpty()) return
 
         // Feed the latest price to the shared paper-trading account so the Paper
-        // Trading screen can open one-tap orders at the live charted price and
-        // mark open positions to market. (onPrice only marks — it deliberately
-        // does NOT replay historical candles through stop/target logic.)
-        paperTradingSession.onPrice(symbol, displayCandles.last().close)
+        // Trading screen can open one-tap orders at the live charted price, mark
+        // open positions to market and enforce their stops/targets. Only the
+        // latest price is fed — historical candles are never replayed through
+        // stop/target logic. It must be the RAW market close: in Heikin-Ashi
+        // mode the display close is the (O+H+L+C)/4 average and in Renko mode a
+        // brick boundary, neither of which ever traded, so paper orders filled
+        // and marked at a price the market never printed.
+        paperTradingSession.onPrice(symbol, candles.last().close)
 
         // `CRASH-SAFETY` This pipeline is reached from the flow-driven data path
         // (observeMarket → onMergedCandlesChanged) where an uncaught exception
