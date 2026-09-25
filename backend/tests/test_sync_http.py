@@ -101,5 +101,11 @@ def test_pull_filters_by_type_and_since(client: TestClient):
     ).json()
     assert [i["id"] for i in only_drawings["items"]] == ["b"]
 
-    since_b = client.get("/api/v1/sync/pull", headers=headers, params={"since": 100}).json()
-    assert [i["id"] for i in since_b["items"]] == ["b"]
+    everything = client.get("/api/v1/sync/pull", headers=headers, params={"since": 0}).json()
+    assert [i["id"] for i in everything["items"]] == ["a", "b"]
+
+    # The returned serverTimestamp is the cursor: nothing is repeated after it.
+    after = client.get(
+        "/api/v1/sync/pull", headers=headers, params={"since": everything["serverTimestamp"]}
+    ).json()
+    assert after["items"] == []

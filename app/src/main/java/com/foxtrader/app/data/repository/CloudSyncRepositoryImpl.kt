@@ -44,11 +44,15 @@ class CloudSyncRepositoryImpl @Inject constructor(
      *
      * @param localItems Items to push (already diffed by the caller/domain layer).
      * @param deviceId The local device identifier.
+     * @param applyRemote Stores pulled items locally and returns how many
+     *   changed local data. It runs before the pull cursor advances, so a
+     *   failure leaves those items to be pulled again next time.
      * @return [CloudSyncEngine.SyncResult] with merge stats.
      */
     suspend fun sync(
         localItems: List<SyncEnvelope>,
         deviceId: String,
+        applyRemote: suspend (List<SyncEnvelope>) -> Int = { 0 },
     ): CloudSyncEngine.SyncResult = withContext(io) {
         if (!tokenManager.isLoggedIn()) {
             return@withContext CloudSyncEngine.SyncResult(
@@ -75,13 +79,17 @@ class CloudSyncRepositoryImpl @Inject constructor(
                 since = syncEngine.getLastSyncTime(),
             )
 
-            // 3. Update last-sync timestamp.
+            // 3. Apply what other devices wrote. Previously the pulled items
+            //    were only counted, never stored, so nothing synced down.
+            val applied = applyRemote(pullResponse.items)
+
+            // 4. Advance the cursor only once the items are safely applied.
             syncEngine.updateLastSyncTime(pullResponse.serverTimestamp)
             syncEngine.setSyncStatus(SyncStatus.SUCCESS)
 
             CloudSyncEngine.SyncResult(
                 success = true,
-                mergedEntries = pullResponse.items.size,
+                mergedEntries = applied,
                 conflicts = 0, // Conflict count would come from domain merge logic
                 timestamp = pullResponse.serverTimestamp,
             )

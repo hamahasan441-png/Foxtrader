@@ -22,6 +22,10 @@ interface JournalDao {
     @Query("SELECT * FROM journal_entries WHERE updatedAt > :since")
     suspend fun getModifiedSince(since: Long): List<JournalEntity>
 
+    /** Local modification stamp of every entry (for sync conflict resolution). */
+    @Query("SELECT id, updatedAt FROM journal_entries")
+    suspend fun modificationStamps(): List<JournalModificationStamp>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entry: JournalEntity)
 
@@ -34,3 +38,9 @@ interface JournalDao {
     @Query("DELETE FROM journal_entries")
     suspend fun clear()
 }
+
+/** Projection of [JournalEntity] used to resolve sync conflicts. */
+data class JournalModificationStamp(
+    val id: String,
+    val updatedAt: Long,
+)

@@ -173,3 +173,44 @@ def test_sqlite_concurrent_registration_returns_one_duplicate(tmp_path):
         outcomes = sorted(f.result() for f in futures)
 
     assert outcomes == ["duplicate", "ok"]
+
+
+def test_sqlite_offline_edit_pushed_late_is_still_delivered(db_path):
+    # Same regression as the memory store, through the durable backend.
+    store = SyncStore(SqliteStore(db_path))
+    store.push("user-1", [_envelope("seed", "JOURNAL", "{}", 500)])
+    _, cursor = store.pull("user-1", since_ms=0)
+
+    store.push("user-1", [_envelope("offline-edit", "JOURNAL", "{}", 1_000)])
+
+    items, next_cursor = store.pull("user-1", since_ms=cursor)
+    assert [i["id"] for i in items] == ["offline-edit"]
+    assert next_cursor > cursor
+
+
+def test_sqlite_database_from_before_write_stamps_is_migrated(db_path):
+    # A database created by the previous schema has no stored_at column.
+    import sqlite3
+
+    conn = sqlite3.connect(db_path)
+    conn.executescript(
+        """
+        CREATE TABLE sync_items (
+            user_id TEXT NOT NULL, id TEXT NOT NULL, type TEXT NOT NULL,
+            data TEXT NOT NULL, version INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+            device_id TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (user_id, id, type)
+        );
+        INSERT INTO sync_items VALUES ('user-1', 'old', 'JOURNAL', '{}', 1, 100, 'dev', 0);
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    store = SyncStore(SqliteStore(db_path))
+    # Existing rows keep the window they had: after 50 yes, after 100 no.
+    assert [i["id"] for i in store.pull("user-1", since_ms=50)[0]] == ["old"]
+    assert store.pull("user-1", since_ms=100)[0] == []
+
+    store.push("user-1", [_envelope("new", "JOURNAL", "{}", 10)])
+    assert [i["id"] for i in store.pull("user-1", since_ms=100)[0]] == ["new"]

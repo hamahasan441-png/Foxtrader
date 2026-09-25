@@ -53,12 +53,52 @@ def test_stale_write_does_not_overwrite_newer():
 def test_pull_respects_since_window_and_type_filter():
     store = SyncStore()
     store.push("user-1", [_envelope("a", "JOURNAL", "{}", 100)])
+    _, cursor = store.pull("user-1", since_ms=0)
     store.push("user-1", [_envelope("b", "DRAWINGS", "{}", 200)])
 
-    # Only items strictly newer than since are returned.
-    items, _ = store.pull("user-1", since_ms=100)
+    # Only items stored after the cursor are returned.
+    items, _ = store.pull("user-1", since_ms=cursor)
     assert [i["id"] for i in items] == ["b"]
 
     # Type filter narrows the result.
     items, _ = store.pull("user-1", since_ms=0, types={"JOURNAL"})
     assert [i["id"] for i in items] == ["a"]
+
+
+def test_offline_edit_pushed_late_reaches_a_device_that_already_pulled():
+    # Regression: the pull window compared the cursor (server time) with the
+    # client-authored updated_at. Device B edits offline at t=1_000, device A
+    # pulls, then B reconnects and pushes that edit. A's cursor is already
+    # past 1_000, so the edit was never delivered to A.
+    store = SyncStore()
+    store.push("user-1", [_envelope("seed", "JOURNAL", "{}", 500)])
+    _, device_a_cursor = store.pull("user-1", since_ms=0)
+    assert device_a_cursor > 1_000  # a real server-clock cursor
+
+    store.push("user-1", [_envelope("offline-edit", "JOURNAL", '{"n":1}', 1_000)])
+
+    items, _ = store.pull("user-1", since_ms=device_a_cursor)
+    assert [i["id"] for i in items] == ["offline-edit"]
+
+
+def test_cursor_advances_and_never_repeats_items():
+    store = SyncStore()
+    store.push("user-1", [_envelope("a", "JOURNAL", "{}", 100)])
+    items, cursor = store.pull("user-1", since_ms=0)
+    assert [i["id"] for i in items] == ["a"]
+
+    again, same_cursor = store.pull("user-1", since_ms=cursor)
+    assert again == []
+    assert same_cursor == cursor
+
+
+def test_rejected_older_write_is_not_redelivered():
+    # A last-write-wins loser is not stored, so it must not move the item
+    # into the next pull window either.
+    store = SyncStore()
+    store.push("user-1", [_envelope("a", "JOURNAL", "new", 200)])
+    _, cursor = store.pull("user-1", since_ms=0)
+    store.push("user-1", [_envelope("a", "JOURNAL", "stale", 100)])
+
+    items, _ = store.pull("user-1", since_ms=cursor)
+    assert items == []
