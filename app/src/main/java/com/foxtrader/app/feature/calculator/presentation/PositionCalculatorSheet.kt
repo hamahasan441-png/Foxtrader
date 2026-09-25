@@ -272,6 +272,9 @@ private fun ResultCard(sized: RiskAwarePositionCalculator.Outcome.Sized) {
         }
 
         MetricRow("Risk amount", money(r.riskAmount))
+        if (r.exceedsRequestedRisk) {
+            MetricRow("Actual risk at minimum size", money(r.actualRiskAmount))
+        }
         MetricRow("Stop distance", "${trim(r.stopDistancePips)} pips")
         r.riskRewardRatio?.let { MetricRow("Risk / reward", "1 : ${trim(it)}") }
         r.rewardAmount?.let { MetricRow("Potential reward", money(it)) }

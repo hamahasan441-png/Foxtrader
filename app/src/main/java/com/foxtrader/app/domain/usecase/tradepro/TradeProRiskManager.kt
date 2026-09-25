@@ -16,6 +16,7 @@ import com.foxtrader.app.domain.model.tradepro.TradeProConfig
 import com.foxtrader.app.domain.repository.JournalRepository
 import javax.inject.Inject
 import kotlin.math.abs
+import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -148,16 +149,23 @@ class TradeProRiskManager @Inject constructor(
         // Kelly-weighted risk allocation.
         val kellyRisk = halfKelly * config.maxRiskPoints
 
-        // Cap at the most restrictive limit.
-        val cappedRisk = minOf(kellyRisk, maxSingleTradeRisk, remainingBudget, maxDrawdownBudget)
+        // Hard limits: the single-trade cap, the open-risk budget and what is
+        // left of the daily loss allowance. These are never exceeded.
+        val hardCapRisk = minOf(maxSingleTradeRisk, remainingBudget, maxDrawdownBudget)
             .coerceAtLeast(0.0)
 
-        // Convert to contracts (at least 1 if any budget remains).
+        // Convert to contracts. Kelly is a soft preference — a weak estimate
+        // still sizes one contract — but the hard limits are floored: rounding
+        // up (or forcing a 1-contract minimum) previously recommended a
+        // position whose stop alone overshot the remaining daily loss budget.
         val riskPerSingleContract = config.stopPoints.coerceAtLeast(0.01)
-        val contracts = if (cappedRisk <= 0.0) {
+        val affordableContracts = floor(hardCapRisk / riskPerSingleContract + 1e-9).toInt()
+        val contracts = if (affordableContracts <= 0) {
             0
         } else {
-            (cappedRisk / riskPerSingleContract).roundToInt().coerceIn(1, config.contracts * 2)
+            (kellyRisk / riskPerSingleContract).roundToInt()
+                .coerceIn(1, config.contracts * 2)
+                .coerceAtMost(affordableContracts)
         }
 
         val totalRisk = contracts * riskPerSingleContract
@@ -187,8 +195,11 @@ class TradeProRiskManager @Inject constructor(
         previous: DailyPerformance,
     ): DailyPerformance {
         val isWin = trade.realizedPoints > 0.0
+        // A scratch (0 points) is neither: counting it as a loss inflated the
+        // loss count and dragged the compliance score for break-even exits.
+        val isLoss = trade.realizedPoints < 0.0
         val newWins = previous.wins + if (isWin) 1 else 0
-        val newLosses = previous.losses + if (!isWin) 1 else 0
+        val newLosses = previous.losses + if (isLoss) 1 else 0
         val newNet = previous.netPoints + trade.realizedPoints
         val newEquity = previous.cumulativeEquity + trade.realizedPoints
         val newPeak = max(previous.peakEquity, newEquity)

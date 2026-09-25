@@ -12,6 +12,7 @@ import com.foxtrader.app.domain.usecase.risk.RiskEngine
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.abs
+import kotlin.math.floor
 
 /**
  * Risk-gated broker executor — the single canonical order gate in the app.
@@ -121,7 +122,13 @@ class RiskGatedBrokerExecutor @Inject constructor(
         stopLoss: Double,
     ): PositionSizeResult {
         if (multiplier >= 0.999999) return this
-        val adjustedVolume = maxOf(0.01, volume * multiplier)
+        // Snap down to the 0.01 lot step: a scaled 0.23 x 0.7 = 0.161 lots is
+        // not a volume a broker accepts, and rounding up would exceed the
+        // reduced risk the multiplier exists to enforce.
+        val adjustedVolume = maxOf(
+            RiskEngine.MIN_VOLUME,
+            floor(volume * multiplier * 100 + 1e-9) / 100.0,
+        )
         val adjustedRisk = abs(entryPrice - stopLoss) * adjustedVolume * contractSize
         val adjustedRiskPercent = if (riskAmount > 0.0) {
             riskPercent * (adjustedRisk / riskAmount)

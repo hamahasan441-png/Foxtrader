@@ -86,7 +86,12 @@ class RiskAwarePositionCalculator @Inject constructor(
             result = result,
             instrumentType = instrumentType,
             partials = partials,
-            riskCheck = riskEngine.canOpenTrade(riskAmount = result.riskAmount),
+            // Gate the risk the size really takes: when the 0.01 lot minimum
+            // lifts it above the budget, checking the budget would approve a
+            // trade the per-trade cap forbids.
+            riskCheck = riskEngine.canOpenTrade(
+                riskAmount = maxOf(result.riskAmount, result.actualRiskAmount),
+            ),
         )
     }
 
