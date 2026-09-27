@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.abs
+import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -148,8 +149,27 @@ class RiskEngine @Inject constructor(
             riskAmount = 0.0
         }
 
-        // Round to 0.01 lot minimum
-        volume = max(0.01, (volume * 100).roundToInt() / 100.0)
+        // Round DOWN to the 0.01 lot step, never below the 0.01 minimum.
+        // Rounding to nearest (as this previously did) could round a 0.015 lot
+        // budget up to 0.02 — a third more risk than the trader configured.
+        // The epsilon absorbs float noise so an exact 0.2 is not floored to 0.19.
+        val stepped = floor(volume * 100 + VOLUME_STEP_EPSILON) / 100.0
+        if (stepped < MIN_VOLUME && volume > 0.0) {
+            warnings += "Risk budget is below the 0.01 lot minimum — the minimum size risks more than configured"
+        }
+        volume = max(MIN_VOLUME, stepped)
+
+        // Report the risk the returned volume actually takes at the caller's
+        // stop, not the budget it was sized from. The two differ whenever the
+        // 0.01 minimum lifts a tiny size, or when ATR/volatility sizing used a
+        // different stop distance than the order will carry. The order gate
+        // checks this number against the per-trade cap, so reporting the
+        // budget instead let an over-cap order through. A non-positive budget
+        // (Kelly with no edge) stays non-positive so the gate still refuses it.
+        if (riskAmount > 0.0 && stopDistance > 0.0) {
+            val realized = stopDistance * volume * contractSize
+            if (realized.isFinite()) riskAmount = realized
+        }
 
         // riskPercent is only meaningful against a positive balance. With a
         // zero balance the division yields Infinity/NaN and with a negative
@@ -281,7 +301,10 @@ class RiskEngine @Inject constructor(
 
         val maxRiskPerTrade = currentBalance * (config.riskPercentPerTrade / 100.0)
         if (riskAmount <= 0.0) reasons += "Risk amount must be positive"
-        if (riskAmount > maxRiskPerTrade) {
+        // Relative slack for float noise only: a size computed to spend
+        // exactly the budget (0.005 * 2.0 lots * 100k) evaluates to
+        // 1000.0000000000009 and must not be refused against a 1000.0 cap.
+        if (riskAmount - maxRiskPerTrade > maxRiskPerTrade.coerceAtLeast(1.0) * RISK_CAP_TOLERANCE) {
             reasons += "Proposed risk ${riskAmount.roundToInt()} exceeds per-trade limit ${maxRiskPerTrade.roundToInt()}"
         }
 
@@ -372,9 +395,12 @@ class RiskEngine @Inject constructor(
     }
 
     fun getConsecutiveLosses(): Int {
+        // Only a realised loss extends the streak. `win` is `pnl > 0`, so
+        // testing `!win` counted every break-even scratch as a loss and could
+        // auto-halt trading after a run of stops moved to entry.
         var count = 0
         for (i in tradeHistory.indices.reversed()) {
-            if (!tradeHistory[i].win) count++ else break
+            if (tradeHistory[i].pnl < 0.0) count++ else break
         }
         return count
     }
@@ -468,5 +494,12 @@ class RiskEngine @Inject constructor(
         }
         _tradingHalted.set(false)
         haltReason = ""
+    }
+
+    companion object {
+        /** Smallest tradable volume and the lot step used for rounding. */
+        const val MIN_VOLUME = 0.01
+        private const val VOLUME_STEP_EPSILON = 1e-9
+        private const val RISK_CAP_TOLERANCE = 1e-9
     }
 }

@@ -40,7 +40,10 @@ class PaperTradingSession @Inject constructor(
     private val _market = MutableStateFlow<MarketSnapshot?>(null)
     val market: StateFlow<MarketSnapshot?> = _market.asStateFlow()
 
-    /** Feed the latest price for [symbol]; marks open positions to market. */
+    /**
+     * Feed the latest price for [symbol]; marks open positions to market and
+     * closes any whose stop or target the price has crossed.
+     */
     suspend fun onPrice(symbol: String, price: Double) {
         if (price <= 0.0) return
         broker.onPrice(symbol, price)

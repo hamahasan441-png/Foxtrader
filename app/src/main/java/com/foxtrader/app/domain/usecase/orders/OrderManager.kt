@@ -169,6 +169,11 @@ class OrderManager @Inject constructor() {
             orders[idx] = orders[idx].copy(status = OrderStatus.CANCELLED)
             // Cancel linked OCO partner
             cancelLinkedOco(id)
+            // An unfilled bracket entry takes its protective exits with it.
+            bracketOrders.firstOrNull { it.entryOrder.id == id }?.let { bracket ->
+                cancelOrder(bracket.takeProfitOrder.id)
+                cancelOrder(bracket.stopLossOrder.id)
+            }
             return true
         }
         return false
@@ -191,61 +196,143 @@ class OrderManager @Inject constructor() {
      */
     fun processTick(symbol: String, candle: Candle): List<TradeOrder> {
         val filled = mutableListOf<TradeOrder>()
+        // Bracket exits whose entry filled on THIS candle are not eligible until
+        // the next one: OHLC does not say whether the exit level was touched
+        // before or after the entry, so booking both on one bar invents a trade.
+        val entriesFilledThisTick = mutableSetOf<String>()
 
         for (i in orders.indices) {
             val order = orders[i]
             if (order.status != OrderStatus.PENDING) continue
             if (order.symbol != symbol) continue
+            if (!bracketExitIsArmed(order.id, entriesFilledThisTick)) continue
 
-            val wasFilled = when (order.type) {
-                OrderType.MARKET -> true
-                OrderType.LIMIT -> checkLimitFill(order, candle)
-                OrderType.STOP -> checkStopFill(order, candle)
-                OrderType.STOP_LIMIT -> checkStopFill(order, candle)
-                OrderType.TRAILING_STOP -> checkTrailingStopFill(order, candle, i)
-            }
+            val fillPrice = when (order.type) {
+                OrderType.MARKET -> marketFillPrice(candle)
+                OrderType.LIMIT -> limitFillPrice(order, candle)
+                OrderType.STOP -> stopFillPrice(order, candle)
+                OrderType.STOP_LIMIT -> stopFillPrice(order, candle)
+                OrderType.TRAILING_STOP -> trailingStopFillPrice(order, candle, i)
+            } ?: continue
 
-            if (wasFilled) {
-                orders[i] = order.copy(
-                    status = OrderStatus.FILLED,
-                    filledPrice = candle.close,
-                    filledAt = candle.timestamp,
-                )
-                filled.add(orders[i])
-                cancelLinkedOco(order.id)
-            }
+            // Re-read: the trailing-stop path may have ratcheted the stored stop.
+            orders[i] = orders[i].copy(
+                status = OrderStatus.FILLED,
+                filledPrice = fillPrice,
+                filledAt = candle.timestamp,
+            )
+            filled.add(orders[i])
+            if (bracketOrders.any { it.entryOrder.id == order.id }) entriesFilledThisTick += order.id
+            cancelLinkedOco(order.id)
+            cancelLinkedBracketExit(order.id)
         }
         return filled
     }
 
-    private fun checkLimitFill(order: TradeOrder, candle: Candle): Boolean {
-        val price = order.price ?: return false
-        return if (order.direction == Direction.BULLISH) candle.low <= price
-        else candle.high >= price
+    /**
+     * A bracket's take-profit and stop-loss protect a position that exists only
+     * once the entry has filled. Previously they were live from placement, so a
+     * bracket whose entry never filled could still "fill" its exits.
+     */
+    private fun bracketExitIsArmed(orderId: String, entriesFilledThisTick: Set<String>): Boolean {
+        val bracket = bracketOrders.firstOrNull {
+            it.takeProfitOrder.id == orderId || it.stopLossOrder.id == orderId
+        } ?: return true
+        val entryId = bracket.entryOrder.id
+        if (entryId in entriesFilledThisTick) return false
+        return orders.firstOrNull { it.id == entryId }?.status == OrderStatus.FILLED
     }
 
-    private fun checkStopFill(order: TradeOrder, candle: Candle): Boolean {
-        val stop = order.stopPrice ?: return false
-        return if (order.direction == Direction.BULLISH) candle.high >= stop
-        else candle.low <= stop
-    }
+    private fun marketFillPrice(candle: Candle): Double =
+        candle.open.takeIf { it.isFinite() && it > 0.0 } ?: candle.close
 
-    private fun checkTrailingStopFill(order: TradeOrder, candle: Candle, idx: Int): Boolean {
-        // Trailing stop logic: update stop price as market moves favorably
-        val distance = order.trailingDistance ?: return false
-        val currentStop = order.stopPrice ?: candle.close
-
-        val newStop = if (order.direction == Direction.BEARISH) {
-            // Trailing buy stop — lower stop as price drops
-            kotlin.math.min(currentStop, candle.low + distance)
+    /**
+     * A limit fills at its price, or at the open when the bar opened already
+     * through it (a better price the book really offered). It never fills at
+     * the close: a buy limit at 100 touched intrabar is not a fill at 105.
+     */
+    private fun limitFillPrice(order: TradeOrder, candle: Candle): Double? {
+        val price = order.price ?: return null
+        return if (order.direction == Direction.BULLISH) {
+            when {
+                candle.open <= price -> candle.open
+                candle.low <= price -> price
+                else -> null
+            }
         } else {
-            // Trailing sell stop — raise stop as price rises
-            kotlin.math.max(currentStop, candle.high - distance)
+            when {
+                candle.open >= price -> candle.open
+                candle.high >= price -> price
+                else -> null
+            }
         }
-        orders[idx] = order.copy(stopPrice = newStop)
+    }
 
-        return if (order.direction == Direction.BEARISH) candle.high >= newStop
-        else candle.low <= newStop
+    /** A stop fills at its price, or at the open when the bar gapped through it. */
+    private fun stopFillPrice(order: TradeOrder, candle: Candle): Double? {
+        val stop = order.stopPrice ?: return null
+        return stopFill(order.direction, stop, candle)
+    }
+
+    private fun stopFill(direction: Direction, stop: Double, candle: Candle): Double? =
+        if (direction == Direction.BULLISH) {
+            when {
+                candle.open >= stop -> candle.open
+                candle.high >= stop -> stop
+                else -> null
+            }
+        } else {
+            when {
+                candle.open <= stop -> candle.open
+                candle.low <= stop -> stop
+                else -> null
+            }
+        }
+
+    /**
+     * [TradeOrder.direction] is the order side, as for every other order type:
+     * a BEARISH trailing stop is a sell stop that trails below price and
+     * protects a long; a BULLISH one is a buy stop trailing above price.
+     *
+     * The first candle only anchors the stop at the close. Previously the stop
+     * was seeded from the close and then tested against that same candle's
+     * range, which always contains the close — so every trailing stop filled
+     * on the first tick it saw.
+     */
+    private fun trailingStopFillPrice(order: TradeOrder, candle: Candle, idx: Int): Double? {
+        val distance = order.trailingDistance?.takeIf { it.isFinite() && it > 0.0 } ?: return null
+        val currentStop = order.stopPrice
+        if (currentStop == null) {
+            val anchor = if (order.direction == Direction.BEARISH) {
+                candle.close - distance
+            } else {
+                candle.close + distance
+            }
+            orders[idx] = order.copy(stopPrice = anchor)
+            return null
+        }
+
+        // Test the stop that was in force when the bar opened, then ratchet it
+        // with this bar's favourable extreme for the next bar.
+        val fill = stopFill(order.direction, currentStop, candle)
+        if (fill != null) return fill
+        val ratcheted = if (order.direction == Direction.BEARISH) {
+            maxOf(currentStop, candle.high - distance)
+        } else {
+            minOf(currentStop, candle.low + distance)
+        }
+        orders[idx] = order.copy(stopPrice = ratcheted)
+        return null
+    }
+
+    /** One bracket exit filling cancels its sibling; cancelling an entry cancels both. */
+    private fun cancelLinkedBracketExit(filledOrderId: String) {
+        for (bracket in bracketOrders) {
+            when (filledOrderId) {
+                bracket.takeProfitOrder.id -> cancelOrder(bracket.stopLossOrder.id)
+                bracket.stopLossOrder.id -> cancelOrder(bracket.takeProfitOrder.id)
+            }
+        }
     }
 
     private fun cancelLinkedOco(filledOrderId: String) {

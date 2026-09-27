@@ -10,6 +10,7 @@ import com.foxtrader.app.domain.model.Candle
 import com.foxtrader.app.domain.model.Direction
 import com.foxtrader.app.domain.usecase.nascent.model.ExternalKeyLevel
 import com.foxtrader.app.domain.usecase.nascent.model.KeyLevelType
+import com.foxtrader.app.feature.chart.presentation.chartOverlayLabelBaseline
 import com.foxtrader.app.feature.chart.presentation.components.ChartViewport
 
 private val NascentBuyLevel = Color(0xFF4FC3A1)
@@ -81,11 +82,19 @@ internal fun DrawScope.drawNascentKeyLevels(
         val label = level.type.shortLabel()
         val textWidth = labelPaint.measureText(label)
         if (cw - left < textWidth * 2.2f) continue
+        // `CRASH-SAFETY` Stacked indicator panes can shrink `ch` below one label
+        // line; `coerceIn(textSize, ch - 2f)` then threw on the render thread.
+        // A label that cannot fit is skipped; the level line is already drawn.
+        val baseline = chartOverlayLabelBaseline(
+            requested = y - 3f * scale,
+            textSize = labelPaint.textSize,
+            chartHeight = ch,
+        ) ?: continue
         labelPaint.color = color.copy(alpha = 0.95f).toArgb()
         drawContext.canvas.nativeCanvas.drawText(
             label,
             (left + 4f * scale).coerceAtMost(cw - textWidth - 2f * scale),
-            (y - 3f * scale).coerceIn(labelPaint.textSize, ch - 2f),
+            baseline,
             labelPaint,
         )
     }

@@ -12,8 +12,6 @@ used for tests and stateless deployments.
 
 from __future__ import annotations
 
-import time
-
 from app.core.persistence import MemoryStore
 from app.core.persistence import SyncStore as PersistStore
 
@@ -34,9 +32,14 @@ class SyncStore:
         since_ms: int,
         types: set[str] | None = None,
     ) -> tuple[list[dict], int]:
-        """Return items updated strictly after `since_ms` (optional type filter).
+        """Return items the server stored strictly after `since_ms`.
 
-        Returns (envelopes sorted by updated_at, server_timestamp_ms).
+        `since_ms` is a cursor previously returned by this method. It is
+        compared with the server's own write stamp, never with the
+        client-authored `updated_at`: an edit made offline carries an old
+        `updated_at` but is stored late, and must still reach every device
+        that pulled in between.
+
+        Returns (envelopes in storage order, cursor for the next pull).
         """
-        items = self._store.pull_items(user_id, since_ms, types)
-        return items, int(time.time() * 1000)
+        return self._store.pull_items(user_id, since_ms, types)

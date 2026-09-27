@@ -21,6 +21,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import threading
+import time
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -55,10 +56,28 @@ CREATE TABLE IF NOT EXISTS sync_items (
     updated_at INTEGER NOT NULL,
     device_id  TEXT NOT NULL,
     deleted    INTEGER NOT NULL DEFAULT 0,
+    stored_at  INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, id, type)
 );
 CREATE INDEX IF NOT EXISTS idx_sync_user_updated ON sync_items(user_id, updated_at);
 """
+
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+def _next_stamp(last_issued: int) -> int:
+    """Server write stamp: wall-clock ms, but strictly above every earlier one.
+
+    Pull windows and client cursors are expressed in this stamp. It must be
+    server-assigned: filtering on the client-authored `updated_at` meant an
+    edit made offline (old `updated_at`) and pushed after another device had
+    already pulled past that time was never delivered to that device. It must
+    be strictly increasing so a write landing in the same millisecond as a
+    pull's cursor is still strictly after it.
+    """
+    return max(_now_ms(), last_issued + 1)
 
 
 @dataclass(frozen=True)
@@ -95,7 +114,7 @@ class SyncStore(Protocol):
     def upsert_items(self, user_id: str, items: list[dict]) -> None: ...
     def pull_items(
         self, user_id: str, since_ms: int, types: set[str] | None
-    ) -> list[dict]: ...
+    ) -> tuple[list[dict], int]: ...
 
 
 class MemoryStore(AuthStore, SyncStore):
@@ -107,6 +126,7 @@ class MemoryStore(AuthStore, SyncStore):
         self._access: dict[str, tuple[str, int]] = {}
         self._refresh: dict[str, tuple[str, int]] = {}
         self._sync: dict[str, dict[tuple[str, str], dict]] = {}
+        self._last_stamp = 0
         self._lock = threading.RLock()
 
     # -- AuthStore -----------------------------------------------------------
@@ -155,24 +175,28 @@ class MemoryStore(AuthStore, SyncStore):
 
     # -- SyncStore -----------------------------------------------------------
     def upsert_items(self, user_id: str, items: list[dict]) -> None:
-        user_items = self._sync.setdefault(user_id, {})
-        for envelope in items:
-            key = (envelope["id"], envelope["type"])
-            existing = user_items.get(key)
-            if existing is None or envelope["updated_at"] >= existing["updated_at"]:
-                user_items[key] = envelope
+        with self._lock:
+            user_items = self._sync.setdefault(user_id, {})
+            for envelope in items:
+                key = (envelope["id"], envelope["type"])
+                existing = user_items.get(key)
+                if existing is None or envelope["updated_at"] >= existing["updated_at"]:
+                    self._last_stamp = _next_stamp(self._last_stamp)
+                    user_items[key] = {**envelope, "stored_at": self._last_stamp}
 
     def pull_items(
         self, user_id: str, since_ms: int, types: set[str] | None
-    ) -> list[dict]:
-        user_items = self._sync.get(user_id, {})
-        matching = [
-            item
-            for item in user_items.values()
-            if item["updated_at"] > since_ms and (types is None or item["type"] in types)
-        ]
-        matching.sort(key=lambda e: e["updated_at"])
-        return matching
+    ) -> tuple[list[dict], int]:
+        with self._lock:
+            user_items = self._sync.get(user_id, {})
+            matching = [
+                item
+                for item in user_items.values()
+                if item["stored_at"] > since_ms and (types is None or item["type"] in types)
+            ]
+            cursor = max(since_ms, self._last_stamp)
+        matching.sort(key=lambda e: e["stored_at"])
+        return [{k: v for k, v in e.items() if k != "stored_at"} for e in matching], cursor
 
 
 class SqliteStore(AuthStore, SyncStore):
@@ -183,6 +207,26 @@ class SqliteStore(AuthStore, SyncStore):
         self._lock = threading.RLock()
         with self._connect() as conn:
             conn.executescript(_SCHEMA)
+            self._migrate_sync_stamps(conn)
+
+    @staticmethod
+    def _migrate_sync_stamps(conn: sqlite3.Connection) -> None:
+        """Add the server write stamp to databases created before it existed.
+
+        Existing rows are stamped with their `updated_at`, which is exactly the
+        value the old pull window compared, so nothing a client has already
+        been shown is re-sent and nothing it had not been shown is skipped.
+        """
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(sync_items)")}
+        if "stored_at" not in columns:
+            conn.execute(
+                "ALTER TABLE sync_items ADD COLUMN stored_at INTEGER NOT NULL DEFAULT 0"
+            )
+            conn.execute("UPDATE sync_items SET stored_at = updated_at")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sync_user_stored ON sync_items(user_id, stored_at)"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_sync_stored ON sync_items(stored_at)")
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(
@@ -292,40 +336,51 @@ class SqliteStore(AuthStore, SyncStore):
     # -- SyncStore -----------------------------------------------------------
     def upsert_items(self, user_id: str, items: list[dict]) -> None:
         with self._lock, self._connect() as conn:
+            # IMMEDIATE takes the write lock before reading the highest stamp,
+            # so a concurrent writer (another worker process) cannot issue the
+            # same one.
+            conn.execute("BEGIN IMMEDIATE")
+            last = conn.execute("SELECT COALESCE(MAX(stored_at), 0) FROM sync_items").fetchone()[0]
             for envelope in items:
+                last = _next_stamp(last)
                 conn.execute(
                     "INSERT INTO sync_items "
-                    "(user_id, id, type, data, version, updated_at, device_id, deleted) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                    "(user_id, id, type, data, version, updated_at, device_id, deleted, stored_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
                     "ON CONFLICT(user_id, id, type) DO UPDATE SET "
                     "data = excluded.data, version = excluded.version, "
                     "updated_at = excluded.updated_at, device_id = excluded.device_id, "
-                    "deleted = excluded.deleted "
+                    "deleted = excluded.deleted, stored_at = excluded.stored_at "
                     "WHERE excluded.updated_at >= sync_items.updated_at",
                     (
                         user_id, envelope["id"], envelope["type"], envelope["data"],
                         envelope["version"], envelope["updated_at"],
-                        envelope["device_id"], int(envelope.get("deleted", False)),
+                        envelope["device_id"], int(envelope.get("deleted", False)), last,
                     ),
                 )
 
     def pull_items(
         self, user_id: str, since_ms: int, types: set[str] | None
-    ) -> list[dict]:
-        placeholders = []
+    ) -> tuple[list[dict], int]:
         params: list[object] = [user_id, since_ms]
         sql = (
             "SELECT id, type, data, version, updated_at, device_id, deleted "
-            "FROM sync_items WHERE user_id = ? AND updated_at > ?"
+            "FROM sync_items WHERE user_id = ? AND stored_at > ?"
         )
         if types:
             placeholders = ",".join("?" for _ in types)
             sql += f" AND type IN ({placeholders})"
             params.extend(sorted(types))
-        sql += " ORDER BY updated_at ASC"
+        sql += " ORDER BY stored_at ASC"
         with self._lock, self._connect() as conn:
+            # One read snapshot for both queries: every row committed after it
+            # carries a stamp above this cursor, so the next pull sees it.
+            conn.execute("BEGIN")
             rows = conn.execute(sql, params).fetchall()
-        return [
+            highest = conn.execute(
+                "SELECT COALESCE(MAX(stored_at), 0) FROM sync_items"
+            ).fetchone()[0]
+        items = [
             {
                 "id": row["id"],
                 "type": row["type"],
@@ -337,6 +392,7 @@ class SqliteStore(AuthStore, SyncStore):
             }
             for row in rows
         ]
+        return items, max(since_ms, highest)
 
     @staticmethod
     def _row_to_user(row: sqlite3.Row) -> StoredUser:

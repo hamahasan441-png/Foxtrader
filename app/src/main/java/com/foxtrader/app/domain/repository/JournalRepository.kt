@@ -25,6 +25,19 @@ interface JournalRepository {
     /** Insert or update a batch (e.g. from a sync pull). */
     suspend fun upsertAll(entries: List<JournalEntry>)
 
+    /**
+     * When each entry was last written locally (epoch ms, by id). Sync uses it
+     * as the last-write-wins key; the trade's own [JournalEntry.entryTime]
+     * never changes when an entry is edited, so it cannot order edits.
+     */
+    suspend fun modificationStamps(): Map<String, Long> = emptyMap()
+
+    /**
+     * Store an entry received from another device, keeping that device's
+     * modification stamp rather than stamping it as a fresh local edit.
+     */
+    suspend fun upsertFromSync(entry: JournalEntry, modifiedAt: Long) = upsert(entry)
+
     /** Delete an entry by id. */
     suspend fun delete(id: String)
 

@@ -10,6 +10,8 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Response
 import okhttp3.ResponseBody
 import okhttp3.ResponseBody.Companion.toResponseBody
+import retrofit2.HttpException
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Provider
 import javax.inject.Singleton
@@ -149,6 +151,14 @@ class AuthInterceptor @Inject constructor(
         runBlocking { doRefresh(refreshToken) }
     }
 
+    /**
+     * Only the server rejecting the refresh token ends the session. Everything
+     * else — no connectivity, a timeout, a 5xx, rate limiting — says nothing
+     * about the token's validity, and previously wiped it anyway: a network
+     * blip at the moment the access token expired logged the user out. Those
+     * failures are rethrown as [IOException] so the original call fails like
+     * any other network error and the stored session survives for a retry.
+     */
     private suspend fun doRefresh(refreshToken: String): Boolean = try {
         tokenManager.setAuthState(AuthState.REFRESHING)
         val api = syncApiProvider.get()
@@ -157,13 +167,27 @@ class AuthInterceptor @Inject constructor(
         true
     } catch (cancel: CancellationException) {
         throw cancel
-    } catch (_: Exception) {
-        tokenManager.clearTokens()
-        false
+    } catch (http: HttpException) {
+        if (http.code() in REFRESH_REJECTED_CODES) {
+            tokenManager.clearTokens()
+            false
+        } else {
+            throw transientRefreshFailure(http)
+        }
+    } catch (e: Exception) {
+        throw transientRefreshFailure(e)
+    }
+
+    private fun transientRefreshFailure(cause: Exception): IOException {
+        tokenManager.setAuthState(AuthState.AUTHENTICATED)
+        return cause as? IOException ?: IOException("Token refresh failed", cause)
     }
 
     private companion object {
         val AUTH_PATHS = listOf("/auth/login", "/auth/register", "/auth/refresh")
+
+        /** Responses meaning the refresh token itself is invalid, expired or revoked. */
+        val REFRESH_REJECTED_CODES = setOf(400, 401, 403)
 
         private val JSON_MEDIA_TYPE = "application/json".toMediaType()
 

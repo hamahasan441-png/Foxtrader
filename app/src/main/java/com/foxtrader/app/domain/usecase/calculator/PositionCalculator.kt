@@ -3,7 +3,7 @@ package com.foxtrader.app.domain.usecase.calculator
 import com.foxtrader.app.domain.model.Direction
 import javax.inject.Inject
 import kotlin.math.abs
-import kotlin.math.roundToInt
+import kotlin.math.floor
 
 /**
  * Position Size Calculator — institutional-grade risk calculation tool.
@@ -35,7 +35,7 @@ class PositionCalculator @Inject constructor() {
 
     data class CalculationResult(
         val positionSize: Double,       // In lots
-        val riskAmount: Double,         // Dollar risk
+        val riskAmount: Double,         // Dollar risk budget requested
         val rewardAmount: Double?,      // Dollar reward (if TP set)
         val riskRewardRatio: Double?,   // R:R ratio
         val stopDistancePips: Double,
@@ -44,7 +44,17 @@ class PositionCalculator @Inject constructor() {
         val marginRequired: Double,
         val breakEvenPrice: Double,     // Including commission
         val maxLossPrice: Double,       // Account = 0
-    )
+        /**
+         * Dollar risk the returned [positionSize] actually takes at the stop.
+         * Differs from [riskAmount] when the 0.01 lot minimum lifts a size the
+         * budget cannot afford — the case a trader must be told about.
+         */
+        val actualRiskAmount: Double = riskAmount,
+    ) {
+        /** True when the minimum lot size forces more risk than was requested. */
+        val exceedsRequestedRisk: Boolean
+            get() = actualRiskAmount > riskAmount + RISK_TOLERANCE
+    }
 
     enum class InstrumentType(val contractSize: Double, val pipSize: Double) {
         FOREX_STANDARD(100_000.0, 0.0001),   // 1 lot = 100k, pip = 0.0001
@@ -71,11 +81,14 @@ class PositionCalculator @Inject constructor() {
         val positionSize = if (stopPips > 0 && pipValue > 0) {
             riskAmount / (stopPips * pipValue)
         } else 0.01
-        // Round to 0.01 lots and never below the 0.01 minimum tradable size.
-        // This matches the size we actually report AND prevents division-by-zero
-        // (Infinity/NaN) in the break-even / max-loss math when a tiny raw size
-        // rounds down to 0.0.
-        val roundedSize = ((positionSize * 100).roundToInt() / 100.0).coerceAtLeast(0.01)
+        // Round DOWN to the 0.01 lot step and never below the 0.01 minimum
+        // tradable size. Rounding to nearest could lift 0.015 to 0.02 lots —
+        // a third more risk than asked for. The floor also prevents
+        // division-by-zero (Infinity/NaN) in the break-even / max-loss math
+        // when a tiny raw size would otherwise become 0.0. The epsilon keeps
+        // float noise from flooring an exact 2.00 to 1.99.
+        val roundedSize = (floor(positionSize * 100 + 1e-9) / 100.0).coerceAtLeast(0.01)
+        val actualRiskAmount = if (stopPips > 0 && pipValue > 0) stopPips * pipValue * roundedSize else riskAmount
 
         // Reward calculations
         val tpDistance = input.takeProfitPrice?.let { abs(it - input.entryPrice) }
@@ -116,6 +129,7 @@ class PositionCalculator @Inject constructor() {
             marginRequired = marginRequired,
             breakEvenPrice = breakEvenPrice,
             maxLossPrice = maxLossPrice,
+            actualRiskAmount = actualRiskAmount,
         )
     }
 
@@ -142,6 +156,11 @@ class PositionCalculator @Inject constructor() {
                 price = tpPrice,
             )
         }
+    }
+
+    private companion object {
+        /** Cent-level slack so float noise is not reported as extra risk. */
+        const val RISK_TOLERANCE = 0.005
     }
 
     data class PartialCloseLevel(

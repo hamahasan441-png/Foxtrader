@@ -203,6 +203,53 @@ class PaperTradingEngine @Inject constructor(
     }
 
     /**
+     * Mark [symbol] to a live [price], then close any position whose stop or
+     * target that price has crossed.
+     *
+     * Without this, a position opened with a stop kept marking to market past
+     * the stop indefinitely — only [onCandle] ever enforced protection, and the
+     * live feed never calls it. A single observed price carries no intrabar
+     * path, so a crossed stop fills at [price] (where the market actually is,
+     * at or beyond the stop) and a crossed target fills at the target (a
+     * resting limit fills there or better).
+     */
+    fun onPrice(
+        account: PaperAccount,
+        symbol: String,
+        price: Double,
+        config: PaperFillConfig = PaperFillConfig(),
+        timestamp: Long = 0L,
+    ): PaperAccount {
+        if (!price.isFinite() || price <= 0.0) return account
+        var acc = mark(account, mapOf(symbol to price))
+        val triggers = acc.positions
+            .filter { it.symbol == symbol }
+            .mapNotNull { p -> livePriceTrigger(p, price)?.let { p.id to it } }
+        for ((id, exitPrice) in triggers) {
+            acc = close(acc, id, exitPrice, config, timestamp)
+        }
+        return acc
+    }
+
+    private fun livePriceTrigger(position: PaperPosition, price: Double): Double? {
+        val stop = position.stopLoss
+        val target = position.takeProfit
+        return if (position.direction == Direction.BULLISH) {
+            when {
+                stop != null && price <= stop -> price
+                target != null && price >= target -> target
+                else -> null
+            }
+        } else {
+            when {
+                stop != null && price >= stop -> price
+                target != null && price <= target -> target
+                else -> null
+            }
+        }
+    }
+
+    /**
      * Advance one candle for [symbol]: mark positions to the close, then close
      * any whose stop-loss or take-profit was touched intrabar. Stops are checked
      * before targets (worst-case fill ordering). Positions on other symbols are
@@ -227,14 +274,24 @@ class PaperTradingEngine @Inject constructor(
     private fun triggerPrice(position: PaperPosition, candle: Candle): Double? {
         val stop = position.stopLoss
         val target = position.takeProfit
+        // A bar that OPENS beyond a level was never tradable at that level: the
+        // market skipped it. A stop then fills at the open (a worse price), and
+        // a target the open already cleared was reached first, before any later
+        // intrabar move could touch the stop. Filling a gapped stop at the stop
+        // price made paper losses smaller than any real account would book.
+        val open = candle.open.takeIf { it.isFinite() && it > 0.0 }
         return if (position.direction == Direction.BULLISH) {
             when {
+                open != null && target != null && open >= target -> target
+                open != null && stop != null && open <= stop -> open
                 stop != null && candle.low <= stop -> stop
                 target != null && candle.high >= target -> target
                 else -> null
             }
         } else {
             when {
+                open != null && target != null && open <= target -> target
+                open != null && stop != null && open >= stop -> open
                 stop != null && candle.high >= stop -> stop
                 target != null && candle.low <= target -> target
                 else -> null

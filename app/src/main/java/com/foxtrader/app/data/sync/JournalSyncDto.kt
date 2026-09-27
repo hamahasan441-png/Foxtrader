@@ -1,6 +1,9 @@
 package com.foxtrader.app.data.sync
 
+import com.foxtrader.app.domain.model.Direction
+import com.foxtrader.app.domain.model.EmotionTag
 import com.foxtrader.app.domain.model.JournalEntry
+import com.foxtrader.app.domain.model.Timeframe
 import kotlinx.serialization.Serializable
 
 /**
@@ -51,3 +54,35 @@ fun JournalEntry.toSyncDto(): JournalSyncDto = JournalSyncDto(
     emotionTag = emotionTag.name,
     tags = tags,
 )
+
+/**
+ * Rebuild a journal entry received from sync, or null when the payload names a
+ * direction or timeframe this build does not know (a newer client's data must
+ * not be half-imported). [localScreenshot] is kept: a screenshot path from
+ * another device is meaningless here, so the wire format does not carry one.
+ */
+fun JournalSyncDto.toJournalEntry(localScreenshot: String? = null): JournalEntry? {
+    val direction = runCatching { Direction.valueOf(direction) }.getOrNull() ?: return null
+    val timeframe = runCatching { Timeframe.valueOf(timeframe) }.getOrNull() ?: return null
+    return JournalEntry(
+        id = id,
+        symbol = symbol,
+        direction = direction,
+        timeframe = timeframe,
+        entryPrice = entryPrice,
+        exitPrice = exitPrice,
+        stopLoss = stopLoss,
+        takeProfit = takeProfit,
+        volume = volume,
+        entryTime = entryTime,
+        exitTime = exitTime,
+        pnl = pnl,
+        rMultiple = rMultiple,
+        setupType = setupType,
+        notes = notes,
+        rating = rating,
+        emotionTag = runCatching { EmotionTag.valueOf(emotionTag) }.getOrDefault(EmotionTag.NEUTRAL),
+        screenshot = localScreenshot,
+        tags = tags,
+    )
+}

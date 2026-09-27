@@ -39,6 +39,14 @@ class JournalRepositoryImpl @Inject constructor(
         dao.upsert(entry.toEntity())
     }
 
+    override suspend fun modificationStamps(): Map<String, Long> = withContext(io) {
+        dao.modificationStamps().associate { it.id to it.updatedAt }
+    }
+
+    override suspend fun upsertFromSync(entry: JournalEntry, modifiedAt: Long) = withContext(io) {
+        dao.upsert(entry.toEntity(updatedAt = modifiedAt))
+    }
+
     override suspend fun upsertAll(entries: List<JournalEntry>) = withContext(io) {
         dao.upsertAll(entries.map { it.toEntity() })
     }

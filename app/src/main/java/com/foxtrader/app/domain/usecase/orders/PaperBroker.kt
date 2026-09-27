@@ -57,10 +57,13 @@ class PaperBroker @Inject constructor(
         orderCounter = 0L
     }
 
-    /** Feed the latest price for [symbol] and mark open positions to it. */
+    /**
+     * Feed the latest price for [symbol]: mark open positions to it and close
+     * any whose stop-loss or take-profit that price has crossed.
+     */
     suspend fun onPrice(symbol: String, price: Double) = mutex.withLock {
         lastPrices = lastPrices + (symbol to price)
-        account = engine.mark(account, mapOf(symbol to price))
+        account = engine.onPrice(account, symbol, price, fillConfig, System.currentTimeMillis())
     }
 
     /** Feed a candle: marks to the close and auto-closes SL/TP hits intrabar. */
