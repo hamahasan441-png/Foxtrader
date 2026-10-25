@@ -37,7 +37,11 @@ class TickAggregator @Inject constructor() {
      * @param timeframe Target candle timeframe.
      * @return Candles sorted ascending by open time; empty when [ticks] is empty.
      */
-    fun aggregate(ticks: List<Tick>, timeframe: Timeframe): List<Candle> {
+    fun aggregate(
+        ticks: List<Tick>,
+        timeframe: Timeframe,
+        price: (Tick) -> Double = { it.mid },
+    ): List<Candle> {
         if (ticks.isEmpty()) return emptyList()
 
         val durationMs = durationMsOf(timeframe)
@@ -53,17 +57,19 @@ class TickAggregator @Inject constructor() {
         for ((bucketStart, bucketTicks) in buckets) {
             // Order within the bucket by timestamp so open/close are correct.
             val ordered = bucketTicks.sortedBy { it.timestampMs }
-            val open = ordered.first().mid
-            val close = ordered.last().mid
+            val open = price(ordered.first())
+            val close = price(ordered.last())
             var high = Double.NEGATIVE_INFINITY
             var low = Double.POSITIVE_INFINITY
             var volume = 0.0
             for (t in ordered) {
-                val mid = t.mid
-                if (mid > high) high = mid
-                if (mid < low) low = mid
+                val px = price(t)
+                if (!px.isFinite()) continue
+                if (px > high) high = px
+                if (px < low) low = px
                 volume += t.bidVolume + t.askVolume
             }
+            if (!open.isFinite() || !high.isFinite() || !low.isFinite() || high < low) continue
             candles.add(
                 Candle(
                     timestamp = bucketStart,

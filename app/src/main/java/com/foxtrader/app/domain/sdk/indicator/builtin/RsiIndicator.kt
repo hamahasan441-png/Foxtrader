@@ -19,9 +19,14 @@ class RsiIndicator(private val defaultPeriod: Int = 14) : Indicator {
         if (candles.size < period + 1) return IndicatorResult(emptyMap())
         val rsi = TechnicalIndicators.calculateRSI(candles, period)
         val signals = mutableListOf<IndicatorSignal>()
-        for (i in rsi.indices) {
-            if (rsi[i] < 30.0) signals += IndicatorSignal(i, SignalType.BUY, candles[i].close, "Oversold")
-            else if (rsi[i] > 70.0) signals += IndicatorSignal(i, SignalType.SELL, candles[i].close, "Overbought")
+        for (i in 1 until rsi.size) {
+            val previous = rsi[i - 1]
+            val current = rsi[i]
+            if (previous >= 30.0 && current < 30.0) {
+                signals += IndicatorSignal(i, SignalType.BUY, candles[i].close, "Oversold")
+            } else if (previous <= 70.0 && current > 70.0) {
+                signals += IndicatorSignal(i, SignalType.SELL, candles[i].close, "Overbought")
+            }
         }
         return IndicatorResult(mapOf("main" to rsi), signals)
     }

@@ -23,6 +23,7 @@ class DukascopyDataSourceTest {
             lzmaDecompressor = LzmaDecompressor(),
             tickAggregator = TickAggregator(),
             candleDecoder = DukascopyCandleDecoder(),
+            bi5CandleDecoder = DukascopyBi5CandleDecoder(),
             instrumentCatalog = DukascopyInstrumentCatalog(),
         )
     }

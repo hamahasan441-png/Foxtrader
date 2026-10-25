@@ -51,6 +51,10 @@ class ParabolicSar @Inject constructor() {
         val epSeries = DoubleArray(n)
         if (n < 2) return SarResult(sar, up, afSeries, epSeries)
 
+        val startAf = accelerationStart.takeIf { it.isFinite() && it > 0.0 } ?: 0.02
+        val stepAf = accelerationStep.takeIf { it.isFinite() }?.coerceAtLeast(0.0) ?: 0.02
+        val maxAf = accelerationMax.takeIf { it.isFinite() && it >= startAf } ?: max(0.2, startAf)
+
         val requestedStart = if (previous != null && recomputeFrom > 0) max(0, recomputeFrom - 1) else 0
         // `SAFETY` The seed reads previous[startIndex - 1] below, so resuming is
         // only legal when the previous snapshot actually covers the resume
@@ -73,7 +77,7 @@ class ParabolicSar @Inject constructor() {
         var uptrend = if (canReuse && previous != null) previous.isUptrend[startIndex - 1]
         else candles[1].close >= candles[0].close
         var af = if (canReuse && previous != null) previous.accelerationFactor[startIndex - 1]
-        else accelerationStart
+        else startAf
         var ep = if (canReuse && previous != null) previous.extremePoint[startIndex - 1]
         else if (uptrend) candles[0].high else candles[0].low
 
@@ -95,10 +99,10 @@ class ParabolicSar @Inject constructor() {
                     uptrend = false
                     current = ep
                     ep = candles[i].low
-                    af = accelerationStart
+                    af = startAf
                 } else if (candles[i].high > ep) {
                     ep = candles[i].high
-                    af = min(af + accelerationStep, accelerationMax)
+                    af = min(af + stepAf, maxAf)
                 }
             } else {
                 current = max(current, candles[i - 1].high)
@@ -107,10 +111,10 @@ class ParabolicSar @Inject constructor() {
                     uptrend = true
                     current = ep
                     ep = candles[i].high
-                    af = accelerationStart
+                    af = startAf
                 } else if (candles[i].low < ep) {
                     ep = candles[i].low
-                    af = min(af + accelerationStep, accelerationMax)
+                    af = min(af + stepAf, maxAf)
                 }
             }
             sar[i] = current

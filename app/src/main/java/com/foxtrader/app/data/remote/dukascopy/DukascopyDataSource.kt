@@ -40,6 +40,7 @@ class DukascopyDataSource @Inject constructor(
     private val lzmaDecompressor: LzmaDecompressor,
     private val tickAggregator: TickAggregator,
     private val candleDecoder: DukascopyCandleDecoder,
+    private val bi5CandleDecoder: DukascopyBi5CandleDecoder,
     private val instrumentCatalog: DukascopyInstrumentCatalog,
 ) {
     private enum class CandleSource(val path: String, val approximateBucketMs: Long) {
@@ -134,6 +135,15 @@ class DukascopyDataSource @Inject constructor(
         }
         if (primary.isNotEmpty()) return@withContext primary
 
+        val native = try {
+            fetchNativeBi5Candles(instrument, timeframe, beforeTimestamp, safeLimit)
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (_: Exception) {
+            emptyList()
+        }
+        if (native.isNotEmpty()) return@withContext native
+
         fetchBi5CandlesBefore(instrument, timeframe, beforeTimestamp, safeLimit)
     }
 
@@ -218,21 +228,21 @@ class DukascopyDataSource @Inject constructor(
                 val httpRequest = Request.Builder()
                     .url(request.url)
                     .header("User-Agent", USER_AGENT)
+                    .header("Accept", "application/json,text/plain,*/*")
                     .get()
                     .build()
                 val decoded = httpClient.newCall(httpRequest).execute().use { response ->
-                    when {
-                        response.code == 404 -> emptyList()
-                        response.code == 429 || response.code in 500..599 ->
-                            throw IllegalStateException("Dukascopy temporary HTTP ${response.code}.")
-                        !response.isSuccessful ->
-                            throw IllegalStateException("Dukascopy candle HTTP ${response.code}.")
-                        else -> {
-                            val payload = response.body?.string().orEmpty()
+                    val challenged = !response.header("x-amzn-waf-action").isNullOrBlank()
+                    val payload = response.body?.string().orEmpty()
+                    when (classifyDukascopyResponse(response.code, payload.isBlank(), challenged)) {
+                        DukascopyHttpOutcome.ABSENT -> emptyList()
+                        DukascopyHttpOutcome.RETRY ->
+                            throw IllegalStateException("Dukascopy candle HTTP ${response.code} was not usable.")
+                        DukascopyHttpOutcome.DATA -> {
                             require(payload.length <= MAX_CANDLE_RESPONSE_CHARS) {
                                 "Dukascopy candle response exceeds the safety limit."
                             }
-                            if (payload.isBlank()) emptyList() else candleDecoder.decode(payload)
+                            candleDecoder.decode(payload)
                         }
                     }
                 }
@@ -364,7 +374,7 @@ class DukascopyDataSource @Inject constructor(
             currentHourEpochMs -= batchSize * ONE_HOUR_MS
         }
 
-        return tickAggregator.aggregate(allTicks, timeframe)
+        return tickAggregator.aggregate(allTicks, timeframe) { it.bid }
             .filter { it.timestamp < beforeTimestamp }
             .distinctBy { it.timestamp }
             .sortedBy { it.timestamp }
@@ -385,33 +395,172 @@ class DukascopyDataSource @Inject constructor(
         val completed = hourStartMs < floorToHour(System.currentTimeMillis())
         if (completed) synchronized(cacheLock) { completedTickCache[cacheKey] }?.let { return@withContext it }
 
-        val url = String.format(
+        val path = String.format(
             Locale.US,
-            "%s/%s/%04d/%02d/%02d/%02dh_ticks.bi5",
-            BASE_DATAFEED_URL,
+            "%s/%04d/%02d/%02d/%02dh_ticks.bi5",
             nativeSymbol,
             year,
             month0,
             day,
             hour,
         )
-        val request = Request.Builder().url(url).header("User-Agent", USER_AGENT).get().build()
-        val ticks = try {
-            httpClient.newCall(request).execute().use { response ->
-                if (response.code == 404) return@withContext emptyList()
-                if (!response.isSuccessful) return@withContext emptyList()
-                val rawBytes = response.body?.bytes() ?: return@withContext emptyList()
-                if (rawBytes.isEmpty() || rawBytes.size > MAX_BI5_BYTES) return@withContext emptyList()
-                val decompressed = lzmaDecompressor.decompress(rawBytes)
-                if (decompressed.isEmpty()) emptyList() else tickDecoder.decode(decompressed, hourStartMs, pointValue)
-            }
-        } catch (cancel: CancellationException) {
-            throw cancel
-        } catch (_: Exception) {
-            emptyList()
-        }
+        val ticks = downloadBi5(path)?.let { raw ->
+            val decompressed = lzmaDecompressor.decompress(raw)
+            if (decompressed.isEmpty()) emptyList() else tickDecoder.decode(decompressed, hourStartMs, pointValue)
+        } ?: emptyList()
         if (completed && ticks.isNotEmpty()) synchronized(cacheLock) { completedTickCache[cacheKey] = ticks }
         ticks
+    }
+
+    /**
+     * Native OHLC archives. One M1 file is a day, one H1 file is a month and
+     * one D1 file is a year — orders of magnitude less traffic than walking
+     * hourly tick files, and it does not depend on the WAF-blocked JSON API.
+     */
+    private suspend fun fetchNativeBi5Candles(
+        instrument: DukascopyInstrument,
+        timeframe: Timeframe,
+        beforeTimestamp: Long,
+        limit: Int,
+    ): List<Candle> {
+        val source = sourceFor(timeframe)
+        val requests = buildNativeCandleRequests(instrument, source, beforeTimestamp, limit)
+        val durationMs = timeframe.minutes.toLong() * 60_000L
+        val all = ArrayList<Candle>()
+        val bucketKeys = HashSet<Long>(limit * 2)
+        for (batch in requests.chunked(CANDLE_FETCH_CONCURRENCY)) {
+            val fetched = coroutineScope {
+                batch.map { request -> async { fetchNativeCandleBucket(request, instrument.bi5PointValue) } }.awaitAll()
+            }
+            for (bucket in fetched) {
+                for (candle in bucket) {
+                    if (candle.timestamp >= beforeTimestamp) continue
+                    all += candle
+                    bucketKeys += Math.floorDiv(candle.timestamp, durationMs)
+                }
+            }
+            if (bucketKeys.size >= limit) break
+        }
+        return aggregateCandles(all, timeframe, beforeTimestamp).takeLast(limit)
+    }
+
+    private data class NativeCandleRequest(
+        val path: String,
+        val bucketStartMs: Long,
+        val cacheable: Boolean,
+    )
+
+    private fun buildNativeCandleRequests(
+        instrument: DukascopyInstrument,
+        source: CandleSource,
+        beforeTimestamp: Long,
+        limit: Int,
+    ): List<NativeCandleRequest> {
+        val targetSpanMs = timeframeSpan(source, limit)
+        val estimated = ceil(targetSpanMs * MARKET_GAP_SEARCH_FACTOR / source.approximateBucketMs)
+            .toInt()
+            .plus(2)
+            .coerceIn(2, MAX_CANDLE_BUCKET_REQUESTS)
+        val now = System.currentTimeMillis()
+        var bucket = bucketStart(Instant.ofEpochMilli(beforeTimestamp - 1L).atZone(ZoneOffset.UTC), source)
+        return List(estimated) {
+            val next = nextBucket(bucket, source)
+            val active = now >= bucket.toInstant().toEpochMilli() && now < next.toInstant().toEpochMilli()
+            val month0 = bucket.monthValue - 1
+            val path = when (source) {
+                CandleSource.MINUTE -> String.format(
+                    Locale.US,
+                    "%s/%04d/%02d/%02d/BID_candles_min_1.bi5",
+                    instrument.providerSymbol,
+                    bucket.year,
+                    month0,
+                    bucket.dayOfMonth,
+                )
+                CandleSource.HOUR -> String.format(
+                    Locale.US,
+                    "%s/%04d/%02d/BID_candles_hour_1.bi5",
+                    instrument.providerSymbol,
+                    bucket.year,
+                    month0,
+                )
+                CandleSource.DAY -> String.format(
+                    Locale.US,
+                    "%s/%04d/BID_candles_day_1.bi5",
+                    instrument.providerSymbol,
+                    bucket.year,
+                )
+            }
+            val request = NativeCandleRequest(
+                path = path,
+                bucketStartMs = bucket.toInstant().toEpochMilli(),
+                cacheable = !active,
+            )
+            bucket = previousBucket(bucket, source)
+            request
+        }
+    }
+
+    private fun timeframeSpan(source: CandleSource, limit: Int): Long {
+        val barMs = when (source) {
+            CandleSource.MINUTE -> 60_000L
+            CandleSource.HOUR -> ONE_HOUR_MS
+            CandleSource.DAY -> ONE_DAY_MS
+        }
+        return barMs * limit
+    }
+
+    private suspend fun fetchNativeCandleBucket(
+        request: NativeCandleRequest,
+        pointValue: Double,
+    ): List<Candle> {
+        val cacheKey = "native|${request.path}|$pointValue"
+        if (request.cacheable) {
+            synchronized(cacheLock) { completedCandleCache[cacheKey] }?.let { return it }
+        }
+        val raw = downloadBi5(request.path) ?: return emptyList()
+        val decoded = bi5CandleDecoder.decode(
+            decompressed = lzmaDecompressor.decompress(raw),
+            bucketStartMs = request.bucketStartMs,
+            pointValue = pointValue,
+        )
+        if (request.cacheable && decoded.isNotEmpty()) {
+            synchronized(cacheLock) { completedCandleCache[cacheKey] = decoded }
+        }
+        return decoded
+    }
+
+    /**
+     * Download one `.bi5` object. A 404 on every host is a closed market hour
+     * (empty). A WAF/5xx/timeout tries the next mirror and then reports no
+     * bytes so the caller does not cache a poisoned empty bucket.
+     */
+    private fun downloadBi5(path: String): ByteArray? {
+        for (host in DATAFEED_HOSTS) {
+            val request = Request.Builder()
+                .url("$host/$path")
+                .header("User-Agent", USER_AGENT)
+                .header("Accept", "*/*")
+                .get()
+                .build()
+            try {
+                httpClient.newCall(request).execute().use { response ->
+                    val challenged = !response.header("x-amzn-waf-action").isNullOrBlank()
+                    val bytes = response.body?.bytes()
+                    when (classifyDukascopyResponse(response.code, bytes == null || bytes.isEmpty(), challenged)) {
+                        DukascopyHttpOutcome.ABSENT -> return ByteArray(0)
+                        DukascopyHttpOutcome.RETRY -> Unit
+                        DukascopyHttpOutcome.DATA -> {
+                            if (bytes != null && bytes.size <= MAX_BI5_BYTES) return bytes
+                        }
+                    }
+                }
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (_: Exception) {
+                // Try the next mirror.
+            }
+        }
+        return null
     }
 
     fun getPointValue(symbol: String): Double =
@@ -469,9 +618,14 @@ class DukascopyDataSource @Inject constructor(
     companion object {
         const val BASE_DATAFEED_URL = "https://datafeed.dukascopy.com/datafeed"
         const val CANDLE_API_URL = "https://jetta.dukascopy.com/v1"
+        private val DATAFEED_HOSTS = listOf(
+            BASE_DATAFEED_URL,
+            "https://www.dukascopy.com/datafeed",
+        )
         const val ONE_HOUR_MS = 3_600_000L
         private const val ONE_DAY_MS = 86_400_000L
-        private const val USER_AGENT = "FoxTrader/6 Dukascopy Market Data"
+        private const val USER_AGENT =
+            "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) FoxTrader/6 Dukascopy Market Data"
         // Raised to match what the chart asks for. The chart requests the
         // history its studies need and this clamped it to a fifth of that
         // without saying so, which is a hard ceiling no setting could lift:

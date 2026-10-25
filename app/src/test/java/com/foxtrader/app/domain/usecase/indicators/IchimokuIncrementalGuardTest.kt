@@ -38,9 +38,9 @@ class IchimokuIncrementalGuardTest {
         for (i in candles.indices) {
             assertEquals(full.tenkan[i], incremental.tenkan[i], tol)
             assertEquals(full.kijun[i], incremental.kijun[i], tol)
-            assertEquals(full.senkouA[i], incremental.senkouA[i], tol)
-            assertEquals(full.senkouB[i], incremental.senkouB[i], tol)
-            assertEquals(full.chikou[i], incremental.chikou[i], tol)
+            assertSame(full.senkouA[i], incremental.senkouA[i])
+            assertSame(full.senkouB[i], incremental.senkouB[i])
+            assertSame(full.chikou[i], incremental.chikou[i])
         }
     }
 
@@ -56,8 +56,16 @@ class IchimokuIncrementalGuardTest {
         for (i in candles.indices) {
             assertEquals(full.tenkan[i], incremental.tenkan[i], tol)
             assertEquals(full.kijun[i], incremental.kijun[i], tol)
-            assertEquals(full.senkouA[i], incremental.senkouA[i], tol)
-            assertEquals(full.senkouB[i], incremental.senkouB[i], tol)
+            assertSame(full.senkouA[i], incremental.senkouA[i])
+            assertSame(full.senkouB[i], incremental.senkouB[i])
+        }
+    }
+
+    private fun assertSame(expected: Double, actual: Double) {
+        if (expected.isNaN() || actual.isNaN()) {
+            org.junit.Assert.assertTrue(expected.isNaN() && actual.isNaN())
+        } else {
+            assertEquals(expected, actual, tol)
         }
     }
 }
