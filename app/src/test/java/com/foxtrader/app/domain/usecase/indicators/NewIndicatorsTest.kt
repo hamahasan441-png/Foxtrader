@@ -14,6 +14,14 @@ class NewIndicatorsTest {
 
     private val tol = 1e-4
 
+    private fun assertSame(expected: Double, actual: Double) {
+        if (expected.isNaN() || actual.isNaN()) {
+            assertTrue(expected.isNaN() && actual.isNaN())
+        } else {
+            assertEquals(expected, actual, tol)
+        }
+    }
+
     private fun series(prices: List<Double>): List<Candle> =
         prices.mapIndexed { i, p ->
             Candle(1_000L + i * 60_000L, p - 0.5, p + 1.0, p - 1.0, p, 100.0 + i)
@@ -112,8 +120,8 @@ class NewIndicatorsTest {
         for (i in full.tenkan.indices) {
             assertEquals(full.tenkan[i], incremental.tenkan[i], tol)
             assertEquals(full.kijun[i], incremental.kijun[i], tol)
-            assertEquals(full.senkouA[i], incremental.senkouA[i], tol)
-            assertEquals(full.senkouB[i], incremental.senkouB[i], tol)
+            assertSame(full.senkouA[i], incremental.senkouA[i])
+            assertSame(full.senkouB[i], incremental.senkouB[i])
         }
     }
 

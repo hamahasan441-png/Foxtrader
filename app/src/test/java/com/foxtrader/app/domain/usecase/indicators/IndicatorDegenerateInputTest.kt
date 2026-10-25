@@ -165,8 +165,17 @@ class IndicatorDegenerateInputTest {
             val result = ichimoku.calculate(series, p, p, p, p)
             assertAllFinite("Tenkan(period=$p)", result.tenkan)
             assertAllFinite("Kijun(period=$p)", result.kijun)
-            assertAllFinite("SenkouA(period=$p)", result.senkouA)
-            assertAllFinite("SenkouB(period=$p)", result.senkouB)
+            // Senkou is plotted `displacement` bars ahead of the bar that
+            // produced it, so the leading slots have no source and stay NaN.
+            // Every span that actually prints must still be finite — a bad
+            // period must not poison the cloud the engines read.
+            val warmUp = result.displacement.coerceIn(0, result.senkouA.size)
+            assertAllFinite("SenkouA(period=$p)", result.senkouA.copyOfRange(warmUp, result.senkouA.size))
+            assertAllFinite("SenkouB(period=$p)", result.senkouB.copyOfRange(warmUp, result.senkouB.size))
+            assertTrue(
+                "SenkouA(period=$p) printed a span before its displacement",
+                result.senkouA.copyOfRange(0, warmUp).all { it.isNaN() },
+            )
         }
     }
 

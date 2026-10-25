@@ -44,8 +44,14 @@ class StochasticOscillator @Inject constructor() {
                 hh = max(hh, candles[j].high)
                 ll = min(ll, candles[j].low)
             }
-            val range = (hh - ll).coerceAtLeast(1e-9)
-            k[i] = ((candles[i].close - ll) / range * 100.0).coerceIn(0.0, 100.0)
+            val range = hh - ll
+            // A flat window has no position inside the range. Forcing a tiny
+            // divisor pinned %K to 0 and painted a fake oversold print.
+            k[i] = if (!range.isFinite() || range <= 0.0) {
+                50.0
+            } else {
+                ((candles[i].close - ll) / range * 100.0).coerceIn(0.0, 100.0)
+            }
         }
 
         // %D = SMA of %K

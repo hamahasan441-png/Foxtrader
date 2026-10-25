@@ -94,15 +94,21 @@ class SuperTrend @Inject constructor() {
                 continue
             }
 
+            val prevFinalUpper = finalUpper
+            val prevFinalLower = finalLower
             val prevClose = candles[i - 1].close
-            finalUpper = if (basicUpper < finalUpper || prevClose > finalUpper) basicUpper else finalUpper
-            finalLower = if (basicLower > finalLower || prevClose < finalLower) basicLower else finalLower
+            // Ratchet like TradingView, but the flip itself is decided against
+            // the PREVIOUS final bands. Comparing the close with the band just
+            // ratcheted on this same bar flips one candle early whenever the
+            // lower band steps up through price.
+            finalUpper = if (basicUpper < prevFinalUpper || prevClose > prevFinalUpper) basicUpper else prevFinalUpper
+            finalLower = if (basicLower > prevFinalLower || prevClose < prevFinalLower) basicLower else prevFinalLower
 
             val prevDir = dir[i - 1].let { if (it == -1) -1 else 1 }
             val close = candles[i].close
             val newDir = when {
-                prevDir == 1 && close < finalLower -> -1
-                prevDir == -1 && close > finalUpper -> 1
+                prevDir == 1 && close < prevFinalLower -> -1
+                prevDir == -1 && close > prevFinalUpper -> 1
                 else -> prevDir
             }
             dir[i] = newDir

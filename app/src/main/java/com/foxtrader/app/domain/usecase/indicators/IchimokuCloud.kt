@@ -57,9 +57,9 @@ class IchimokuCloud @Inject constructor() {
         val n = candles.size
         val tenkan = DoubleArray(n)
         val kijun = DoubleArray(n)
-        val senkouA = DoubleArray(n)
-        val senkouB = DoubleArray(n)
-        val chikou = DoubleArray(n)
+        val senkouA = DoubleArray(n) { Double.NaN }
+        val senkouB = DoubleArray(n) { Double.NaN }
+        val chikou = DoubleArray(n) { Double.NaN }
         if (n == 0) return IchimokuResult(tenkan, kijun, senkouA, senkouB, chikou, displacement)
 
         // Non-positive periods make `midpoint`'s window `start > index`, leaving
@@ -67,6 +67,7 @@ class IchimokuCloud @Inject constructor() {
         @Suppress("NAME_SHADOWING") val tenkanPeriod = tenkanPeriod.coerceAtLeast(1)
         @Suppress("NAME_SHADOWING") val kijunPeriod = kijunPeriod.coerceAtLeast(1)
         @Suppress("NAME_SHADOWING") val senkouBPeriod = senkouBPeriod.coerceAtLeast(1)
+        val shift = displacement.coerceIn(0, n)
 
         val startIndex = if (previous != null && recomputeFrom > 0) {
             max(0, recomputeFrom - senkouBPeriod + 1)
@@ -80,27 +81,31 @@ class IchimokuCloud @Inject constructor() {
         val canReuse = previous != null &&
             startIndex > 0 &&
             previous.tenkan.size >= startIndex &&
-            previous.kijun.size >= startIndex &&
-            previous.senkouA.size >= startIndex &&
-            previous.senkouB.size >= startIndex &&
-            previous.chikou.size >= startIndex
+            previous.kijun.size >= startIndex
         val resumeFrom = if (canReuse) startIndex else 0
         if (canReuse && previous != null) {
             System.arraycopy(previous.tenkan, 0, tenkan, 0, startIndex)
             System.arraycopy(previous.kijun, 0, kijun, 0, startIndex)
-            System.arraycopy(previous.senkouA, 0, senkouA, 0, startIndex)
-            System.arraycopy(previous.senkouB, 0, senkouB, 0, startIndex)
-            System.arraycopy(previous.chikou, 0, chikou, 0, startIndex)
         }
 
         for (i in resumeFrom until n) {
             tenkan[i] = midpoint(candles, i, tenkanPeriod)
             kijun[i] = midpoint(candles, i, kijunPeriod)
-            senkouA[i] = (tenkan[i] + kijun[i]) / 2.0
-            senkouB[i] = midpoint(candles, i, senkouBPeriod)
-            chikou[i] = candles[i].close
         }
-        return IchimokuResult(tenkan, kijun, senkouA, senkouB, chikou, displacement)
+        // Senkou is plotted `shift` bars AHEAD of the bar that produced it.
+        // Chikou is the close plotted `shift` bars BEHIND. Leaving them on the
+        // computation bar drew the cloud on the wrong candles, so every engine
+        // that asked "is price above the cloud?" was reading the future cloud.
+        for (i in 0 until n) {
+            val ahead = i + shift
+            if (ahead < n) {
+                senkouA[ahead] = (tenkan[i] + kijun[i]) / 2.0
+                senkouB[ahead] = midpoint(candles, i, senkouBPeriod)
+            }
+            val behind = i - shift
+            if (behind >= 0) chikou[behind] = candles[i].close
+        }
+        return IchimokuResult(tenkan, kijun, senkouA, senkouB, chikou, shift)
     }
 
     /** Determine if price is above, inside, or below the cloud at the last bar. */
@@ -108,8 +113,11 @@ class IchimokuCloud @Inject constructor() {
         if (candles.isEmpty()) return CloudPosition.INSIDE
         val i = candles.lastIndex
         val price = candles[i].close
-        val top = max(result.senkouA[i], result.senkouB[i])
-        val bottom = min(result.senkouA[i], result.senkouB[i])
+        val spanA = result.senkouA.getOrNull(i) ?: return CloudPosition.INSIDE
+        val spanB = result.senkouB.getOrNull(i) ?: return CloudPosition.INSIDE
+        if (!spanA.isFinite() || !spanB.isFinite() || !price.isFinite()) return CloudPosition.INSIDE
+        val top = max(spanA, spanB)
+        val bottom = min(spanA, spanB)
         return when {
             price > top -> CloudPosition.ABOVE
             price < bottom -> CloudPosition.BELOW
