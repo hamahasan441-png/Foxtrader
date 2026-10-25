@@ -12,7 +12,10 @@ import com.foxtrader.app.data.remote.api.OkxApi
 import com.foxtrader.app.data.remote.api.PolygonApi
 import com.foxtrader.app.data.remote.api.SyncApi
 import com.foxtrader.app.data.remote.api.TwelveDataApi
+import com.foxtrader.app.data.remote.dukascopy.AndroidDukascopyWafSession
+import com.foxtrader.app.data.remote.dukascopy.DukascopyWafSession
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
+import android.app.Application
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -255,6 +258,15 @@ object NetworkModule {
             .retryOnConnectionFailure(false)
             .build()
     }
+
+    /**
+     * Browser session that mints the `aws-waf-token` jetta.dukascopy.com now
+     * requires. Without it the candle host returns an empty 202 forever.
+     */
+    @Provides
+    @Singleton
+    fun provideDukascopyWafSession(app: Application): DukascopyWafSession =
+        AndroidDukascopyWafSession(app)
 
     @Provides
     @Singleton

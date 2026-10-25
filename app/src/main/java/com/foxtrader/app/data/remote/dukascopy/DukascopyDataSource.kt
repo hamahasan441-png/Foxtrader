@@ -20,6 +20,8 @@ import java.time.ZoneOffset
 import java.time.ZonedDateTime
 import java.util.LinkedHashMap
 import java.util.Locale
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.ceil
@@ -28,10 +30,11 @@ import kotlin.math.max
 /**
  * Free Dukascopy historical and near-real-time market data.
  *
- * The primary path uses Dukascopy's compact candle service: minute data is
- * partitioned by day, hourly data by month and daily data by year. This avoids
- * downloading hundreds of raw hourly tick archives for one chart refresh.
- * The public `.bi5` tick archive remains a bounded fallback.
+ * Live history is the jetta JSON candle service. Since October 2026 that host
+ * answers a plain HTTP client with an empty AWS WAF challenge, and the legacy
+ * `datafeed.dukascopy.com` `.bi5` archive accepts the TCP connection and then
+ * never sends a byte. The chart therefore has to reuse a browser-minted
+ * `aws-waf-token`. The archive is only a short, fail-fast fallback.
  */
 @Singleton
 class DukascopyDataSource @Inject constructor(
@@ -42,6 +45,7 @@ class DukascopyDataSource @Inject constructor(
     private val candleDecoder: DukascopyCandleDecoder,
     private val bi5CandleDecoder: DukascopyBi5CandleDecoder,
     private val instrumentCatalog: DukascopyInstrumentCatalog,
+    private val wafSession: DukascopyWafSession = DukascopyWafSession.None,
 ) {
     private enum class CandleSource(val path: String, val approximateBucketMs: Long) {
         MINUTE("minute", ONE_DAY_MS),
@@ -100,6 +104,22 @@ class DukascopyDataSource @Inject constructor(
     private val completedCandleCache = RowBoundedCache<Candle>(MAX_CACHED_CANDLE_ROWS)
     private val completedTickCache = RowBoundedCache<Tick>(MAX_CACHED_TICK_ROWS)
 
+    /**
+     * `datafeed.dukascopy.com` has not returned a body since mid-2026. One
+     * timed-out probe is enough; walking hundreds of silent hours is what
+     * made the chart spin forever.
+     */
+    private val archiveDead = AtomicBoolean(false)
+    /** Set when jetta answers with a WAF challenge. The archive host is dead, so don't walk it. */
+    private val jettaBlocked = AtomicBoolean(false)
+    private val archiveClient: OkHttpClient by lazy {
+        httpClient.newBuilder()
+            .connectTimeout(ARCHIVE_TIMEOUT_SEC, TimeUnit.SECONDS)
+            .readTimeout(ARCHIVE_TIMEOUT_SEC, TimeUnit.SECONDS)
+            .callTimeout(ARCHIVE_TIMEOUT_SEC, TimeUnit.SECONDS)
+            .build()
+    }
+
     /** Drop every cached bucket. Called when the process is under memory pressure. */
     fun clearCaches() {
         synchronized(cacheLock) {
@@ -134,6 +154,9 @@ class DukascopyDataSource @Inject constructor(
             emptyList()
         }
         if (primary.isNotEmpty()) return@withContext primary
+        // A challenge means the browser token was missing or rejected. The
+        // .bi5 host will not answer either; falling through to it is a hang.
+        if (jettaBlocked.get()) return@withContext emptyList()
 
         val native = try {
             fetchNativeBi5Candles(instrument, timeframe, beforeTimestamp, safeLimit)
@@ -223,12 +246,17 @@ class DukascopyDataSource @Inject constructor(
         }
 
         var lastError: Exception? = null
+        var refreshedToken = false
         repeat(HTTP_ATTEMPTS) { attempt ->
             try {
+                val token = wafSession.token()
                 val httpRequest = Request.Builder()
                     .url(request.url)
-                    .header("User-Agent", USER_AGENT)
+                    .header("User-Agent", wafSession.userAgent ?: USER_AGENT)
                     .header("Accept", "application/json,text/plain,*/*")
+                    .apply {
+                        if (!token.isNullOrBlank()) header("Cookie", "$WAF_COOKIE_PREFIX$token")
+                    }
                     .get()
                     .build()
                 val decoded = httpClient.newCall(httpRequest).execute().use { response ->
@@ -236,9 +264,18 @@ class DukascopyDataSource @Inject constructor(
                     val payload = response.body?.string().orEmpty()
                     when (classifyDukascopyResponse(response.code, payload.isBlank(), challenged)) {
                         DukascopyHttpOutcome.ABSENT -> emptyList()
-                        DukascopyHttpOutcome.RETRY ->
+                        DukascopyHttpOutcome.RETRY -> {
+                            if (challenged) {
+                                jettaBlocked.set(true)
+                                if (!refreshedToken) {
+                                    refreshedToken = true
+                                    wafSession.invalidate(token)
+                                }
+                            }
                             throw IllegalStateException("Dukascopy candle HTTP ${response.code} was not usable.")
+                        }
                         DukascopyHttpOutcome.DATA -> {
+                            jettaBlocked.set(false)
                             require(payload.length <= MAX_CANDLE_RESPONSE_CHARS) {
                                 "Dukascopy candle response exceeds the safety limit."
                             }
@@ -336,7 +373,7 @@ class DukascopyDataSource @Inject constructor(
         var emptyConsecutiveHours = 0
         val batchHours = if (limit <= LIVE_POLL_LIMIT_THRESHOLD) LIVE_POLL_BATCH_HOURS else FETCH_BATCH_HOURS
 
-        while (hoursWalked < maxHourWalk && emptyConsecutiveHours < MAX_EMPTY_HOURS) {
+        while (hoursWalked < maxHourWalk && emptyConsecutiveHours < MAX_EMPTY_HOURS && !archiveDead.get()) {
             val batchSize = minOf(batchHours, maxHourWalk - hoursWalked)
             val hourStarts = List(batchSize) { currentHourEpochMs - it * ONE_HOUR_MS }
             val batchTicks = coroutineScope {
@@ -429,6 +466,7 @@ class DukascopyDataSource @Inject constructor(
         val all = ArrayList<Candle>()
         val bucketKeys = HashSet<Long>(limit * 2)
         for (batch in requests.chunked(CANDLE_FETCH_CONCURRENCY)) {
+            if (archiveDead.get()) break
             val fetched = coroutineScope {
                 batch.map { request -> async { fetchNativeCandleBucket(request, instrument.bi5PointValue) } }.awaitAll()
             }
@@ -530,11 +568,14 @@ class DukascopyDataSource @Inject constructor(
     }
 
     /**
-     * Download one `.bi5` object. A 404 on every host is a closed market hour
-     * (empty). A WAF/5xx/timeout tries the next mirror and then reports no
-     * bytes so the caller does not cache a poisoned empty bucket.
+     * Download one `.bi5` object. A 404 is a closed market period. A timeout
+     * or WAF on the archive host marks the archive dead for this process:
+     * that host currently never writes a response, and retrying it per hour
+     * is what froze chart loads.
      */
     private fun downloadBi5(path: String): ByteArray? {
+        if (archiveDead.get()) return null
+        var transportFailure = false
         for (host in DATAFEED_HOSTS) {
             val request = Request.Builder()
                 .url("$host/$path")
@@ -543,23 +584,25 @@ class DukascopyDataSource @Inject constructor(
                 .get()
                 .build()
             try {
-                httpClient.newCall(request).execute().use { response ->
+                archiveClient.newCall(request).execute().use { response ->
                     val challenged = !response.header("x-amzn-waf-action").isNullOrBlank()
                     val bytes = response.body?.bytes()
                     when (classifyDukascopyResponse(response.code, bytes == null || bytes.isEmpty(), challenged)) {
                         DukascopyHttpOutcome.ABSENT -> return ByteArray(0)
-                        DukascopyHttpOutcome.RETRY -> Unit
+                        DukascopyHttpOutcome.RETRY -> transportFailure = true
                         DukascopyHttpOutcome.DATA -> {
                             if (bytes != null && bytes.size <= MAX_BI5_BYTES) return bytes
+                            transportFailure = true
                         }
                     }
                 }
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (_: Exception) {
-                // Try the next mirror.
+                transportFailure = true
             }
         }
+        if (transportFailure) archiveDead.set(true)
         return null
     }
 
@@ -618,10 +661,9 @@ class DukascopyDataSource @Inject constructor(
     companion object {
         const val BASE_DATAFEED_URL = "https://datafeed.dukascopy.com/datafeed"
         const val CANDLE_API_URL = "https://jetta.dukascopy.com/v1"
-        private val DATAFEED_HOSTS = listOf(
-            BASE_DATAFEED_URL,
-            "https://www.dukascopy.com/datafeed",
-        )
+        // www.dukascopy.com/datafeed only 301s onto the host above, which then
+        // hangs. Probing the redirect burns a second full timeout for nothing.
+        private val DATAFEED_HOSTS = listOf(BASE_DATAFEED_URL)
         const val ONE_HOUR_MS = 3_600_000L
         private const val ONE_DAY_MS = 86_400_000L
         private const val USER_AGENT =
@@ -640,6 +682,7 @@ class DukascopyDataSource @Inject constructor(
         private const val MARKET_GAP_SEARCH_FACTOR = 2.0
         private const val HTTP_ATTEMPTS = 3
         private const val RETRY_BASE_DELAY_MS = 250L
+        private const val ARCHIVE_TIMEOUT_SEC = 4L
         private const val MAX_CANDLE_RESPONSE_CHARS = 8 * 1024 * 1024
         private const val MAX_BI5_BYTES = 8 * 1024 * 1024
         // `MEMORY` Row budgets, not bucket counts. A Candle and a Tick are both
