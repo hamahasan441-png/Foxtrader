@@ -7,6 +7,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.time.LocalDate
+import java.time.ZoneOffset
 
 /**
  * Unit tests for [DukascopyDataSource].
@@ -62,5 +64,17 @@ class DukascopyDataSourceTest {
         assertEquals("USATECHIDXUSD", dataSource.normalizeSymbol("NAS100"))
         assertEquals("USA500IDXUSD", dataSource.normalizeSymbol("SPX500"))
         assertEquals("DEUIDXEUR", dataSource.normalizeSymbol("GER40"))
+    }
+
+    @Test
+    fun `weekly and monthly bars open on the calendar, not the unix epoch`() {
+        val friday = LocalDate.of(2024, 11, 15).atTime(15, 30).toInstant(ZoneOffset.UTC).toEpochMilli()
+        val monday = LocalDate.of(2024, 11, 11).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        val november = LocalDate.of(2024, 11, 1).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        assertEquals(monday, Timeframe.W1.barOpenMillis(friday))
+        assertEquals(november, Timeframe.MN.barOpenMillis(friday))
+        // Epoch division would start this week on Thursday 14 Nov 2024.
+        val thursday = LocalDate.of(2024, 11, 14).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        assertTrue(Timeframe.W1.barOpenMillis(friday) != thursday)
     }
 }

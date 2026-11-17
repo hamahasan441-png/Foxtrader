@@ -9,9 +9,8 @@ import javax.inject.Singleton
 /**
  * Tick Aggregator — builds OHLCV candles from a raw stream of ticks.
  *
- * Each tick is placed into a fixed-width time bucket determined by the target
- * timeframe: `bucket = floor(timestampMs / durationMs) * durationMs`. The bucket
- * start becomes the candle's [Candle.timestamp] (bar-open time).
+ * Each tick is placed into the timeframe bucket from [Timeframe.barOpenMillis].
+ * The bucket start becomes the candle's [Candle.timestamp] (bar-open time).
  *
  * OHLC is computed from the tick [Tick.mid] price:
  * - open  = mid of the first tick in the bucket (earliest timestamp)
@@ -44,12 +43,9 @@ class TickAggregator @Inject constructor() {
     ): List<Candle> {
         if (ticks.isEmpty()) return emptyList()
 
-        val durationMs = durationMsOf(timeframe)
-
-        // Group ticks by bucket start.
         val buckets = LinkedHashMap<Long, MutableList<Tick>>()
         for (tick in ticks) {
-            val bucketStart = Math.floorDiv(tick.timestampMs, durationMs) * durationMs
+            val bucketStart = timeframe.barOpenMillis(tick.timestampMs)
             buckets.getOrPut(bucketStart) { mutableListOf() }.add(tick)
         }
 
@@ -83,18 +79,5 @@ class TickAggregator @Inject constructor() {
         }
 
         return candles.sortedBy { it.timestamp }
-    }
-
-    /** Bucket width in milliseconds for each supported timeframe. */
-    private fun durationMsOf(timeframe: Timeframe): Long = when (timeframe) {
-        Timeframe.M1 -> 60_000L
-        Timeframe.M5 -> 300_000L
-        Timeframe.M15 -> 900_000L
-        Timeframe.M30 -> 1_800_000L
-        Timeframe.H1 -> 3_600_000L
-        Timeframe.H4 -> 14_400_000L
-        Timeframe.D1 -> 86_400_000L
-        Timeframe.W1 -> 604_800_000L
-        Timeframe.MN -> 2_592_000_000L
     }
 }

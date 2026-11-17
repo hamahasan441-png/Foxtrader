@@ -13,7 +13,9 @@ import javax.inject.Singleton
  * int32 seconds from the file's bucket start, int32 open, int32 close,
  * int32 low, int32 high, float32 volume.
  * Prices are integer points and must be divided by the instrument point value.
- * Volume is stored in 1e-7 units.
+ * Volume is the float Dukascopy stored, in the same units as tick volume.
+ * Multiplying by 1e7 turns a normal print (~250) into billions and breaks
+ * every volume study.
  *
  * Bucket start is 00:00 UTC of the day (M1), the first of the month (H1),
  * or 1 January (D1) — the same instant the archive path names.
@@ -46,7 +48,7 @@ class DukascopyBi5CandleDecoder @Inject constructor() {
             if (highPoints < lowPoints || openPoints !in lowPoints..highPoints || closePoints !in lowPoints..highPoints) {
                 continue
             }
-            val volume = if (rawVolume.isFinite() && rawVolume >= 0f) rawVolume.toDouble() * VOLUME_SCALE else 0.0
+            val volume = if (rawVolume.isFinite() && rawVolume >= 0f) rawVolume.toDouble() else 0.0
             val candle = Candle(
                 timestamp = bucketStartMs + shiftSeconds * 1_000L,
                 open = openPoints / pointValue,
@@ -64,7 +66,5 @@ class DukascopyBi5CandleDecoder @Inject constructor() {
 
     private companion object {
         const val RECORD_BYTES = 24
-        /** Dukascopy stores native-candle volume as lots × 10^-7. */
-        const val VOLUME_SCALE = 10_000_000.0
     }
 }

@@ -17,7 +17,7 @@ class DukascopyBi5CandleDecoderTest {
             putInt(110_010)
             putInt(109_990)
             putInt(110_020)
-            putFloat(0.00015f)
+            putFloat(250f)
         }.array()
 
         val candles = decoder.decode(payload, bucketStartMs = 1_700_000_000_000L, pointValue = 100_000.0)
@@ -28,7 +28,7 @@ class DukascopyBi5CandleDecoderTest {
         assertEquals(1.10020, candles[0].high, 1e-9)
         assertEquals(1.09990, candles[0].low, 1e-9)
         assertEquals(1.10010, candles[0].close, 1e-9)
-        assertEquals(1_500.0, candles[0].volume, 1.0)
+        assertEquals(250.0, candles[0].volume, 1e-6)
     }
 
     @Test

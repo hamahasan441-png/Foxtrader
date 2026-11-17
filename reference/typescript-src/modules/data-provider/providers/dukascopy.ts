@@ -147,16 +147,17 @@ export class DukascopyProvider implements DataProviderInterface {
     const y = date.getUTCFullYear();
     const m = String(date.getUTCMonth()).padStart(2, '0'); // 0-indexed
     const d = String(date.getUTCDate()).padStart(2, '0');
-    const h = String(date.getUTCHours()).padStart(2, '0');
 
-    const tfFile: Record<string, string> = {
-      'M1': 'BID_candles_min_1', 'M5': 'BID_candles_min_5',
-      'M15': 'BID_candles_min_15', 'M30': 'BID_candles_min_30',
-      'H1': 'BID_candles_hour_1', 'H4': 'BID_candles_hour_4',
-      'D1': 'BID_candles_day_1', 'W1': 'BID_candles_week_1', 'MN': 'BID_candles_month_1',
-    };
-    const file = tfFile[timeframe] || 'BID_candles_min_1';
-    return `${this.config.baseUrl}/${symbol}/${y}/${m}/${d}/${h}h_${file}.bi5`;
+    // Dukascopy publishes one M1 file per day, one H1 file per month and one
+    // D1 file per year. Higher chart timeframes are aggregated from those.
+    // There is no per-hour candle file; that path 404s.
+    if (timeframe === 'M1' || timeframe === 'M5' || timeframe === 'M15' || timeframe === 'M30') {
+      return `${this.config.baseUrl}/${symbol}/${y}/${m}/${d}/BID_candles_min_1.bi5`;
+    }
+    if (timeframe === 'H1' || timeframe === 'H4') {
+      return `${this.config.baseUrl}/${symbol}/${y}/${m}/BID_candles_hour_1.bi5`;
+    }
+    return `${this.config.baseUrl}/${symbol}/${y}/BID_candles_day_1.bi5`;
   }
 
   private buildTickUrl(symbol: string, date: Date): string {
@@ -194,12 +195,12 @@ export class DukascopyProvider implements DataProviderInterface {
 
     for (let i = 0; i < count; i++) {
       const off = i * recordSize;
-      const timeDelta = view.getUint32(off, true);
-      const open = view.getUint32(off + 4, true) / 100000;
-      const close = view.getUint32(off + 8, true) / 100000;
-      const low = view.getUint32(off + 12, true) / 100000;
-      const high = view.getUint32(off + 16, true) / 100000;
-      const volume = view.getFloat32(off + 20, true);
+      const timeDelta = view.getUint32(off, false);
+      const open = view.getUint32(off + 4, false) / 100000;
+      const close = view.getUint32(off + 8, false) / 100000;
+      const low = view.getUint32(off + 12, false) / 100000;
+      const high = view.getUint32(off + 16, false) / 100000;
+      const volume = view.getFloat32(off + 20, false);
 
       candles.push({
         timestamp: baseTimestamp + timeDelta * 1000,
@@ -218,11 +219,11 @@ export class DukascopyProvider implements DataProviderInterface {
 
     for (let i = 0; i < count; i++) {
       const off = i * recordSize;
-      const timeDelta = view.getUint32(off, true);
-      const ask = view.getUint32(off + 4, true) / 100000;
-      const bid = view.getUint32(off + 8, true) / 100000;
-      const askVol = view.getFloat32(off + 12, true);
-      const bidVol = view.getFloat32(off + 16, true);
+      const timeDelta = view.getUint32(off, false);
+      const ask = view.getUint32(off + 4, false) / 100000;
+      const bid = view.getUint32(off + 8, false) / 100000;
+      const askVol = view.getFloat32(off + 12, false);
+      const bidVol = view.getFloat32(off + 16, false);
 
       ticks.push({ timestamp: baseTimestamp + timeDelta, ask, bid, askVolume: askVol, bidVolume: bidVol });
     }
@@ -230,12 +231,17 @@ export class DukascopyProvider implements DataProviderInterface {
   }
 
   private getChunkDuration(tf: Timeframe): number {
+    const day = 86_400_000;
+    const year = 31_536_000_000;
     const map: Record<string, number> = {
-      'TICK': 3600000, 'M1': 3600000, 'M5': 86400000, 'M15': 86400000,
-      'M30': 86400000, 'H1': 604800000, 'H4': 604800000,
-      'D1': 2592000000, 'W1': 2592000000, 'MN': 31536000000,
+      'TICK': 3_600_000,
+      'M1': day, 'M5': day, 'M15': day, 'M30': day,
+      // Hour files are one per month; stepping a day re-reads that file but
+      // cannot skip a month the way a 30-day jump can.
+      'H1': day, 'H4': day,
+      'D1': year, 'W1': year, 'MN': year,
     };
-    return map[tf] || 86400000;
+    return map[tf] || day;
   }
 
   private cleanCandles(candles: Candle[], startMs: number, endMs: number): Candle[] {

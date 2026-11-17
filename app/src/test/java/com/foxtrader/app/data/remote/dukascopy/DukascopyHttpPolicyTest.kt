@@ -27,6 +27,15 @@ class DukascopyHttpPolicyTest {
     }
 
     @Test
+    fun `bi5 empty 200 is a closed hour and must not disable the archive`() {
+        assertEquals(DukascopyHttpOutcome.ABSENT, classifyBi5Response(200, bodyEmpty = true, challenged = false))
+        assertEquals(DukascopyHttpOutcome.ABSENT, classifyBi5Response(404, bodyEmpty = true, challenged = false))
+        assertEquals(DukascopyHttpOutcome.DATA, classifyBi5Response(200, bodyEmpty = false, challenged = false))
+        assertEquals(DukascopyHttpOutcome.RETRY, classifyBi5Response(503, bodyEmpty = false, challenged = false))
+        assertEquals(DukascopyHttpOutcome.RETRY, classifyBi5Response(200, bodyEmpty = true, challenged = true))
+    }
+
+    @Test
     fun `waf cookie is taken from a combined cookie header`() {
         assertEquals(
             "abc=def",

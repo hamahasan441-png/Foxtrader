@@ -13,15 +13,19 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.time.DayOfWeek
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.ZonedDateTime
 import java.util.LinkedHashMap
 import java.util.Locale
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.ceil
@@ -30,11 +34,10 @@ import kotlin.math.max
 /**
  * Free Dukascopy historical and near-real-time market data.
  *
- * Live history is the jetta JSON candle service. Since October 2026 that host
- * answers a plain HTTP client with an empty AWS WAF challenge, and the legacy
- * `datafeed.dukascopy.com` `.bi5` archive accepts the TCP connection and then
- * never sends a byte. The chart therefore has to reuse a browser-minted
- * `aws-waf-token`. The archive is only a short, fail-fast fallback.
+ * Completed history comes from the public `.bi5` candle archive. That host
+ * answers without a browser token and one file is a whole day, month or year.
+ * `jetta.dukascopy.com` is only used to top up the live edge, because since
+ * October 2026 it answers a plain HTTP client with an AWS WAF challenge.
  */
 @Singleton
 class DukascopyDataSource @Inject constructor(
@@ -54,6 +57,8 @@ class DukascopyDataSource @Inject constructor(
     }
 
     private data class CandleRequest(val url: String, val cacheable: Boolean)
+
+    private data class HotCandles(val storedAtMs: Long, val ttlMs: Long, val candles: List<Candle>)
 
     /**
      * LRU cache bounded by the number of *rows* it retains, not by entry count.
@@ -101,17 +106,21 @@ class DukascopyDataSource @Inject constructor(
     }
 
     private val cacheLock = Any()
-    private val completedCandleCache = RowBoundedCache<Candle>(MAX_CACHED_CANDLE_ROWS)
+    private val completedCandleCache = RowBoundedCache<Candle>(MAX_CACHED_CANDLE_ROWS) { max(1, it.size) }
     private val completedTickCache = RowBoundedCache<Tick>(MAX_CACHED_TICK_ROWS)
+    /** Short-lived copies of the bucket that is still being written. */
+    private val hotCandleCache = LinkedHashMap<String, HotCandles>(16, 0.75f, true)
+    private val bucketLoads = LinkedHashMap<String, Mutex>(32, 0.75f, true)
 
     /**
-     * `datafeed.dukascopy.com` has not returned a body since mid-2026. One
-     * timed-out probe is enough; walking hundreds of silent hours is what
-     * made the chart spin forever.
+     * A 503 or a timeout must not retire the archive for the process lifetime.
+     * The host rate-limits bursts and a closed hour is an empty 200, not a failure.
+     * After a short streak of real transport errors, pause briefly and try again.
      */
-    private val archiveDead = AtomicBoolean(false)
-    /** Set when jetta answers with a WAF challenge. The archive host is dead, so don't walk it. */
-    private val jettaBlocked = AtomicBoolean(false)
+    private val archiveFailures = AtomicInteger(0)
+    private val archiveCooldownUntil = AtomicLong(0L)
+    /** Set when jetta answers with a WAF challenge. Cleared on the next good body. */
+    private val jettaBlockedUntil = AtomicLong(0L)
     private val archiveClient: OkHttpClient by lazy {
         httpClient.newBuilder()
             .connectTimeout(ARCHIVE_TIMEOUT_SEC, TimeUnit.SECONDS)
@@ -125,6 +134,7 @@ class DukascopyDataSource @Inject constructor(
         synchronized(cacheLock) {
             completedCandleCache.clear()
             completedTickCache.clear()
+            hotCandleCache.clear()
         }
     }
 
@@ -146,18 +156,9 @@ class DukascopyDataSource @Inject constructor(
         val instrument = instrumentCatalog.require(symbol)
         val safeLimit = limit.coerceIn(1, MAX_CANDLE_LIMIT)
 
-        val primary = try {
-            fetchCompactCandles(instrument, timeframe, beforeTimestamp, safeLimit)
-        } catch (cancel: CancellationException) {
-            throw cancel
-        } catch (_: Exception) {
-            emptyList()
-        }
-        if (primary.isNotEmpty()) return@withContext primary
-        // A challenge means the browser token was missing or rejected. The
-        // .bi5 host will not answer either; falling through to it is a hang.
-        if (jettaBlocked.get()) return@withContext emptyList()
-
+        // The archive is one small file per day/month/year and needs no WAF
+        // token. Jetta is only a live-edge top-up. Hourly tick walks are the
+        // last resort when both candle feeds are empty.
         val native = try {
             fetchNativeBi5Candles(instrument, timeframe, beforeTimestamp, safeLimit)
         } catch (cancel: CancellationException) {
@@ -165,7 +166,21 @@ class DukascopyDataSource @Inject constructor(
         } catch (_: Exception) {
             emptyList()
         }
-        if (native.isNotEmpty()) return@withContext native
+        if (historyCovers(native, timeframe, beforeTimestamp, safeLimit)) return@withContext native
+
+        val compact = if (!jettaAvailable()) {
+            emptyList()
+        } else {
+            try {
+                fetchCompactCandles(instrument, timeframe, beforeTimestamp, safeLimit)
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
+        val merged = combineCandles(compact, native, timeframe, beforeTimestamp, safeLimit)
+        if (merged.isNotEmpty()) return@withContext merged
 
         fetchBi5CandlesBefore(instrument, timeframe, beforeTimestamp, safeLimit)
     }
@@ -178,32 +193,10 @@ class DukascopyDataSource @Inject constructor(
     ): List<Candle> {
         val source = sourceFor(timeframe)
         val requests = buildCandleRequests(instrument, source, timeframe, beforeTimestamp, limit)
-        val durationMs = timeframe.minutes.toLong() * 60_000L
-        val all = ArrayList<Candle>()
-
-        // `PERF` The completion test tracks distinct *target* buckets in a hash
-        // set updated as rows arrive. The previous implementation re-ran the
-        // full filter/distinct/sort/group aggregation after every batch over a
-        // list that grows past 100 000 rows on a minute-sourced request — an
-        // O(batches · n log n) allocation storm that dominated chart load time
-        // and shredded the young generation while the user waited.
-        val bucketKeys = HashSet<Long>(limit * 2)
-
-        for (batch in requests.chunked(CANDLE_FETCH_CONCURRENCY)) {
-            val fetched = coroutineScope {
-                batch.map { request -> async { fetchCandleBucket(request) } }.awaitAll()
-            }
-            for (bucket in fetched) {
-                for (candle in bucket) {
-                    if (candle.timestamp >= beforeTimestamp) continue
-                    all += candle
-                    bucketKeys += Math.floorDiv(candle.timestamp, durationMs)
-                }
-            }
-            if (bucketKeys.size >= limit) break
+        val fetched = collectCandles(requests, timeframe, limit, beforeTimestamp) { request ->
+            fetchCandleBucket(request)
         }
-
-        return aggregateCandles(all, timeframe, beforeTimestamp).takeLast(limit)
+        return aggregateCandles(fetched, timeframe, beforeTimestamp).takeLast(limit)
     }
 
     private fun buildCandleRequests(
@@ -213,10 +206,10 @@ class DukascopyDataSource @Inject constructor(
         beforeTimestamp: Long,
         limit: Int,
     ): List<CandleRequest> {
-        val targetSpanMs = timeframe.minutes.toLong() * 60_000L * limit
-        val estimated = ceil(targetSpanMs * MARKET_GAP_SEARCH_FACTOR / source.approximateBucketMs)
+        val searchMs = searchSpanMs(timeframe, limit)
+        val estimated = ceil(searchMs.toDouble() / source.approximateBucketMs)
             .toInt()
-            .plus(2)
+            .plus(1)
             .coerceIn(2, MAX_CANDLE_BUCKET_REQUESTS)
         val now = System.currentTimeMillis()
         var bucket = bucketStart(Instant.ofEpochMilli(beforeTimestamp - 1L).atZone(ZoneOffset.UTC), source)
@@ -266,7 +259,7 @@ class DukascopyDataSource @Inject constructor(
                         DukascopyHttpOutcome.ABSENT -> emptyList()
                         DukascopyHttpOutcome.RETRY -> {
                             if (challenged) {
-                                jettaBlocked.set(true)
+                                jettaBlockedUntil.set(System.currentTimeMillis() + JETTA_COOLDOWN_MS)
                                 if (!refreshedToken) {
                                     refreshedToken = true
                                     wafSession.invalidate(token)
@@ -275,7 +268,7 @@ class DukascopyDataSource @Inject constructor(
                             throw IllegalStateException("Dukascopy candle HTTP ${response.code} was not usable.")
                         }
                         DukascopyHttpOutcome.DATA -> {
-                            jettaBlocked.set(false)
+                            jettaBlockedUntil.set(0L)
                             require(payload.length <= MAX_CANDLE_RESPONSE_CHARS) {
                                 "Dukascopy candle response exceeds the safety limit."
                             }
@@ -283,7 +276,7 @@ class DukascopyDataSource @Inject constructor(
                         }
                     }
                 }
-                if (request.cacheable) synchronized(cacheLock) {
+                if (request.cacheable && decoded.isNotEmpty()) synchronized(cacheLock) {
                     completedCandleCache[request.url] = decoded
                 }
                 return decoded
@@ -303,7 +296,6 @@ class DukascopyDataSource @Inject constructor(
         beforeTimestamp: Long,
     ): List<Candle> {
         if (candles.isEmpty()) return emptyList()
-        val durationMs = timeframe.minutes.toLong() * 60_000L
 
         // `PERF` One dedup pass, one sort, one fold. The previous sequence
         // chain (`distinctBy → sortedBy → groupBy → map → sortedBy`) built a
@@ -328,7 +320,7 @@ class DukascopyDataSource @Inject constructor(
         var close = 0.0
         var volume = 0.0
         for (candle in ordered) {
-            val key = Math.floorDiv(candle.timestamp, durationMs) * durationMs
+            val key = timeframe.barOpenMillis(candle.timestamp)
             if (key != bucketStart) {
                 if (bucketStart != Long.MIN_VALUE) {
                     out += Candle(bucketStart, open, high, low, close, volume)
@@ -357,7 +349,6 @@ class DukascopyDataSource @Inject constructor(
         limit: Int,
     ): List<Candle> {
         val allTicks = ArrayList<Tick>()
-        val durationMs = timeframe.minutes.toLong() * 60_000L
         // `PERF`/`MEMORY` Distinct bar buckets are tracked as ticks arrive, so
         // the walk can stop without re-sorting and re-aggregating the whole
         // accumulated tick list on every batch. A dense FX hour is tens of
@@ -365,7 +356,10 @@ class DukascopyDataSource @Inject constructor(
         // was quadratic in batches and the unbounded accumulator could reach
         // millions of objects before the loop's own limits fired.
         val bucketKeys = HashSet<Long>()
-        var currentHourEpochMs = floorToHour(beforeTimestamp)
+        // The hour that *starts* at the boundary contains only ticks the caller
+        // asked to exclude. Start one millisecond earlier so a mid-hour end
+        // time cannot paint that hour's later prices into the previous bar.
+        var currentHourEpochMs = floorToHour(beforeTimestamp - 1L)
         val hoursNeededEstimate = max(2, calculateHoursNeeded(timeframe, limit))
         val maxHourWalk = max(hoursNeededEstimate * 3, MIN_MARKET_GAP_LOOKBACK_HOURS)
             .coerceAtMost(MAX_BI5_FALLBACK_HOURS)
@@ -373,7 +367,7 @@ class DukascopyDataSource @Inject constructor(
         var emptyConsecutiveHours = 0
         val batchHours = if (limit <= LIVE_POLL_LIMIT_THRESHOLD) LIVE_POLL_BATCH_HOURS else FETCH_BATCH_HOURS
 
-        while (hoursWalked < maxHourWalk && emptyConsecutiveHours < MAX_EMPTY_HOURS && !archiveDead.get()) {
+        while (hoursWalked < maxHourWalk && emptyConsecutiveHours < MAX_EMPTY_HOURS && archiveAvailable()) {
             val batchSize = minOf(batchHours, maxHourWalk - hoursWalked)
             val hourStarts = List(batchSize) { currentHourEpochMs - it * ONE_HOUR_MS }
             val batchTicks = coroutineScope {
@@ -397,8 +391,9 @@ class DukascopyDataSource @Inject constructor(
                 emptyConsecutiveHours = 0
                 for (hourTicks in nonEmpty) {
                     for (tick in hourTicks) {
+                        if (tick.timestampMs >= beforeTimestamp) continue
                         allTicks += tick
-                        bucketKeys += Math.floorDiv(tick.timestampMs, durationMs)
+                        bucketKeys += timeframe.barOpenMillis(tick.timestampMs)
                     }
                 }
                 if (bucketKeys.size >= limit + 1) break
@@ -461,25 +456,11 @@ class DukascopyDataSource @Inject constructor(
         limit: Int,
     ): List<Candle> {
         val source = sourceFor(timeframe)
-        val requests = buildNativeCandleRequests(instrument, source, beforeTimestamp, limit)
-        val durationMs = timeframe.minutes.toLong() * 60_000L
-        val all = ArrayList<Candle>()
-        val bucketKeys = HashSet<Long>(limit * 2)
-        for (batch in requests.chunked(CANDLE_FETCH_CONCURRENCY)) {
-            if (archiveDead.get()) break
-            val fetched = coroutineScope {
-                batch.map { request -> async { fetchNativeCandleBucket(request, instrument.bi5PointValue) } }.awaitAll()
-            }
-            for (bucket in fetched) {
-                for (candle in bucket) {
-                    if (candle.timestamp >= beforeTimestamp) continue
-                    all += candle
-                    bucketKeys += Math.floorDiv(candle.timestamp, durationMs)
-                }
-            }
-            if (bucketKeys.size >= limit) break
+        val requests = buildNativeCandleRequests(instrument, source, timeframe, beforeTimestamp, limit)
+        val fetched = collectCandles(requests, timeframe, limit, beforeTimestamp) { request ->
+            fetchNativeCandleBucket(request, instrument.bi5PointValue)
         }
-        return aggregateCandles(all, timeframe, beforeTimestamp).takeLast(limit)
+        return aggregateCandles(fetched, timeframe, beforeTimestamp).takeLast(limit)
     }
 
     private data class NativeCandleRequest(
@@ -491,11 +472,12 @@ class DukascopyDataSource @Inject constructor(
     private fun buildNativeCandleRequests(
         instrument: DukascopyInstrument,
         source: CandleSource,
+        timeframe: Timeframe,
         beforeTimestamp: Long,
         limit: Int,
     ): List<NativeCandleRequest> {
-        val targetSpanMs = timeframeSpan(source, limit)
-        val estimated = ceil(targetSpanMs * MARKET_GAP_SEARCH_FACTOR / source.approximateBucketMs)
+        val searchMs = searchSpanMs(timeframe, limit)
+        val estimated = ceil(searchMs.toDouble() / source.approximateBucketMs)
             .toInt()
             .plus(2)
             .coerceIn(2, MAX_CANDLE_BUCKET_REQUESTS)
@@ -538,71 +520,89 @@ class DukascopyDataSource @Inject constructor(
         }
     }
 
-    private fun timeframeSpan(source: CandleSource, limit: Int): Long {
-        val barMs = when (source) {
-            CandleSource.MINUTE -> 60_000L
-            CandleSource.HOUR -> ONE_HOUR_MS
-            CandleSource.DAY -> ONE_DAY_MS
-        }
-        return barMs * limit
-    }
-
     private suspend fun fetchNativeCandleBucket(
         request: NativeCandleRequest,
         pointValue: Double,
     ): List<Candle> {
         val cacheKey = "native|${request.path}|$pointValue"
-        if (request.cacheable) {
-            synchronized(cacheLock) { completedCandleCache[cacheKey] }?.let { return it }
+        readNativeCache(cacheKey, request.cacheable)?.let { return it }
+        val mutex = loadMutex(cacheKey)
+        return mutex.withLock {
+            readNativeCache(cacheKey, request.cacheable)?.let { return@withLock it }
+            val raw = downloadBi5(request.path) ?: return@withLock emptyList()
+            val decoded = if (raw.isEmpty()) {
+                emptyList()
+            } else {
+                bi5CandleDecoder.decode(
+                    decompressed = lzmaDecompressor.decompress(raw),
+                    bucketStartMs = request.bucketStartMs,
+                    pointValue = pointValue,
+                )
+            }
+            // A non-empty body that does not decode is a transport glitch, not
+            // a closed market. Caching it would blank that day until restart.
+            if (raw.isNotEmpty() && decoded.isEmpty()) return@withLock decoded
+            storeNativeCache(cacheKey, decoded, request.cacheable)
+            decoded
         }
-        val raw = downloadBi5(request.path) ?: return emptyList()
-        val decoded = bi5CandleDecoder.decode(
-            decompressed = lzmaDecompressor.decompress(raw),
-            bucketStartMs = request.bucketStartMs,
-            pointValue = pointValue,
-        )
-        if (request.cacheable && decoded.isNotEmpty()) {
-            synchronized(cacheLock) { completedCandleCache[cacheKey] = decoded }
-        }
-        return decoded
     }
 
     /**
-     * Download one `.bi5` object. A 404 is a closed market period. A timeout
-     * or WAF on the archive host marks the archive dead for this process:
-     * that host currently never writes a response, and retrying it per hour
-     * is what froze chart loads.
+     * Download one `.bi5` object.
+     *
+     * A 404 or an empty 200 is a closed market period and must not open the
+     * circuit. A 503, reset or timeout is retried, and only a streak of those
+     * pauses the archive — one blip used to disable Dukascopy for the whole
+     * process, which is why charts stayed blank.
      */
-    private fun downloadBi5(path: String): ByteArray? {
-        if (archiveDead.get()) return null
+    private suspend fun downloadBi5(path: String): ByteArray? {
+        if (!archiveAvailable()) return null
         var transportFailure = false
         for (host in DATAFEED_HOSTS) {
-            val request = Request.Builder()
-                .url("$host/$path")
-                .header("User-Agent", USER_AGENT)
-                .header("Accept", "*/*")
-                .get()
-                .build()
-            try {
-                archiveClient.newCall(request).execute().use { response ->
-                    val challenged = !response.header("x-amzn-waf-action").isNullOrBlank()
-                    val bytes = response.body?.bytes()
-                    when (classifyDukascopyResponse(response.code, bytes == null || bytes.isEmpty(), challenged)) {
-                        DukascopyHttpOutcome.ABSENT -> return ByteArray(0)
-                        DukascopyHttpOutcome.RETRY -> transportFailure = true
-                        DukascopyHttpOutcome.DATA -> {
-                            if (bytes != null && bytes.size <= MAX_BI5_BYTES) return bytes
-                            transportFailure = true
+            repeat(BI5_ATTEMPTS) { attempt ->
+                transportFailure = false
+                val request = Request.Builder()
+                    .url("$host/$path")
+                    .header("User-Agent", USER_AGENT)
+                    .header("Accept", "*/*")
+                    .get()
+                    .build()
+                try {
+                    val outcome = archiveClient.newCall(request).execute().use { response ->
+                        val challenged = !response.header("x-amzn-waf-action").isNullOrBlank()
+                        val bytes = response.body?.bytes()
+                        val kind = classifyBi5Response(
+                            response.code,
+                            bytes == null || bytes.isEmpty(),
+                            challenged,
+                        )
+                        when (kind) {
+                            DukascopyHttpOutcome.ABSENT -> {
+                                noteArchiveSuccess()
+                                return ByteArray(0)
+                            }
+                            DukascopyHttpOutcome.DATA -> {
+                                if (bytes != null && bytes.size <= MAX_BI5_BYTES) {
+                                    noteArchiveSuccess()
+                                    return bytes
+                                }
+                                DukascopyHttpOutcome.RETRY
+                            }
+                            DukascopyHttpOutcome.RETRY -> DukascopyHttpOutcome.RETRY
                         }
                     }
+                    if (outcome == DukascopyHttpOutcome.RETRY) transportFailure = true
+                } catch (cancel: CancellationException) {
+                    throw cancel
+                } catch (_: Exception) {
+                    transportFailure = true
                 }
-            } catch (cancel: CancellationException) {
-                throw cancel
-            } catch (_: Exception) {
-                transportFailure = true
+                if (transportFailure && attempt + 1 < BI5_ATTEMPTS) {
+                    delay(BI5_RETRY_MS * (attempt + 1))
+                }
             }
         }
-        if (transportFailure) archiveDead.set(true)
+        if (transportFailure) noteArchiveFailure()
         return null
     }
 
@@ -646,6 +646,131 @@ class DukascopyDataSource @Inject constructor(
 
     private fun floorToHour(timestampMs: Long): Long = Math.floorDiv(timestampMs, ONE_HOUR_MS) * ONE_HOUR_MS
 
+    private suspend fun <T> collectCandles(
+        requests: List<T>,
+        timeframe: Timeframe,
+        limit: Int,
+        beforeTimestamp: Long,
+        fetch: suspend (T) -> List<Candle>,
+    ): List<Candle> {
+        if (requests.isEmpty()) return emptyList()
+        val all = ArrayList<Candle>()
+        val bucketKeys = HashSet<Long>(limit * 2)
+        fun absorb(rows: List<Candle>) {
+            for (candle in rows) {
+                if (candle.timestamp >= beforeTimestamp) continue
+                all += candle
+                bucketKeys += timeframe.barOpenMillis(candle.timestamp)
+            }
+        }
+        // The newest bucket is enough for a normal chart. Fetch it alone so a
+        // one-second poll does not download a dozen history files up front.
+        absorb(fetch(requests.first()))
+        if (bucketKeys.size >= limit) return all
+        for (batch in requests.drop(1).chunked(CANDLE_FETCH_CONCURRENCY)) {
+            val fetched = coroutineScope {
+                batch.map { request -> async { fetch(request) } }.awaitAll()
+            }
+            for (rows in fetched) absorb(rows)
+            if (bucketKeys.size >= limit) break
+        }
+        return all
+    }
+
+    private fun searchSpanMs(timeframe: Timeframe, limit: Int): Long {
+        val target = timeframe.minutes.toLong() * 60_000L * limit.toLong()
+        val scaled = ceil(target * MARKET_GAP_SEARCH_FACTOR).toLong()
+        val pad = if (timeframe.minutes <= Timeframe.H4.minutes) WEEKEND_PAD_MS else 4L * ONE_DAY_MS
+        return max(scaled, target + pad)
+    }
+
+    /** True when [candles] already satisfies the chart, including a normal FX weekend. */
+    private fun historyCovers(
+        candles: List<Candle>,
+        timeframe: Timeframe,
+        beforeTimestamp: Long,
+        limit: Int,
+    ): Boolean {
+        if (candles.size < limit) return false
+        val barMs = timeframe.minutes.toLong() * 60_000L
+        val lag = beforeTimestamp - (candles.last().timestamp + barMs)
+        if (lag <= barMs * 2) return true
+        if (timeframe.minutes > Timeframe.H4.minutes) return lag <= barMs * 4
+        if (lag > WEEKEND_PAD_MS + ONE_HOUR_MS) return false
+        val end = Instant.ofEpochMilli(beforeTimestamp).atZone(ZoneOffset.UTC)
+        return when (end.dayOfWeek) {
+            DayOfWeek.SATURDAY -> true
+            DayOfWeek.SUNDAY -> end.hour < 22
+            DayOfWeek.FRIDAY -> end.hour >= 21
+            else -> false
+        }
+    }
+
+    private fun combineCandles(
+        fresher: List<Candle>,
+        older: List<Candle>,
+        timeframe: Timeframe,
+        beforeTimestamp: Long,
+        limit: Int,
+    ): List<Candle> {
+        if (fresher.isEmpty()) return older
+        if (older.isEmpty()) return fresher
+        return aggregateCandles(fresher + older, timeframe, beforeTimestamp).takeLast(limit)
+    }
+
+    private fun jettaAvailable(): Boolean = System.currentTimeMillis() >= jettaBlockedUntil.get()
+
+    private fun archiveAvailable(): Boolean = System.currentTimeMillis() >= archiveCooldownUntil.get()
+
+    private fun noteArchiveSuccess() {
+        archiveFailures.set(0)
+    }
+
+    private fun noteArchiveFailure() {
+        if (archiveFailures.incrementAndGet() >= ARCHIVE_FAILURES_BEFORE_COOLDOWN) {
+            archiveCooldownUntil.set(System.currentTimeMillis() + ARCHIVE_COOLDOWN_MS)
+            archiveFailures.set(0)
+        }
+    }
+
+    private fun readNativeCache(key: String, completed: Boolean): List<Candle>? {
+        val now = System.currentTimeMillis()
+        synchronized(cacheLock) {
+            if (completed) return completedCandleCache[key]
+            val hot = hotCandleCache[key] ?: return null
+            if (now - hot.storedAtMs > hot.ttlMs) {
+                hotCandleCache.remove(key)
+                return null
+            }
+            return hot.candles
+        }
+    }
+
+    private fun storeNativeCache(key: String, candles: List<Candle>, completed: Boolean) {
+        synchronized(cacheLock) {
+            if (completed) {
+                completedCandleCache[key] = candles
+                return
+            }
+            val ttl = if (candles.isEmpty()) HOT_EMPTY_TTL_MS else HOT_CANDLE_TTL_MS
+            hotCandleCache[key] = HotCandles(System.currentTimeMillis(), ttl, candles)
+            while (hotCandleCache.size > HOT_CACHE_ENTRIES) {
+                val eldest = hotCandleCache.entries.iterator().next().key
+                hotCandleCache.remove(eldest)
+            }
+        }
+    }
+
+    private fun loadMutex(key: String): Mutex = synchronized(cacheLock) {
+        bucketLoads[key] ?: Mutex().also { created ->
+            bucketLoads[key] = created
+            while (bucketLoads.size > 64) {
+                val stale = bucketLoads.entries.firstOrNull { it.key != key && !it.value.isLocked } ?: break
+                bucketLoads.remove(stale.key)
+            }
+        }
+    }
+
     private fun calculateHoursNeeded(timeframe: Timeframe, limit: Int): Int = when (timeframe) {
         Timeframe.M1 -> ceil(limit / 60.0).toInt() + 1
         Timeframe.M5 -> ceil(limit / 12.0).toInt() + 1
@@ -676,13 +801,22 @@ class DukascopyDataSource @Inject constructor(
         // The per-request bucket budget below still bounds the actual work.
         const val MAX_CANDLE_LIMIT = 5_000
         private const val MAX_CANDLE_BUCKET_REQUESTS = 96
-        // Matches the public market-data client's per-host dispatcher budget so
-        // a batch is actually issued in parallel instead of queueing in OkHttp.
-        private const val CANDLE_FETCH_CONCURRENCY = 12
-        private const val MARKET_GAP_SEARCH_FACTOR = 2.0
+        // Four at a time. The archive answers 503 when a chart opens a dozen
+        // files at once, and those 503s used to be treated as a dead feed.
+        private const val CANDLE_FETCH_CONCURRENCY = 4
+        private const val MARKET_GAP_SEARCH_FACTOR = 2.5
         private const val HTTP_ATTEMPTS = 3
         private const val RETRY_BASE_DELAY_MS = 250L
-        private const val ARCHIVE_TIMEOUT_SEC = 4L
+        private const val ARCHIVE_TIMEOUT_SEC = 8L
+        private const val BI5_ATTEMPTS = 3
+        private const val BI5_RETRY_MS = 250L
+        private const val ARCHIVE_FAILURES_BEFORE_COOLDOWN = 6
+        private const val ARCHIVE_COOLDOWN_MS = 20_000L
+        private const val JETTA_COOLDOWN_MS = 60_000L
+        private const val HOT_CANDLE_TTL_MS = 1_000L
+        private const val HOT_EMPTY_TTL_MS = 30_000L
+        private const val HOT_CACHE_ENTRIES = 16
+        private const val WEEKEND_PAD_MS = 3L * ONE_DAY_MS
         private const val MAX_CANDLE_RESPONSE_CHARS = 8 * 1024 * 1024
         private const val MAX_BI5_BYTES = 8 * 1024 * 1024
         // `MEMORY` Row budgets, not bucket counts. A Candle and a Tick are both
