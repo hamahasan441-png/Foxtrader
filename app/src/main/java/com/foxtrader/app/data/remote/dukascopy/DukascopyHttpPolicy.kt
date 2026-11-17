@@ -30,3 +30,20 @@ internal fun classifyDukascopyResponse(
     code == 200 && !bodyEmpty -> DukascopyHttpOutcome.DATA
     else -> DukascopyHttpOutcome.RETRY
 }
+
+/**
+ * The `.bi5` archive uses an empty HTTP 200 for a closed hour (weekends,
+ * holidays, the first hour of the year). That is a real "no rows" answer.
+ * Treating it like a jetta WAF blank permanently disabled the archive after
+ * the first quiet hour and left every chart empty.
+ */
+internal fun classifyBi5Response(
+    code: Int,
+    bodyEmpty: Boolean,
+    challenged: Boolean,
+): DukascopyHttpOutcome = when {
+    challenged -> DukascopyHttpOutcome.RETRY
+    code == 404 || (code == 200 && bodyEmpty) -> DukascopyHttpOutcome.ABSENT
+    code == 200 -> DukascopyHttpOutcome.DATA
+    else -> DukascopyHttpOutcome.RETRY
+}

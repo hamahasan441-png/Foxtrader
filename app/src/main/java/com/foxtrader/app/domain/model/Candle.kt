@@ -1,6 +1,9 @@
 package com.foxtrader.app.domain.model
 
 import kotlinx.serialization.Serializable
+import java.time.DayOfWeek
+import java.time.Instant
+import java.time.ZoneOffset
 
 /**
  * A single OHLCV price candle. The atomic unit of market data.
@@ -33,6 +36,37 @@ enum class Timeframe(val label: String, val minutes: Int) {
     D1("1D", 1440),
     W1("1W", 10080),
     MN("1M", 43200);
+
+    /**
+     * Open time of the bucket that contains [timestamp].
+     *
+     * Intraday and daily bars are fixed widths from the Unix epoch, which is
+     * midnight UTC, so they line up with the clock. Weeks start Monday 00:00
+     * UTC and months start on the first of the calendar month. Dividing by
+     * `minutes` instead would pin weeks to Thursday and months to a fictional
+     * 30-day cycle.
+     */
+    fun barOpenMillis(timestamp: Long): Long {
+        val durationMs = minutes.toLong() * 60_000L
+        return when (this) {
+            M1, M5, M15, M30, H1, H4, D1 -> Math.floorDiv(timestamp, durationMs) * durationMs
+            W1 -> {
+                val utc = Instant.ofEpochMilli(timestamp).atZone(ZoneOffset.UTC)
+                val daysFromMonday = (utc.dayOfWeek.value - DayOfWeek.MONDAY.value).toLong()
+                utc.toLocalDate().minusDays(daysFromMonday)
+                    .atStartOfDay(ZoneOffset.UTC)
+                    .toInstant()
+                    .toEpochMilli()
+            }
+            MN -> Instant.ofEpochMilli(timestamp)
+                .atZone(ZoneOffset.UTC)
+                .toLocalDate()
+                .withDayOfMonth(1)
+                .atStartOfDay(ZoneOffset.UTC)
+                .toInstant()
+                .toEpochMilli()
+        }
+    }
 
     companion object {
         fun fromLabel(label: String): Timeframe = entries.firstOrNull { it.label == label } ?: M15
