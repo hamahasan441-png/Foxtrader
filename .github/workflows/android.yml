@@ -52,7 +52,7 @@ jobs:
         # Enables Gradle dependency + build caching keyed off the wrapper.
 
       - name: Make gradlew executable
-        run: chmod +x ./gradlew
+        run: chmod +x ./gradlew ./scripts/gradle_ci.sh
 
       - name: Run repository safety preflight
         run: |
@@ -68,7 +68,7 @@ jobs:
       # Failing here means no APK is produced at all, which is the correct
       # outcome: an artifact should be evidence that the suite passed.
       - name: Run unit tests
-        run: ./gradlew :app:testDebugUnitTest --stacktrace --no-daemon --no-configuration-cache
+        run: ./scripts/gradle_ci.sh :app:testDebugUnitTest
 
       - name: Upload test reports
         if: always()
@@ -79,7 +79,7 @@ jobs:
           retention-days: 7
 
       - name: Build debug APK
-        run: ./gradlew :app:assembleDebug --stacktrace --no-daemon --no-configuration-cache
+        run: ./scripts/gradle_ci.sh :app:assembleDebug
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

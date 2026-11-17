@@ -36,6 +36,10 @@ backend/.env
 reference/**/node_modules/
 reference/**/dist/
 
+# Web desk
+web/node_modules/
+web/dist/
+
 # OS
 Thumbs.db
 
