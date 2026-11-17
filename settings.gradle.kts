@@ -1,20 +1,17 @@
 pluginManagement {
     repositories {
-        // Portal first. KSP (com.google.devtools.ksp) is published here.
-        // Listing every com.google.* group on dl.google.com made a single
-        // maven blip fail plugin resolution before the portal could satisfy it
-        // (PR #204, Actions run 44067027510).
-        gradlePluginPortal()
         google {
             content {
+                // AGP pulls com.google.testing.platform (and KSP) from here.
+                // Narrowing this to com.google.android.* dropped core-proto and
+                // failed every CI run of #205.
                 includeGroupByRegex("com\\.android.*")
-                includeGroupByRegex("com\\.google\\.android.*")
-                includeGroupByRegex("com\\.google\\.gms.*")
-                includeGroupByRegex("com\\.google\\.firebase.*")
+                includeGroupByRegex("com\\.google.*")
                 includeGroupByRegex("androidx.*")
             }
         }
         mavenCentral()
+        gradlePluginPortal()
     }
 }
 
