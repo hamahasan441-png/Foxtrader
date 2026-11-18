@@ -75,6 +75,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.foxtrader.app.R
 import com.foxtrader.app.domain.model.Bias
+import com.foxtrader.app.domain.model.CandleSource
 import com.foxtrader.app.domain.model.ChartSignal
 import com.foxtrader.app.domain.model.ChartBarMode
 import com.foxtrader.app.domain.model.ConnectionState
@@ -687,11 +688,16 @@ private fun ChartTopBar(
     val currentSymbolDescription = stringResource(R.string.chart_current_symbol_cd, state.symbol)
     val live = connectionState == ConnectionState.CONNECTED &&
         state.dataFreshness == MarketDataFreshness.LIVE
+    val dukascopyArchive = state.dataProvider == DataProvider.DUKASCOPY &&
+        state.dataSource != CandleSource.SYNTHETIC &&
+        state.hasData &&
+        connectionState != ConnectionState.CONNECTED
     val delayed = state.dataFreshness == MarketDataFreshness.DELAYED
     val cached = state.dataFreshness == MarketDataFreshness.CACHED
     val liveError = connectionState == ConnectionState.ERROR ||
         connectionState == ConnectionState.AUTH_FAILED || connectionState == ConnectionState.FATAL
     val liveLabel = when {
+        dukascopyArchive -> stringResource(R.string.chart_dukascopy_connected)
         !state.liveAvailable && !state.liveEnabled -> stringResource(R.string.chart_live_unavailable)
         live -> stringResource(R.string.chart_live_connected)
         delayed -> stringResource(R.string.chart_data_delayed)
@@ -701,6 +707,7 @@ private fun ChartTopBar(
         else -> stringResource(R.string.chart_live_off)
     }
     val liveStateDescription = when {
+        dukascopyArchive -> stringResource(R.string.chart_dukascopy_connected_state)
         !state.liveAvailable && !state.liveEnabled -> stringResource(R.string.chart_live_unavailable_state)
         live -> stringResource(R.string.chart_live_connected_state)
         delayed -> stringResource(R.string.chart_data_delayed_state)
@@ -767,12 +774,12 @@ private fun ChartTopBar(
             // set the height of the whole top bar.
             maxLines = 1,
             softWrap = false,
-            color = if (live || liveError) MaterialTheme.colorScheme.background else FoxNeutral60,
+            color = if (live || dukascopyArchive || liveError) MaterialTheme.colorScheme.background else FoxNeutral60,
             modifier = Modifier
                 .clip(RoundedCornerShape(4.dp))
                 .background(
                     when {
-                        live -> FoxSuccess
+                        live || dukascopyArchive -> FoxSuccess
                         delayed -> FoxWarning
                         liveError -> FoxError
                         else -> MaterialTheme.colorScheme.surfaceVariant

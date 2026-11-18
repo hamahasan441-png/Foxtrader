@@ -101,6 +101,9 @@ fun IndicatorPanel(
                 IndicatorCategory(
                     title = "Signal engines",
                     items = listOf(
+                        StudyItem("Meridian", ChartStudyId.LIT, toggles.meridianActive) { t ->
+                            t.withMeridian(!t.meridianActive)
+                        },
                         StudyItem("LiT Adventure", ChartStudyId.LITX, toggles.litX) { t -> t.withLitXSuite(!t.litX) },
                         StudyItem("LiT May Madness", ChartStudyId.LIT, toggles.lit) { t -> t.withLitSuite(!t.lit) },
                         StudyItem("SMT", ChartStudyId.SMT, toggles.smt) { t -> t.withSmtSuite(!t.smt) },

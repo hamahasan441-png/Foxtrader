@@ -127,6 +127,16 @@ data class IndicatorToggles(
 
     fun withLitSuite(enabled: Boolean): IndicatorToggles = copy(lit = enabled)
 
+    /** Desk read: structure, nearest liquidity, and the LIT setup. */
+    val meridianActive: Boolean
+        get() = structure && liquidity && lit
+
+    fun withMeridian(enabled: Boolean): IndicatorToggles = copy(
+        structure = enabled,
+        liquidity = enabled,
+        lit = enabled,
+    )
+
     fun withSmsSuite(enabled: Boolean): IndicatorToggles = if (enabled) {
         copy(sms = true, structure = true, liquidity = true)
     } else copy(sms = false)
