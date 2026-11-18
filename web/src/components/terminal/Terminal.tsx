@@ -24,7 +24,9 @@ const TF_KEYS: Record<string, TimeframeId> = {
 export function Terminal() {
   const mobile = useDesk((state) => state.mobile);
   const setMobile = useDesk((state) => state.setMobile);
-  const tick = useDesk((state) => state.tick);
+  const refresh = useDesk((state) => state.refresh);
+  const symbol = useDesk((state) => state.symbol);
+  const timeframe = useDesk((state) => state.timeframe);
   const setTimeframe = useDesk((state) => state.setTimeframe);
   const setDetail = useDesk((state) => state.setDetail);
   const hydrate = useDesk((state) => state.hydrate);
@@ -67,9 +69,12 @@ export function Terminal() {
   }, []);
 
   useEffect(() => {
-    const id = window.setInterval(() => tick(), 1000);
+    void refresh(symbol, timeframe);
+    const id = window.setInterval(() => {
+      if (!useDesk.getState().paused) void refresh(symbol, timeframe);
+    }, 20_000);
     return () => window.clearInterval(id);
-  }, [tick]);
+  }, [refresh, symbol, timeframe]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -87,7 +92,7 @@ export function Terminal() {
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-canvas text-fg">
-      <h1 className="sr-only">Meridian desk</h1>
+      <h1 className="sr-only">Foxtrader</h1>
       <TopBar />
       <div className="flex min-h-0 flex-1">
         <aside className="hidden w-60 shrink-0 border-r border-line lg:flex">
@@ -104,7 +109,7 @@ export function Terminal() {
       <nav className="flex h-12 shrink-0 border-t border-line md:hidden">
         <NavButton label="Markets" onClick={() => setMobile("markets")} icon={<List className="size-4" strokeWidth={1.5} />} />
         <NavButton
-          label="Analysis"
+          label="Indicators"
           onClick={() => setMobile("analysis")}
           icon={<BookOpen className="size-4" strokeWidth={1.5} />}
         />
@@ -118,7 +123,7 @@ export function Terminal() {
       <Drawer open={mobile === "markets"} title="Markets" side="left" onClose={() => setMobile(null)}>
         <Watchlist onClose={() => setMobile(null)} />
       </Drawer>
-      <Drawer open={mobile === "analysis"} title="Analysis" side="right" onClose={() => setMobile(null)}>
+      <Drawer open={mobile === "analysis"} title="Indicators" side="right" onClose={() => setMobile(null)}>
         <AnalysisPanel onClose={() => setMobile(null)} />
       </Drawer>
       <Drawer open={mobile === "blotter"} title="Blotter" side="bottom" onClose={() => setMobile(null)}>

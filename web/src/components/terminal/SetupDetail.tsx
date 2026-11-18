@@ -13,7 +13,7 @@ export function SetupDetail() {
   const symbol = useDesk((state) => state.symbol);
   const timeframe = useDesk((state) => state.timeframe);
   const inst = instrumentOf(symbol);
-  const setup = getTape(symbol, timeframe).setup;
+  const setup = getTape(symbol, timeframe)?.setup ?? null;
   const [equity, setEquity] = useState("250000");
   const [risk, setRisk] = useState("0.25");
 

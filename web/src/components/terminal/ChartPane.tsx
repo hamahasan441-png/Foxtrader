@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Component, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   CandlestickSeries,
   ColorType,
@@ -65,6 +65,35 @@ function readTokens(): Tokens {
   };
 }
 
+function placedLabels(marks: Mark[]) {
+  const rows = marks.filter((mark) => mark.showLabel).map((mark) => ({ ...mark }));
+  rows.sort((a, b) => a.y - b.y);
+  let floor = -1e9;
+  for (const row of rows) {
+    if (row.y < floor) row.y = floor;
+    floor = row.y + 18;
+  }
+  return rows;
+}
+
+function chartBars(candles: { time: number; open: number; high: number; low: number; close: number }[]) {
+  const bars: { time: UTCTimestamp; open: number; high: number; low: number; close: number }[] = [];
+  let lastTime = -1;
+  for (const candle of candles) {
+    const time = Math.floor(candle.time);
+    if (!Number.isFinite(time) || time <= lastTime) continue;
+    const open = candle.open;
+    const close = candle.close;
+    const high = Math.max(candle.high, open, close);
+    const low = Math.min(candle.low, open, close);
+    if (![open, high, low, close].every((value) => Number.isFinite(value) && value > 0)) continue;
+    if (high < low) continue;
+    lastTime = time;
+    bars.push({ time: time as UTCTimestamp, open, high, low, close });
+  }
+  return bars;
+}
+
 function toneColor(tone: Tone, tokens: Tokens) {
   if (tone === "bull") return tokens.bull;
   if (tone === "bear") return tokens.bear;
@@ -72,7 +101,7 @@ function toneColor(tone: Tone, tokens: Tokens) {
   return tokens.muted;
 }
 
-export function ChartPane() {
+function ChartView() {
   const symbol = useDesk((state) => state.symbol);
   const timeframe = useDesk((state) => state.timeframe);
   const layers = useDesk((state) => state.layers);
@@ -80,14 +109,21 @@ export function ChartPane() {
   const viewNonce = useDesk((state) => state.viewNonce);
   const toggleLayer = useDesk((state) => state.toggleLayer);
   const setDetail = useDesk((state) => state.setDetail);
+  const feedNote = useDesk((state) => state.feedNote);
+  const feed = useDesk((state) => state.feed);
+  const refresh = useDesk((state) => state.refresh);
+  const setMeridian = useDesk((state) => state.setMeridian);
+  const meridianOn = layers.structure || layers.liquidity || layers.lit || layers.levels;
+  const [indicatorsOpen, setIndicatorsOpen] = useState(false);
   const inst = instrumentOf(symbol);
   const tape = getTape(symbol, timeframe);
-  const last = lastOf(tape);
-  const pct = changeOf(tape);
+  const last = tape ? lastOf(tape) : null;
+  const pct = tape ? changeOf(tape) : 0;
   const [hover, setHover] = useState<Hover>(null);
   const [ready, setReady] = useState(false);
   const [marks, setMarks] = useState<Mark[]>([]);
   const [band, setBand] = useState<Band | null>(null);
+  const aliveRef = useRef(true);
   const hostRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<{ chart: IChartApi; series: ISeriesApi<"Candlestick"> } | null>(null);
   const keyRef = useRef("");
@@ -97,12 +133,14 @@ export function ChartPane() {
   const drawRef = useRef<() => void>(() => {});
 
   drawRef.current = () => {
+    try {
     const api = apiRef.current;
     const host = hostRef.current;
     if (!api || !host) return;
     const { chart, series } = api;
     const current = propsRef.current;
     const live = getTape(current.symbol, current.timeframe);
+    if (!live) return;
     const tokens = readTokens();
     const width = host.clientWidth;
     const scaleWidth = chart.priceScale("right").width();
@@ -123,7 +161,7 @@ export function ChartPane() {
     for (const line of lines) {
       const y = series.priceToCoordinate(line.price);
       const x1 = xOf(line.from);
-      if (y == null || x1 == null || x1 >= plotRight) continue;
+      if (y == null || !Number.isFinite(y) || x1 == null || x1 >= plotRight) continue;
       next.push({
         id: line.id,
         x1,
@@ -166,9 +204,25 @@ export function ChartPane() {
         };
       }
     }
+    if (!aliveRef.current) return;
     setMarks(next);
     setBand(nextBand);
+    } catch {
+      /* chart went away mid-draw */
+    }
   };
+
+  useEffect(() => {
+    aliveRef.current = true;
+    try {
+      if (localStorage.getItem("meridian-indicators-seen") !== "1") setIndicatorsOpen(true);
+    } catch {
+      /* ignore private storage */
+    }
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -244,47 +298,71 @@ export function ChartPane() {
     const api = apiRef.current;
     if (!api) return;
     const live = getTape(symbol, timeframe);
+    if (!live) {
+      if (keyRef.current !== "") {
+        try {
+          api.series.setData([]);
+        } catch {
+          /* chart already disposed */
+        }
+        keyRef.current = "";
+      }
+      return;
+    }
     const digits = inst.digits;
-    const data = live.candles.map((candle) => ({
-      time: candle.time as UTCTimestamp,
-      open: candle.open,
-      high: candle.high,
-      low: candle.low,
-      close: candle.close,
-    }));
+    const data = chartBars(live.candles);
     const key = `${symbol}|${timeframe}`;
     const tokens = readTokens();
-    api.chart.applyOptions({
-      grid: {
-        vertLines: { color: layers.grid ? tokens.grid : "transparent" },
-        horzLines: { color: layers.grid ? tokens.grid : "transparent" },
-      },
-      localization: { priceFormatter: (price: number) => formatPx(price, digits) },
-      timeScale: { timeVisible: timeframe !== "D1", secondsVisible: false },
-    });
-    if (keyRef.current !== key) {
-      api.series.applyOptions({
-        priceFormat: { type: "price", precision: digits, minMove: 10 ** -digits },
+    try {
+      api.chart.applyOptions({
+        grid: {
+          vertLines: { color: layers.grid ? tokens.grid : "transparent" },
+          horzLines: { color: layers.grid ? tokens.grid : "transparent" },
+        },
+        localization: { priceFormatter: (price: number) => formatPx(price, digits) },
+        timeScale: { timeVisible: timeframe !== "D1", secondsVisible: false },
       });
-      api.series.setData(data);
-      api.chart.timeScale().fitContent();
-      keyRef.current = key;
-    } else {
-      const bar = data[data.length - 1];
-      if (bar) api.series.update(bar);
+      if (keyRef.current !== key) {
+        api.series.applyOptions({
+          priceFormat: { type: "price", precision: digits, minMove: 10 ** -digits },
+        });
+        api.series.setData(data);
+        if (data.length > 0) api.chart.timeScale().fitContent();
+        keyRef.current = key;
+      } else if (data.length > 0) {
+        const bar = data[data.length - 1];
+        try {
+          api.series.update(bar);
+        } catch {
+          api.series.setData(data);
+        }
+      }
+      if (viewRef.current !== viewNonce) {
+        if (data.length > 0) api.chart.timeScale().fitContent();
+        viewRef.current = viewNonce;
+      }
+      drawRef.current();
+    } catch {
+      /* keep the last good frame instead of taking down the desk */
     }
-    if (viewRef.current !== viewNonce) {
-      api.chart.timeScale().fitContent();
-      viewRef.current = viewNonce;
-    }
-    drawRef.current();
   }, [symbol, timeframe, revision, layers, viewNonce, ready, inst.digits]);
 
-  const ohlc = hover ?? {
-    o: tape.candles[tape.candles.length - 1].open,
-    h: tape.candles[tape.candles.length - 1].high,
-    l: tape.candles[tape.candles.length - 1].low,
-    c: tape.candles[tape.candles.length - 1].close,
+  const ohlc = hover ?? (tape && tape.candles.length > 0
+    ? {
+        o: tape.candles[tape.candles.length - 1].open,
+        h: tape.candles[tape.candles.length - 1].high,
+        l: tape.candles[tape.candles.length - 1].low,
+        c: tape.candles[tape.candles.length - 1].close,
+      }
+    : null);
+
+  const closeIndicators = () => {
+    setIndicatorsOpen(false);
+    try {
+      localStorage.setItem("meridian-indicators-seen", "1");
+    } catch {
+      /* ignore private storage */
+    }
   };
 
   return (
@@ -293,10 +371,16 @@ export function ChartPane() {
         <div className="min-w-0">
           <div className="truncate text-sm text-fg">{inst.name}</div>
           <div className="hidden items-center gap-3 font-mono text-xs tabular-nums text-muted sm:flex">
-            <span>O {formatPx(ohlc.o, inst.digits)}</span>
-            <span>H {formatPx(ohlc.h, inst.digits)}</span>
-            <span>L {formatPx(ohlc.l, inst.digits)}</span>
-            <span>C {formatPx(ohlc.c, inst.digits)}</span>
+            {ohlc ? (
+              <>
+                <span>O {formatPx(ohlc.o, inst.digits)}</span>
+                <span>H {formatPx(ohlc.h, inst.digits)}</span>
+                <span>L {formatPx(ohlc.l, inst.digits)}</span>
+                <span>C {formatPx(ohlc.c, inst.digits)}</span>
+              </>
+            ) : (
+              <span>{feed === "down" ? "Dukascopy is not connected" : "Connecting to Dukascopy"}</span>
+            )}
           </div>
         </div>
         <div className="ml-auto text-right">
@@ -306,14 +390,28 @@ export function ChartPane() {
               pct >= 0 ? "text-bull" : "text-bear",
             )}
           >
-            {formatPx(last, inst.digits)}
+            {last == null ? "—" : formatPx(last, inst.digits)}
           </div>
-          <div className={cn("font-mono text-xs tabular-nums", pct >= 0 ? "text-bull" : "text-bear")}>
-            {formatPct(pct)}
+          <div className={cn("font-mono text-xs tabular-nums", last == null ? "text-faint" : pct >= 0 ? "text-bull" : "text-bear")}>
+            {last == null ? "—" : formatPct(pct)}
           </div>
         </div>
       </div>
-      <div className="flex h-11 shrink-0 items-center gap-1 overflow-x-auto border-b border-line-soft px-2">
+      <div className="relative flex h-11 shrink-0 items-center gap-1 overflow-x-auto border-b border-line-soft px-2">
+        <button
+          type="button"
+          aria-expanded={indicatorsOpen}
+          onClick={() => (indicatorsOpen ? closeIndicators() : setIndicatorsOpen(true))}
+          className={cn(
+            "h-11 shrink-0 border-b px-3 text-sm md:h-8",
+            indicatorsOpen ? "border-accent text-fg" : "border-transparent text-muted hover:text-fg",
+          )}
+        >
+          Indicators
+        </button>
+        <span className={cn("shrink-0 px-2 text-sm", meridianOn ? "text-accent" : "text-faint")}>
+          Meridian {meridianOn ? "on" : "off"}
+        </span>
         {LAYER_TOGGLES.map((layer) => {
           const on = layers[layer.key];
           return (
@@ -332,9 +430,58 @@ export function ChartPane() {
             </button>
           );
         })}
+        {indicatorsOpen ? (
+          <div className="absolute top-11 left-2 z-30 w-72 border border-line bg-surface p-3 md:top-9">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xs uppercase tracking-wider text-muted">Indicators</h2>
+              <button type="button" onClick={closeIndicators} className="h-8 px-2 text-xs text-muted">
+                Close
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => setMeridian(!meridianOn)}
+              className="mt-2 flex h-11 w-full items-center justify-between border border-line-soft px-3 text-left"
+            >
+              <span>
+                <span className="block text-sm text-fg">Meridian</span>
+                <span className="block text-xs text-muted">Structure, liquidity, LIT, levels</span>
+              </span>
+              <span className={cn("text-xs", meridianOn ? "text-accent" : "text-faint")}>{meridianOn ? "On" : "Off"}</span>
+            </button>
+            <div className="mt-1">
+              {LAYER_TOGGLES.map((layer) => (
+                <button
+                  key={`menu-${layer.key}`}
+                  type="button"
+                  onClick={() => toggleLayer(layer.key)}
+                  className="flex h-11 w-full items-center justify-between px-3 text-left text-sm"
+                >
+                  <span className="text-fg">{layer.label}</span>
+                  <span className={cn("text-xs", layers[layer.key] ? "text-accent" : "text-faint")}>
+                    {layers[layer.key] ? "On" : "Off"}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </div>
       <div className="relative min-h-0 flex-1 overflow-hidden">
         <div ref={hostRef} className="absolute inset-0" />
+        {!tape ? (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 px-6 text-center">
+            <p className="text-sm text-muted">
+              {feed === "down" ? "Dukascopy is not connected" : "Connecting to Dukascopy"}
+            </p>
+            {feedNote ? <p className="max-w-sm text-xs text-faint">{feedNote}</p> : null}
+            {feed === "down" ? (
+              <button type="button" onClick={() => void refresh(symbol, timeframe)} className="h-11 px-3 text-sm text-accent">
+                Retry connection
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         <div className="pointer-events-none absolute inset-0">
           {band ? (
             <svg className="absolute inset-0 h-full w-full">
@@ -365,9 +512,7 @@ export function ChartPane() {
               />
             ))}
           </svg>
-          {marks
-            .filter((mark) => mark.showLabel)
-            .map((mark) => (
+          {placedLabels(marks).map((mark) => (
               <div
                 key={`${mark.id}-label`}
                 className={cn("absolute", mark.clickable && "pointer-events-auto")}
@@ -400,5 +545,34 @@ export function ChartPane() {
         )}
       </div>
     </section>
+  );
+}
+
+class ChartBoundary extends Component<{ children: ReactNode }, { error: string | null }> {
+  state = { error: null as string | null };
+
+  static getDerivedStateFromError(error: unknown) {
+    return { error: error instanceof Error ? error.message : "Chart failed" };
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <section className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-canvas px-6 text-center">
+        <p className="text-sm text-fg">The chart hit an error and was reset.</p>
+        <p className="max-w-sm text-xs text-muted">{this.state.error}</p>
+        <button type="button" className="h-11 px-3 text-sm text-accent" onClick={() => this.setState({ error: null })}>
+          Reload chart
+        </button>
+      </section>
+    );
+  }
+}
+
+export function ChartPane() {
+  return (
+    <ChartBoundary>
+      <ChartView />
+    </ChartBoundary>
   );
 }

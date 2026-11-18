@@ -13,6 +13,22 @@ export function AnalysisPanel({ onClose }: { onClose?: () => void }) {
   useDesk((state) => state.revision);
   const inst = instrumentOf(symbol);
   const tape = getTape(symbol, timeframe);
+  if (!tape) {
+    return (
+      <section className="flex h-full min-h-0 flex-col bg-canvas">
+        <div className="flex h-11 items-center justify-between px-3">
+          <h2 className="text-xs uppercase tracking-wider text-muted">Indicators</h2>
+          {onClose ? (
+            <button type="button" onClick={onClose} className="h-11 px-2 text-xs text-muted">
+              Close
+            </button>
+          ) : null}
+        </div>
+        <p className="px-3 py-6 text-sm text-muted">Waiting for Dukascopy.</p>
+      </section>
+    );
+  }
+  const meridianOn = layers.structure || layers.liquidity || layers.lit || layers.levels;
   const setup = tape.setup;
   const biasTone =
     tape.bias === "Bullish" ? "text-bull" : tape.bias === "Bearish" ? "text-bear" : "text-fg";
@@ -20,7 +36,7 @@ export function AnalysisPanel({ onClose }: { onClose?: () => void }) {
   return (
     <section className="flex h-full min-h-0 flex-col bg-canvas">
       <div className="flex h-11 items-center justify-between px-3">
-        <h2 className="text-xs uppercase tracking-wider text-muted">Analysis</h2>
+        <h2 className="text-xs uppercase tracking-wider text-muted">Indicators</h2>
         {onClose ? (
           <button type="button" onClick={onClose} className="h-11 px-2 text-xs text-muted">
             Close
@@ -28,6 +44,10 @@ export function AnalysisPanel({ onClose }: { onClose?: () => void }) {
         ) : null}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
+        <p className="border-b border-line-soft py-3 text-sm text-fg">
+          Meridian
+          <span className="text-muted"> · {meridianOn ? "on" : "off"}</span>
+        </p>
         <p className="border-b border-line-soft py-3 text-sm text-fg">
           {inst.symbol}
           <span className="text-muted"> · {timeframe}</span>

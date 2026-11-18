@@ -10,6 +10,7 @@ export function TopBar() {
   const symbol = useDesk((state) => state.symbol);
   const timeframe = useDesk((state) => state.timeframe);
   const paused = useDesk((state) => state.paused);
+  const feed = useDesk((state) => state.feed);
   const setTimeframe = useDesk((state) => state.setTimeframe);
   const setSettings = useDesk((state) => state.setSettings);
   const setMobile = useDesk((state) => state.setMobile);
@@ -35,7 +36,7 @@ export function TopBar() {
       <div className="flex h-12 min-w-0 items-center gap-2 px-2 md:px-3">
         <div className="flex shrink-0 items-center gap-2 pr-1">
           <Mark />
-          <span className="text-sm font-medium tracking-wide">MERIDIAN</span>
+          <span className="text-sm font-medium tracking-wide">FOXTRADER</span>
         </div>
         <span className="hidden h-4 w-px bg-line sm:block" />
         <button
@@ -51,7 +52,10 @@ export function TopBar() {
             dot={session?.open ? "accent" : "faint"}
             label={session ? session.label : "—"}
           />
-          <Status dot={paused ? "faint" : "bull"} label={paused ? "Paused" : "Model"} />
+          <Status
+            dot={feed === "live" ? "bull" : feed === "down" ? "bear" : "faint"}
+            label={paused ? "Paused" : feed === "live" ? "Dukascopy connected" : feed === "down" ? "Not connected" : "Connecting"}
+          />
           <span className="hidden font-mono text-xs tabular-nums text-muted lg:inline">
             {now ? formatClock(now) : ""}
           </span>
@@ -102,7 +106,7 @@ function Mark() {
   );
 }
 
-function Status({ dot, label }: { dot: "accent" | "bull" | "faint"; label: string }) {
+function Status({ dot, label }: { dot: "accent" | "bull" | "bear" | "faint"; label: string }) {
   return (
     <span className="flex h-11 items-center gap-1.5 text-xs text-muted">
       <span
@@ -110,6 +114,7 @@ function Status({ dot, label }: { dot: "accent" | "bull" | "faint"; label: strin
           "size-1.5 rounded-full",
           dot === "accent" && "bg-accent",
           dot === "bull" && "bg-bull",
+          dot === "bear" && "bg-bear",
           dot === "faint" && "bg-faint",
         )}
       />

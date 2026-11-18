@@ -44,8 +44,8 @@ export function Watchlist({ onClose }: { onClose?: () => void }) {
         ) : (
           rows.map((inst) => {
             const tape = getTape(inst.symbol, timeframe);
-            const last = lastOf(tape);
-            const pct = changeOf(tape);
+            const last = tape ? lastOf(tape) : null;
+            const pct = tape ? changeOf(tape) : null;
             const active = inst.symbol === symbol;
             return (
               <button
@@ -60,15 +60,15 @@ export function Watchlist({ onClose }: { onClose?: () => void }) {
                 {active ? <span className="absolute inset-y-0 left-0 w-0.5 bg-accent" /> : null}
                 <span className="w-16 shrink-0 text-sm font-medium">{inst.symbol}</span>
                 <span className="ml-auto font-mono text-xs tabular-nums text-fg">
-                  {formatPx(last, inst.digits)}
+                  {last == null ? "—" : formatPx(last, inst.digits)}
                 </span>
                 <span
                   className={cn(
                     "w-14 shrink-0 text-right font-mono text-xs tabular-nums",
-                    pct >= 0 ? "text-bull" : "text-bear",
+                    pct == null ? "text-faint" : pct >= 0 ? "text-bull" : "text-bear",
                   )}
                 >
-                  {formatPct(pct)}
+                  {pct == null ? "—" : formatPct(pct)}
                 </span>
               </button>
             );

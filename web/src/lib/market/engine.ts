@@ -517,13 +517,14 @@ export function stepTape(tape: Tape) {
 }
 
 export function changeOf(tape: Tape): number {
-  const last = tape.candles[tape.candles.length - 1].close;
-  if (!tape.reference) return 0;
-  return ((last - tape.reference) / tape.reference) * 100;
+  const candle = tape.candles[tape.candles.length - 1];
+  if (!candle || !tape.reference) return 0;
+  return ((candle.close - tape.reference) / tape.reference) * 100;
 }
 
-export function lastOf(tape: Tape): number {
-  return tape.candles[tape.candles.length - 1].close;
+export function lastOf(tape: Tape): number | null {
+  const candle = tape.candles[tape.candles.length - 1];
+  return candle ? candle.close : null;
 }
 
 export function allSymbols(): string[] {
