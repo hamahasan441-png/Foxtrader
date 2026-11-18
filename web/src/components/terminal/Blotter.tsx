@@ -22,7 +22,7 @@ export function BlotterBar() {
         ) : (
           <ChevronUp className="size-4 text-muted" strokeWidth={1.5} />
         )}
-        <span className="text-xs uppercase tracking-wider text-muted">Blotter</span>
+        <span className="text-xs uppercase tracking-wider text-muted">Sample blotter</span>
         <span className="text-sm text-fg">{FILLS.length} fills</span>
         <span className={cn("font-mono text-sm tabular-nums", net >= 0 ? "text-bull" : "text-bear")}>
           {formatSignedR(net)}

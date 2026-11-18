@@ -21,7 +21,7 @@ export function SettingsDialog() {
             <div>
               <Dialog.Title className="text-base font-medium">Settings</Dialog.Title>
               <Dialog.Description className="mt-1 text-sm text-muted">
-                Desk model. Not a brokerage feed.
+                Dukascopy BID archive. Not a brokerage feed.
               </Dialog.Description>
             </div>
             <Dialog.Close className="flex size-11 items-center justify-center text-muted hover:text-fg" aria-label="Close">

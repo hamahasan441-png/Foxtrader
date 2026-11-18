@@ -16,9 +16,9 @@ export const FILLS: readonly Fill[] = [
   { id: "f3", time: ANCHOR - 3600 * 14, symbol: "NAS100", side: "Sell", entry: 20840, exit: 20710, r: 2.1 },
   { id: "f4", time: ANCHOR - 3600 * 22, symbol: "GBPUSD", side: "Sell", entry: 1.2785, exit: 1.2812, r: -1 },
   { id: "f5", time: ANCHOR - 3600 * 30, symbol: "USDJPY", side: "Buy", entry: 153.42, exit: 153.98, r: 1.4 },
-  { id: "f6", time: ANCHOR - 3600 * 40, symbol: "BTCUSD", side: "Buy", entry: 94880, exit: 96120, r: 1.9 },
+  { id: "f6", time: ANCHOR - 3600 * 40, symbol: "USDCHF", side: "Sell", entry: 0.8824, exit: 0.8788, r: 1.6 },
   { id: "f7", time: ANCHOR - 3600 * 52, symbol: "US30", side: "Buy", entry: 43210, exit: 43140, r: -1 },
-  { id: "f8", time: ANCHOR - 3600 * 70, symbol: "ETHUSD", side: "Sell", entry: 3560, exit: 3494, r: 2.4 },
+  { id: "f8", time: ANCHOR - 3600 * 70, symbol: "XAGUSD", side: "Sell", entry: 31.82, exit: 31.24, r: 2.1 },
 ];
 
 export function netR(): number {
