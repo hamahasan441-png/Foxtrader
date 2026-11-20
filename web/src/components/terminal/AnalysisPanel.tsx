@@ -68,13 +68,13 @@ export function AnalysisPanel({ onClose }: { onClose?: () => void }) {
         <Stat
           label="Entry"
           value={tape.entryDetail}
-          detail={setup ? "Unmitigated opposing close" : "Waiting for a sweep"}
+          detail={setup ? (setup.status === "active" ? "Reclaim still valid" : "Stop has been traded") : "Needs a sweep and displacement"}
           valueClass={tape.entryDetail === "Valid" ? "text-accent" : "text-fg"}
         />
         <Stat
           label="R : R"
-          value={setup ? formatRMultiple(setup.rr2) : "—"}
-          detail={setup ? "To the external pool" : "Not armed"}
+          value={setup ? formatRMultiple(setup.rr1) : "—"}
+          detail={setup ? "To the first objective" : "Not armed"}
         />
         {setup ? (
           <div className="flex flex-col pt-3">

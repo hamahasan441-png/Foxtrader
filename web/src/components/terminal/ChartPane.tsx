@@ -445,7 +445,7 @@ function ChartView() {
             >
               <span>
                 <span className="block text-sm text-fg">Meridian</span>
-                <span className="block text-xs text-muted">Structure, liquidity, LIT, levels</span>
+                <span className="block text-xs text-muted">BOS / CHoCH, liquidity, LIT</span>
               </span>
               <span className={cn("text-xs", meridianOn ? "text-accent" : "text-faint")}>{meridianOn ? "On" : "Off"}</span>
             </button>
