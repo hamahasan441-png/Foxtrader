@@ -1,7 +1,16 @@
+import { formatPx } from "./format";
 import { instrumentOf } from "./instruments";
 import type { Candle, LineSpec, Setup, Tape, TimeframeId } from "./types";
 
 type Swing = { kind: "high" | "low"; time: number; price: number; index: number };
+type EventName = "BOS" | "CHoCH";
+
+type StructureEvent = {
+  name: EventName;
+  direction: "Bullish" | "Bearish";
+  price: number;
+  time: number;
+};
 
 export function tapeFromCandles(symbol: string, tf: TimeframeId, candles: Candle[]): Tape {
   if (candles.length === 0) throw new Error("Dukascopy returned no candles");
@@ -9,54 +18,50 @@ export function tapeFromCandles(symbol: string, tf: TimeframeId, candles: Candle
   const atr = averageRange(candles);
   const unit = atr > 0 ? atr : inst.unit;
   const last = candles[candles.length - 1];
-  const swings = findSwings(candles, 2);
+  const px = (price: number) => formatPx(price, inst.digits);
+  const raw = findSwings(candles, 2);
+  const spaced = separate(raw, unit * 0.55);
+  const swings = spaced.length >= 4 ? spaced : raw;
   const highs = swings.filter((swing) => swing.kind === "high");
   const lows = swings.filter((swing) => swing.kind === "low");
-  const swingHigh = highs[highs.length - 1];
-  const swingLow = lows[lows.length - 1];
-  const brokeHigh = Boolean(swingHigh && last.close > swingHigh.price && last.time > swingHigh.time);
-  const brokeLow = Boolean(swingLow && last.close < swingLow.price && last.time > swingLow.time);
-
-  let bias: Tape["bias"] = "Neutral";
-  let biasDetail = "No fresh break of structure";
-  if (brokeHigh && !brokeLow) {
-    bias = "Bullish";
-    biasDetail = "Close through the last swing high";
-  } else if (brokeLow && !brokeHigh) {
-    bias = "Bearish";
-    biasDetail = "Close through the last swing low";
-  } else if (swingHigh && swingLow) {
-    bias = last.close >= (swingHigh.price + swingLow.price) / 2 ? "Bullish" : "Bearish";
-    biasDetail = "Still inside the last swing range";
-  }
-
+  const read = readStructure(candles, swings);
   const lines: LineSpec[] = [];
-  if (swingHigh) {
+
+  if (read.event) {
     lines.push({
-      id: "swing-high",
-      price: swingHigh.price,
-      label: brokeHigh ? "BOS" : "Swing high",
-      tone: "bull",
+      id: "structure-event",
+      price: read.event.price,
+      label: read.event.name,
+      tone: read.event.direction === "Bullish" ? "bull" : "bear",
       layer: "structure",
-      from: swingHigh.time,
-      priority: 3,
+      from: read.event.time,
+      priority: 4,
     });
   }
-  if (swingLow) {
-    lines.push({
-      id: "swing-low",
-      price: swingLow.price,
-      label: brokeLow ? "BOS" : "Swing low",
-      tone: "bear",
-      layer: "structure",
-      from: swingLow.time,
-      priority: 3,
-    });
+  if (read.event) {
+    const hold = read.bias === "Bearish" ? read.high : read.low;
+    if (hold && Math.abs(hold.price - read.event.price) > unit * 0.35) {
+      lines.push({
+        id: "structure-hold",
+        price: hold.price,
+        label: "Hold",
+        tone: "muted",
+        layer: "structure",
+        from: hold.time,
+        priority: 3,
+      });
+    }
+  } else if (read.high && read.low) {
+    lines.push(
+      { id: "range-high", price: read.high.price, label: "High", tone: "muted", layer: "structure", from: read.high.time, priority: 3 },
+      { id: "range-low", price: read.low.price, label: "Low", tone: "muted", layer: "structure", from: read.low.time, priority: 3 },
+    );
   }
 
-  const buySide = highs.filter((swing) => swing.price > last.close + unit * 0.1).sort((a, b) => a.price - b.price)[0];
-  const sellSide = lows.filter((swing) => swing.price < last.close - unit * 0.1).sort((a, b) => b.price - a.price)[0];
-  if (buySide) {
+  const buySide = nearestResting(highs, candles, last.close, "high", unit);
+  const sellSide = nearestResting(lows, candles, last.close, "low", unit);
+  const pools: string[] = [];
+  if (buySide && !near(lines, buySide.price, unit)) {
     lines.push({
       id: "bsl",
       price: buySide.price,
@@ -67,8 +72,9 @@ export function tapeFromCandles(symbol: string, tf: TimeframeId, candles: Candle
       priority: 2,
       dashed: true,
     });
+    pools.push(`BSL ${px(buySide.price)}`);
   }
-  if (sellSide) {
+  if (sellSide && !near(lines, sellSide.price, unit)) {
     lines.push({
       id: "ssl",
       price: sellSide.price,
@@ -79,17 +85,23 @@ export function tapeFromCandles(symbol: string, tf: TimeframeId, candles: Candle
       priority: 2,
       dashed: true,
     });
+    pools.push(`SSL ${px(sellSide.price)}`);
   }
 
-  const setup = findSetup(candles, highs, lows, unit);
+  const setup = findSetup(candles, highs, lows, unit, read.bias);
   if (setup) {
+    const from = candles[setupOrigin(candles, setup)].time;
     lines.push(
-      { id: "entry", price: setup.entry, label: "Entry", tone: "accent", layer: "levels", from: candles[Math.max(0, candles.length - 20)].time, priority: 5, clickable: true },
-      { id: "stop", price: setup.stop, label: "SL", tone: "bear", layer: "levels", from: candles[Math.max(0, candles.length - 20)].time, priority: 4 },
-      { id: "tp1", price: setup.tp1, label: "TP1", tone: "bull", layer: "levels", from: candles[Math.max(0, candles.length - 20)].time, priority: 4 },
-      { id: "tp2", price: setup.tp2, label: "TP2", tone: "bull", layer: "levels", from: candles[Math.max(0, candles.length - 20)].time, priority: 3 },
-      { id: "tp3", price: setup.tp3, label: "TP3", tone: "bull", layer: "levels", from: candles[Math.max(0, candles.length - 20)].time, priority: 2 },
+      { id: "entry", price: setup.entry, label: "Entry", tone: "accent", layer: "levels", from, priority: 5, clickable: true },
+      { id: "stop", price: setup.stop, label: "SL", tone: "bear", layer: "levels", from, priority: 4 },
+      { id: "tp1", price: setup.tp1, label: "TP1", tone: "bull", layer: "levels", from, priority: 4 },
     );
+    if (Math.abs(setup.tp2 - setup.tp1) > unit * 0.45) {
+      lines.push({ id: "tp2", price: setup.tp2, label: "TP2", tone: "bull", layer: "levels", from, priority: 2 });
+    }
+    if (Math.abs(setup.tp3 - setup.tp2) > unit * 0.45) {
+      lines.push({ id: "tp3", price: setup.tp3, label: "TP3", tone: "bull", layer: "levels", from, priority: 1 });
+    }
   }
 
   const lookback = tf === "D1" ? 1 : tf === "H4" ? 6 : tf === "H1" ? 24 : 20;
@@ -98,20 +110,19 @@ export function tapeFromCandles(symbol: string, tf: TimeframeId, candles: Candle
   return {
     candles,
     lines,
-    zone: setup
-      ? {
-          id: "entry-zone",
-          low: setup.entryLow,
-          high: setup.entryHigh,
-          from: candles[Math.max(0, candles.length - 12)].time,
-        }
+    zone: setup && setup.status === "active"
+      ? { id: "entry-zone", low: setup.entryLow, high: setup.entryHigh, from: candles[Math.max(0, candles.length - 8)].time }
       : null,
     setup,
-    bias,
-    biasDetail,
-    liquidityDetail: buySide || sellSide ? "Nearest untouched swing pools" : "No nearby pool",
-    structureDetail: biasDetail,
-    entryDetail: setup ? (setup.status === "active" ? "Sweep still holds" : "Stop has been traded through") : "No sweep armed",
+    bias: read.bias,
+    biasDetail: read.event ? `${read.event.name} ${read.event.direction.toLowerCase()}` : "No confirmed break",
+    liquidityDetail: pools.join(" · ") || "No separate pool",
+    structureDetail: read.event
+      ? `${read.event.name} ${px(read.event.price)}`
+      : read.high && read.low
+        ? `Range ${px(read.low.price)} – ${px(read.high.price)}`
+        : "No confirmed swing",
+    entryDetail: setup ? (setup.status === "active" ? "Valid" : "Stop traded") : "No qualified sweep",
     breatheLow: last.low,
     breatheHigh: last.high,
     unit,
@@ -119,6 +130,167 @@ export function tapeFromCandles(symbol: string, tf: TimeframeId, candles: Candle
     reference,
     rng: () => 0.5,
   };
+}
+
+function readStructure(candles: Candle[], swings: Swing[]) {
+  let bias: Tape["bias"] = "Neutral";
+  let high: Swing | null = null;
+  let low: Swing | null = null;
+  let event: StructureEvent | null = null;
+
+  for (const swing of swings) {
+    if (swing.kind === "high") {
+      if (high && swing.price > high.price) {
+        event = {
+          name: bias === "Bearish" ? "CHoCH" : "BOS",
+          direction: "Bullish",
+          price: high.price,
+          time: high.time,
+        };
+        bias = "Bullish";
+      }
+      high = swing;
+    } else {
+      if (low && swing.price < low.price) {
+        event = {
+          name: bias === "Bullish" ? "CHoCH" : "BOS",
+          direction: "Bearish",
+          price: low.price,
+          time: low.time,
+        };
+        bias = "Bearish";
+      }
+      low = swing;
+    }
+  }
+
+  const last = candles[candles.length - 1];
+  if (high && last.close > high.price && last.time > high.time) {
+    event = {
+      name: bias === "Bearish" ? "CHoCH" : "BOS",
+      direction: "Bullish",
+      price: high.price,
+      time: high.time,
+    };
+    bias = "Bullish";
+  } else if (low && last.close < low.price && last.time > low.time) {
+    event = {
+      name: bias === "Bullish" ? "CHoCH" : "BOS",
+      direction: "Bearish",
+      price: low.price,
+      time: low.time,
+    };
+    bias = "Bearish";
+  }
+
+  if (bias === "Neutral" && high && low) {
+    bias = last.close >= (high.price + low.price) / 2 ? "Bullish" : "Bearish";
+  }
+  return { bias, event, high, low };
+}
+
+function nearestResting(swings: Swing[], candles: Candle[], close: number, side: "high" | "low", unit: number) {
+  const resting = swings.filter((swing) => {
+    const beyond = side === "high" ? swing.price > close + unit * 0.15 : swing.price < close - unit * 0.15;
+    if (!beyond) return false;
+    for (let index = swing.index + 1; index < candles.length; index += 1) {
+      const bar = candles[index];
+      if (side === "high" && bar.high >= swing.price) return false;
+      if (side === "low" && bar.low <= swing.price) return false;
+    }
+    return true;
+  });
+  resting.sort((a, b) => Math.abs(a.price - close) - Math.abs(b.price - close));
+  return resting[0];
+}
+
+function near(lines: LineSpec[], price: number, unit: number) {
+  return lines.some((line) => Math.abs(line.price - price) <= unit * 0.35);
+}
+
+function findSetup(
+  candles: Candle[],
+  highs: Swing[],
+  lows: Swing[],
+  unit: number,
+  bias: Tape["bias"],
+): Setup | null {
+  const from = Math.max(1, candles.length - 18);
+  for (let index = candles.length - 1; index >= from; index -= 1) {
+    const bar = candles[index];
+    const body = Math.abs(bar.close - bar.open);
+    if (body < unit * 0.35) continue;
+    const poolLow = lows.filter((swing) => swing.index <= index - 3).at(-1);
+    const poolHigh = highs.filter((swing) => swing.index <= index - 3).at(-1);
+    const sweptLow = poolLow && bar.low < poolLow.price - unit * 0.08 && bar.close > poolLow.price;
+    const sweptHigh = poolHigh && bar.high > poolHigh.price + unit * 0.08 && bar.close < poolHigh.price;
+    if (!sweptLow && !sweptHigh) continue;
+    const direction = sweptLow ? "long" : "short";
+    const sweep = sweptLow ? bar.low : bar.high;
+    const target = direction === "long" ? poolHigh?.price : poolLow?.price;
+    const setup = buildSetup(direction, candles, index, sweep, target ?? null, unit, bias);
+    const since = candles.length - 1 - index;
+    const left = direction === "long" ? candles.at(-1)!.close > setup.entry + unit * 1.6 : candles.at(-1)!.close < setup.entry - unit * 1.6;
+    if (setup.status === "active" && since > 14 && left) continue;
+    return setup;
+  }
+  return null;
+}
+
+function buildSetup(
+  direction: "long" | "short",
+  candles: Candle[],
+  index: number,
+  sweep: number,
+  target: number | null,
+  unit: number,
+  bias: Tape["bias"],
+): Setup {
+  const bar = candles[index];
+  const up = direction === "long";
+  const entry = bar.close;
+  const stop = up ? sweep - unit * 0.12 : sweep + unit * 0.12;
+  const risk = Math.abs(entry - stop);
+  const external = target != null && (up ? target > entry + risk : target < entry - risk) ? target : null;
+  const tp1 = external ?? (up ? entry + risk : entry - risk);
+  const tp2 = up ? entry + risk * 2 : entry - risk * 2;
+  const tp3 = up ? entry + risk * 3 : entry - risk * 3;
+  const later = candles.slice(index + 1);
+  const invalidated = later.some((item) => (up ? item.low <= stop : item.high >= stop));
+  const aligned = (up && bias !== "Bearish") || (!up && bias !== "Bullish");
+  const rr = (price: number) => (risk > 0 ? Math.abs(price - entry) / risk : 0);
+  return {
+    id: `${direction}-${bar.time}`,
+    direction,
+    status: invalidated ? "invalidated" : "active",
+    entry,
+    entryLow: Math.min(bar.open, bar.close),
+    entryHigh: Math.max(bar.open, bar.close),
+    stop,
+    tp1,
+    tp2,
+    tp3,
+    sweep,
+    rr1: rr(tp1),
+    rr2: rr(tp2),
+    rr3: rr(tp3),
+    checklist: [
+      { label: "Sweep of a swing at least three bars old", ok: true },
+      { label: up ? "Sell-side reclaimed on the close" : "Buy-side reclaimed on the close", ok: true },
+      { label: "Reclaim candle displaced at least a third of ATR", ok: true },
+      { label: aligned ? "With the active structure" : "Counter to the active structure", ok: aligned },
+      { label: "Stop still beyond the sweep wick", ok: !invalidated },
+    ],
+    invalidation: up ? "Price through the sweep low" : "Price through the sweep high",
+    thesis: invalidated
+      ? "The sweep reclaimed, then price traded the stop. The idea is finished."
+      : `${up ? "Sell-side" : "Buy-side"} was swept and reclaimed with displacement. Entry is the reclaim close. The stop sits beyond the wick${external ? ", and the first objective is the opposing pool" : ""}.`,
+  };
+}
+
+function setupOrigin(candles: Candle[], setup: Setup) {
+  const match = candles.findIndex((candle) => candle.time === Number(setup.id.split("-")[1]));
+  return match >= 0 ? match : Math.max(0, candles.length - 12);
 }
 
 function averageRange(candles: Candle[]) {
@@ -140,8 +312,8 @@ function findSwings(candles: Candle[], wing: number): Swing[] {
     let high = true;
     let low = true;
     for (let step = 1; step <= wing; step += 1) {
-      if (candles[index].high <= candles[index - step].high || candles[index].high <= candles[index + step].high) high = false;
-      if (candles[index].low >= candles[index - step].low || candles[index].low >= candles[index + step].low) low = false;
+      if (candles[index].high < candles[index - step].high || candles[index].high < candles[index + step].high) high = false;
+      if (candles[index].low > candles[index - step].low || candles[index].low > candles[index + step].low) low = false;
     }
     if (high) swings.push({ kind: "high", time: candles[index].time, price: candles[index].high, index });
     else if (low) swings.push({ kind: "low", time: candles[index].time, price: candles[index].low, index });
@@ -149,65 +321,17 @@ function findSwings(candles: Candle[], wing: number): Swing[] {
   return swings;
 }
 
-function findSetup(candles: Candle[], highs: Swing[], lows: Swing[], unit: number): Setup | null {
-  const from = Math.max(1, candles.length - 30);
-  for (let index = candles.length - 1; index >= from; index -= 1) {
-    const bar = candles[index];
-    const poolLow = lows.filter((swing) => swing.index < index).at(-1);
-    const poolHigh = highs.filter((swing) => swing.index < index).at(-1);
-    if (poolLow && bar.low < poolLow.price && bar.close > poolLow.price) {
-      return buildSetup("long", candles, index, bar.low, poolHigh?.price ?? bar.close + unit * 2, unit);
+function separate(swings: Swing[], gap: number) {
+  const out: Swing[] = [];
+  for (const swing of swings) {
+    let prev: Swing | undefined;
+    for (let index = out.length - 1; index >= 0; index -= 1) {
+      if (out[index].kind === swing.kind) {
+        prev = out[index];
+        break;
+      }
     }
-    if (poolHigh && bar.high > poolHigh.price && bar.close < poolHigh.price) {
-      return buildSetup("short", candles, index, bar.high, poolLow?.price ?? bar.close - unit * 2, unit);
-    }
+    if (!prev || Math.abs(swing.price - prev.price) >= gap) out.push(swing);
   }
-  return null;
-}
-
-function buildSetup(
-  direction: "long" | "short",
-  candles: Candle[],
-  index: number,
-  sweep: number,
-  target: number,
-  unit: number,
-): Setup {
-  const bar = candles[index];
-  const up = direction === "long";
-  const entry = bar.close;
-  const stop = up ? sweep - unit * 0.15 : sweep + unit * 0.15;
-  const risk = Math.abs(entry - stop);
-  const tp1raw = up ? Math.max(target, entry + risk) : Math.min(target, entry - risk);
-  const tp1 = tp1raw;
-  const tp2 = up ? entry + risk * 2 : entry - risk * 2;
-  const tp3 = up ? entry + risk * 3 : entry - risk * 3;
-  const later = candles.slice(index + 1);
-  const invalidated = later.some((item) => (up ? item.low <= stop : item.high >= stop));
-  const rr = (price: number) => (risk > 0 ? Math.abs(price - entry) / risk : 0);
-  return {
-    id: `${direction}-${bar.time}`,
-    direction,
-    status: invalidated ? "invalidated" : "active",
-    entry,
-    entryLow: Math.min(bar.open, bar.close),
-    entryHigh: Math.max(bar.open, bar.close),
-    stop,
-    tp1,
-    tp2,
-    tp3,
-    sweep,
-    rr1: rr(tp1),
-    rr2: rr(tp2),
-    rr3: rr(tp3),
-    checklist: [
-      { label: "Liquidity pool marked from a prior swing", ok: true },
-      { label: up ? "Sell-side swept and reclaimed" : "Buy-side swept and reclaimed", ok: true },
-      { label: "Stop still beyond the sweep", ok: !invalidated },
-    ],
-    invalidation: up ? "A close through the sweep low" : "A close through the sweep high",
-    thesis: up
-      ? "Price swept the prior swing low and closed back above it. The entry is that reclaim, with the stop beyond the sweep."
-      : "Price swept the prior swing high and closed back below it. The entry is that reclaim, with the stop beyond the sweep.",
-  };
+  return out;
 }
