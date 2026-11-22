@@ -2,6 +2,7 @@ package com.foxtrader.app.di
 
 import com.foxtrader.app.domain.sdk.indicator.IndicatorRegistry
 import com.foxtrader.app.domain.sdk.indicator.builtin.AdxIndicator
+import com.foxtrader.app.domain.sdk.indicator.builtin.AsiaSweepReclaimIndicator
 import com.foxtrader.app.domain.sdk.indicator.builtin.BollingerIndicator
 import com.foxtrader.app.domain.sdk.indicator.builtin.EmaIndicator
 import com.foxtrader.app.domain.sdk.indicator.builtin.IchimokuIndicator
@@ -40,6 +41,7 @@ object IndicatorModule {
         register(SuperTrendIndicator())
         register(ParabolicSarIndicator())
         register(IchimokuIndicator())
+        register(AsiaSweepReclaimIndicator())
         // ── Sub-panel indicators ──────────────────────────────────────────
         register(RsiIndicator(14))
         register(MacdIndicator())
