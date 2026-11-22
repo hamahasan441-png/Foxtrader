@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { putTape, getTape } from "./cache";
 import { loadMarket } from "./feed";
+import { applyAsiaSweep } from "./asiaSweep";
 import { INSTRUMENTS, TIMEFRAMES } from "./instruments";
 import { tapeFromCandles } from "./structure";
 import type { Layers, TimeframeId } from "./types";
@@ -55,7 +56,7 @@ async function pull(symbol: string, timeframe: TimeframeId) {
   const result = await withTimeout(loadMarket({ data: { symbol, timeframe } }), 25_000);
   if (result.candles.length > 0) {
     try {
-      putTape(symbol, timeframe, tapeFromCandles(symbol, timeframe, result.candles));
+      putTape(symbol, timeframe, applyAsiaSweep(tapeFromCandles(symbol, timeframe, result.candles)));
     } catch (error) {
       return {
         candles: [],

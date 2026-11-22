@@ -5,6 +5,7 @@ import com.foxtrader.app.domain.sdk.indicator.Indicator
 import com.foxtrader.app.domain.sdk.indicator.IndicatorResult
 import com.foxtrader.app.domain.sdk.indicator.IndicatorRegistry
 import com.foxtrader.app.domain.sdk.indicator.builtin.AdxIndicator
+import com.foxtrader.app.domain.sdk.indicator.builtin.AsiaSweepReclaimIndicator
 import com.foxtrader.app.domain.sdk.indicator.builtin.BollingerIndicator
 import com.foxtrader.app.domain.sdk.indicator.builtin.EmaIndicator
 import com.foxtrader.app.domain.sdk.indicator.builtin.IchimokuIndicator
@@ -46,6 +47,7 @@ class IndicatorSdkTest {
             register(SuperTrendIndicator())
             register(ParabolicSarIndicator())
             register(IchimokuIndicator())
+            register(AsiaSweepReclaimIndicator())
             register(RsiIndicator(14))
             register(MacdIndicator())
             register(StochasticIndicator())
@@ -53,13 +55,9 @@ class IndicatorSdkTest {
         }
     }
 
-    // ────────────────────────────────────────────────────────────────────────
-    // Registry CRUD
-    // ────────────────────────────────────────────────────────────────────────
-
     @Test
     fun `registry registers all built-in indicators`() {
-        assertEquals(12, registry.size)
+        assertEquals(13, registry.size)
     }
 
     @Test
@@ -67,6 +65,7 @@ class IndicatorSdkTest {
         assertNotNull(registry.get("ema_20"))
         assertNotNull(registry.get("macd"))
         assertNotNull(registry.get("ichimoku"))
+        assertNotNull(registry.get("asia_sweep_reclaim"))
     }
 
     @Test
@@ -84,7 +83,7 @@ class IndicatorSdkTest {
     fun `registry unregister removes indicator`() {
         registry.unregister("adx")
         assertFalse(registry.contains("adx"))
-        assertEquals(11, registry.size)
+        assertEquals(12, registry.size)
     }
 
     @Test
@@ -101,6 +100,7 @@ class IndicatorSdkTest {
         assertTrue(overlays.any { it.id == "ema_20" })
         assertTrue(overlays.any { it.id == "vwap" })
         assertTrue(overlays.any { it.id == "supertrend" })
+        assertTrue(overlays.any { it.id == "asia_sweep_reclaim" })
     }
 
     @Test
@@ -112,10 +112,6 @@ class IndicatorSdkTest {
         assertTrue(panels.any { it.id == "stochastic" })
         assertTrue(panels.any { it.id == "adx" })
     }
-
-    // ────────────────────────────────────────────────────────────────────────
-    // Built-in indicator compute tests (happy path: 200 bars of data)
-    // ────────────────────────────────────────────────────────────────────────
 
     private fun syntheticCandles(n: Int): List<Candle> {
         val candles = mutableListOf<Candle>()

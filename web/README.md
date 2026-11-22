@@ -2,7 +2,7 @@
 
 Browser terminal for the same markets the Android app trades: FX, metals, and indices.
 
-Candles come from the Dukascopy BID archive (`.bi5`), proxied by the dev server because the archive does not allow a browser to fetch it directly. The chart indicator is **Meridian**: structure, liquidity, LIT, and trade levels. The blotter is a sample, not live fills.
+Candles come from the Dukascopy BID archive (`.bi5`), proxied by the dev server because the archive does not allow a browser to fetch it directly. **Asia Sweep Reclaim** reads those closed candles: the 00:00–07:00 UTC Asia range, then a London/New York wick through that range that closes back inside. A confirmed marker does not move. Meridian structure stays on the chart beside it. The blotter is a sample, not live fills.
 
 ```bash
 cd web
