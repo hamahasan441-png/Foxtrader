@@ -127,6 +127,7 @@ function ChartView() {
   const hostRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<{ chart: IChartApi; series: ISeriesApi<"Candlestick"> } | null>(null);
   const keyRef = useRef("");
+  const appliedRef = useRef({ count: 0, first: 0, last: 0 });
   const viewRef = useRef(0);
   const propsRef = useRef({ symbol, timeframe, layers, digits: inst.digits });
   propsRef.current = { symbol, timeframe, layers, digits: inst.digits };
@@ -284,6 +285,7 @@ function ChartView() {
     observer.observe(host);
     apiRef.current = { chart, series };
     keyRef.current = "";
+    appliedRef.current = { count: 0, first: 0, last: 0 };
     setReady(true);
 
     return () => {
@@ -306,6 +308,7 @@ function ChartView() {
           /* chart already disposed */
         }
         keyRef.current = "";
+        appliedRef.current = { count: 0, first: 0, last: 0 };
       }
       return;
     }
@@ -329,13 +332,29 @@ function ChartView() {
         api.series.setData(data);
         if (data.length > 0) api.chart.timeScale().fitContent();
         keyRef.current = key;
+        appliedRef.current = data.length
+          ? { count: data.length, first: Number(data[0].time), last: Number(data[data.length - 1].time) }
+          : { count: 0, first: 0, last: 0 };
       } else if (data.length > 0) {
-        const bar = data[data.length - 1];
-        try {
-          api.series.update(bar);
-        } catch {
+        const first = Number(data[0].time);
+        const last = Number(data[data.length - 1].time);
+        const applied = appliedRef.current;
+        const append =
+          applied.count > 0 &&
+          first === applied.first &&
+          data.length >= applied.count &&
+          Number(data[applied.count - 1].time) === applied.last;
+        if (!append) {
           api.series.setData(data);
+        } else {
+          try {
+            api.series.update(data[applied.count - 1]);
+            for (let index = applied.count; index < data.length; index += 1) api.series.update(data[index]);
+          } catch {
+            api.series.setData(data);
+          }
         }
+        appliedRef.current = { count: data.length, first, last };
       }
       if (viewRef.current !== viewNonce) {
         if (data.length > 0) api.chart.timeScale().fitContent();

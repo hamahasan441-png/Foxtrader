@@ -56,15 +56,19 @@ export function Terminal() {
 
   useEffect(() => {
     return useDesk.subscribe((state) => {
-      localStorage.setItem(
-        "meridian-desk",
-        JSON.stringify({
-          symbol: state.symbol,
-          timeframe: state.timeframe,
-          layers: state.layers,
-          blotterOpen: state.blotterOpen,
-        }),
-      );
+      try {
+        localStorage.setItem(
+          "meridian-desk",
+          JSON.stringify({
+            symbol: state.symbol,
+            timeframe: state.timeframe,
+            layers: state.layers,
+            blotterOpen: state.blotterOpen,
+          }),
+        );
+      } catch {
+        /* private mode or a full disk must not take the desk down */
+      }
     });
   }, []);
 
@@ -72,7 +76,7 @@ export function Terminal() {
     void refresh(symbol, timeframe);
     const id = window.setInterval(() => {
       if (!useDesk.getState().paused) void refresh(symbol, timeframe);
-    }, 20_000);
+    }, 10_000);
     return () => window.clearInterval(id);
   }, [refresh, symbol, timeframe]);
 
