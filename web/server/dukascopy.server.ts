@@ -4,19 +4,19 @@ import { promises as dns } from "node:dns";
 import { LZMA_WORKER as lzma } from "./lzma-worker.js";
 import type { Candle, TimeframeId } from "../src/lib/market/types.ts";
 
-type Feed = { path: string; point: number; digits: number };
+type Feed = { path: string; point: number; digits: number; jetta: string };
 
 const FEEDS: Record<string, Feed> = {
-  EURUSD: { path: "EURUSD", point: 100_000, digits: 5 },
-  GBPUSD: { path: "GBPUSD", point: 100_000, digits: 5 },
-  USDJPY: { path: "USDJPY", point: 1_000, digits: 3 },
-  USDCHF: { path: "USDCHF", point: 100_000, digits: 5 },
-  XAUUSD: { path: "XAUUSD", point: 1_000, digits: 2 },
-  XAGUSD: { path: "XAGUSD", point: 1_000, digits: 3 },
-  US30: { path: "USA30IDXUSD", point: 1_000, digits: 1 },
-  NAS100: { path: "USATECHIDXUSD", point: 1_000, digits: 1 },
-  SPX500: { path: "USA500IDXUSD", point: 1_000, digits: 2 },
-  GER40: { path: "DEUIDXEUR", point: 1_000, digits: 1 },
+  EURUSD: { path: "EURUSD", point: 100_000, digits: 5, jetta: "EUR-USD" },
+  GBPUSD: { path: "GBPUSD", point: 100_000, digits: 5, jetta: "GBP-USD" },
+  USDJPY: { path: "USDJPY", point: 1_000, digits: 3, jetta: "USD-JPY" },
+  USDCHF: { path: "USDCHF", point: 100_000, digits: 5, jetta: "USD-CHF" },
+  XAUUSD: { path: "XAUUSD", point: 1_000, digits: 2, jetta: "XAU-USD" },
+  XAGUSD: { path: "XAGUSD", point: 1_000, digits: 3, jetta: "XAG-USD" },
+  US30: { path: "USA30IDXUSD", point: 1_000, digits: 1, jetta: "USA30.IDX-USD" },
+  NAS100: { path: "USATECHIDXUSD", point: 1_000, digits: 1, jetta: "USATECH.IDX-USD" },
+  SPX500: { path: "USA500IDXUSD", point: 1_000, digits: 2, jetta: "USA500.IDX-USD" },
+  GER40: { path: "DEUIDXEUR", point: 1_000, digits: 1, jetta: "DEU.IDX-EUR" },
 };
 
 const LIMIT: Record<TimeframeId, number> = {
@@ -43,7 +43,7 @@ export async function loadDukascopy(
 
   const cacheKey = `${symbol}|${timeframe}`;
   const cached = resultCache.get(cacheKey);
-  if (cached && Date.now() - cached.at < 20_000) {
+  if (cached && Date.now() - cached.at < 4_000) {
     return { candles: cached.candles, error: cached.error };
   }
 
@@ -69,8 +69,21 @@ export async function loadDukascopy(
     if (item.error) lastError = item.error;
     if (!item.bytes || item.bytes.length === 0) continue;
     sawFile = true;
-    rows.push(...decode(item.bytes, item.bucket.startMs, feed));
+    try {
+      rows.push(...decode(item.bytes, item.bucket.startMs, feed));
+    } catch {
+      lastError = "Dukascopy candle file could not be read";
+    }
     await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  let liveCount = 0;
+  try {
+    const live = await fetchJetta(feed, now);
+    liveCount = live.length;
+    rows.push(...live);
+  } catch (error) {
+    lastError = error instanceof Error ? error.message : "Dukascopy live candles failed";
   }
 
   const seconds = span(timeframe);
@@ -83,7 +96,7 @@ export async function loadDukascopy(
   if (candles.length === 0) {
     return {
       candles: [],
-      error: sawFile ? "Dukascopy returned an empty session" : (lastError ?? "Dukascopy archive did not answer"),
+      error: sawFile || liveCount > 0 ? "Dukascopy returned an empty session" : (lastError ?? "Dukascopy archive did not answer"),
     };
   }
   const value = { candles, error: null };
@@ -276,10 +289,116 @@ function httpsGet(path: string): Promise<{ status: number; body: Buffer }> {
 
 async function resolveHosts() {
   if (hosts && Date.now() - hosts.at < 5 * 60_000) return hosts.ips;
-  const ips = await dns.resolve4("datafeed.dukascopy.com");
-  if (ips.length === 0) throw new Error("Dukascopy host did not resolve");
-  hosts = { at: Date.now(), ips };
-  return ips;
+  try {
+    const ips = await dns.resolve4("datafeed.dukascopy.com");
+    if (ips.length === 0) return ["194.8.15.180"];
+    hosts = { at: Date.now(), ips };
+    return ips;
+  } catch {
+    return ["194.8.15.180"];
+  }
+}
+
+type JettaPayload = {
+  timestamp?: number;
+  shift?: number;
+  multiplier?: number;
+  open?: number;
+  high?: number;
+  low?: number;
+  close?: number;
+  times?: number[];
+  opens?: number[];
+  highs?: number[];
+  lows?: number[];
+  closes?: number[];
+};
+
+/** Today's minute candles, including the bar that is still forming. */
+async function fetchJetta(feed: Feed, nowMs: number): Promise<Candle[]> {
+  const day = new Date(nowMs);
+  const from = Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate());
+  const url = `https://jetta.dukascopy.com/v1/candles/minute/${encodeURIComponent(feed.jetta)}/BID?from=${from}`;
+  const response = await httpsGetAbsolute(url);
+  if (response.status !== 200 || response.body.length === 0) {
+    throw new Error(`Dukascopy live candles ${response.status || "failed"}`);
+  }
+  let payload: JettaPayload;
+  try {
+    payload = JSON.parse(response.body.toString("utf8")) as JettaPayload;
+  } catch {
+    throw new Error("Dukascopy live candles were not readable");
+  }
+  return decodeJetta(payload, feed.digits);
+}
+
+function decodeJetta(payload: JettaPayload, digits: number): Candle[] {
+  const times = payload.times ?? [];
+  const opens = payload.opens ?? [];
+  const highs = payload.highs ?? [];
+  const lows = payload.lows ?? [];
+  const closes = payload.closes ?? [];
+  if (times.length === 0) return [];
+  if ([opens, highs, lows, closes].some((column) => column.length !== times.length)) {
+    throw new Error("Dukascopy live candles were incomplete");
+  }
+  const shift = payload.shift ?? 0;
+  const multiplier = payload.multiplier ?? 0;
+  let timestamp = payload.timestamp ?? 0;
+  if (!(timestamp > 0) || !(shift > 0) || !(multiplier > 0)) {
+    throw new Error("Dukascopy live candles were incomplete");
+  }
+  let openUnits = Math.round((payload.open ?? 0) / multiplier);
+  let highUnits = Math.round((payload.high ?? 0) / multiplier);
+  let lowUnits = Math.round((payload.low ?? 0) / multiplier);
+  let closeUnits = Math.round((payload.close ?? 0) / multiplier);
+  const candles: Candle[] = [];
+  for (let index = 0; index < times.length; index += 1) {
+    const delta = times[index];
+    if (delta < 0) continue;
+    timestamp += delta * shift;
+    openUnits += opens[index];
+    highUnits += highs[index];
+    lowUnits += lows[index];
+    closeUnits += closes[index];
+    const open = round(openUnits * multiplier, digits);
+    let high = round(highUnits * multiplier, digits);
+    let low = round(lowUnits * multiplier, digits);
+    const close = round(closeUnits * multiplier, digits);
+    if (open <= 0 || high <= 0 || low <= 0 || close <= 0) continue;
+    high = Math.max(high, open, close);
+    low = Math.min(low, open, close);
+    if (!(high >= low)) continue;
+    candles.push({ time: Math.floor(timestamp / 1000), open, high, low, close });
+  }
+  return candles;
+}
+
+function httpsGetAbsolute(url: string): Promise<{ status: number; body: Buffer }> {
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      url,
+      {
+        method: "GET",
+        headers: {
+          Accept: "application/json,text/plain,*/*",
+          Origin: "https://www.dukascopy.com",
+          Referer: "https://www.dukascopy.com/",
+          "User-Agent": "Mozilla/5.0",
+          Connection: "close",
+        },
+        timeout: 8_000,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks) }));
+      },
+    );
+    req.on("timeout", () => req.destroy(new Error("Dukascopy timed out")));
+    req.on("error", reject);
+    req.end();
+  });
 }
 
 function decode(bytes: Buffer, startMs: number, feed: Feed): Candle[] {

@@ -247,6 +247,9 @@ class DukascopyDataSource @Inject constructor(
                     .url(request.url)
                     .header("User-Agent", wafSession.userAgent ?: USER_AGENT)
                     .header("Accept", "application/json,text/plain,*/*")
+                    // Without these, jetta answers with a WAF page and the chart never gets today's bar.
+                    .header("Origin", "https://www.dukascopy.com")
+                    .header("Referer", "https://www.dukascopy.com/")
                     .apply {
                         if (!token.isNullOrBlank()) header("Cookie", "$WAF_COOKIE_PREFIX$token")
                     }
